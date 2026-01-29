@@ -1,14 +1,14 @@
 [package]
-name = "lumol_tutorial_potential"
-version = "0.0.0"
+name = "omnimd_tutorial_potential"
+version = "2026.1.0"
 publish = false
 edition = "2021"
 
 [dependencies]
-lumol = {path = "../../"}
+omnimd = {path = "../../"}
 
 [[bin]]
-name = "lumol_tutorial_potential"
+name = "omnimd_tutorial_potential"
 test = false
 doctest = false
 bench = false
