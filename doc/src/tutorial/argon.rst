@@ -1,7 +1,7 @@
 Monte Carlo simulation of Argon
 ===============================
 
-So let's run out first simulation with Lumol. The easiest system to simulate is
+So let's run out first simulation with OmniMD. The easiest system to simulate is
 a Lennard-Jones fluid, which is a good model for noble gas fluids. Here we
 will simulate super-critical argon using the Metropolis Monte Carlo algorithm.
 
@@ -17,9 +17,9 @@ For this simulation, you will need the following files:
 .. only:: latex
 
     You can download both files at the following URL:
-    `<https://lumol.org/lumol/latest/book/_downloads/argon.zip>`_.
+    `<https://omnimd.org/omnimd/latest/book/_downloads/argon.zip>`_.
 
-After extracting the archive, you can run the simulation with ``lumol
+After extracting the archive, you can run the simulation with ``omnimd
 argon.toml``.  The simulation should complete in a few seconds and produce two
 files: ``energy.dat`` and ``trajectory.xyz``.
 
@@ -74,7 +74,7 @@ As mentioned above, you can start the simulation using
 
 .. code-block:: bash
 
-    lumol argon.toml
+    omnimd argon.toml
 
 So now we know how to run a simulation of a Lennard-Jones fluid. How about we
 add electrostatic interactions in the :doc:`next example <nacl>`?

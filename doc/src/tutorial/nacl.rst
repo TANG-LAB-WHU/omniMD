@@ -22,9 +22,9 @@ For this simulation, you will need the following files:
 .. only:: latex
 
     You can download both files at the following URL:
-    `<https://lumol.org/lumol/latest/book/_downloads/nacl.zip>`_.
+    `<https://omnimd.org/omnimd/latest/book/_downloads/nacl.zip>`_.
 
-Again, you can run the simulation which should complete in a minute with ``lumol
+Again, you can run the simulation which should complete in a minute with ``omnimd
 nacl.toml``. This will perform a molecular dynamics simulation of a NaCl crystal
 using electrostatic interactions between atomic charges.
 
@@ -80,7 +80,7 @@ As before, run the simulation via
 
 .. code-block:: bash
 
-    lumol nacl.toml
+    omnimd nacl.toml
 
 Until now, the force field we used for the system was defined in the same input
 file (in the ``system.potential`` section) as rest of the simulation settings.

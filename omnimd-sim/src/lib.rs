@@ -1,7 +1,7 @@
 // OmniMD, an extensible molecular simulation engine
 // Copyright (C) OmniMD's contributors — MIT license
 
-//! Simulation algorithms for lumol
+//! Simulation algorithms for omnimd
 
 #![warn(
     missing_docs,

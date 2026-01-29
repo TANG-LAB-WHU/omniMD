@@ -3,14 +3,14 @@
 
 #![allow(clippy::needless_doctest_main)]
 
-//! This module provide a way to build a Lumol simulation using input files.
+//! This module provide a way to build a OmniMD simulation using input files.
 //!
 //! Instead of building the [`System`] and [`Simulation`] objects by hand before
 //! being able to use them, this module provides a way to describe the
 //! simulation and the system in a TOML input file, using a simpler syntax.
 //!
 //! The main entry point is the `Input` struct, which allow to read a whole
-//! simulation configuration. The easiest way to run a simulation using Lumol
+//! simulation configuration. The easiest way to run a simulation using OmniMD
 //! is then:
 //!
 //! ```no_run

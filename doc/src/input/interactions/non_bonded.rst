@@ -4,7 +4,7 @@ Non-bonded interactions
 Cutoff treatment
 ----------------
 
-When computing the energy and forces for non-bonded pair interactions, Lumol
+When computing the energy and forces for non-bonded pair interactions, OmniMD
 uses a cutoff radius :math:`r_c`. This means that the force and energy
 associated with any pair at a distance bigger than :math:`r_c` will be zero. We
 can use two different cutoff schemes, presented in the following section.

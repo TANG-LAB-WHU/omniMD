@@ -81,7 +81,7 @@ impl Thermostat for RescaleThermostat {
 /// ensemble (See [2]). While it produces correct average temperature, it does
 /// not reproduce the fluctuations of said temperature. It can still be usefull,
 /// especialy for the equilibration part of a simulation. Good alternatives
-/// include the CSVR or Nosé-Hoover thermostats (not yet implemented in lumol),
+/// include the CSVR or Nosé-Hoover thermostats (not yet implemented in omnimd),
 /// which produce correct ensembles.
 ///
 /// [1] Berendsen et al. J. Chem Phys 81, 3684 (1984); doi: 10.1063/1.448118
@@ -214,7 +214,7 @@ impl Thermostat for CSVRThermostat {
 mod tests {
     use super::*;
 
-    // The actual thermostat code is tested in lumol-sim/tests/thermostats.rs
+    // The actual thermostat code is tested in omnimd-sim/tests/thermostats.rs
 
     #[test]
     #[should_panic(expected = "The temperature must be positive in thermostats.")]

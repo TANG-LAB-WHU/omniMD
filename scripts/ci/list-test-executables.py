@@ -28,11 +28,11 @@ def main():
     executables = []
     executables.extend(list_executables("cargo", "test", "--all", "--lib"))
     executables.extend(
-        list_executables("cargo", "test", "--package=lumol-input", "--tests")
+        list_executables("cargo", "test", "--package=omnimd-input", "--tests")
     )
 
     for executable in set(executables):
-        if "lumol_tutorial" in executable:
+        if "omnimd_tutorial" in executable:
             continue
         print(executable)
 

@@ -3,7 +3,7 @@ Traits used for potentials
 
 As mentioned above, potential functions can be used to model all kinds of
 interactions between particles such as bonded and non-bonded interactions. In
-Lumol, ``Potential`` is a `trait <trait_>`_.  To further distinguish between
+OmniMD, ``Potential`` is a `trait <trait_>`_.  To further distinguish between
 bonded interactions (bond lengths, angles and dihedrals) and non-bonded
 interactions, we use another trait (often called marker traits). Your possible
 options to further specialise a ``Potential`` are
@@ -13,11 +13,11 @@ options to further specialise a ``Potential`` are
 -  `AnglePotential`_ for covalent angles interactions;
 -  `DihedralPotential`_ for covalent dihedral angles interactions.
 
-.. _Potential: http://lumol.org/lumol/latest/lumol_core/energy/trait.Potential.html
-.. _PairPotential: http://lumol.org/lumol/latest/lumol_core/energy/trait.PairPotential.html
-.. _BondPotential: http://lumol.org/lumol/latest/lumol_core/energy/trait.BondPotential.html
-.. _AnglePotential: http://lumol.org/lumol/latest/lumol_core/energy/trait.AnglePotential.html
-.. _DihedralPotential: http://lumol.org/lumol/latest/lumol_core/energy/trait.DihedralPotential.html
+.. _Potential: http://omnimd.org/omnimd/latest/omnimd_core/energy/trait.Potential.html
+.. _PairPotential: http://omnimd.org/omnimd/latest/omnimd_core/energy/trait.PairPotential.html
+.. _BondPotential: http://omnimd.org/omnimd/latest/omnimd_core/energy/trait.BondPotential.html
+.. _AnglePotential: http://omnimd.org/omnimd/latest/omnimd_core/energy/trait.AnglePotential.html
+.. _DihedralPotential: http://omnimd.org/omnimd/latest/omnimd_core/energy/trait.DihedralPotential.html
 
 For our Mie potential implementation, we will have to implement both the
 ``Potential`` as well as the ``PairPotential`` traits. If we wanted to implement

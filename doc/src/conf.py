@@ -20,9 +20,9 @@ templates_path = [os.path.join(ROOT, "templates")]
 source_suffix = '.rst'
 master_doc = 'index'
 
-copyright = '2019, the lumol developers'
-author = 'The lumol developers'
-project = 'Lumol'
+copyright = '2019, the omnimd developers'
+author = 'The omnimd developers'
+project = 'OmniMD'
 
 
 def version():
@@ -43,7 +43,7 @@ highlight_language = 'toml'
 
 
 def setup(app):
-    app.add_stylesheet("lumol.css")
+    app.add_stylesheet("omnimd.css")
 
 
 # -- Options for HTML output ----------------------------------------------
@@ -63,7 +63,7 @@ html_sidebars = {
     '**': ['sidebar-toc.html', 'searchbox.html']
 }
 
-html_static_path = [os.path.join(ROOT, "static", "lumol.css")]
+html_static_path = [os.path.join(ROOT, "static", "omnimd.css")]
 
 # -- Options for LaTeX output ---------------------------------------------
 
@@ -72,5 +72,5 @@ latex_elements = {
 }
 
 latex_documents = [
-    (master_doc, 'Lumol.tex', 'Lumol user manual', author, 'howto'),
+    (master_doc, 'OmniMD.tex', 'OmniMD user manual', author, 'howto'),
 ]

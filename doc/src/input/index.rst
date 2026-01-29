@@ -2,16 +2,16 @@ Input file reference
 ====================
 
 This section describes how to use input files to run your simulations with
-Lumol.  An input file contains all information that you need to run a simulation
+OmniMD.  An input file contains all information that you need to run a simulation
 and it is usually organized in four main sections: **input**, **log**,
 **systems** and **simulations**.
 
 -  The **input** section contains metadata about the input itself (i.e. a version number).
--  The **log** sections explains different methods about how Lumol reports information about your simulation such as warnings and errors.
+-  The **log** sections explains different methods about how OmniMD reports information about your simulation such as warnings and errors.
 -  The **systems** section contains information about the initial configuration, the interactions between atoms and the simulation cell.
 -  The **simulations** section defines how your system will propagate. You can generally choose between molecular dynamics (MD), Monte-Carlo (MC) and energy minimization.
 
-Lumol's input files use the `TOML <https://github.com/toml-lang/toml>`__
+OmniMD's input files use the `TOML <https://github.com/toml-lang/toml>`__
 format, a simple and minimalist configuration format based on
 ``key = value`` pairs. You can read an introduction to the TOML format
 `here <https://github.com/toml-lang/toml>`__.
@@ -28,7 +28,7 @@ format, a simple and minimalist configuration format based on
 
     # log section
     [log]
-    target = "lumol.log"
+    target = "omnimd.log"
 
     # systems section
     [[systems]]

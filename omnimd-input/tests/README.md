@@ -1,6 +1,6 @@
-# Lumol-input tests
+# OmniMD-input tests
 
-This directory contains the input tests for lumol. These tests check two things:
+This directory contains the input tests for omnimd. These tests check two things:
 
 - that correct input files are parsed without errors;
 - that incorrect input files generate the expeted error.

@@ -37,7 +37,7 @@ pub struct Config {
     pub nsteps: usize,
 }
 
-/// An input file for Lumol.
+/// An input file for OmniMD.
 pub struct Input {
     /// The input file path
     path: PathBuf,

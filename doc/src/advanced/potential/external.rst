@@ -13,9 +13,9 @@ Open ``Cargo.toml`` and add the lines
 .. code-block:: bash
 
     [dependencies]
-    lumol = {git = "https://github.com/lumol-org/lumol"}
+    omnimd = {git = "https://github.com/omnimd-org/omnimd"}
 
-to add the ``lumol`` crate as a dependency to the package. To test if everything
+to add the ``omnimd`` crate as a dependency to the package. To test if everything
 works, run ``cargo build`` and check if an error occurs.
 
 Defining the struct
@@ -45,7 +45,7 @@ to ``lib.rs``:
     :language: rust
     :lines: 1-13
 
-In the first two lines we define our imports from ``Lumol``, following with our
+In the first two lines we define our imports from ``OmniMD``, following with our
 ``Mie`` structure. Notice that we don't store the ``epsilon`` value, instead we
 store an energetic prefactor that will make it easier to compute the potential.
 
@@ -81,7 +81,7 @@ Add the following lines below the structs implementation.
 ``r``. To be more precise, the vectorial force can readily be computed by
 multiplying the result of ``force`` with the connection vector :math:`\vec{r}`.
 
-The next step is to make our ``Potential`` usable in Lumol's algorithms to
+The next step is to make our ``Potential`` usable in OmniMD's algorithms to
 compute non-bonded energies and forces. Therefore, we have to implement the
 ``PairPotential`` trait.
 
@@ -90,7 +90,7 @@ Implementing ``PairPotential``
 
 Let's inspect the `documentation <PairPotential_>`_  for ``PairPotential``.
 
-.. _PairPotential: http://lumol.org/lumol/latest/lumol/energy/trait.PairPotential.html
+.. _PairPotential: http://omnimd.org/omnimd/latest/omnimd/energy/trait.PairPotential.html
 
 .. code-block:: rust
 
@@ -149,7 +149,7 @@ Running a simulation
 
 That concludes the first part. To test your new and shiny potential, you can run
 a small simulation. You'll find a minimal Monte Carlo simulation example in the
-``tutorials/potential`` directory of the main lumol repository
+``tutorials/potential`` directory of the main omnimd repository
 where you will also find the ``src/lib.rs`` file we created in this tutorial.
 You can then run the simulation via
 
@@ -159,6 +159,6 @@ You can then run the simulation via
 
 Fantastic! You implemented a new potential and ran a simulation with it!
 
-If you want to share your implementation with other Lumol users only some small
+If you want to share your implementation with other OmniMD users only some small
 additional steps are neccessary. We will talk about them in the next part of
 this tutorial (which is not yet written).

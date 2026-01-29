@@ -11,7 +11,7 @@
 //!
 //! Potentials are used to compute the interaction energy in a system. They are
 //! represented by a [`Potential`][Potential] trait, used to compute the force
-//! and the energy of interaction. In order to add a new potential to lumol,
+//! and the energy of interaction. In order to add a new potential to omnimd,
 //! one has to implement the Potential trait, and then indicate how the
 //! potential can be used. This is done by implementing one or more of the
 //! potentials marker traits:

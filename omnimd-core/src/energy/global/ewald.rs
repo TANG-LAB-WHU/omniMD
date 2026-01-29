@@ -1404,7 +1404,7 @@ mod tests {
 
     // Comparing the value for each component of Ewald energy with the NIST
     // reference. See `tests/nist-spce.rs` for more information. These tests
-    // check values that are not accessible from the outside of lumol-core.
+    // check values that are not accessible from the outside of omnimd-core.
     mod nist {
         #![allow(clippy::unreadable_literal)]
         use super::*;

@@ -1,4 +1,4 @@
-use lumol_tutorial_potential::Mie;
+use omnimd_tutorial_potential::Mie;
 
 use omnimd::energy::PairInteraction;
 use omnimd::input::Input;
