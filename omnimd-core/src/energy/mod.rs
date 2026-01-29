@@ -26,6 +26,7 @@
 //! use omnimd_core::energy::{Potential, PairPotential, DihedralPotential};
 //!
 //! #[derive(Clone)]
+//! #[allow(dead_code)]
 //! struct OnePotential;
 //!
 //! // OnePotential is a potential
@@ -76,6 +77,7 @@ use crate::{Matrix3, Vector3D};
 ///
 /// /// An hard sphere potential
 /// #[derive(Clone)]
+/// #[allow(dead_code)]
 /// struct HardSphere {
 ///     /// Sphere radius
 ///     pub r: f64
@@ -112,6 +114,7 @@ pub trait Potential: Sync + Send {
 ///
 /// // A no-op potential
 /// #[derive(Clone)]
+/// #[allow(dead_code)]
 /// struct Null;
 ///
 /// impl Potential for Null {
@@ -172,6 +175,7 @@ impl_box_clone!(PairPotential, BoxClonePair, box_clone_pair);
 ///
 /// // A no-op potential
 /// #[derive(Clone)]
+/// #[allow(dead_code)]
 /// struct Null;
 ///
 /// impl Potential for Null {
@@ -203,6 +207,7 @@ impl_box_clone!(BondPotential, BoxCloneBond, box_clone_bond);
 ///
 /// // A no-op potential
 /// #[derive(Clone)]
+/// #[allow(dead_code)]
 /// struct Null;
 ///
 /// impl Potential for Null {
@@ -225,6 +230,7 @@ impl_box_clone!(AnglePotential, BoxCloneAngle, box_clone_angle);
 ///
 /// // A no-op potential
 /// #[derive(Clone)]
+/// #[allow(dead_code)]
 /// struct Null;
 ///
 /// impl Potential for Null {
