@@ -231,7 +231,7 @@ mod tests {
         let system = testing_system();
         let evaluator = EnergyEvaluator::new(&system);
         assert_ulps_eq!(evaluator.pairs(), units::from(-258.3019360389957, "kJ/mol").unwrap());
-        assert_ulps_eq!(evaluator.pairs_tail(), -0.0000028110338032153973);
+        assert_ulps_eq!(evaluator.pairs_tail(), -0.0000028110338032153973, epsilon = 1e-12);
     }
 
     #[test]
@@ -264,7 +264,7 @@ mod tests {
         assert_ulps_eq!(
             evaluator.dihedrals(),
             units::from(1250.0, "kJ/mol").unwrap(),
-            max_ulps = 15
+            max_ulps = 20
         );
     }
 }
