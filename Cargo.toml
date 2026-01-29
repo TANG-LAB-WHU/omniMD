@@ -1,0 +1,65 @@
+[package]
+name = "omnimd"
+version = "0.1.0"
+authors = ["siqit@outlook.com"]
+documentation = "https://TANG-LAB-WHU.github.io/omniMD"
+repository = "https://github.com/TANG-LAB-WHU/omniMD"
+readme = "README.md"
+description = "Omnipotent Molecular Dynamics bridging dimensional dilemma over unbiased molecular interatomic potentials."
+license = "MIT"
+edition = "2025"
+
+[workspace]
+members = [
+	"omnimd-core",
+	"omnimd-sim",
+	"omnimd-input",
+    "tutorials/potential",
+]
+
+[[bin]]
+name = "omnimd"
+doc = false
+test = false
+doctest = false
+bench = false
+
+[lib]
+test = false
+doctest = false
+bench = false
+
+[dependencies]
+omnimd-core = {path = "omnimd-core"}
+omnimd-sim = {path = "omnimd-sim"}
+omnimd-input = {path = "omnimd-input"}
+log = "0.4"
+clap = "4"
+chrono = "0.4"
+backtrace = "0.3"
+
+[dev-dependencies]
+rand = "0.8"
+rand_xorshift = "0.3"
+env_logger = "0.11"
+tempfile = "3"
+
+[dev-dependencies.criterion]
+version = "0.5"
+default-features = false
+
+[[bench]]
+name = "water"
+harness = false
+
+[[bench]]
+name = "nacl"
+harness = false
+
+[[bench]]
+name = "argon"
+harness = false
+
+[[bench]]
+name = "propane"
+harness = false
