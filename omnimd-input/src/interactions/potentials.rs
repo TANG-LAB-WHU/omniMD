@@ -50,7 +50,7 @@ impl FromToml for Mie {
 
         if m < 3.0 {
             warn!("'m' is smaller than 3. Tail corrections for Mie potential are set to zero.");
-        };
+        }
 
         Ok(Mie::new(units::from_str(sigma)?, units::from_str(epsilon)?, n as f64, m as f64))
     }

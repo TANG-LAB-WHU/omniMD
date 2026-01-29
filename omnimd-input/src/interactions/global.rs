@@ -1,19 +1,18 @@
 // omnimd-input/src/interactions/global.rs
 
-use toml::value::Table;
+
 
 use omnimd_core::energy::TorchPotential;
 use omnimd_core::System;
 
 use crate::interactions::InteractionsInput;
-use crate::{Error, FromToml};
+use crate::Error;
 
 impl InteractionsInput {
     /// Read the "global" section from the configuration.
     pub(crate) fn read_globals(&self, system: &mut System) -> Result<(), Error> {
-        let globals = match self.config.get("global") {
-            Some(globals) => globals,
-            None => return Ok(()),
+        let Some(globals) = self.config.get("global") else {
+            return Ok(());
         };
 
         let globals = globals.as_array().ok_or(Error::from("'global' section must be an array"))?;
@@ -30,10 +29,10 @@ impl InteractionsInput {
                         .as_str()
                         .ok_or(Error::from("Torch potential must be a string path"))?;
                     let potential = TorchPotential::new(path)
-                        .map_err(|e| Error::from(format!("Failed to load torch model: {}", e)))?;
+                        .map_err(|e| Error::from(format!("Failed to load torch model: {e}")))?;
                     system.add_global_potential(Box::new(potential));
                 }
-                other => return Err(Error::from(format!("Unknown global potential '{}'", other))),
+                other => return Err(Error::from(format!("Unknown global potential '{other}'"))),
             }
         }
         Ok(())

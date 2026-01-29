@@ -1427,7 +1427,7 @@ mod tests {
             let mut system = system_from_xyz(&buffer);
 
             for i in 0..system.size() {
-                if i % 3 == 0 {
+                if i.is_multiple_of(3) {
                     let _ = system.add_bond(i, i + 1);
                     let _ = system.add_bond(i, i + 2);
                 }

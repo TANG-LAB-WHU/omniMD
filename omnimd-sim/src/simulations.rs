@@ -93,7 +93,7 @@ impl Simulation {
                 output.write(system);
             }
 
-            if i % 10_000 == 0 {
+            if i.is_multiple_of(10_000) {
                 sanity_check(system);
             }
         }

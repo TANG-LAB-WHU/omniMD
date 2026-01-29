@@ -26,7 +26,7 @@ impl<T> Alternator<T> {
     /// Check if this is the appropriate time to run the algorithm.
     pub fn can_run(&mut self) -> bool {
         self.count += 1;
-        self.count % self.every == 0
+        self.count.is_multiple_of(self.every)
     }
 }
 

@@ -81,14 +81,14 @@ impl InteractionsInput {
             }
 
             if n_changed == 0 {
-                warn!("No particle with name '{}' was found while setting the charges", name);
+                warn!("No particle with name '{name}' was found while setting the charges");
             } else {
-                info!("Charge set to {:+} for {} {} particles", charge, n_changed, name);
+                info!("Charge set to {charge:+} for {n_changed} {name} particles");
             }
         }
 
         if total_charge.abs() > 1e-6 {
-            warn!("System is not neutral and have a net charge of {:+}", total_charge);
+            warn!("System is not neutral and have a net charge of {total_charge:+}");
         }
         Ok(())
     }

@@ -50,7 +50,7 @@ pub fn get_system(path: &str) -> System {
     system.cell = UnitCell::ortho(a, b, c);
 
     for i in 0..system.size() {
-        if i % 3 == 0 {
+        if i.is_multiple_of(3) {
             system.add_bond(i, i + 1);
             system.add_bond(i, i + 2);
         }

@@ -23,7 +23,7 @@ fn main() {
 
     let mut opts = match rustc_test::parse_opts(&args).expect("no options") {
         Ok(opts) => opts,
-        Err(msg) => panic!("{:?}", msg),
+        Err(msg) => panic!("{msg:?}"),
     };
     opts.verbose = true;
 
