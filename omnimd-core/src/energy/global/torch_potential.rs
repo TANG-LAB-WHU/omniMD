@@ -32,13 +32,17 @@ pub struct TorchPotential {
     energy_factor: f64,
     /// Factor to convert eV/A to internal force unit
     force_factor: f64,
+    /// The computation device (CPU or CUDA)
+    device: Device,
 }
 
 impl TorchPotential {
     /// Create a new `TorchPotential` from the given `model_path`.
     pub fn new<P: AsRef<Path>>(model_path: P) -> Result<TorchPotential, Box<dyn std::error::Error + Send + Sync>> {
+        let device = Device::cuda_if_available();
         let mut module = CModule::load(model_path)?;
         module.set_eval();
+        module.to(device);
         
         let ev = units::from(1.0, "eV").expect("Could not find eV unit");
         
@@ -52,6 +56,7 @@ impl TorchPotential {
             module: Arc::new(Mutex::new(module)),
             energy_factor: factor,
             force_factor: factor,
+            device: device,
         })
     }
 
@@ -73,14 +78,17 @@ impl TorchPotential {
             .map(|p| element_to_z(&p.name).unwrap_or(0))
             .collect();
             
-        let z_tensor = Tensor::from_slice(&species).to(Device::Cpu);
+        let z_tensor = Tensor::from_slice(&species).to(self.device);
 
         // 2. Positions (Angstroms)
         let coords: Vec<f64> = configuration.particles()
             .iter()
             .flat_map(|p| vec![p.position[0], p.position[1], p.position[2]])
             .collect();
-        let pos_tensor = Tensor::from_slice(&coords).reshape(&[n as i64, 3]).to_kind(Kind::Float);
+        let pos_tensor = Tensor::from_slice(&coords)
+            .reshape(&[n as i64, 3])
+            .to_kind(Kind::Float)
+            .to(self.device);
 
         // 3. Cell (Angstroms)
         // Lumol Matrix3 is column major? 
@@ -98,7 +106,10 @@ impl TorchPotential {
             cell[2][0], cell[2][1], cell[2][2],
         ];
         // Reshape to 3x3
-        let cell_tensor = Tensor::from_slice(&cell_data).reshape(&[3, 3]).to_kind(Kind::Float);
+        let cell_tensor = Tensor::from_slice(&cell_data)
+            .reshape(&[3, 3])
+            .to_kind(Kind::Float)
+            .to(self.device);
 
         (z_tensor, pos_tensor, cell_tensor)
     }
@@ -320,6 +331,7 @@ impl Clone for TorchPotential {
             module: self.module.clone(),
             energy_factor: self.energy_factor,
             force_factor: self.force_factor,
+            device: self.device,
         }
     }
 }

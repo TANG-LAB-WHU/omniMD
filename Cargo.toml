@@ -1,13 +1,13 @@
 [package]
 name = "omnimd"
-version = "0.1.0"
+version = "2026a"
 authors = ["siqit@outlook.com"]
 documentation = "https://TANG-LAB-WHU.github.io/omniMD"
 repository = "https://github.com/TANG-LAB-WHU/omniMD"
 readme = "README.md"
 description = "Omnipotent Molecular Dynamics bridging dimensional dilemma over unbiased molecular interatomic potentials."
 license = "MIT"
-edition = "2025"
+edition = "2021"
 
 [workspace]
 members = [
