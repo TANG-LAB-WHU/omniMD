@@ -1,6 +1,6 @@
 [package]
 name = "omnimd-core"
-version = "0.0.0"
+version = "2026.1.0"
 authors = ["Siqi Tang <siqit@outlook.com>"]
 documentation = "https://lumol.org/"
 repository = "https://github.com/TANG-LAB-WHU/omniMD"
