@@ -267,9 +267,8 @@ impl Propagator for MonteCarlo {
                 for (hash, _) in composition.all_molecules() {
                     if !hashes.contains(&hash) {
                         warn!(
-                            "the molecules with hash {:?} are not simulated by \
-                             this set of Monte Carlo moves",
-                            hash
+                            "the molecules with hash {hash:?} are not simulated by \
+                             this set of Monte Carlo moves"
                         );
                     }
                 }
