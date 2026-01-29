@@ -1,5 +1,5 @@
-// Lumol, an extensible molecular simulation engine
-// Copyright (C) Lumol's contributors — BSD license
+// OmniMD, an extensible molecular simulation engine
+// Copyright (C) OmniMD's contributors — MIT license
 #![allow(clippy::cast_lossless)]
 
 //! Molecular dynamics simulation of an Argon crystal melt.

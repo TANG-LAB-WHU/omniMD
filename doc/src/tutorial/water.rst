@@ -18,9 +18,9 @@ You will need three input files for this simulation:
 .. only:: latex
 
     You can download these files at the following URL:
-    `<https://lumol.org/lumol/latest/book/_downloads/water.zip>`_.
+    `<https://omnimd.org/omnimd/latest/book/_downloads/water.zip>`_.
 
-As usual, you can run the simulation with ``lumol water.toml``. The simulation
+As usual, you can run the simulation with ``omnimd water.toml``. The simulation
 should finish in a few minutes.
 
 The input files commented
@@ -32,11 +32,11 @@ The input files commented
 The main input file is pretty similar to the previous examples, with two
 novelties:
 
--  The ``guess_bonds = true`` entry tells lumol to try to guess the bonds from
+-  The ``guess_bonds = true`` entry tells omnimd to try to guess the bonds from
    the distances in the XYZ file. This is needed because we want to simulate a
    molecule but there is no bonding information inside the XYZ format. If we
    were to use a PDB file with connectivity instead, this would not be needed;
--  The ``potentials = "water-fSCP.toml"`` tells lumol to read the potentials
+-  The ``potentials = "water-fSCP.toml"`` tells omnimd to read the potentials
    from the ``water-fSCP.toml`` file. Using this type of input for the
    potentials we can reuse the same potential for multiple simulations and also
    easily change the potential used in the simulation.
@@ -101,4 +101,4 @@ The simulation is run via
 
 .. code::
 
-    lumol water.toml
+    omnimd water.toml

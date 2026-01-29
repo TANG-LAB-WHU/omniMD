@@ -2,7 +2,7 @@
 name = "omnimd-sim"
 version = "2026.1.0"
 authors = ["Siqi Tang <siqit@outlook.com>"]
-documentation = "https://lumol.org/"
+documentation = "https://omnimd.org/"
 repository = "https://github.com/TANG-LAB-WHU/omniMD"
 readme = "../README.md"
 license = "MIT"

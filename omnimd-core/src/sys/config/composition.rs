@@ -1,5 +1,5 @@
-// Lumol, an extensible molecular simulation engine
-// Copyright (C) Lumol's contributors — BSD license
+// OmniMD, an extensible molecular simulation engine
+// Copyright (C) OmniMD's contributors — MIT license
 
 use std::collections::btree_map::Entry;
 use std::collections::BTreeMap;

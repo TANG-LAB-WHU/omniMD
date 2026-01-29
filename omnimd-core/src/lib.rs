@@ -1,7 +1,7 @@
-// Lumol, an extensible molecular simulation engine
-// Copyright (C) Lumol's contributors — BSD license
+// OmniMD, an extensible molecular simulation engine
+// Copyright (C) OmniMD's contributors — MIT license
 
-//! Core types and definitions for lumol.
+//! Core types and definitions for omnimd.
 
 #![warn(
     missing_docs,

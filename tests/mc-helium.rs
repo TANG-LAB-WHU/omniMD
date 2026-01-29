@@ -1,5 +1,5 @@
-// Lumol, an extensible molecular simulation engine
-// Copyright (C) Lumol's contributors — BSD license
+// OmniMD, an extensible molecular simulation engine
+// Copyright (C) OmniMD's contributors — MIT license
 
 //! Testing physical properties of a Lennard-Jones gaz of Helium using
 //! Monte Carlo simulation

@@ -1,5 +1,5 @@
-// Lumol, an extensible molecular simulation engine
-// Copyright (C) Lumol's contributors — BSD license
+// OmniMD, an extensible molecular simulation engine
+// Copyright (C) OmniMD's contributors — MIT license
 
 //! Monte Carlo simulation of a binary mixture of H20 and CO2.
 use omnimd::read_molecule;

@@ -1,7 +1,7 @@
 Units
 =====
 
-The unit system used internally by Lumol is the following:
+The unit system used internally by OmniMD is the following:
 
 - Angstrom (``A``) for distances;
 - Femtosecond (``fs``) for time;
@@ -17,7 +17,7 @@ Any other internal unit is derived from this set:
 - The internal unit of pressure is ``u A^-1 fs^-2``;
 - *etc.*
 
-For convenience Lumol provides convertion facilities for any value in these
+For convenience OmniMD provides convertion facilities for any value in these
 internal unit to any others units. The following table lists available units
 that can be converted:
 

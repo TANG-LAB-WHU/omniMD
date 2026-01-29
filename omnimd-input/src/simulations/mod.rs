@@ -1,5 +1,5 @@
-// Lumol, an extensible molecular simulation engine
-// Copyright (C) Lumol's contributors — BSD license
+// OmniMD, an extensible molecular simulation engine
+// Copyright (C) OmniMD's contributors — MIT license
 use toml::de::from_str as parse_toml;
 use toml::value::Table;
 
@@ -37,7 +37,7 @@ pub struct Config {
     pub nsteps: usize,
 }
 
-/// An input file for Lumol.
+/// An input file for OmniMD.
 pub struct Input {
     /// The input file path
     path: PathBuf,

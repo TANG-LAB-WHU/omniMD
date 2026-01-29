@@ -1,5 +1,5 @@
-// Lumol, an extensible molecular simulation engine
-// Copyright (C) Lumol's contributors — BSD license
+// OmniMD, an extensible molecular simulation engine
+// Copyright (C) OmniMD's contributors — MIT license
 
 //! This module provides complexe numbers; 3D vectors and matrix; and
 //! multidimensional arrays for use in all other modules.

@@ -1,15 +1,15 @@
-# Lumol documentation
+# OmniMD documentation
 
-Lumol has different documentations:
+OmniMD has different documentations:
 
 - The **user manual** contains information about the general concepts of systems
-  and simulations used in Lumol. Additionally, it has tutorials on how to use
-  and extend Lumol. Use this documentation if you want to know basic concepts
-  and how they are used in Lumol.
+  and simulations used in OmniMD. Additionally, it has tutorials on how to use
+  and extend OmniMD. Use this documentation if you want to know basic concepts
+  and how they are used in OmniMD.
 - The **input reference** contains information about - well, the input file
-  system of Lumol.  Use this document if you want to use Lumol as a command line
+  system of OmniMD.  Use this document if you want to use OmniMD as a command line
   tool without writing code.
-- To use Lumol as a library inside your own code, we have a **developer
+- To use OmniMD as a library inside your own code, we have a **developer
   documentation**, which contains documentation for all the library public
   functions, and examples for most of them.
 
@@ -57,9 +57,9 @@ make html
 
 ## Programming interface documentation
 
-In addition to the user manual, Lumol provides a complete programming interface
+In addition to the user manual, OmniMD provides a complete programming interface
 documentation, which you can build by running `cargo doc --open` in the root of
 the repository.
 
-This interface documentation is only useful if you want to use Lumol as a
+This interface documentation is only useful if you want to use OmniMD as a
 library in you own code.

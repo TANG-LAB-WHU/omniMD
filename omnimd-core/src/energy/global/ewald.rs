@@ -1,5 +1,5 @@
-// Lumol, an extensible molecular simulation engine
-// Copyright (C) Lumol's contributors — BSD license
+// OmniMD, an extensible molecular simulation engine
+// Copyright (C) OmniMD's contributors — MIT license
 use std::f64;
 use std::f64::consts::{FRAC_2_SQRT_PI, PI};
 use std::ops::{Deref, Index, IndexMut, Range};
@@ -1404,7 +1404,7 @@ mod tests {
 
     // Comparing the value for each component of Ewald energy with the NIST
     // reference. See `tests/nist-spce.rs` for more information. These tests
-    // check values that are not accessible from the outside of lumol-core.
+    // check values that are not accessible from the outside of omnimd-core.
     mod nist {
         #![allow(clippy::unreadable_literal)]
         use super::*;

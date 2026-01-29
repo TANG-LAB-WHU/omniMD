@@ -1,7 +1,7 @@
 Simulation
 **********
 
-A simulation in Lumol always contains the same steps:
+A simulation in OmniMD always contains the same steps:
 
 1. Setup the system and initialize the algorithms using system specific
    information;

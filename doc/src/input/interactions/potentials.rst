@@ -1,7 +1,7 @@
 Available potentials
 ====================
 
-This section is a list of all the available potentials in Lumol, with the
+This section is a list of all the available potentials in OmniMD, with the
 associated parameters. All potentials have to provide additional parameters in
 there definition, as a TOML table.
 

@@ -17,7 +17,7 @@ rm -rf target/gh-pages/latest
 mkdir -p target/gh-pages/latest
 cd target/gh-pages/
 cp -r ../../doc/build/html latest/book
-cp -r ../../doc/build/latex/Lumol.pdf latest/book/
+cp -r ../../doc/build/latex/OmniMD.pdf latest/book/
 cp ../../doc/index.html latest/index.html
 mv ../doc/* latest/
 

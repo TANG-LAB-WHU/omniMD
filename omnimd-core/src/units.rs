@@ -1,5 +1,5 @@
-// Lumol, an extensible molecular simulation engine
-// Copyright (C) Lumol's contributors — BSD license
+// OmniMD, an extensible molecular simulation engine
+// Copyright (C) OmniMD's contributors — MIT license
 
 //! This module allow to convert from and to the internal unit system.
 //!
@@ -30,7 +30,7 @@ use crate::consts::{AVOGADRO_NUMBER, BOHR_RADIUS};
 const U_IN_KG: f64 = 1.660538782e-27;
 
 lazy_static! {
-    /// A map of conversion factors from various units to lumol internal units
+    /// A map of conversion factors from various units to omnimd internal units
     pub static ref CONVERSION_FACTORS: BTreeMap<&'static str, f64> = {
         let mut map = BTreeMap::new();
         // Distances units.

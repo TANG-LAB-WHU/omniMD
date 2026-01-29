@@ -31,7 +31,7 @@ the list of its bonds; molecules make for the *molecular* part in
 Unit cells
 ----------
 
-Lumol knows about three types of unit cells:
+OmniMD knows about three types of unit cells:
 
 -  Infinite cells do not have any boundaries and can be used to simulate
    systems in vacuum;
@@ -48,7 +48,7 @@ Interactions
 ------------
 
 Interactions are potentials acting on or between particles.
-Lumol provides functions for various potential types:
+OmniMD provides functions for various potential types:
 
 -  Non-bonding pair potentials;
 -  Bonds potentials in molecules;

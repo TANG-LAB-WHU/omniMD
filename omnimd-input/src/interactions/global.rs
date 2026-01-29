@@ -1,4 +1,4 @@
-// lumol-input/src/interactions/global.rs
+// omnimd-input/src/interactions/global.rs
 
 use toml::value::Table;
 

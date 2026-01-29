@@ -1,5 +1,5 @@
-// Lumol, an extensible molecular simulation engine
-// Copyright (C) 2015-2016 G. Fraux — BSD license
+// OmniMD, an extensible molecular simulation engine
+// Copyright (C) 2015-2016 G. Fraux — MIT license
 
 //! A Monte Carlo simulation is based on a set of applicable moves.
 //!

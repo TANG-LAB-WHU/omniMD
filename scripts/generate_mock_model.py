@@ -39,9 +39,9 @@ class MockPotential(torch.nn.Module):
         
         # Virial (approx for two body)
         # W_alpha_beta = sum_i r_i_alpha * f_i_beta
-        # This definition varies. Lumol uses:
-        # W = sum_i f_i (outer) r_i  <-- Check this definition in Lumol source!
-        # lumol::Virial definition:
+        # This definition varies. OmniMD uses:
+        # W = sum_i f_i (outer) r_i  <-- Check this definition in OmniMD source!
+        # omnimd::Virial definition:
         # let fact = self.force(r.norm());
         # let rn = r.normalized();
         # let force = fact * rn;

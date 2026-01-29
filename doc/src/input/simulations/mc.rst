@@ -27,7 +27,7 @@ acceptance criterion), the trial configuration becomes the new configuration. If
 the move is rejected, the system stays in its current configuration. You can add
 multiple moves so that the ensemble of your choice is sampled.
 
-Here is a list of all moves that are currently implemented in Lumol:
+Here is a list of all moves that are currently implemented in OmniMD:
 
 * :ref:`mcmove-translate`: Change the center of mass position of a molecule.
 * :ref:`mcmove-rotate`: Perform a rotation of a molecule about its center of
@@ -76,7 +76,7 @@ set. You can increase the chance to pick a certain move (compared to all other
 moves) by assigning a high ``frequency`` to it.  If you don't specify a
 ``frequency``, it is set to one.
 
-Lumol normalizes frequencies after all moves are added. The easiest way to
+OmniMD normalizes frequencies after all moves are added. The easiest way to
 handle frequencies is to use relative values. We will explain this below in the
 given examples.
 
