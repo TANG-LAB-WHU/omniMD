@@ -24,6 +24,8 @@ use std::num;
 
 use std::sync::LazyLock;
 
+use crate::consts::{AVOGADRO_NUMBER, BOHR_RADIUS, U_IN_KG};
+
 /// A map of conversion factors from various units to omnimd internal units
 pub static CONVERSION_FACTORS: LazyLock<BTreeMap<&'static str, f64>> = LazyLock::new(|| {
     let mut map = BTreeMap::new();

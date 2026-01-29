@@ -13,3 +13,5 @@ pub const BOHR_RADIUS: f64 = 0.52917720859;
 pub const AVOGADRO_NUMBER: f64 = 6.02214179e23;
 /// The constant used in Coulomb energy: 4 * π * ϵ0
 pub const FOUR_PI_EPSILON_0: f64 = 7.197589831304046;
+/// The unified atomic mass unit in kg
+pub const U_IN_KG: f64 = 1.66053906660e-27;

@@ -263,7 +263,7 @@ impl GlobalPotential for TorchPotential {
         let output = module.forward_is(&inputs).expect("TorchScript forward failed"); // Handle error properly in real code
 
         let dict = match output {
-            tch::IValue::GenericDict(d) => d,
+            IValue::GenericDict(d) => d,
             _ => panic!("Expected Dictionary output from MLIP model"),
         };
 
