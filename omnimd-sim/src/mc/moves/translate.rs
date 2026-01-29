@@ -1,8 +1,8 @@
-﻿// Lumol, an extensible molecular simulation engine
+// Lumol, an extensible molecular simulation engine
 // Copyright (C) 2015-2016 G. Fraux — BSD license
 
 use rand::RngCore;
-use rand_distr::{Uniform, Distribution};
+use rand_distr::{Distribution, Uniform};
 
 use std::collections::BTreeSet;
 use std::f64;
@@ -13,10 +13,10 @@ use log_once::warn_once;
 
 use soa_derive::soa_zip;
 
-use super::{MCDegreeOfFreedom, MCMove};
 use super::select_molecule;
+use super::{MCDegreeOfFreedom, MCMove};
 
-use omnimd_core::{EnergyCache, System, MoleculeHash, Vector3D};
+use omnimd_core::{EnergyCache, MoleculeHash, System, Vector3D};
 
 /// Monte Carlo move for translating a molecule
 pub struct Translate {
@@ -91,11 +91,8 @@ impl MCMove for Translate {
         }
 
         // Create random displacement vector.
-        let delta = Vector3D::new(
-            self.range.sample(rng),
-            self.range.sample(rng),
-            self.range.sample(rng)
-        );
+        let delta =
+            Vector3D::new(self.range.sample(rng), self.range.sample(rng), self.range.sample(rng));
 
         // Generate displaced coordinates
         // Note that this may move a particles' center-of-mass (com) out of
@@ -146,4 +143,3 @@ impl MCMove for Translate {
         };
     }
 }
-

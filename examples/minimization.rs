@@ -1,13 +1,13 @@
-﻿// Lumol, an extensible molecular simulation engine
+// Lumol, an extensible molecular simulation engine
 // Copyright (C) Lumol's contributors — BSD license
 
 //! Geometry minization of a molecule of water
 use omnimd::energy::Harmonic;
-use omnimd::{Particle, Molecule, System, Vector3D};
 use omnimd::units;
+use omnimd::{Molecule, Particle, System, Vector3D};
 
-use omnimd::sim::{Minimization, Simulation};
 use omnimd::sim::min::{SteepestDescent, Tolerance};
+use omnimd::sim::{Minimization, Simulation};
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut system = System::new();
@@ -16,8 +16,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let a_cos = 1.2 * f64::cos(alpha);
     let a_sin = 1.2 * f64::sin(alpha);
     let mut molecule = Molecule::new(Particle::with_position("O", Vector3D::new(0.0, 0.0, 0.0)));
-    molecule.add_particle_bonded_to(0, Particle::with_position("H", Vector3D::new(a_cos, a_sin, 0.0)));
-    molecule.add_particle_bonded_to(0, Particle::with_position("H", Vector3D::new(a_cos, -a_sin, 0.0)));
+    molecule
+        .add_particle_bonded_to(0, Particle::with_position("H", Vector3D::new(a_cos, a_sin, 0.0)));
+    molecule
+        .add_particle_bonded_to(0, Particle::with_position("H", Vector3D::new(a_cos, -a_sin, 0.0)));
     system.add_molecule(molecule);
 
     system.set_bond_potential(
@@ -45,4 +47,3 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     Ok(())
 }
-

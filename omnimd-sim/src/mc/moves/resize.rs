@@ -1,15 +1,15 @@
-﻿// Cymbalum, an extensible molecular simulation engine
+// Cymbalum, an extensible molecular simulation engine
 // Copyright (C) 2015-2016 G. Fraux — BSD license
 
 use rand::RngCore;
-use rand_distr::{Uniform, Distribution};
+use rand_distr::{Distribution, Uniform};
 
 use std::f64;
 use std::mem;
 
 use super::{MCDegreeOfFreedom, MCMove};
 
-use omnimd_core::{Configuration, EnergyCache, System, Matrix3};
+use omnimd_core::{Configuration, EnergyCache, Matrix3, System};
 
 /// Monte Carlo move that changes the size of the simulation cell
 pub struct Resize {
@@ -51,7 +51,10 @@ impl MCMove for Resize {
 
     fn setup(&mut self, system: &System) {
         // check if the cell is infinite
-        assert!(!system.cell.is_infinite(), "cannot use `Resize` move with infinite simulation cell");
+        assert!(
+            !system.cell.is_infinite(),
+            "cannot use `Resize` move with infinite simulation cell"
+        );
 
         // Get the largest cutoff of all intermolecular interactions in the
         // system.
@@ -126,4 +129,3 @@ impl MCMove for Resize {
         }
     }
 }
-

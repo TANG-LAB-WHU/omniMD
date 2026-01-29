@@ -1,4 +1,4 @@
-﻿// Lumol, an extensible molecular simulation engine
+// Lumol, an extensible molecular simulation engine
 // Copyright (C) Lumol's contributors — BSD license
 
 //! Testing energy of a Lennard-Jones fluid using data from
@@ -239,4 +239,3 @@ mod cutoff_4_lrc {
         assert_eq!(tail.round_at(5), -0.23008);
     }
 }
-

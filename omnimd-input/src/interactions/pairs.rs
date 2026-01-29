@@ -1,18 +1,18 @@
-﻿// Lumol, an extensible molecular simulation engine
+// Lumol, an extensible molecular simulation engine
 // Copyright (C) Lumol's contributors — BSD license
 use toml::value::{Table, Value};
 
-use omnimd_core::System;
 use omnimd_core::units;
+use omnimd_core::System;
 
+use omnimd_core::energy::TableComputation;
 use omnimd_core::energy::{BondPotential, PairInteraction, PairPotential};
 use omnimd_core::energy::{BornMayerHuggins, Buckingham, Gaussian, Morse};
-use omnimd_core::energy::{Harmonic, LennardJones, NullPotential, Mie};
-use omnimd_core::energy::TableComputation;
+use omnimd_core::energy::{Harmonic, LennardJones, Mie, NullPotential};
 
 use super::read_restriction;
-use crate::{Error, InteractionsInput, FromToml, FromTomlWithData};
 use crate::extract;
+use crate::{Error, FromToml, FromTomlWithData, InteractionsInput};
 
 /// Global settings for the pair interactions
 struct GlobalInformation<'a> {
@@ -24,16 +24,16 @@ impl GlobalInformation<'_> {
     fn read(config: &Table) -> Result<GlobalInformation<'_>, Error> {
         match config.get("global") {
             Some(global) => {
-                let global = global.as_table().ok_or(
-                    Error::from("'global' section must be a table")
-                )?;
+                let global =
+                    global.as_table().ok_or(Error::from("'global' section must be a table"))?;
 
                 let cutoff = global.get("cutoff");
-                let tail = global.get("tail_correction")
+                let tail = global
+                    .get("tail_correction")
                     .map(|tail| {
-                        tail.as_bool().ok_or(
-                            Error::from("the 'tail_correction' section must be a boolean value")
-                        )
+                        tail.as_bool().ok_or(Error::from(
+                            "the 'tail_correction' section must be a boolean value",
+                        ))
                     })
                     .map_or(Ok(None), |tail| tail.map(Some))?;
 
@@ -42,12 +42,10 @@ impl GlobalInformation<'_> {
                     tail: tail,
                 })
             }
-            None => {
-                Ok(GlobalInformation {
-                    cutoff: None,
-                    tail: None,
-                })
-            }
+            None => Ok(GlobalInformation {
+                cutoff: None,
+                tail: None,
+            }),
         }
     }
 }
@@ -55,11 +53,11 @@ impl GlobalInformation<'_> {
 impl InteractionsInput {
     /// Read the "pairs" section from the potential configuration.
     pub(crate) fn read_pairs(&self, system: &mut System) -> Result<(), Error> {
-        let Some(pairs) = self.config.get("pairs") else { return Ok(()) };
+        let Some(pairs) = self.config.get("pairs") else {
+            return Ok(());
+        };
 
-        let pairs = pairs.as_table().ok_or(
-            Error::from("the 'pairs' section must be a table")
-        )?;
+        let pairs = pairs.as_table().ok_or(Error::from("the 'pairs' section must be a table"))?;
 
         let global = GlobalInformation::read(&self.config)?;
 
@@ -67,21 +65,21 @@ impl InteractionsInput {
             let atoms = key.split('-').collect::<Vec<_>>();
             if atoms.len() != 2 {
                 return Err(Error::from(format!(
-                    "expected two atoms for pair potential, got {} ({:?})", atoms.len(), atoms
+                    "expected two atoms for pair potential, got {} ({:?})",
+                    atoms.len(),
+                    atoms
                 )));
             }
 
-            let table = table.as_table().ok_or(
-                Error::from(format!(
-                    "pair potential associated with {key} must be a table"
-                ))
-            )?;
+            let table = table.as_table().ok_or(Error::from(format!(
+                "pair potential associated with {key} must be a table"
+            )))?;
 
             let potential = read_pair_potential(table)?;
             let potential = if let Some(computation) = table.get("computation") {
-                let computation = computation.as_table().ok_or(
-                    Error::from("'computation' section must be a table")
-                )?;
+                let computation = computation
+                    .as_table()
+                    .ok_or(Error::from("'computation' section must be a table"))?;
                 read_pair_computation(computation, potential)?
             } else {
                 potential
@@ -89,11 +87,10 @@ impl InteractionsInput {
 
             let cutoff = match table.get("cutoff") {
                 Some(cutoff) => cutoff,
-                None => {
-                    global.cutoff.as_ref().ok_or(
-                        Error::from("missing 'cutoff' value for pair potential")
-                    )?
-                }
+                None => global
+                    .cutoff
+                    .as_ref()
+                    .ok_or(Error::from("missing 'cutoff' value for pair potential"))?,
             };
 
             let mut interaction = match *cutoff {
@@ -102,23 +99,23 @@ impl InteractionsInput {
                     PairInteraction::new(potential, cutoff)
                 }
                 Value::Table(ref table) => {
-                    let shifted = table.get("shifted").ok_or(
-                        Error::from("'cutoff' table can only contain 'shifted' key")
-                    )?;
-                    let cutoff = shifted.as_str().ok_or(
-                        Error::from("'cutoff.shifted' value must be a string")
-                    )?;
+                    let shifted = table
+                        .get("shifted")
+                        .ok_or(Error::from("'cutoff' table can only contain 'shifted' key"))?;
+                    let cutoff = shifted
+                        .as_str()
+                        .ok_or(Error::from("'cutoff.shifted' value must be a string"))?;
                     let cutoff = units::from_str(cutoff)?;
                     PairInteraction::shifted(potential, cutoff)
                 }
                 _ => return Err(Error::from("'cutoff' must be a string or a table")),
             };
 
-            let tail = table.get("tail_correction")
+            let tail = table
+                .get("tail_correction")
                 .map(|tail| {
-                    tail.as_bool().ok_or(Error::from(
-                        "the 'tail_correction' section must be a boolean value"
-                    ))
+                    tail.as_bool()
+                        .ok_or(Error::from("the 'tail_correction' section must be a boolean value"))
                 })
                 .map_or(Ok(global.tail), |tail| tail.map(Some))?;
 
@@ -139,25 +136,25 @@ impl InteractionsInput {
 
     /// Read the "bonds" section from the potential configuration.
     pub(crate) fn read_bonds(&self, system: &mut System) -> Result<(), Error> {
-        let Some(bonds) = self.config.get("bonds") else { return Ok(()) };
+        let Some(bonds) = self.config.get("bonds") else {
+            return Ok(());
+        };
 
-        let bonds = bonds.as_table().ok_or(
-            Error::from("the 'pairs' section must be a table")
-        )?;
+        let bonds = bonds.as_table().ok_or(Error::from("the 'pairs' section must be a table"))?;
 
         for (key, table) in bonds {
             let atoms = key.split('-').collect::<Vec<_>>();
             if atoms.len() != 2 {
                 return Err(Error::from(format!(
-                    "expected two atoms for bond potential, got {} ({:?})", atoms.len(), atoms
+                    "expected two atoms for bond potential, got {} ({:?})",
+                    atoms.len(),
+                    atoms
                 )));
             }
 
-            let table = table.as_table().ok_or(
-                Error::from(format!(
-                    "bond potential associated with {key} must be a table"
-                ))
-            )?;
+            let table = table.as_table().ok_or(Error::from(format!(
+                "bond potential associated with {key} must be a table"
+            )))?;
 
             let potential = read_bond_potential(table)?;
             system.set_bond_potential((atoms[0], atoms[1]), potential);
@@ -189,7 +186,10 @@ fn read_bond_potential(table: &Table) -> Result<Box<dyn BondPotential>, Error> {
     }
 }
 
-fn read_pair_computation(computation: &Table, potential: Box<dyn PairPotential>) -> Result<Box<dyn PairPotential>, Error> {
+fn read_pair_computation(
+    computation: &Table,
+    potential: Box<dyn PairPotential>,
+) -> Result<Box<dyn PairPotential>, Error> {
     if computation.keys().len() != 1 {
         return Err(Error::from("Missing computation type in computation table"));
     }
@@ -200,4 +200,3 @@ fn read_pair_computation(computation: &Table, potential: Box<dyn PairPotential>)
         None => unreachable!(),
     }
 }
-

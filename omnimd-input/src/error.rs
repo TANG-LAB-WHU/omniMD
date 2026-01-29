@@ -1,12 +1,12 @@
-﻿// Lumol, an extensible molecular simulation engine
+// Lumol, an extensible molecular simulation engine
 // Copyright (C) Lumol's contributors — BSD license
 use std::fmt;
 use std::io;
 use std::path::PathBuf;
 
-use omnimd_sim::output::CustomOutputError;
-use omnimd_core::TrajectoryError;
 use omnimd_core::units::ParseError;
+use omnimd_core::TrajectoryError;
+use omnimd_sim::output::CustomOutputError;
 
 /// Possible causes of error when reading input files
 #[derive(Debug)]
@@ -73,19 +73,17 @@ impl From<(CustomOutputError, PathBuf)> for Error {
 impl fmt::Display for Error {
     fn fmt(&self, fmt: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
         match *self {
-            Error::Io(ref err, ref path) => {
-                match err.kind() {
-                    io::ErrorKind::NotFound => {
-                        write!(fmt, "can not find '{}'", path.display())
-                    }
-                    io::ErrorKind::PermissionDenied => {
-                        write!(fmt, "permission to access '{}' denied", path.display())
-                    }
-                    _ => {
-                        write!(fmt, "error with '{}': {}", path.display(), err)
-                    }
+            Error::Io(ref err, ref path) => match err.kind() {
+                io::ErrorKind::NotFound => {
+                    write!(fmt, "can not find '{}'", path.display())
                 }
-            }
+                io::ErrorKind::PermissionDenied => {
+                    write!(fmt, "permission to access '{}' denied", path.display())
+                }
+                _ => {
+                    write!(fmt, "error with '{}': {}", path.display(), err)
+                }
+            },
             Error::Trajectory(ref err) => write!(fmt, "{err}"),
             Error::TOML(ref err) => write!(fmt, "{err}"),
             Error::Config(ref err) => write!(fmt, "{err}"),
@@ -106,4 +104,3 @@ impl std::error::Error for Error {
         }
     }
 }
-

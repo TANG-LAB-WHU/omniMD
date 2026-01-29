@@ -1,16 +1,16 @@
-﻿// Lumol, an extensible molecular simulation engine
+// Lumol, an extensible molecular simulation engine
 // Copyright (C) Lumol's contributors — BSD license
 #![allow(clippy::needless_return)]
 
-use std::{env, fs, io};
 use std::fs::File;
 use std::io::prelude::*;
 use std::path::PathBuf;
+use std::{env, fs, io};
 
 use walkdir::WalkDir;
 
-use rustc_test::{DynTestFn, DynTestName, TestDesc, TestDescAndFn};
 use rustc_test::ShouldPanic::No;
+use rustc_test::{DynTestFn, DynTestName, TestDesc, TestDescAndFn};
 
 use omnimd_core::System;
 use omnimd_input::{Error, Input, InteractionsInput};
@@ -19,9 +19,7 @@ fn main() {
     env_logger::init();
     let _cleanup = TestsCleanup;
 
-    let args: Vec<_> = env::args()
-                           .filter(|arg| !arg.contains("test-threads"))
-                           .collect();
+    let args: Vec<_> = env::args().filter(|arg| !arg.contains("test-threads")).collect();
 
     let mut opts = match rustc_test::parse_opts(&args).expect("no options") {
         Ok(opts) => opts,
@@ -47,7 +45,8 @@ fn all_tests() -> Vec<TestDescAndFn> {
                 let input = Input::from_str(path.clone(), &content).unwrap();
                 input.read().unwrap();
             })
-        }).expect("Could not generate the tests"),
+        })
+        .expect("Could not generate the tests"),
     );
 
     tests.extend(
@@ -61,7 +60,8 @@ fn all_tests() -> Vec<TestDescAndFn> {
                     _ => panic!("This test should fail with a Config error"),
                 }
             })
-        }).expect("Could not generate the tests"),
+        })
+        .expect("Could not generate the tests"),
     );
 
     tests.extend(
@@ -71,7 +71,8 @@ fn all_tests() -> Vec<TestDescAndFn> {
                 let input = InteractionsInput::from_str(&content).unwrap();
                 input.read(&mut system).unwrap();
             })
-        }).expect("Could not generate the tests"),
+        })
+        .expect("Could not generate the tests"),
     );
 
     tests.extend(
@@ -80,14 +81,16 @@ fn all_tests() -> Vec<TestDescAndFn> {
                 let message = get_error_message(&content);
 
                 let mut system = System::new();
-                let result = InteractionsInput::from_str(&content).and_then(|input| input.read(&mut system));
+                let result =
+                    InteractionsInput::from_str(&content).and_then(|input| input.read(&mut system));
 
                 match result {
                     Err(Error::Config(reason)) => assert_eq!(reason, message),
                     _ => panic!("This test should fail with a Config error"),
                 }
             })
-        }).expect("Could not generate the tests"),
+        })
+        .expect("Could not generate the tests"),
     );
 
     return tests;
@@ -110,14 +113,17 @@ where
                 if extension == "toml" {
                     let path = entry.path();
                     let name = String::from(root) + "/";
-                    let name = name + path.file_name()
-                                          .expect("Missing file name")
-                                          .to_str()
-                                          .expect("File name is invalid UTF-8");
+                    let name = name
+                        + path
+                            .file_name()
+                            .expect("Missing file name")
+                            .to_str()
+                            .expect("File name is invalid UTF-8");
 
                     let mut content = String::new();
-                    File::open(path).and_then(|mut file| file.read_to_string(&mut content))
-                                    .expect("Could not read the input file");
+                    File::open(path)
+                        .and_then(|mut file| file.read_to_string(&mut content))
+                        .expect("Could not read the input file");
 
                     let count = content.split("+++").count();
                     for (i, test_case) in content.split("+++").enumerate() {
@@ -131,7 +137,7 @@ where
                                 name: DynTestName(name),
                                 ignore: false,
                                 should_panic: No,
-                                allow_fail: false
+                                allow_fail: false,
                             },
                             testfn: DynTestFn(callback(path.to_path_buf(), test_case.into())),
                         };
@@ -181,4 +187,3 @@ fn get_error_message(content: &str) -> String {
 
     panic!("No error message found. Please add one with the '#^ <message>' syntax.");
 }
-

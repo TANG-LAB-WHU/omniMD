@@ -1,15 +1,15 @@
 // Lumol, an extensible molecular simulation engine
 // Copyright (C) Lumol's contributors — BSD license
 
-use std::ops::Deref;
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
+use std::ops::Deref;
 
 use soa_derive::soa_zip;
 
-use crate::{Particle, ParticleVec, ParticleSlice, ParticleSliceMut};
-use crate::{Bonding, UnitCell};
 use crate::Vector3D;
+use crate::{Bonding, UnitCell};
+use crate::{Particle, ParticleSlice, ParticleSliceMut, ParticleVec};
 
 /// A molecule hash allow to identify a molecule from its atoms and bonds, and
 /// to know wether two molecules are the same without checking each atom and
@@ -36,7 +36,7 @@ impl MoleculeHash {
 #[derive(Debug, Clone)]
 pub struct Molecule {
     pub(crate) bonding: Bonding,
-    pub(crate) particles: ParticleVec
+    pub(crate) particles: ParticleVec,
 }
 
 /// An analog to [`&Molecule`] using particles stored elsewhere (in a system or
@@ -50,7 +50,7 @@ pub struct Molecule {
 #[derive(Debug)]
 pub struct MoleculeRef<'a> {
     bonding: &'a Bonding,
-    particles: ParticleSlice<'a>
+    particles: ParticleSlice<'a>,
 }
 
 /// An analog to [`&mut Molecule`] using particles stored elsewhere (in a
@@ -68,7 +68,7 @@ pub struct MoleculeRef<'a> {
 #[derive(Debug)]
 pub struct MoleculeRefMut<'a> {
     bonding: &'a Bonding,
-    particles: ParticleSliceMut<'a>
+    particles: ParticleSliceMut<'a>,
 }
 
 impl Molecule {
@@ -236,7 +236,6 @@ impl<'a> Deref for MoleculeRefMut<'a> {
         self.bonding
     }
 }
-
 
 // Add inherent functions in $body to all types in $Type
 macro_rules! impl_on {

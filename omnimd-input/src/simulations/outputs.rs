@@ -1,14 +1,14 @@
-﻿// Lumol, an extensible molecular simulation engine
+// Lumol, an extensible molecular simulation engine
 // Copyright (C) Lumol's contributors — BSD license
 use std::path::PathBuf;
 use toml::value::Table;
 
 use omnimd_sim::output::Output;
-use omnimd_sim::output::{TrajectoryOutput, PropertiesOutput, EnergyOutput};
-use omnimd_sim::output::{ForcesOutput, CellOutput, CustomOutput, StressOutput};
+use omnimd_sim::output::{CellOutput, CustomOutput, ForcesOutput, StressOutput};
+use omnimd_sim::output::{EnergyOutput, PropertiesOutput, TrajectoryOutput};
 
-use crate::{Input, FromToml, Error};
 use crate::extract;
+use crate::{Error, FromToml, Input};
 
 pub type OutputFrequency = (Box<dyn Output>, u64);
 
@@ -17,22 +17,21 @@ impl Input {
     pub(crate) fn read_outputs(&self) -> Result<Vec<OutputFrequency>, Error> {
         let config = self.simulation_table()?;
         if let Some(outputs) = config.get("outputs") {
-            let outputs = outputs.as_array().ok_or(
-                Error::from("'outputs' must be an array of tables in simulation")
-            )?;
+            let outputs = outputs
+                .as_array()
+                .ok_or(Error::from("'outputs' must be an array of tables in simulation"))?;
 
             let mut result = Vec::new();
             for output in outputs {
-                let output = output.as_table().ok_or(
-                    Error::from("'outputs' must be an array of tables in simulation")
-                )?;
+                let output = output
+                    .as_table()
+                    .ok_or(Error::from("'outputs' must be an array of tables in simulation"))?;
 
                 let frequency = match output.get("frequency") {
-                    Some(frequency) => {
-                        frequency.as_integer().ok_or(
-                            Error::from("'frequency' must be an integer in output")
-                        )? as u64
-                    }
+                    Some(frequency) => frequency
+                        .as_integer()
+                        .ok_or(Error::from("'frequency' must be an integer in output"))?
+                        as u64,
                     None => 1,
                 };
 
@@ -58,9 +57,7 @@ impl Input {
 }
 
 fn get_file(config: &Table) -> Result<&str, Error> {
-    let file = config.get("file").ok_or(
-        Error::from("missing 'file' key in output")
-    )?;
+    let file = config.get("file").ok_or(Error::from("missing 'file' key in output"))?;
 
     file.as_str().ok_or(Error::from("'file' must be a string in output"))
 }
@@ -121,4 +118,3 @@ impl FromToml for CustomOutput {
         Ok(output)
     }
 }
-

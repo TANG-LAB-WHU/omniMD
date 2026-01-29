@@ -1,8 +1,8 @@
-﻿// Lumol, an extensible molecular simulation engine
+// Lumol, an extensible molecular simulation engine
 // Copyright (C) Lumol's contributors — BSD license
 
-use omnimd_sim::md::Control;
 use omnimd_core::System;
+use omnimd_sim::md::Control;
 
 /// Helper struct that can wrap an algorithm to make it run only a fraction of
 /// the times it is called.
@@ -49,4 +49,3 @@ impl<T: Control> Control for Alternator<T> {
         }
     }
 }
-

@@ -1,4 +1,4 @@
-﻿// Lumol, an extensible molecular simulation engine
+// Lumol, an extensible molecular simulation engine
 // Copyright (C) Lumol's contributors — BSD license
 
 //! Energy minimization algorithms
@@ -6,7 +6,7 @@ use std::f64;
 
 use log::info;
 
-use omnimd_core::{System, DegreesOfFreedom};
+use omnimd_core::{DegreesOfFreedom, System};
 
 use crate::propagator::{Propagator, TemperatureStrategy};
 
@@ -102,4 +102,3 @@ impl Propagator for Minimization {
         self.last_energy = result.energy;
     }
 }
-

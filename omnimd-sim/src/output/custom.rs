@@ -1,18 +1,18 @@
-﻿// Lumol, an extensible molecular simulation engine
+// Lumol, an extensible molecular simulation engine
 // Copyright (C) Lumol's contributors — BSD license
 
 use std::error;
 use std::fmt;
 use std::fs::File;
-use std::io::{self, BufWriter};
 use std::io::prelude::*;
+use std::io::{self, BufWriter};
 use std::path::{Path, PathBuf};
 
-use caldyn::{Context, Expr};
 use caldyn::Error as CaldynError;
+use caldyn::{Context, Expr};
 
 use log::error;
-use log_once::{warn_once, error_once};
+use log_once::{error_once, warn_once};
 
 use super::Output;
 use omnimd_core::{units, System};
@@ -98,9 +98,9 @@ impl FormatArgs {
                     return Err(CustomOutputError::Custom("found { in an expression".into()));
                 }
                 '}' if !in_expr => {
-                    return Err(
-                        CustomOutputError::Custom("found } outside of an expression".into()),
-                    );
+                    return Err(CustomOutputError::Custom(
+                        "found } outside of an expression".into(),
+                    ));
                 }
                 c => {
                     if in_expr {
@@ -140,20 +140,17 @@ fn get_output_context(system: &System) -> Context<'_> {
         // Get unit conversion factor firsts
         units::CONVERSION_FACTORS.get(name).copied().or_else(|| {
             macro_rules! get_particle_data {
-                ($index: ident, $data: ident) => (
-                    system.particles()
-                          .$data
-                          .get($index)
-                          .cloned()
-                          .unwrap_or_else(|| {
-                              warn_once!(
-                                  "index out of bound in custom output: \
+                ($index: ident, $data: ident) => {
+                    system.particles().$data.get($index).cloned().unwrap_or_else(|| {
+                        warn_once!(
+                            "index out of bound in custom output: \
                                   index is {}, but we only have {} atoms",
-                                  $index, system.size()
-                              );
-                              return num_traits::Zero::zero();
-                          })
-                );
+                            $index,
+                            system.size()
+                        );
+                        return num_traits::Zero::zero();
+                    })
+                };
             }
             if name.contains('[') {
                 // vector data
@@ -295,8 +292,8 @@ impl Output for CustomOutput {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use super::super::tests::{test_output, testing_system};
+    use super::*;
 
     fn format(input: &str) -> String {
         FormatArgs::new(input).unwrap().format(&testing_system()).unwrap()
@@ -369,4 +366,3 @@ mod tests {
         );
     }
 }
-

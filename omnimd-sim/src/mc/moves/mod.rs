@@ -1,4 +1,4 @@
-﻿// Lumol, an extensible molecular simulation engine
+// Lumol, an extensible molecular simulation engine
 // Copyright (C) 2015-2016 G. Fraux — BSD license
 
 //! A Monte Carlo simulation is based on a set of applicable moves.
@@ -8,9 +8,9 @@
 //! `VolumeResize` move.
 //!
 //! In all this module, beta refers to the Boltzmann factor 1/(kB T)
-use rand::{RngCore, Rng, seq::SliceRandom};
+use omnimd_core::{EnergyCache, MoleculeHash, System};
+use rand::{seq::SliceRandom, Rng, RngCore};
 use std::collections::BTreeSet;
-use omnimd_core::{EnergyCache, System, MoleculeHash};
 
 /// Possible degrees of freedom simulated by a given Monte Carlo move
 #[derive(Clone, PartialEq, Debug)]
@@ -90,10 +90,15 @@ pub trait MCMove {
 /// This function returns `None` if no matching molecule was found, and
 /// `Some(molid)` with `molid` the index of the molecule if a molecule was
 /// selected.
-fn select_molecule(system: &System, hash: Option<MoleculeHash>, rng: &mut dyn RngCore) -> Option<usize> {
+fn select_molecule(
+    system: &System,
+    hash: Option<MoleculeHash>,
+    rng: &mut dyn RngCore,
+) -> Option<usize> {
     if let Some(hash) = hash {
         // Pick a random molecule with matching molecule type
-        let mols = system.molecules()
+        let mols = system
+            .molecules()
             .enumerate()
             .filter(|(_, m)| m.hash() == hash)
             .map(|(i, _)| i)
@@ -118,4 +123,3 @@ pub use self::rotate::Rotate;
 
 mod resize;
 pub use self::resize::Resize;
-

@@ -1,10 +1,10 @@
-﻿// Lumol, an extensible molecular simulation engine
+// Lumol, an extensible molecular simulation engine
 // Copyright (C) Lumol's contributors — BSD license
 
-use std::collections::BTreeMap;
 use std::collections::btree_map::Entry;
+use std::collections::BTreeMap;
 
-use crate::{ParticleKind, MoleculeHash};
+use crate::{MoleculeHash, ParticleKind};
 
 /// The system composition contains the number of particles of each kind
 /// in the system, as well as the number of molecules of each molecule type.
@@ -228,10 +228,7 @@ impl Composition {
     /// assert_eq!(iter.next(), None);
     /// ```
     pub fn all_molecules(&self) -> impl Iterator<Item = (MoleculeHash, usize)> + '_ {
-        self.molecules
-            .iter()
-            .filter(|(_, n)| **n != 0)
-            .map(|(&m, &n)| (m, n))
+        self.molecules.iter().filter(|(_, n)| **n != 0).map(|(&m, &n)| (m, n))
     }
 }
 
@@ -272,4 +269,3 @@ mod tests {
         assert_eq!(composition.molecules(MoleculeHash::new(124)), 0);
     }
 }
-

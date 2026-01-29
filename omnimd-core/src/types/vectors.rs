@@ -1,4 +1,4 @@
-﻿// Lumol, an extensible molecular simulation engine
+// Lumol, an extensible molecular simulation engine
 // Copyright (C) Lumol's contributors — BSD license
 
 //! 3-dimensional vector type
@@ -187,87 +187,104 @@ impl Vector3D {
 }
 
 impl_arithmetic!(
-    Vector3D, Vector3D, Add, add, Vector3D,
-    self, other,
+    Vector3D,
+    Vector3D,
+    Add,
+    add,
+    Vector3D,
+    self,
+    other,
     Vector3D::new(self[0] + other[0], self[1] + other[1], self[2] + other[2])
 );
 
-impl_in_place_arithmetic!(
-    Vector3D, Vector3D, AddAssign, add_assign,
-    self, other,
-    {self[0] += other[0]; self[1] += other[1]; self[2] += other[2]}
-);
+impl_in_place_arithmetic!(Vector3D, Vector3D, AddAssign, add_assign, self, other, {
+    self[0] += other[0];
+    self[1] += other[1];
+    self[2] += other[2]
+});
 
 impl_arithmetic!(
-    Vector3D, Vector3D, Sub, sub, Vector3D,
-    self, other,
+    Vector3D,
+    Vector3D,
+    Sub,
+    sub,
+    Vector3D,
+    self,
+    other,
     Vector3D::new(self[0] - other[0], self[1] - other[1], self[2] - other[2])
 );
 
-impl_in_place_arithmetic!(
-    Vector3D, Vector3D, SubAssign, sub_assign,
-    self, other,
-    {self[0] -= other[0]; self[1] -= other[1]; self[2] -= other[2]}
-);
+impl_in_place_arithmetic!(Vector3D, Vector3D, SubAssign, sub_assign, self, other, {
+    self[0] -= other[0];
+    self[1] -= other[1];
+    self[2] -= other[2]
+});
 
 // Dot product
 impl_arithmetic!(
-    Vector3D, Vector3D, Mul, mul, f64,
-    self, other,
+    Vector3D,
+    Vector3D,
+    Mul,
+    mul,
+    f64,
+    self,
+    other,
     self[0] * other[0] + self[1] * other[1] + self[2] * other[2]
 );
 
 // Cross product
-impl_arithmetic!(
-    Vector3D, Vector3D, BitXor, bitxor, Vector3D,
-    self, other,
-    {let x = self[1] * other[2] - self[2] * other[1];
+impl_arithmetic!(Vector3D, Vector3D, BitXor, bitxor, Vector3D, self, other, {
+    let x = self[1] * other[2] - self[2] * other[1];
     let y = self[2] * other[0] - self[0] * other[2];
     let z = self[0] * other[1] - self[1] * other[0];
-    Vector3D::new(x, y, z)}
-);
+    Vector3D::new(x, y, z)
+});
 
 lsh_scalar_arithmetic!(
-    Vector3D, Mul, mul, Vector3D,
-    self, other,
+    Vector3D,
+    Mul,
+    mul,
+    Vector3D,
+    self,
+    other,
     Vector3D::new(self[0] * other, self[1] * other, self[2] * other)
 );
 
 rhs_scalar_arithmetic!(
-    Vector3D, Mul, mul, Vector3D,
-    self, other,
+    Vector3D,
+    Mul,
+    mul,
+    Vector3D,
+    self,
+    other,
     Vector3D::new(self * other[0], self * other[1], self * other[2])
 );
 
-impl_in_place_arithmetic!(
-    Vector3D, f64, MulAssign, mul_assign,
-    self, other,
-    {
-        #[allow(clippy::clone_on_copy)]
-        let other = other.clone();
-        self[0] *= other;
-        self[1] *= other;
-        self[2] *= other;
-    }
-);
+impl_in_place_arithmetic!(Vector3D, f64, MulAssign, mul_assign, self, other, {
+    #[allow(clippy::clone_on_copy)]
+    let other = other.clone();
+    self[0] *= other;
+    self[1] *= other;
+    self[2] *= other;
+});
 
 lsh_scalar_arithmetic!(
-    Vector3D, Div, div, Vector3D,
-    self, other,
+    Vector3D,
+    Div,
+    div,
+    Vector3D,
+    self,
+    other,
     Vector3D::new(self[0] / other, self[1] / other, self[2] / other)
 );
 
-impl_in_place_arithmetic!(
-    Vector3D, f64, DivAssign, div_assign,
-    self, other,
-    {
-        #[allow(clippy::clone_on_copy)]
-        let other = other.clone();
-        self[0] /= other;
-        self[1] /= other;
-        self[2] /= other;
-    }
-);
+impl_in_place_arithmetic!(Vector3D, f64, DivAssign, div_assign, self, other, {
+    #[allow(clippy::clone_on_copy)]
+    let other = other.clone();
+    self[0] /= other;
+    self[1] /= other;
+    self[2] /= other;
+});
 
 impl Neg for Vector3D {
     type Output = Vector3D;
@@ -347,9 +364,9 @@ mod tests {
         }
 
         fn abs_diff_eq(&self, other: &Self, epsilon: Self::Epsilon) -> bool {
-            f64::abs_diff_eq(&self[0], &other[0], epsilon) &&
-            f64::abs_diff_eq(&self[1], &other[1], epsilon) &&
-            f64::abs_diff_eq(&self[2], &other[2], epsilon)
+            f64::abs_diff_eq(&self[0], &other[0], epsilon)
+                && f64::abs_diff_eq(&self[1], &other[1], epsilon)
+                && f64::abs_diff_eq(&self[2], &other[2], epsilon)
         }
     }
 
@@ -358,10 +375,15 @@ mod tests {
             f64::default_max_relative()
         }
 
-        fn relative_eq(&self, other: &Self, epsilon: Self::Epsilon, max_relative: Self::Epsilon) -> bool {
-            f64::relative_eq(&self[0], &other[0], epsilon, max_relative) &&
-            f64::relative_eq(&self[1], &other[1], epsilon, max_relative) &&
-            f64::relative_eq(&self[2], &other[2], epsilon, max_relative)
+        fn relative_eq(
+            &self,
+            other: &Self,
+            epsilon: Self::Epsilon,
+            max_relative: Self::Epsilon,
+        ) -> bool {
+            f64::relative_eq(&self[0], &other[0], epsilon, max_relative)
+                && f64::relative_eq(&self[1], &other[1], epsilon, max_relative)
+                && f64::relative_eq(&self[2], &other[2], epsilon, max_relative)
         }
     }
 
@@ -371,9 +393,9 @@ mod tests {
         }
 
         fn ulps_eq(&self, other: &Self, epsilon: Self::Epsilon, max_ulps: u32) -> bool {
-            f64::ulps_eq(&self[0], &other[0], epsilon, max_ulps) &&
-            f64::ulps_eq(&self[1], &other[1], epsilon, max_ulps) &&
-            f64::ulps_eq(&self[2], &other[2], epsilon, max_ulps)
+            f64::ulps_eq(&self[0], &other[0], epsilon, max_ulps)
+                && f64::ulps_eq(&self[1], &other[1], epsilon, max_ulps)
+                && f64::ulps_eq(&self[2], &other[2], epsilon, max_ulps)
         }
     }
 
@@ -573,4 +595,3 @@ mod tests {
         assert_eq!(Vector3D::new(f64::MAX, 0.0, f64::INFINITY).max(), f64::INFINITY);
     }
 }
-

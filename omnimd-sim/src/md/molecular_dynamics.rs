@@ -1,11 +1,11 @@
-﻿// Lumol, an extensible molecular simulation engine
+// Lumol, an extensible molecular simulation engine
 // Copyright (C) Lumol's contributors — BSD license
 
 use crate::propagator::{Propagator, TemperatureStrategy};
-use omnimd_core::{System, DegreesOfFreedom};
+use omnimd_core::{DegreesOfFreedom, System};
 
-use super::{Control, Integrator, Thermostat};
 use super::VelocityVerlet;
+use super::{Control, Integrator, Thermostat};
 
 /// Molecular Dynamics propagator for the simulation.
 pub struct MolecularDynamics {
@@ -81,4 +81,3 @@ impl Propagator for MolecularDynamics {
         }
     }
 }
-

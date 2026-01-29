@@ -1,7 +1,7 @@
-﻿use lumol_tutorial_potential::Mie;
+use lumol_tutorial_potential::Mie;
 
-use omnimd::input::Input;
 use omnimd::energy::PairInteraction;
+use omnimd::input::Input;
 use omnimd::units;
 
 // This function runs a small Monte-Carlo simulation for Argon using a Mie potential.
@@ -12,12 +12,11 @@ fn main() {
     let mut simulation = config.simulation;
 
     // build a potential
-    let mie = Mie::new(units::from(3.405, "A").unwrap(),
-                       units::from(1.0, "kJ/mol").unwrap(),
-                       12.0,
-                       6.0);
+    let mie =
+        Mie::new(units::from(3.405, "A").unwrap(), units::from(1.0, "kJ/mol").unwrap(), 12.0, 6.0);
     // use the potential with a cut off radius of 3 * sigma
-    let mut interaction = PairInteraction::new(Box::new(mie), units::from(3.0 * 3.405, "A").unwrap());
+    let mut interaction =
+        PairInteraction::new(Box::new(mie), units::from(3.0 * 3.405, "A").unwrap());
     // use tail corrections to account for our truncation
     interaction.enable_tail_corrections();
     // finally use this interaction for Argon atoms
@@ -35,4 +34,3 @@ fn main() {
     println!("final energy       : {}", final_energy);
     println!("It worked. Hooray!")
 }
-

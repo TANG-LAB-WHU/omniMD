@@ -3,22 +3,19 @@
 use std::fmt;
 
 use backtrace::Backtrace;
-use chrono::Duration;
 use chrono::offset::Local;
-use clap::{Command, Arg, ArgMatches};
-use log::{info, error};
+use chrono::Duration;
+use clap::{Arg, ArgMatches, Command};
+use log::{error, info};
 
 use omnimd::input::Input;
 
 fn parse_args() -> ArgMatches {
-    Command::new("omnimd").version(omnimd::VERSION)
-                     .about("An extensible molecular simulation engine")
-                     .arg(
-                        Arg::new("input.toml")
-                            .required(true)
-                            .help("Simulation input file")
-                     )
-                     .get_matches()
+    Command::new("omnimd")
+        .version(omnimd::VERSION)
+        .about("An extensible molecular simulation engine")
+        .arg(Arg::new("input.toml").required(true).help("Simulation input file"))
+        .get_matches()
 }
 
 fn main() {
@@ -103,13 +100,13 @@ fn format_elapsed(elapsed: Duration) -> String {
 }
 
 struct CleanedBacktrace {
-    inner: Backtrace
+    inner: Backtrace,
 }
 
 impl CleanedBacktrace {
     fn new() -> CleanedBacktrace {
         CleanedBacktrace {
-            inner: Backtrace::new()
+            inner: Backtrace::new(),
         }
     }
 }

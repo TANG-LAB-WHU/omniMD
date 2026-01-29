@@ -7,8 +7,8 @@ mod config;
 pub use self::config::*;
 
 mod system;
-pub use self::system::System;
 pub use self::system::DegreesOfFreedom;
+pub use self::system::System;
 
 mod interactions;
 pub use self::interactions::Interactions;
@@ -20,8 +20,8 @@ mod cache;
 pub use self::cache::EnergyCache;
 
 mod chfl;
-pub use chemfiles::Error as TrajectoryError;
-pub use self::chfl::{OpenMode, Trajectory, TrajectoryBuilder};
 pub use self::chfl::read_molecule;
+pub use self::chfl::{OpenMode, Trajectory, TrajectoryBuilder};
+pub use chemfiles::Error as TrajectoryError;
 
 pub mod compute;

@@ -70,9 +70,9 @@ pub use self::controls::Rewrap;
 mod thermostats;
 pub use self::thermostats::Thermostat;
 
-pub use self::thermostats::RescaleThermostat;
 pub use self::thermostats::BerendsenThermostat;
 pub use self::thermostats::CSVRThermostat;
+pub use self::thermostats::RescaleThermostat;
 
 mod molecular_dynamics;
 pub use self::molecular_dynamics::MolecularDynamics;

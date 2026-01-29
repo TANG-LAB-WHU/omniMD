@@ -1,14 +1,14 @@
-﻿// Lumol, an extensible molecular simulation engine
+// Lumol, an extensible molecular simulation engine
 // Copyright (C) Lumol's contributors — BSD license
 
-use omnimd_core::{Vector3D, Particle, Molecule, System, UnitCell};
 use omnimd_core::consts::K_BOLTZMANN;
+use omnimd_core::{Molecule, Particle, System, UnitCell, Vector3D};
 
-use omnimd_sim::{BoltzmannVelocities, InitVelocities};
+use omnimd_sim::md::{BerendsenThermostat, CSVRThermostat, RescaleThermostat, Thermostat};
 use omnimd_sim::md::{Integrator, VelocityVerlet};
-use omnimd_sim::md::{Thermostat, RescaleThermostat, BerendsenThermostat, CSVRThermostat};
+use omnimd_sim::{BoltzmannVelocities, InitVelocities};
 
-use approx::{assert_ulps_eq, assert_relative_eq};
+use approx::{assert_relative_eq, assert_ulps_eq};
 
 // An ideal gas system
 fn testing_system() -> System {
@@ -72,16 +72,14 @@ fn berendsen_thermostat() {
     }
 
     let mean = temperatures.iter().sum::<f64>() / temperatures.len() as f64;
-    assert_relative_eq!(mean, 250.0, epsilon=1e-3);
+    assert_relative_eq!(mean, 250.0, epsilon = 1e-3);
 }
-
 
 #[test]
 fn csvr_thermostat() {
     let mut system = testing_system();
     let temperature = system.temperature();
     assert_ulps_eq!(temperature, 300.0, epsilon = 1e-9);
-
 
     let mut thermostat = CSVRThermostat::new(250.0, 10.0);
     let mut integrator = VelocityVerlet::new(1.0);
@@ -106,14 +104,12 @@ fn csvr_thermostat() {
     let dof = system.degrees_of_freedom() as f64;
     let mean = kinetic.iter().sum::<f64>() / kinetic.len() as f64;
     let expected = dof * K_BOLTZMANN * temperature / 2.0;
-    assert_relative_eq!(mean, expected, epsilon=1e-3);
+    assert_relative_eq!(mean, expected, epsilon = 1e-3);
 
-    let variance = kinetic.iter()
-        .map(|t| (mean - t) * (mean - t))
-        .sum::<f64>() / kinetic.len() as f64;
+    let variance =
+        kinetic.iter().map(|t| (mean - t) * (mean - t)).sum::<f64>() / kinetic.len() as f64;
 
     // expected variance
     let expected = dof * (K_BOLTZMANN * temperature) * (K_BOLTZMANN * temperature) / 2.0;
-    assert_relative_eq!(variance, expected, epsilon=1e-3);
+    assert_relative_eq!(variance, expected, epsilon = 1e-3);
 }
-

@@ -1,8 +1,8 @@
-﻿// Lumol, an extensible molecular simulation engine
+// Lumol, an extensible molecular simulation engine
 // Copyright (C) Lumol's contributors — BSD license
 use log::{info, warn};
 
-use omnimd_core::{System, DegreesOfFreedom, Vector3D};
+use omnimd_core::{DegreesOfFreedom, System, Vector3D};
 
 use crate::output::Output;
 use crate::propagator::{Propagator, TemperatureStrategy};
@@ -78,7 +78,9 @@ impl Simulation {
         system.simulated_degrees_of_freedom = self.propagator.degrees_of_freedom(system);
         match system.simulated_degrees_of_freedom {
             DegreesOfFreedom::Molecules => info!("All molecules are treated as rigid bodies"),
-            DegreesOfFreedom::Particles => info!("All particles are allowed to move in this simulation"),
+            DegreesOfFreedom::Particles => {
+                info!("All particles are allowed to move in this simulation")
+            }
             DegreesOfFreedom::Frozen(n) => info!("{} degrees of freedom are frozen", n),
         }
 
@@ -157,4 +159,3 @@ fn sanity_check(system: &System) {
 fn any<F: Fn(f64) -> bool>(vector: &Vector3D, function: F) -> bool {
     function(vector[0]) || function(vector[1]) || function(vector[2])
 }
-

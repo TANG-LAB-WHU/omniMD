@@ -10,9 +10,9 @@ use std::f64;
 
 use log::warn;
 
+use crate::ParticleKind;
 use crate::{AnglePotential, BondPotential, DihedralPotential, PairInteraction};
 use crate::{CoulombicPotential, GlobalPotential};
-use crate::ParticleKind;
 
 pub type PairKind = (ParticleKind, ParticleKind);
 pub type BondKind = (ParticleKind, ParticleKind);
@@ -49,7 +49,7 @@ fn normalize_dihedral((i, j, k, m): DihedralKind) -> DihedralKind {
             } else {
                 (m, k, j, i)
             }
-        },
+        }
         (ij, km) if ij < km => (i, j, k, m),
         (_, _) => (m, k, j, i),
     }
@@ -127,7 +127,11 @@ impl Interactions {
 
     /// Set the dihedral angle interaction `potential` for atoms with types
     /// `i`, `j`, `k`, and `m`.
-    pub fn set_dihedral(&mut self, (i, j, k, m): (&str, &str, &str, &str), potential: Box<dyn DihedralPotential>) {
+    pub fn set_dihedral(
+        &mut self,
+        (i, j, k, m): (&str, &str, &str, &str),
+        potential: Box<dyn DihedralPotential>,
+    ) {
         let kind = (self.get_kind(i), self.get_kind(j), self.get_kind(k), self.get_kind(m));
         let kind = normalize_dihedral(kind);
         if self.dihedrals.insert(kind, potential).is_some() {
@@ -135,7 +139,6 @@ impl Interactions {
         }
     }
 }
-
 
 impl Interactions {
     /// Get the pair interactions corresponding to the `pair`, if any exists.
@@ -166,26 +169,20 @@ impl Interactions {
     pub fn maximum_cutoff(&self) -> Option<f64> {
         // Coulomb potential, return cutoff
         let coulomb_cutoff = match self.coulomb {
-            Some(ref coulomb) => {
-                match coulomb.cutoff() {
-                    Some(cutoff) => cutoff,
-                    None => f64::NAN,
-                }
-            }
+            Some(ref coulomb) => match coulomb.cutoff() {
+                Some(cutoff) => cutoff,
+                None => f64::NAN,
+            },
             None => f64::NAN,
         };
 
         // Go through global interactions, return maximum cutoff
-        let global_cutoff = self.globals.iter()
-                                .filter_map(|i| i.cutoff())
-                                .fold(f64::NAN, f64::max);
+        let global_cutoff = self.globals.iter().filter_map(|i| i.cutoff()).fold(f64::NAN, f64::max);
 
         let mut maximum_cutoff = f64::max(global_cutoff, coulomb_cutoff);
 
         // Pair interactions, return maximum cutoff
-        let pairs_cutoff = self.pairs.values()
-                               .map(|pair| pair.cutoff())
-                               .fold(f64::NAN, f64::max);
+        let pairs_cutoff = self.pairs.values().map(|pair| pair.cutoff()).fold(f64::NAN, f64::max);
 
         maximum_cutoff = f64::max(maximum_cutoff, pairs_cutoff);
         if maximum_cutoff.is_nan() {
@@ -200,8 +197,8 @@ impl Interactions {
 mod test {
     use super::*;
 
-    use crate::{NullPotential, PairInteraction, Wolf};
     use crate::ParticleKind as Kind;
+    use crate::{NullPotential, PairInteraction, Wolf};
 
     #[test]
     fn normalizing_pairs() {
@@ -353,7 +350,6 @@ mod test {
         assert!(interactions.bond((Kind(0), Kind(0))).is_none());
         interactions.set_bond(("A", "A"), Box::new(NullPotential));
         assert!(interactions.bond((Kind(0), Kind(0))).is_some());
-
 
         // 'out of bounds' kinds
         assert!(interactions.bond((Kind(55), Kind(55))).is_none());

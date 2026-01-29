@@ -2,19 +2,19 @@
 // Copyright (C) Lumol's contributors — BSD license
 use toml::value::Table;
 
-use log::{self, Record, info};
+use log::{self, info, Record};
 
-use log4rs::append::Append;
 use log4rs::append::console;
 use log4rs::append::console::ConsoleAppender;
 use log4rs::append::file::FileAppender;
+use log4rs::append::Append;
 use log4rs::config::{Appender, Config, Root};
 use log4rs::encode::{Color, Encode, Style, Write};
 use log4rs::filter::threshold::ThresholdFilter;
 
-use crate::Input;
 use crate::error::Error;
 use crate::extract;
+use crate::Input;
 
 /// An encoder to configure the output style of logging messages
 #[derive(Debug)]
@@ -57,7 +57,6 @@ impl Encode for LogEncoder {
     }
 }
 
-
 /// Ensure that a logger will be initialized, even in case of error in the log
 /// section of the input file
 struct EnsureLogger;
@@ -74,34 +73,31 @@ impl Input {
     pub(crate) fn setup_logging(&self) -> Result<(), Error> {
         let _guard = EnsureLogger;
         if let Some(loggers) = self.config.get("log") {
-            let loggers = loggers.as_table().ok_or(
-                Error::from("'log' section must be a table")
-            )?;
+            let loggers = loggers.as_table().ok_or(Error::from("'log' section must be a table"))?;
 
             if loggers.get("target").is_some() {
                 if loggers.get("targets").is_some() {
-                    return Err(
-                        Error::from("can not have both 'target' and 'targets' in the log section"),
-                    );
+                    return Err(Error::from(
+                        "can not have both 'target' and 'targets' in the log section",
+                    ));
                 }
 
                 let appender = read_appender(loggers, "main")?;
-                let config = Config::builder().appender(appender)
-                                              .build(
-                    Root::builder().appender("main").build(log::LevelFilter::Trace),
-                )
-                                              .expect("Error in logging initialization");
+                let config = Config::builder()
+                    .appender(appender)
+                    .build(Root::builder().appender("main").build(log::LevelFilter::Trace))
+                    .expect("Error in logging initialization");
                 let _ = log4rs::init_config(config);
             } else if let Some(targets) = loggers.get("targets") {
-                let targets = targets.as_array().ok_or(
-                    Error::from("'targets' must be an array in 'log' section")
-                )?;
+                let targets = targets
+                    .as_array()
+                    .ok_or(Error::from("'targets' must be an array in 'log' section"))?;
 
                 let mut appenders = Vec::new();
                 for (i, target) in targets.iter().enumerate() {
-                    let target = target.as_table().ok_or(
-                        Error::from("'targets' must be an array of tables in 'log' section")
-                    )?;
+                    let target = target.as_table().ok_or(Error::from(
+                        "'targets' must be an array of tables in 'log' section",
+                    ))?;
                     let appender = read_appender(target, &i.to_string())?;
                     appenders.push(appender);
                 }
@@ -112,8 +108,9 @@ impl Input {
                     root = root.appender(appender.name());
                     config = config.appender(appender);
                 }
-                let config = config.build(root.build(log::LevelFilter::Trace))
-                                   .expect("Error in logging initialization");
+                let config = config
+                    .build(root.build(log::LevelFilter::Trace))
+                    .expect("Error in logging initialization");
                 let _ = log4rs::init_config(config);
             } else {
                 return Err(Error::from("missing 'target' or 'targets' in log section"));
@@ -156,7 +153,8 @@ fn read_appender(config: &Table, name: &str) -> Result<Appender, Error> {
         }
     }
 
-    let level = config.get("level")
+    let level = config
+        .get("level")
         .map_or(Some("info"), |level| level.as_str())
         .ok_or(Error::from("'level' must be a string in log target"))?;
 
@@ -171,31 +169,27 @@ fn read_appender(config: &Table, name: &str) -> Result<Appender, Error> {
 
     let target = extract::str("target", config, "log target")?;
     let appender: Box<dyn Append> = match target {
-        "<stdout>" => {
-            Box::new(
-                ConsoleAppender::builder()
-                    .target(console::Target::Stdout)
-                    .encoder(Box::new(LogEncoder))
-                    .build(),
-            )
-        }
-        "<stderr>" => {
-            Box::new(
-                ConsoleAppender::builder()
-                    .target(console::Target::Stderr)
-                    .encoder(Box::new(LogEncoder))
-                    .build(),
-            )
-        }
+        "<stdout>" => Box::new(
+            ConsoleAppender::builder()
+                .target(console::Target::Stdout)
+                .encoder(Box::new(LogEncoder))
+                .build(),
+        ),
+        "<stderr>" => Box::new(
+            ConsoleAppender::builder()
+                .target(console::Target::Stderr)
+                .encoder(Box::new(LogEncoder))
+                .build(),
+        ),
         "" => return Err(Error::from("'target' can not be an empty string in log target")),
         filename => {
-            let append_mode = config.get("append")
+            let append_mode = config
+                .get("append")
                 .map_or(Some(false), |x| x.as_bool())
                 .ok_or(Error::from("'append' must be a boolean in log file target"))?;
 
-            let appender = FileAppender::builder()
-                .append(append_mode)
-                .encoder(Box::new(LogEncoder));
+            let appender =
+                FileAppender::builder().append(append_mode).encoder(Box::new(LogEncoder));
 
             let appender = try_io!(appender.build(filename), filename.into());
             Box::new(appender)

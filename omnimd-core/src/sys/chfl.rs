@@ -1,16 +1,16 @@
-﻿// Lumol, an extensible molecular simulation engine
+// Lumol, an extensible molecular simulation engine
 // Copyright (C) Lumol's contributors — BSD license
 
 //! [Chemfiles](https://chemfiles.org/) conversion for Lumol.
 use std::path::Path;
 use std::sync::Once;
 
-use soa_derive::soa_zip;
 use log::warn;
+use soa_derive::soa_zip;
 
 use crate::sys::Permutation;
-use crate::{Molecule, Particle, ParticleRef, System, UnitCell, CellShape};
 use crate::Vector3D;
+use crate::{CellShape, Molecule, Particle, ParticleRef, System, UnitCell};
 
 impl<'a> From<&'a chemfiles::Atom> for Particle {
     fn from(atom: &'a chemfiles::Atom) -> Particle {
@@ -33,8 +33,7 @@ impl<'a> From<&'a chemfiles::UnitCell> for UnitCell {
                 let lengths = cell.lengths();
                 let angles = cell.angles();
                 UnitCell::triclinic(
-                    lengths[0], lengths[1], lengths[2],
-                    angles[0], angles[1], angles[2]
+                    lengths[0], lengths[1], lengths[2], angles[0], angles[1], angles[2],
                 )
             }
         }
@@ -52,7 +51,6 @@ impl From<chemfiles::Frame> for System {
 
             system.add_molecule(Molecule::new(particle));
         }
-
 
         if let Some(velocities) = frame.velocities() {
             for (i, velocity) in velocities.iter().enumerate() {
@@ -124,12 +122,16 @@ impl<'a> From<&'a System> for chemfiles::Frame {
         frame.resize(system.size());
         frame.set_step(system.step as usize);
 
-        for (position, chfl_position) in soa_zip!(system.particles(), [position], frame.positions_mut()) {
+        for (position, chfl_position) in
+            soa_zip!(system.particles(), [position], frame.positions_mut())
+        {
             *chfl_position = **position;
         }
 
         frame.add_velocities();
-        for (velocity, chfl_velocity) in soa_zip!(system.particles(), [position], frame.positions_mut()) {
+        for (velocity, chfl_velocity) in
+            soa_zip!(system.particles(), [position], frame.positions_mut())
+        {
             *chfl_velocity = **velocity;
         }
 
@@ -405,7 +407,6 @@ fn redirect_chemfiles_warnings() {
     });
 }
 
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -481,9 +482,7 @@ END
         let mut file = tempfile::Builder::new().suffix(".pdb").tempfile().unwrap();
         write!(file, "{PDB_WATER}").unwrap();
 
-        let system = TrajectoryBuilder::new()
-            .open(&file).unwrap()
-            .read().unwrap();
+        let system = TrajectoryBuilder::new().open(&file).unwrap().read().unwrap();
 
         assert_eq!(system.size(), 6);
         assert_eq!(system.molecules().count(), 4);
@@ -520,4 +519,3 @@ END
         assert_eq!(molecule.hash(), MoleculeHash::new(10634064187773497961));
     }
 }
-

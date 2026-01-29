@@ -1,10 +1,10 @@
-﻿// Lumol, an extensible molecular simulation engine
+// Lumol, an extensible molecular simulation engine
 // Copyright (C) Lumol's contributors — BSD license
 use omnimd_sim::{Minimization, MolecularDynamics, MonteCarlo, Propagator};
 
-use crate::Input;
-use crate::{FromToml, FromTomlWithData, Error};
 use crate::extract;
+use crate::Input;
+use crate::{Error, FromToml, FromTomlWithData};
 
 impl Input {
     /// Get the the simulation propagator.
@@ -19,4 +19,3 @@ impl Input {
         }
     }
 }
-

@@ -1,16 +1,16 @@
-﻿// Lumol, an extensible molecular simulation engine
+// Lumol, an extensible molecular simulation engine
 // Copyright (C) Lumol's contributors — BSD license
 use toml::value::{Table, Value};
 
-use omnimd_core::{System, UnitCell, TrajectoryBuilder};
-use omnimd_sim::{BoltzmannVelocities, InitVelocities};
 use omnimd_core::units;
+use omnimd_core::{System, TrajectoryBuilder, UnitCell};
+use omnimd_sim::{BoltzmannVelocities, InitVelocities};
 
 use log::warn;
 
-use crate::{Input, InteractionsInput, Error};
 use crate::extract;
 use crate::simulations::get_input_path;
+use crate::{Error, Input, InteractionsInput};
 
 impl Input {
     /// Get the the simulated system.
@@ -32,9 +32,9 @@ impl Input {
         }
 
         let guess_bonds = if let Some(guess_bonds) = config.get("guess_bonds") {
-            guess_bonds.as_bool().ok_or(
-                Error::from("'guess_bonds' should be a boolean value in system")
-            )?
+            guess_bonds
+                .as_bool()
+                .ok_or(Error::from("'guess_bonds' should be a boolean value in system"))?
         } else {
             false
         };
@@ -70,9 +70,9 @@ impl Input {
             return Err(Error::from("only one system is supported in input file"));
         }
 
-        let system = systems[0].as_table().ok_or(
-            Error::from("'systems' should be an array of tables in input file")
-        )?;
+        let system = systems[0]
+            .as_table()
+            .ok_or(Error::from("'systems' should be an array of tables in input file"))?;
 
         return Ok(system);
     }
@@ -119,9 +119,9 @@ impl Input {
         let config = self.system_table()?;
 
         if let Some(velocities) = config.get("velocities") {
-            let velocities = velocities.as_table().ok_or(
-                Error::from("'velocities' must be a table in system")
-            )?;
+            let velocities = velocities
+                .as_table()
+                .ok_or(Error::from("'velocities' must be a table in system"))?;
 
             if velocities.get("init").is_some() {
                 let temperature = extract::str("init", velocities, "velocities initializer")?;
@@ -166,4 +166,3 @@ fn get_cell_number(value: &Value) -> Result<f64, Error> {
         Err(Error::from("values must be numbers in 'cell' array"))
     }
 }
-

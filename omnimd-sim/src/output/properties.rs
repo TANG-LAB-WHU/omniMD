@@ -1,17 +1,17 @@
-﻿// Lumol, an extensible molecular simulation engine
+// Lumol, an extensible molecular simulation engine
 // Copyright (C) Lumol's contributors — BSD license
 
 use std::fs::File;
-use std::io::{self, BufWriter};
 use std::io::prelude::*;
+use std::io::{self, BufWriter};
 use std::path::{Path, PathBuf};
 
 use log::error;
 
 use super::Output;
 
-use omnimd_core::System;
 use omnimd_core::units;
+use omnimd_core::System;
 
 /// The `PropertiesOutput` write various physical properties of the system to
 /// a file. These properties are:
@@ -51,8 +51,8 @@ impl Output for PropertiesOutput {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use super::super::tests::test_output;
+    use super::*;
 
     #[test]
     fn properties() {
@@ -65,4 +65,3 @@ mod tests {
         );
     }
 }
-

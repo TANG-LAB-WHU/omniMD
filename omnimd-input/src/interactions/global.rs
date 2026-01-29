@@ -1,12 +1,12 @@
-﻿// lumol-input/src/interactions/global.rs
+// lumol-input/src/interactions/global.rs
 
 use toml::value::Table;
 
-use omnimd_core::System;
 use omnimd_core::energy::TorchPotential;
+use omnimd_core::System;
 
-use crate::{Error, FromToml};
 use crate::interactions::InteractionsInput;
+use crate::{Error, FromToml};
 
 impl InteractionsInput {
     /// Read the "global" section from the configuration.
@@ -16,28 +16,22 @@ impl InteractionsInput {
             None => return Ok(()),
         };
 
-        let globals = globals.as_array().ok_or(
-            Error::from("'global' section must be an array")
-        )?;
+        let globals = globals.as_array().ok_or(Error::from("'global' section must be an array"))?;
 
         for global in globals {
-            let global = global.as_table().ok_or(
-                Error::from("Global potential must be a table")
-            )?;
+            let global =
+                global.as_table().ok_or(Error::from("Global potential must be a table"))?;
 
-            let key = global.keys().next().ok_or(
-                Error::from("Empty global potential table")
-            )?;
+            let key = global.keys().next().ok_or(Error::from("Empty global potential table"))?;
 
             match key.as_str() {
                 "torch" => {
-                   let path = global["torch"].as_str().ok_or(
-                       Error::from("Torch potential must be a string path")
-                   )?;
-                   let potential = TorchPotential::new(path).map_err(|e| 
-                       Error::from(format!("Failed to load torch model: {}", e))
-                   )?;
-                   system.add_global_potential(Box::new(potential));
+                    let path = global["torch"]
+                        .as_str()
+                        .ok_or(Error::from("Torch potential must be a string path"))?;
+                    let potential = TorchPotential::new(path)
+                        .map_err(|e| Error::from(format!("Failed to load torch model: {}", e)))?;
+                    system.add_global_potential(Box::new(potential));
                 }
                 other => return Err(Error::from(format!("Unknown global potential '{}'", other))),
             }
@@ -45,4 +39,3 @@ impl InteractionsInput {
         Ok(())
     }
 }
-

@@ -1,19 +1,18 @@
-﻿// Lumol, an extensible molecular simulation engine
+// Lumol, an extensible molecular simulation engine
 // Copyright (C) Lumol's contributors — BSD license
 
 //! Monte Carlo simulation of a binary mixture of H20 and CO2.
-use omnimd::{Molecule, Particle, TrajectoryBuilder};
 use omnimd::read_molecule;
 use omnimd::units;
+use omnimd::{Molecule, Particle, TrajectoryBuilder};
 
-use omnimd::sim::Simulation;
 use omnimd::sim::mc::{MonteCarloBuilder, Rotate, Translate};
+use omnimd::sim::Simulation;
 
 use omnimd::input::InteractionsInput;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let mut system = TrajectoryBuilder::new().open("data/binary.pdb")?
-                                             .read()?;
+    let mut system = TrajectoryBuilder::new().open("data/binary.pdb")?.read()?;
     let input = InteractionsInput::new("data/binary.toml")?;
     input.read(&mut system)?;
 
@@ -39,4 +38,3 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     Ok(())
 }
-

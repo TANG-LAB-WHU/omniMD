@@ -1,4 +1,4 @@
-﻿// Lumol, an extensible molecular simulation engine
+// Lumol, an extensible molecular simulation engine
 // Copyright (C) 2015-2016 G. Fraux — BSD license
 use rand::RngCore;
 use rand_distr::{Distribution, Uniform, UnitSphere};
@@ -12,10 +12,10 @@ use log_once::warn_once;
 
 use soa_derive::soa_zip;
 
-use super::{MCDegreeOfFreedom, MCMove};
 use super::select_molecule;
+use super::{MCDegreeOfFreedom, MCMove};
 
-use omnimd_core::{EnergyCache, System, MoleculeHash, Matrix3, Vector3D};
+use omnimd_core::{EnergyCache, Matrix3, MoleculeHash, System, Vector3D};
 
 /// Monte Carlo move for rotating a rigid molecule
 pub struct Rotate {
@@ -123,4 +123,3 @@ fn rotate_around_axis(positions: &mut [Vector3D], com: Vector3D, axis: Vector3D,
         *position = com + rotation * oldpos;
     }
 }
-

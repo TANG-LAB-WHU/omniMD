@@ -1,4 +1,4 @@
-﻿use omnimd::energy::{Potential, PairPotential};
+use omnimd::energy::{PairPotential, Potential};
 
 #[derive(Clone, Copy)]
 pub struct Mie {
@@ -69,7 +69,8 @@ impl PairPotential for Mie {
         let repulsive = f64::powf(sigma_rc, n_3);
         let attractive = f64::powf(sigma_rc, m_3);
 
-        -self.prefactor * self.sigma.powi(3) * (repulsive * self.n / n_3 - attractive * self.m / m_3)
+        -self.prefactor
+            * self.sigma.powi(3)
+            * (repulsive * self.n / n_3 - attractive * self.m / m_3)
     }
 }
-

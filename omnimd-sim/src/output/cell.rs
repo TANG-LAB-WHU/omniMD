@@ -1,9 +1,9 @@
-﻿// Lumol, an extensible molecular simulation engine
+// Lumol, an extensible molecular simulation engine
 // Copyright (C) Lumol's contributors — BSD license
 
 use std::fs::File;
-use std::io::{self, BufWriter};
 use std::io::prelude::*;
+use std::io::{self, BufWriter};
 use std::path::{Path, PathBuf};
 
 use log::error;
@@ -37,7 +37,9 @@ impl Output for CellOutput {
     }
 
     fn write(&mut self, system: &System) {
-        writeln_or_log!(self, "{} {} {} {} {} {} {}",
+        writeln_or_log!(
+            self,
+            "{} {} {} {} {} {} {}",
             system.step,
             system.cell.a(),
             system.cell.b(),
@@ -52,8 +54,8 @@ impl Output for CellOutput {
 #[cfg(test)]
 #[allow(clippy::non_ascii_literal)]
 mod tests {
-    use super::*;
     use super::super::tests::test_output;
+    use super::*;
 
     #[test]
     fn cell() {
@@ -66,4 +68,3 @@ mod tests {
         );
     }
 }
-

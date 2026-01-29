@@ -30,7 +30,7 @@ macro_rules! zip {
 /// impl_box_clone!(Foo, BoxCloneFoo, box_clone_foo);
 /// ```
 macro_rules! impl_box_clone {
-    ($Trait: ident, $BoxClone: ident, $box_clone: ident) => (
+    ($Trait: ident, $BoxClone: ident, $box_clone: ident) => {
         #[doc(hidden)]
         /// This is an internal implementation detail for cloning `Box<Trait>`
         pub trait $BoxClone {
@@ -49,7 +49,7 @@ macro_rules! impl_box_clone {
                 self.$box_clone()
             }
         }
-    );
+    };
 }
 
 /// Implement $Lhs -- $Rhs arithmetic operations for all variation of by

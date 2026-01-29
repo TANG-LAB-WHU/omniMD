@@ -1,4 +1,4 @@
-﻿// Lumol, an extensible molecular simulation engine
+// Lumol, an extensible molecular simulation engine
 // Copyright (C) Lumol's contributors — BSD license
 
 //! Testing physical properties of a sodium chloride crystal
@@ -16,11 +16,12 @@ mod wolf {
     #[test]
     fn constant_energy() {
         START.call_once(::env_logger::init);
-        let path = Path::new(file!()).parent()
-                                     .unwrap()
-                                     .join("data")
-                                     .join("md-nacl")
-                                     .join("nve-wolf-small.toml");
+        let path = Path::new(file!())
+            .parent()
+            .unwrap()
+            .join("data")
+            .join("md-nacl")
+            .join("nve-wolf-small.toml");
         let mut config = Input::new(path).unwrap().read().unwrap();
 
         let e_initial = config.system.total_energy();
@@ -33,11 +34,12 @@ mod wolf {
     #[test]
     fn anisotropic_berendsen() {
         START.call_once(::env_logger::init);
-        let path = Path::new(file!()).parent()
-                                     .unwrap()
-                                     .join("data")
-                                     .join("md-nacl")
-                                     .join("npt-wolf-small.toml");
+        let path = Path::new(file!())
+            .parent()
+            .unwrap()
+            .join("data")
+            .join("md-nacl")
+            .join("npt-wolf-small.toml");
         let mut config = Input::new(path).unwrap().read().unwrap();
 
         let collector = crate::utils::Collector::starting_at(9000);
@@ -65,11 +67,12 @@ mod ewald {
     #[test]
     fn constant_energy() {
         START.call_once(::env_logger::init);
-        let path = Path::new(file!()).parent()
-                                     .unwrap()
-                                     .join("data")
-                                     .join("md-nacl")
-                                     .join("nve-ewald-small.toml");
+        let path = Path::new(file!())
+            .parent()
+            .unwrap()
+            .join("data")
+            .join("md-nacl")
+            .join("nve-ewald-small.toml");
         let mut config = Input::new(path).unwrap().read().unwrap();
 
         let e_initial = config.system.total_energy();
@@ -81,11 +84,12 @@ mod ewald {
     #[test]
     fn constant_energy_kspace() {
         START.call_once(::env_logger::init);
-        let path = Path::new(file!()).parent()
-                                     .unwrap()
-                                     .join("data")
-                                     .join("md-nacl")
-                                     .join("nve-ewald-kspace.toml");
+        let path = Path::new(file!())
+            .parent()
+            .unwrap()
+            .join("data")
+            .join("md-nacl")
+            .join("nve-ewald-kspace.toml");
         let mut config = Input::new(path).unwrap().read().unwrap();
 
         let e_initial = config.system.total_energy();
@@ -94,4 +98,3 @@ mod ewald {
         assert!(f64::abs((e_initial - e_final) / e_final) < 5e-3);
     }
 }
-

@@ -1,4 +1,4 @@
-﻿// Lumol, an extensible molecular simulation engine
+// Lumol, an extensible molecular simulation engine
 // Copyright (C) Lumol's contributors — BSD license
 #![allow(clippy::cast_lossless)]
 
@@ -6,13 +6,13 @@
 //!
 //! In this example, we do everything by hand, from the system setup to the
 //! simulation run.
-use omnimd::{Particle, Molecule, System, UnitCell, Vector3D};
 use omnimd::energy::{LennardJones, PairInteraction};
 use omnimd::units;
+use omnimd::{Molecule, Particle, System, UnitCell, Vector3D};
 
 use omnimd::sim::output::{EnergyOutput, TrajectoryOutput};
-use omnimd::sim::{MolecularDynamics, Simulation};
 use omnimd::sim::{BoltzmannVelocities, InitVelocities};
+use omnimd::sim::{MolecularDynamics, Simulation};
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut system = System::with_cell(UnitCell::cubic(17.0));
@@ -32,10 +32,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         sigma: units::from(3.4, "A")?,
         epsilon: units::from(1.0, "kJ/mol")?,
     });
-    system.set_pair_potential(
-        ("Ar", "Ar"),
-        PairInteraction::new(lj, units::from(8.5, "A")?),
-    );
+    system.set_pair_potential(("Ar", "Ar"), PairInteraction::new(lj, units::from(8.5, "A")?));
 
     let mut velocities = BoltzmannVelocities::new(units::from(300.0, "K")?);
     velocities.seed(129);
@@ -58,4 +55,3 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     Ok(())
 }
-

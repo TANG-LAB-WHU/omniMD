@@ -1,4 +1,4 @@
-﻿// Lumol, an extensible molecular simulation engine
+// Lumol, an extensible molecular simulation engine
 // Copyright (C) Lumol's contributors — BSD license
 
 use log_once::warn_once;
@@ -80,7 +80,6 @@ pub struct TableComputation {
     /// Initial potential, kept around for tail corrections
     potential: Box<dyn PairPotential>,
 }
-
 
 impl TableComputation {
     /// Create a new `TableComputation` for `potential`, with `size` points and
@@ -176,8 +175,8 @@ impl PairPotential for TableComputation {
 #[cfg(test)]
 mod test {
     use super::*;
-    use crate::{Harmonic, LennardJones};
     use crate::PairPotential;
+    use crate::{Harmonic, LennardJones};
 
     #[test]
     fn table() {
@@ -200,7 +199,6 @@ mod test {
         assert_eq!(table.compute_energy(4.1), 0.0);
         assert_eq!(table.compute_force(4.1), 0.0);
 
-
         let lj = LennardJones {
             epsilon: 50.0,
             sigma: 2.0,
@@ -210,4 +208,3 @@ mod test {
         assert_eq!(table.tail_virial(5.0), lj.tail_virial(5.0));
     }
 }
-

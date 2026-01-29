@@ -8,8 +8,8 @@ pub use self::mass::get_atomic_mass;
 
 mod particles;
 pub use self::particles::{Particle, ParticleKind};
-pub use self::particles::{ParticleRef, ParticleRefMut};
 pub use self::particles::{ParticlePtr, ParticlePtrMut};
+pub use self::particles::{ParticleRef, ParticleRefMut};
 pub use self::particles::{ParticleSlice, ParticleSliceMut, ParticleVec};
 
 mod composition;
@@ -19,14 +19,14 @@ mod cells;
 pub use self::cells::{CellShape, UnitCell};
 
 mod connect;
-pub use self::connect::{Angle, Bond, Dihedral};
 pub use self::connect::BondDistances;
+pub use self::connect::{Angle, Bond, Dihedral};
 
 mod bonding;
 pub use self::bonding::Bonding;
 
 mod molecules;
-pub use self::molecules::{Molecule, MoleculeRef, MoleculeRefMut, MoleculeHash};
+pub use self::molecules::{Molecule, MoleculeHash, MoleculeRef, MoleculeRefMut};
 
 mod configuration;
 pub use self::configuration::Configuration;

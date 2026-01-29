@@ -1,4 +1,4 @@
-﻿// Lumol, an extensible molecular simulation engine
+// Lumol, an extensible molecular simulation engine
 // Copyright (C) Lumol's contributors — BSD license
 
 //! Example of a run using input files for the simulation and the system
@@ -12,4 +12,3 @@ fn main() {
         }
     }
 }
-

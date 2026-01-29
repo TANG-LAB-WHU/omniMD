@@ -1,10 +1,10 @@
-﻿// Lumol, an extensible molecular simulation engine
+// Lumol, an extensible molecular simulation engine
 // Copyright (C) Lumol's contributors — BSD license
 
 //! This module provides some ways to initialize the velocities in a `System`
-use rand_xorshift::XorShiftRng;
 use rand::SeedableRng;
-use rand_distr::{Normal, Uniform, Distribution};
+use rand_distr::{Distribution, Normal, Uniform};
+use rand_xorshift::XorShiftRng;
 
 use omnimd_core::consts::K_BOLTZMANN;
 use omnimd_core::{System, Vector3D};
@@ -40,13 +40,13 @@ impl BoltzmannVelocities {
     /// Create a new `BoltzmannVelocities` at the given `temperature`.
     pub fn new(temperature: f64) -> BoltzmannVelocities {
         let dist = Normal::new(0.0, f64::sqrt(K_BOLTZMANN * temperature))
-                          .expect("bad normal distribution");
+            .expect("bad normal distribution");
         BoltzmannVelocities {
             temperature: temperature,
             dist: dist,
             rng: XorShiftRng::from_seed([
-                0xeb, 0xa8, 0xe4, 0x29, 0xca, 0x60, 0x44, 0xb0,
-                0xd3, 0x77, 0xc6, 0xa0, 0x21, 0x71, 0x37, 0xf7,
+                0xeb, 0xa8, 0xe4, 0x29, 0xca, 0x60, 0x44, 0xb0, 0xd3, 0x77, 0xc6, 0xa0, 0x21, 0x71,
+                0x37, 0xf7,
             ]),
         }
     }
@@ -97,8 +97,8 @@ impl UniformVelocities {
             temperature: temperature,
             dist: Uniform::new(-factor, factor),
             rng: XorShiftRng::from_seed([
-                0xeb, 0xa8, 0xe4, 0x29, 0xca, 0x60, 0x44, 0xb0,
-                0xd3, 0x77, 0xc6, 0xa0, 0x21, 0x71, 0x37, 0xf7,
+                0xeb, 0xa8, 0xe4, 0x29, 0xca, 0x60, 0x44, 0xb0, 0xd3, 0x77, 0xc6, 0xa0, 0x21, 0x71,
+                0x37, 0xf7,
             ]),
         }
     }
@@ -108,11 +108,12 @@ impl InitVelocities for UniformVelocities {
     fn init(&mut self, system: &mut System) {
         for particle in system.particles_mut() {
             let m_inv = 1.0 / (*particle.mass);
-            *particle.velocity = f64::sqrt(m_inv) * Vector3D::new(
-                self.dist.sample(&mut self.rng),
-                self.dist.sample(&mut self.rng),
-                self.dist.sample(&mut self.rng),
-            );
+            *particle.velocity = f64::sqrt(m_inv)
+                * Vector3D::new(
+                    self.dist.sample(&mut self.rng),
+                    self.dist.sample(&mut self.rng),
+                    self.dist.sample(&mut self.rng),
+                );
         }
         RemoveTranslation.control(system);
         RemoveRotation.control(system);
@@ -138,8 +139,8 @@ impl InitVelocities for UniformVelocities {
 #[cfg(test)]
 mod test {
     use super::*;
+    use omnimd_core::{Molecule, Particle, System, UnitCell, Vector3D};
     use rand::random;
-    use omnimd_core::{Molecule, Particle, System, Vector3D, UnitCell};
 
     use approx::assert_ulps_eq;
     use soa_derive::soa_zip;
@@ -208,4 +209,3 @@ mod test {
         assert!(global_translation(&system) > 1e-5);
     }
 }
-

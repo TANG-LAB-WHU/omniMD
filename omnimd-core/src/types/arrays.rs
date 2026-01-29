@@ -1,4 +1,4 @@
-﻿// Lumol, an extensible molecular simulation engine
+// Lumol, an extensible molecular simulation engine
 // Copyright (C) Lumol's contributors — BSD license
 
 //! Multi-dimensional arrays based on ndarray
@@ -293,7 +293,7 @@ mod tests {
         }
 
         #[test]
-        #[should_panic(expected="out of bounds")]
+        #[should_panic(expected = "out of bounds")]
         #[cfg(debug_assertions)]
         fn out_of_bound_1() {
             let a: Array2<f64> = Array2::zeros((3, 4));
@@ -301,7 +301,7 @@ mod tests {
         }
 
         #[test]
-        #[should_panic(expected="out of bounds")]
+        #[should_panic(expected = "out of bounds")]
         #[cfg(debug_assertions)]
         fn out_of_bound_2() {
             let a: Array2<f64> = Array2::zeros((3, 4));
@@ -369,7 +369,7 @@ mod tests {
         }
 
         #[test]
-        #[should_panic(expected="out of bounds")]
+        #[should_panic(expected = "out of bounds")]
         #[cfg(debug_assertions)]
         fn out_of_bound_1() {
             let a: Array3<f64> = Array3::zeros((3, 4, 89));
@@ -377,7 +377,7 @@ mod tests {
         }
 
         #[test]
-        #[should_panic(expected="out of bounds")]
+        #[should_panic(expected = "out of bounds")]
         #[cfg(debug_assertions)]
         fn out_of_bound_2() {
             let a: Array3<f64> = Array3::zeros((3, 4, 89));
@@ -385,7 +385,7 @@ mod tests {
         }
 
         #[test]
-        #[should_panic(expected="out of bounds")]
+        #[should_panic(expected = "out of bounds")]
         #[cfg(debug_assertions)]
         fn out_of_bound_3() {
             let a: Array3<f64> = Array3::zeros((3, 4, 89));
@@ -393,4 +393,3 @@ mod tests {
         }
     }
 }
-

@@ -1,16 +1,16 @@
-﻿// Lumol, an extensible molecular simulation engine
+// Lumol, an extensible molecular simulation engine
 // Copyright (C) Lumol's contributors — BSD license
 
 use std::fs::File;
-use std::io::{self, BufWriter};
 use std::io::prelude::*;
+use std::io::{self, BufWriter};
 use std::path::{Path, PathBuf};
 
 use log::error;
 
 use super::Output;
-use omnimd_core::System;
 use omnimd_core::units;
+use omnimd_core::System;
 
 /// The `StressOutput` writes the stress of the system to a text file, organized
 /// as: `step stress.xx stress.yy stress.zz stress.xy stress.xz stress.yz`.
@@ -58,8 +58,8 @@ impl Output for StressOutput {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use super::super::tests::test_output;
+    use super::*;
 
     #[test]
     fn energy() {
@@ -72,4 +72,3 @@ mod tests {
         );
     }
 }
-

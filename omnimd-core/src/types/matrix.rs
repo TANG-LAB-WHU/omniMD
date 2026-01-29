@@ -1,4 +1,4 @@
-﻿// Lumol, an extensible molecular simulation engine
+// Lumol, an extensible molecular simulation engine
 // Copyright (C) Lumol's contributors — BSD license
 
 //! 3x3 matrix type.
@@ -243,9 +243,9 @@ impl Matrix3 {
     /// assert_eq!(matrix.determinant(), 4.0 * 1.5 * 7.0);
     /// ```
     pub fn determinant(&self) -> f64 {
-          self[0][0] * (self[1][1] * self[2][2] - self[2][1] * self[1][2])
-        - self[0][1] * (self[1][0] * self[2][2] - self[1][2] * self[2][0])
-        + self[0][2] * (self[1][0] * self[2][1] - self[1][1] * self[2][0])
+        self[0][0] * (self[1][1] * self[2][2] - self[2][1] * self[1][2])
+            - self[0][1] * (self[1][0] * self[2][2] - self[1][2] * self[2][0])
+            + self[0][2] * (self[1][0] * self[2][1] - self[1][1] * self[2][0])
     }
 
     /// Transpose this matrix into a new matrix
@@ -292,115 +292,143 @@ impl Matrix3 {
     /// ```
     pub fn norm(&self) -> f64 {
         f64::sqrt(
-            self[0][0] * self[0][0] + self[1][0] * self[1][0] + self[2][0] * self[2][0] +
-            self[0][1] * self[0][1] + self[1][1] * self[1][1] + self[2][1] * self[2][1] +
-            self[0][2] * self[0][2] + self[1][2] * self[1][2] + self[2][2] * self[2][2]
+            self[0][0] * self[0][0]
+                + self[1][0] * self[1][0]
+                + self[2][0] * self[2][0]
+                + self[0][1] * self[0][1]
+                + self[1][1] * self[1][1]
+                + self[2][1] * self[2][1]
+                + self[0][2] * self[0][2]
+                + self[1][2] * self[1][2]
+                + self[2][2] * self[2][2],
         )
     }
 }
 
 impl_arithmetic!(
-    Matrix3, Matrix3, Add, add, Matrix3,
-    self, other,
+    Matrix3,
+    Matrix3,
+    Add,
+    add,
+    Matrix3,
+    self,
+    other,
     Matrix3::new([
-        [self[0][0] + other[0][0], self[0][1] + other[0][1], self[0][2] + other[0][2]],
-        [self[1][0] + other[1][0], self[1][1] + other[1][1], self[1][2] + other[1][2]],
-        [self[2][0] + other[2][0], self[2][1] + other[2][1], self[2][2] + other[2][2]],
+        [
+            self[0][0] + other[0][0],
+            self[0][1] + other[0][1],
+            self[0][2] + other[0][2]
+        ],
+        [
+            self[1][0] + other[1][0],
+            self[1][1] + other[1][1],
+            self[1][2] + other[1][2]
+        ],
+        [
+            self[2][0] + other[2][0],
+            self[2][1] + other[2][1],
+            self[2][2] + other[2][2]
+        ],
     ])
 );
 
-impl_in_place_arithmetic!(
-    Matrix3, Matrix3, AddAssign, add_assign,
-    self, other,
-    {
-        self[0][0] += other[0][0]; self[0][1] += other[0][1]; self[0][2] += other[0][2];
-        self[1][0] += other[1][0]; self[1][1] += other[1][1]; self[1][2] += other[1][2];
-        self[2][0] += other[2][0]; self[2][1] += other[2][1]; self[2][2] += other[2][2];
-    }
-);
+impl_in_place_arithmetic!(Matrix3, Matrix3, AddAssign, add_assign, self, other, {
+    self[0][0] += other[0][0];
+    self[0][1] += other[0][1];
+    self[0][2] += other[0][2];
+    self[1][0] += other[1][0];
+    self[1][1] += other[1][1];
+    self[1][2] += other[1][2];
+    self[2][0] += other[2][0];
+    self[2][1] += other[2][1];
+    self[2][2] += other[2][2];
+});
 
 impl_arithmetic!(
-    Matrix3, Matrix3, Sub, sub, Matrix3,
-    self, other,
+    Matrix3,
+    Matrix3,
+    Sub,
+    sub,
+    Matrix3,
+    self,
+    other,
     Matrix3::new([
-        [self[0][0] - other[0][0], self[0][1] - other[0][1], self[0][2] - other[0][2]],
-        [self[1][0] - other[1][0], self[1][1] - other[1][1], self[1][2] - other[1][2]],
-        [self[2][0] - other[2][0], self[2][1] - other[2][1], self[2][2] - other[2][2]],
+        [
+            self[0][0] - other[0][0],
+            self[0][1] - other[0][1],
+            self[0][2] - other[0][2]
+        ],
+        [
+            self[1][0] - other[1][0],
+            self[1][1] - other[1][1],
+            self[1][2] - other[1][2]
+        ],
+        [
+            self[2][0] - other[2][0],
+            self[2][1] - other[2][1],
+            self[2][2] - other[2][2]
+        ],
     ])
 );
 
-impl_in_place_arithmetic!(
-    Matrix3, Matrix3, SubAssign, sub_assign,
-    self, other,
-    {
-        self[0][0] -= other[0][0]; self[0][1] -= other[0][1]; self[0][2] -= other[0][2];
-        self[1][0] -= other[1][0]; self[1][1] -= other[1][1]; self[1][2] -= other[1][2];
-        self[2][0] -= other[2][0]; self[2][1] -= other[2][1]; self[2][2] -= other[2][2];
-    }
-);
+impl_in_place_arithmetic!(Matrix3, Matrix3, SubAssign, sub_assign, self, other, {
+    self[0][0] -= other[0][0];
+    self[0][1] -= other[0][1];
+    self[0][2] -= other[0][2];
+    self[1][0] -= other[1][0];
+    self[1][1] -= other[1][1];
+    self[1][2] -= other[1][2];
+    self[2][0] -= other[2][0];
+    self[2][1] -= other[2][1];
+    self[2][2] -= other[2][2];
+});
 
-impl_arithmetic!(
-    Matrix3, Matrix3, Mul, mul, Matrix3,
-    self, other,
-    {
-        let m00 = self[0][0] * other[0][0] + self[0][1] * other[1][0] + self[0][2] * other[2][0];
-        let m01 = self[0][0] * other[0][1] + self[0][1] * other[1][1] + self[0][2] * other[2][1];
-        let m02 = self[0][0] * other[0][2] + self[0][1] * other[1][2] + self[0][2] * other[2][2];
+impl_arithmetic!(Matrix3, Matrix3, Mul, mul, Matrix3, self, other, {
+    let m00 = self[0][0] * other[0][0] + self[0][1] * other[1][0] + self[0][2] * other[2][0];
+    let m01 = self[0][0] * other[0][1] + self[0][1] * other[1][1] + self[0][2] * other[2][1];
+    let m02 = self[0][0] * other[0][2] + self[0][1] * other[1][2] + self[0][2] * other[2][2];
 
-        let m10 = self[1][0] * other[0][0] + self[1][1] * other[1][0] + self[1][2] * other[2][0];
-        let m11 = self[1][0] * other[0][1] + self[1][1] * other[1][1] + self[1][2] * other[2][1];
-        let m12 = self[1][0] * other[0][2] + self[1][1] * other[1][2] + self[1][2] * other[2][2];
+    let m10 = self[1][0] * other[0][0] + self[1][1] * other[1][0] + self[1][2] * other[2][0];
+    let m11 = self[1][0] * other[0][1] + self[1][1] * other[1][1] + self[1][2] * other[2][1];
+    let m12 = self[1][0] * other[0][2] + self[1][1] * other[1][2] + self[1][2] * other[2][2];
 
-        let m20 = self[2][0] * other[0][0] + self[2][1] * other[1][0] + self[2][2] * other[2][0];
-        let m21 = self[2][0] * other[0][1] + self[2][1] * other[1][1] + self[2][2] * other[2][1];
-        let m22 = self[2][0] * other[0][2] + self[2][1] * other[1][2] + self[2][2] * other[2][2];
+    let m20 = self[2][0] * other[0][0] + self[2][1] * other[1][0] + self[2][2] * other[2][0];
+    let m21 = self[2][0] * other[0][1] + self[2][1] * other[1][1] + self[2][2] * other[2][1];
+    let m22 = self[2][0] * other[0][2] + self[2][1] * other[1][2] + self[2][2] * other[2][2];
 
-        Matrix3::new([
-            [m00, m01, m02],
-            [m10, m11, m12],
-            [m20, m21, m22],
-        ])
-    }
-);
+    Matrix3::new([[m00, m01, m02], [m10, m11, m12], [m20, m21, m22]])
+});
 
-impl_in_place_arithmetic!(
-    Matrix3, Matrix3, MulAssign, mul_assign,
-    self, other,
-    {
-        let m00 = self[0][0] * other[0][0] + self[0][1] * other[1][0] + self[0][2] * other[2][0];
-        let m01 = self[0][0] * other[0][1] + self[0][1] * other[1][1] + self[0][2] * other[2][1];
-        let m02 = self[0][0] * other[0][2] + self[0][1] * other[1][2] + self[0][2] * other[2][2];
+impl_in_place_arithmetic!(Matrix3, Matrix3, MulAssign, mul_assign, self, other, {
+    let m00 = self[0][0] * other[0][0] + self[0][1] * other[1][0] + self[0][2] * other[2][0];
+    let m01 = self[0][0] * other[0][1] + self[0][1] * other[1][1] + self[0][2] * other[2][1];
+    let m02 = self[0][0] * other[0][2] + self[0][1] * other[1][2] + self[0][2] * other[2][2];
 
-        let m10 = self[1][0] * other[0][0] + self[1][1] * other[1][0] + self[1][2] * other[2][0];
-        let m11 = self[1][0] * other[0][1] + self[1][1] * other[1][1] + self[1][2] * other[2][1];
-        let m12 = self[1][0] * other[0][2] + self[1][1] * other[1][2] + self[1][2] * other[2][2];
+    let m10 = self[1][0] * other[0][0] + self[1][1] * other[1][0] + self[1][2] * other[2][0];
+    let m11 = self[1][0] * other[0][1] + self[1][1] * other[1][1] + self[1][2] * other[2][1];
+    let m12 = self[1][0] * other[0][2] + self[1][1] * other[1][2] + self[1][2] * other[2][2];
 
-        let m20 = self[2][0] * other[0][0] + self[2][1] * other[1][0] + self[2][2] * other[2][0];
-        let m21 = self[2][0] * other[0][1] + self[2][1] * other[1][1] + self[2][2] * other[2][1];
-        let m22 = self[2][0] * other[0][2] + self[2][1] * other[1][2] + self[2][2] * other[2][2];
+    let m20 = self[2][0] * other[0][0] + self[2][1] * other[1][0] + self[2][2] * other[2][0];
+    let m21 = self[2][0] * other[0][1] + self[2][1] * other[1][1] + self[2][2] * other[2][1];
+    let m22 = self[2][0] * other[0][2] + self[2][1] * other[1][2] + self[2][2] * other[2][2];
 
-        *self = Matrix3::new([
-            [m00, m01, m02],
-            [m10, m11, m12],
-            [m20, m21, m22],
-        ]);
-    }
-);
+    *self = Matrix3::new([[m00, m01, m02], [m10, m11, m12], [m20, m21, m22]]);
+});
 
-impl_arithmetic!(
-    Matrix3, Vector3D, Mul, mul, Vector3D,
-    self, other,
-    {
-        let x = self[0][0] * other[0] + self[0][1] * other[1] + self[0][2] * other[2];
-        let y = self[1][0] * other[0] + self[1][1] * other[1] + self[1][2] * other[2];
-        let z = self[2][0] * other[0] + self[2][1] * other[1] + self[2][2] * other[2];
-        Vector3D::new(x, y, z)
-    }
-);
+impl_arithmetic!(Matrix3, Vector3D, Mul, mul, Vector3D, self, other, {
+    let x = self[0][0] * other[0] + self[0][1] * other[1] + self[0][2] * other[2];
+    let y = self[1][0] * other[0] + self[1][1] * other[1] + self[1][2] * other[2];
+    let z = self[2][0] * other[0] + self[2][1] * other[1] + self[2][2] * other[2];
+    Vector3D::new(x, y, z)
+});
 
 lsh_scalar_arithmetic!(
-    Matrix3, Mul, mul, Matrix3,
-    self, other,
+    Matrix3,
+    Mul,
+    mul,
+    Matrix3,
+    self,
+    other,
     Matrix3::new([
         [self[0][0] * other, self[0][1] * other, self[0][2] * other],
         [self[1][0] * other, self[1][1] * other, self[1][2] * other],
@@ -409,8 +437,12 @@ lsh_scalar_arithmetic!(
 );
 
 rhs_scalar_arithmetic!(
-    Matrix3, Mul, mul, Matrix3,
-    self, other,
+    Matrix3,
+    Mul,
+    mul,
+    Matrix3,
+    self,
+    other,
     Matrix3::new([
         [self * other[0][0], self * other[0][1], self * other[0][2]],
         [self * other[1][0], self * other[1][1], self * other[1][2]],
@@ -418,21 +450,27 @@ rhs_scalar_arithmetic!(
     ])
 );
 
-impl_in_place_arithmetic!(
-    Matrix3, f64, MulAssign, mul_assign,
-    self, other,
-    {
-        #[allow(clippy::clone_on_copy)]
-        let other = other.clone();
-        self[0][0] *= other; self[0][1] *= other; self[0][2] *= other;
-        self[1][0] *= other; self[1][1] *= other; self[1][2] *= other;
-        self[2][0] *= other; self[2][1] *= other; self[2][2] *= other;
-    }
-);
+impl_in_place_arithmetic!(Matrix3, f64, MulAssign, mul_assign, self, other, {
+    #[allow(clippy::clone_on_copy)]
+    let other = other.clone();
+    self[0][0] *= other;
+    self[0][1] *= other;
+    self[0][2] *= other;
+    self[1][0] *= other;
+    self[1][1] *= other;
+    self[1][2] *= other;
+    self[2][0] *= other;
+    self[2][1] *= other;
+    self[2][2] *= other;
+});
 
 lsh_scalar_arithmetic!(
-    Matrix3, Div, div, Matrix3,
-    self, other,
+    Matrix3,
+    Div,
+    div,
+    Matrix3,
+    self,
+    other,
     Matrix3::new([
         [self[0][0] / other, self[0][1] / other, self[0][2] / other],
         [self[1][0] / other, self[1][1] / other, self[1][2] / other],
@@ -440,17 +478,19 @@ lsh_scalar_arithmetic!(
     ])
 );
 
-impl_in_place_arithmetic!(
-    Matrix3, f64, DivAssign, div_assign,
-    self, other,
-    {
-        #[allow(clippy::clone_on_copy)]
-        let other = other.clone();
-        self[0][0] /= other; self[0][1] /= other; self[0][2] /= other;
-        self[1][0] /= other; self[1][1] /= other; self[1][2] /= other;
-        self[2][0] /= other; self[2][1] /= other; self[2][2] /= other;
-    }
-);
+impl_in_place_arithmetic!(Matrix3, f64, DivAssign, div_assign, self, other, {
+    #[allow(clippy::clone_on_copy)]
+    let other = other.clone();
+    self[0][0] /= other;
+    self[0][1] /= other;
+    self[0][2] /= other;
+    self[1][0] /= other;
+    self[1][1] /= other;
+    self[1][2] /= other;
+    self[2][0] /= other;
+    self[2][1] /= other;
+    self[2][2] /= other;
+});
 
 impl Zero for Matrix3 {
     fn zero() -> Matrix3 {
@@ -504,7 +544,7 @@ mod tests {
     use super::*;
     use crate::Vector3D;
 
-    use approx::{AbsDiffEq, RelativeEq, UlpsEq, assert_ulps_eq};
+    use approx::{assert_ulps_eq, AbsDiffEq, RelativeEq, UlpsEq};
 
     impl AbsDiffEq for Matrix3 {
         type Epsilon = <f64 as AbsDiffEq>::Epsilon;
@@ -514,17 +554,15 @@ mod tests {
         }
 
         fn abs_diff_eq(&self, other: &Self, epsilon: Self::Epsilon) -> bool {
-            f64::abs_diff_eq(&self[0][0], &other[0][0], epsilon) &&
-            f64::abs_diff_eq(&self[0][1], &other[0][1], epsilon) &&
-            f64::abs_diff_eq(&self[0][2], &other[0][2], epsilon) &&
-
-            f64::abs_diff_eq(&self[1][0], &other[1][0], epsilon) &&
-            f64::abs_diff_eq(&self[1][1], &other[1][1], epsilon) &&
-            f64::abs_diff_eq(&self[1][2], &other[1][2], epsilon) &&
-
-            f64::abs_diff_eq(&self[2][0], &other[2][0], epsilon) &&
-            f64::abs_diff_eq(&self[2][1], &other[2][1], epsilon) &&
-            f64::abs_diff_eq(&self[2][2], &other[2][2], epsilon)
+            f64::abs_diff_eq(&self[0][0], &other[0][0], epsilon)
+                && f64::abs_diff_eq(&self[0][1], &other[0][1], epsilon)
+                && f64::abs_diff_eq(&self[0][2], &other[0][2], epsilon)
+                && f64::abs_diff_eq(&self[1][0], &other[1][0], epsilon)
+                && f64::abs_diff_eq(&self[1][1], &other[1][1], epsilon)
+                && f64::abs_diff_eq(&self[1][2], &other[1][2], epsilon)
+                && f64::abs_diff_eq(&self[2][0], &other[2][0], epsilon)
+                && f64::abs_diff_eq(&self[2][1], &other[2][1], epsilon)
+                && f64::abs_diff_eq(&self[2][2], &other[2][2], epsilon)
         }
     }
 
@@ -533,18 +571,21 @@ mod tests {
             f64::default_max_relative()
         }
 
-        fn relative_eq(&self, other: &Self, epsilon: Self::Epsilon, max_relative: Self::Epsilon) -> bool {
-            f64::relative_eq(&self[0][0], &other[0][0], epsilon, max_relative) &&
-            f64::relative_eq(&self[0][1], &other[0][1], epsilon, max_relative) &&
-            f64::relative_eq(&self[0][2], &other[0][2], epsilon, max_relative) &&
-
-            f64::relative_eq(&self[1][0], &other[1][0], epsilon, max_relative) &&
-            f64::relative_eq(&self[1][1], &other[1][1], epsilon, max_relative) &&
-            f64::relative_eq(&self[1][2], &other[1][2], epsilon, max_relative) &&
-
-            f64::relative_eq(&self[2][0], &other[2][0], epsilon, max_relative) &&
-            f64::relative_eq(&self[2][1], &other[2][1], epsilon, max_relative) &&
-            f64::relative_eq(&self[2][2], &other[2][2], epsilon, max_relative)
+        fn relative_eq(
+            &self,
+            other: &Self,
+            epsilon: Self::Epsilon,
+            max_relative: Self::Epsilon,
+        ) -> bool {
+            f64::relative_eq(&self[0][0], &other[0][0], epsilon, max_relative)
+                && f64::relative_eq(&self[0][1], &other[0][1], epsilon, max_relative)
+                && f64::relative_eq(&self[0][2], &other[0][2], epsilon, max_relative)
+                && f64::relative_eq(&self[1][0], &other[1][0], epsilon, max_relative)
+                && f64::relative_eq(&self[1][1], &other[1][1], epsilon, max_relative)
+                && f64::relative_eq(&self[1][2], &other[1][2], epsilon, max_relative)
+                && f64::relative_eq(&self[2][0], &other[2][0], epsilon, max_relative)
+                && f64::relative_eq(&self[2][1], &other[2][1], epsilon, max_relative)
+                && f64::relative_eq(&self[2][2], &other[2][2], epsilon, max_relative)
         }
     }
 
@@ -554,17 +595,15 @@ mod tests {
         }
 
         fn ulps_eq(&self, other: &Self, epsilon: Self::Epsilon, max_ulps: u32) -> bool {
-            f64::ulps_eq(&self[0][0], &other[0][0], epsilon, max_ulps) &&
-            f64::ulps_eq(&self[0][1], &other[0][1], epsilon, max_ulps) &&
-            f64::ulps_eq(&self[0][2], &other[0][2], epsilon, max_ulps) &&
-
-            f64::ulps_eq(&self[1][0], &other[1][0], epsilon, max_ulps) &&
-            f64::ulps_eq(&self[1][1], &other[1][1], epsilon, max_ulps) &&
-            f64::ulps_eq(&self[1][2], &other[1][2], epsilon, max_ulps) &&
-
-            f64::ulps_eq(&self[2][0], &other[2][0], epsilon, max_ulps) &&
-            f64::ulps_eq(&self[2][1], &other[2][1], epsilon, max_ulps) &&
-            f64::ulps_eq(&self[2][2], &other[2][2], epsilon, max_ulps)
+            f64::ulps_eq(&self[0][0], &other[0][0], epsilon, max_ulps)
+                && f64::ulps_eq(&self[0][1], &other[0][1], epsilon, max_ulps)
+                && f64::ulps_eq(&self[0][2], &other[0][2], epsilon, max_ulps)
+                && f64::ulps_eq(&self[1][0], &other[1][0], epsilon, max_ulps)
+                && f64::ulps_eq(&self[1][1], &other[1][1], epsilon, max_ulps)
+                && f64::ulps_eq(&self[1][2], &other[1][2], epsilon, max_ulps)
+                && f64::ulps_eq(&self[2][0], &other[2][0], epsilon, max_ulps)
+                && f64::ulps_eq(&self[2][1], &other[2][1], epsilon, max_ulps)
+                && f64::ulps_eq(&self[2][2], &other[2][2], epsilon, max_ulps)
         }
     }
 
@@ -587,16 +626,8 @@ mod tests {
 
     #[test]
     fn add() {
-        let mut a = Matrix3::new([
-            [1.0, 2.0, 3.0],
-            [4.0, 5.0, 6.0],
-            [8.0, 9.0, 10.0]
-        ]);
-        let res = Matrix3::new([
-            [2.0, 2.0, 3.0],
-            [4.0, 6.0, 6.0],
-            [8.0, 9.0, 11.0]
-        ]);
+        let mut a = Matrix3::new([[1.0, 2.0, 3.0], [4.0, 5.0, 6.0], [8.0, 9.0, 10.0]]);
+        let res = Matrix3::new([[2.0, 2.0, 3.0], [4.0, 6.0, 6.0], [8.0, 9.0, 11.0]]);
 
         assert_eq!(a + Matrix3::one(), res);
 
@@ -606,16 +637,8 @@ mod tests {
 
     #[test]
     fn sub() {
-        let mut a = Matrix3::new([
-            [1.0, 2.0, 3.0],
-            [4.0, 5.0, 6.0],
-            [8.0, 9.0, 10.0]
-        ]);
-        let res = Matrix3::new([
-            [0.0, 2.0, 3.0],
-            [4.0, 4.0, 6.0],
-            [8.0, 9.0, 9.0]
-        ]);
+        let mut a = Matrix3::new([[1.0, 2.0, 3.0], [4.0, 5.0, 6.0], [8.0, 9.0, 10.0]]);
+        let res = Matrix3::new([[0.0, 2.0, 3.0], [4.0, 4.0, 6.0], [8.0, 9.0, 9.0]]);
 
         assert_eq!(a - Matrix3::one(), res);
 
@@ -625,16 +648,8 @@ mod tests {
 
     #[test]
     fn mul_scalar() {
-        let mut a = Matrix3::new([
-            [1.0, 2.0, 3.0],
-            [4.0, 5.0, 6.0],
-            [8.0, 9.0, 10.0],
-        ]);
-        let res = Matrix3::new([
-            [2.0, 4.0, 6.0],
-            [8.0, 10.0, 12.0],
-            [16.0, 18.0, 20.0],
-        ]);
+        let mut a = Matrix3::new([[1.0, 2.0, 3.0], [4.0, 5.0, 6.0], [8.0, 9.0, 10.0]]);
+        let res = Matrix3::new([[2.0, 4.0, 6.0], [8.0, 10.0, 12.0], [16.0, 18.0, 20.0]]);
         assert_eq!(a * 2.0, res);
         assert_eq!(2.0 * a, res);
 
@@ -644,16 +659,8 @@ mod tests {
 
     #[test]
     fn div_scalar() {
-        let mut a = Matrix3::new([
-            [1.0, 2.0, 3.0],
-            [4.0, 5.0, 6.0],
-            [8.0, 9.0, 10.0],
-        ]);
-        let res = Matrix3::new([
-            [0.5, 1.0, 1.5],
-            [2.0, 2.5, 3.0],
-            [4.0, 4.5, 5.0]
-        ]);
+        let mut a = Matrix3::new([[1.0, 2.0, 3.0], [4.0, 5.0, 6.0], [8.0, 9.0, 10.0]]);
+        let res = Matrix3::new([[0.5, 1.0, 1.5], [2.0, 2.5, 3.0], [4.0, 4.5, 5.0]]);
         assert_eq!(a / 2.0, res);
 
         a /= 2.0;
@@ -663,11 +670,7 @@ mod tests {
     #[test]
     fn mul_matrix() {
         let unit = Matrix3::one();
-        let mut a = Matrix3::new([
-            [2.0, 4.0, 6.0],
-            [8.0, 10.0, 12.0],
-            [16.0, 18.0, 20.0],
-        ]);
+        let mut a = Matrix3::new([[2.0, 4.0, 6.0], [8.0, 10.0, 12.0], [16.0, 18.0, 20.0]]);
 
         assert_eq!(unit, unit * unit);
         assert_eq!(unit * a, a);
@@ -681,11 +684,7 @@ mod tests {
     #[test]
     #[allow(clippy::unreadable_literal)]
     fn mul_vector() {
-        let a = Matrix3::new([
-            [1.0, 2.0, 3.0],
-            [4.0, 5.0, 6.0],
-            [8.0, 9.0, 10.0],
-        ]);
+        let a = Matrix3::new([[1.0, 2.0, 3.0], [4.0, 5.0, 6.0], [8.0, 9.0, 10.0]]);
 
         let vec = Vector3D::new(1.0, 1.0, 1.0);
         assert_eq!(a * vec, Vector3D::new(6.0, 15.0, 27.0));
@@ -700,11 +699,7 @@ mod tests {
         let one = Matrix3::one();
         assert_eq!(one, one.inverse());
 
-        let a = Matrix3::new([
-            [1.0, 2.0, 3.0],
-            [2.0, 5.0, 3.0],
-            [1.0, 3.0, 8.0],
-        ]);
+        let a = Matrix3::new([[1.0, 2.0, 3.0], [2.0, 5.0, 3.0], [1.0, 3.0, 8.0]]);
         assert!(a.determinant() != 0.0);
         assert_eq!(one, a * a.inverse());
     }
@@ -714,11 +709,7 @@ mod tests {
         let one = Matrix3::one();
         assert_eq!(one.determinant(), 1.0);
 
-        let a = Matrix3::new([
-            [1.0, 2.0, 3.0],
-            [2.0, 5.0, 3.0],
-            [1.0, 3.0, 8.0],
-        ]);
+        let a = Matrix3::new([[1.0, 2.0, 3.0], [2.0, 5.0, 3.0], [1.0, 3.0, 8.0]]);
         assert_eq!(a.determinant(), 8.0);
     }
 
@@ -727,57 +718,33 @@ mod tests {
         let one = Matrix3::one();
         assert_eq!(one.trace(), 3.0);
 
-        let a = Matrix3::new([
-            [1.0, 2.0, 3.0],
-            [2.0, 5.0, 3.0],
-            [1.0, 3.0, 8.0],
-        ]);
+        let a = Matrix3::new([[1.0, 2.0, 3.0], [2.0, 5.0, 3.0], [1.0, 3.0, 8.0]]);
         assert_eq!(a.trace(), 14.0);
     }
 
     #[test]
     fn transposed() {
-        let matrix = Matrix3::new([
-            [1.0, 2.0, 4.0],
-            [0.0, 1.0, 3.0],
-            [0.0, 0.0, 1.0]
-        ]);
+        let matrix = Matrix3::new([[1.0, 2.0, 4.0], [0.0, 1.0, 3.0], [0.0, 0.0, 1.0]]);
 
-        let transposed = Matrix3::new([
-            [1.0, 0.0, 0.0],
-            [2.0, 1.0, 0.0],
-            [4.0, 3.0, 1.0]
-        ]);
+        let transposed = Matrix3::new([[1.0, 0.0, 0.0], [2.0, 1.0, 0.0], [4.0, 3.0, 1.0]]);
 
         assert_eq!(matrix.transposed(), transposed);
     }
 
     #[test]
     fn iter_sum() {
-        let a = Matrix3::new([
-            [1.0, 2.0, 4.0],
-            [0.0, 1.0, 3.0],
-            [0.0, 0.0, 1.0],
-        ]);
-        let b = Matrix3::new([
-            [7.0, -2.0, 5.0],
-            [1.0, 1.0, 3.0],
-            [0.0, -8.0, 3.0],
-        ]);
+        let a = Matrix3::new([[1.0, 2.0, 4.0], [0.0, 1.0, 3.0], [0.0, 0.0, 1.0]]);
+        let b = Matrix3::new([[7.0, -2.0, 5.0], [1.0, 1.0, 3.0], [0.0, -8.0, 3.0]]);
 
         let vec = vec![a, b, a];
-        let sum : Matrix3 = vec.into_iter().sum();
+        let sum: Matrix3 = vec.into_iter().sum();
         assert_eq!(sum, a + a + b);
     }
 
     #[test]
     #[allow(clippy::unreadable_literal)]
     fn norm() {
-        let matrix = Matrix3::new([
-            [1.0, 2.0, 4.0],
-            [0.0, 1.0, 3.0],
-            [-2.0, 2.2, 1.0]
-        ]);
+        let matrix = Matrix3::new([[1.0, 2.0, 4.0], [0.0, 1.0, 3.0], [-2.0, 2.2, 1.0]]);
 
         assert_ulps_eq!(matrix.norm(), 6.390618123468183);
 
@@ -785,4 +752,3 @@ mod tests {
         assert_eq!(Matrix3::one().norm(), f64::sqrt(3.0));
     }
 }
-

@@ -1,17 +1,17 @@
-﻿// Lumol, an extensible molecular simulation engine
+// Lumol, an extensible molecular simulation engine
 // Copyright (C) Lumol's contributors — BSD license
 #![allow(clippy::wildcard_imports)]
 
 use std::path::PathBuf;
 use toml::value::Table;
 
-use omnimd_sim::mc::*;
 use omnimd_core::read_molecule;
 use omnimd_core::units;
+use omnimd_sim::mc::*;
 
-use crate::{Error, FromTomlWithData};
 use crate::extract;
 use crate::simulations::get_input_path;
+use crate::{Error, FromTomlWithData};
 
 impl FromTomlWithData for MonteCarlo {
     type Data = PathBuf;
@@ -23,9 +23,9 @@ impl FromTomlWithData for MonteCarlo {
         let mut builder = MonteCarloBuilder::new(temperature);
         let moves = extract::slice("moves", config, "Monte Carlo propagator")?;
         for mc_move in moves {
-            let mc_move = mc_move.as_table().ok_or(
-                Error::from("All moves must be tables in Monte Carlo")
-            )?;
+            let mc_move = mc_move
+                .as_table()
+                .ok_or(Error::from("All moves must be tables in Monte Carlo"))?;
 
             let frequency = if mc_move.get("frequency").is_some() {
                 extract::number("frequency", mc_move, "Monte Carlo move")?
@@ -53,9 +53,9 @@ impl FromTomlWithData for MonteCarlo {
                             "No 'update_frequency' found. Please specify 'update_frequency' in combination with 'target_acceptance'",
                         ));
                     } else if !(0.0..=1.0).contains(&ta) {
-                        return Err(
-                            Error::from("'target_acceptance' has to be between 0.0 and 1.0"),
-                        );
+                        return Err(Error::from(
+                            "'target_acceptance' has to be between 0.0 and 1.0",
+                        ));
                     }
 
                     builder.add(mc_move, frequency, ta);
@@ -66,7 +66,8 @@ impl FromTomlWithData for MonteCarlo {
 
         let mut mc = builder.finish();
         if has_update_frequency {
-            let update_frequency = extract::uint("update_frequency", config, "Monte Carlo propagator")?;
+            let update_frequency =
+                extract::uint("update_frequency", config, "Monte Carlo propagator")?;
             mc.set_amplitude_update_frequency(update_frequency);
         }
 
@@ -120,4 +121,3 @@ impl FromTomlWithData for Resize {
         Ok(Resize::new(pressure, delta))
     }
 }
-
