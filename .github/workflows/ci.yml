@@ -8,6 +8,7 @@ on:
 
 env:
   CARGO_TERM_COLOR: always
+  LIBTORCH_USE_PYTORCH: 1
 
 jobs:
   build:
@@ -16,6 +17,14 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install PyTorch (CPU)
+        run: pip install torch --index-url https://download.pytorch.org/whl/cpu
 
       - name: Set up Rust
         uses: dtolnay/rust-toolchain@stable
