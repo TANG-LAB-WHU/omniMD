@@ -6,7 +6,7 @@ documentation = "https://lumol.org/"
 repository = "https://github.com/TANG-LAB-WHU/omniMD"
 readme = "../README.md"
 license = "MIT"
-edition = "2018"
+edition = "2021"
 
 [lib]
 bench = false
