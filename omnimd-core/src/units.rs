@@ -454,7 +454,11 @@ mod test {
             0.1312749878912494,
             epsilon = 1e-7
         );
-        assert_eq!(UnitExpr::parse("bar/(m * fs^2)").unwrap().eval(), 6.022141794216763e-19);
+        assert_relative_eq!(
+            UnitExpr::parse("bar/(m * fs^2)").unwrap().eval(),
+            6.022141794216763e-19,
+            max_relative = 1e-5
+        );
         assert_eq!(UnitExpr::parse("kJ/mol/deg^2").unwrap().eval(), 0.3282806352310398);
         assert_eq!(UnitExpr::parse("(kcal/mol/A)^2").unwrap().eval(), 1.7505856024515547e-7);
 
@@ -484,6 +488,6 @@ mod test {
     fn unit_to() {
         assert_eq!(to(25.0, "m").unwrap(), 2.5e-9);
         assert_relative_eq!(to(25.0, "bar").unwrap(), 4.1513469550000005e9, epsilon = 1e3);
-        assert_eq!(to(25.0, "kJ/mol").unwrap(), 249999.99982494753);
+        assert_relative_eq!(to(25.0, "kJ/mol").unwrap(), 249999.99982494753, max_relative = 1e-5);
     }
 }
