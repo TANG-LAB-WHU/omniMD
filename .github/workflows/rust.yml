@@ -26,6 +26,11 @@ jobs:
       - name: Install PyTorch (CPU)
         run: pip install torch --index-url https://download.pytorch.org/whl/cpu
 
+      - name: Configure LD_LIBRARY_PATH
+        run: |
+          LIBTORCH_PATH=$(python -c "import torch; import os; print(os.path.join(os.path.dirname(torch.__file__), 'lib'))")
+          echo "LD_LIBRARY_PATH=$LIBTORCH_PATH:$LD_LIBRARY_PATH" >> $GITHUB_ENV
+
       - name: Set up Rust
         uses: dtolnay/rust-toolchain@stable
         with:
