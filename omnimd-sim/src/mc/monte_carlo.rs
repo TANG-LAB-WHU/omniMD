@@ -164,10 +164,7 @@ impl MonteCarloBuilder {
     /// Create a Monte Carlo propagator at temperature `T`, using the `rng`
     /// random number generator.
     pub fn from_rng(temperature: f64, rng: Box<dyn rand::RngCore>) -> MonteCarloBuilder {
-        assert!(
-            temperature > 0.0,
-            "Monte Carlo temperature must be positive, got {temperature}"
-        );
+        assert!(temperature > 0.0, "Monte Carlo temperature must be positive, got {temperature}");
         MonteCarloBuilder {
             beta: 1.0 / (K_BOLTZMANN * temperature),
             moves: Vec::new(),

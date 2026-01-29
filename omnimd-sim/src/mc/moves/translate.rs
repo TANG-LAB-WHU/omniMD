@@ -7,7 +7,6 @@ use rand_distr::{Distribution, Uniform};
 use std::collections::BTreeSet;
 use std::f64;
 
-
 use log::warn;
 use log_once::warn_once;
 
