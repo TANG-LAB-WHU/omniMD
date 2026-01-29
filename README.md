@@ -83,7 +83,8 @@ If you want to contribute to omniMD, there are several ways to go: improving the
 documentation and helping with language issues; testing the code on your systems
 to find bugs; adding new algorithms and potentials; providing feature requests.
 Please come by and [talk with us][Gitter] a bit before staring new work, or open
-an [issue][issues] to discuss improvements. We also have
+an [issue][issues] to discuss improvements.
+
 
 ## License
 
