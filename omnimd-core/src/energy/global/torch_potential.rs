@@ -78,7 +78,7 @@ impl TorchPotential {
         let species: Vec<i64> = configuration
             .particles()
             .iter()
-            .map(|p| element_to_z(&p.name).unwrap_or(0))
+            .map(|p| element_to_z(p.name).unwrap_or(0))
             .collect();
 
         let z_tensor = Tensor::from_slice(&species).to(self.device);
@@ -262,9 +262,8 @@ impl GlobalPotential for TorchPotential {
         let inputs = [IValue::Tensor(z), IValue::Tensor(pos), IValue::Tensor(cell)];
         let output = module.forward_is(&inputs).expect("TorchScript forward failed"); // Handle error properly in real code
 
-        let dict = match output {
-            IValue::GenericDict(d) => d,
-            _ => panic!("Expected Dictionary output from MLIP model"),
+        let IValue::GenericDict(dict) = output else {
+            panic!("Expected Dictionary output from MLIP model")
         };
 
         // Extract energy

@@ -399,7 +399,7 @@ static REDIRECT_CHEMFILES_WARNING: Once = Once::new();
 
 fn redirect_chemfiles_warnings() {
     fn warning_callback(message: &str) {
-        warn!("[chemfiles] {}", message);
+        warn!("[chemfiles] {message}");
     }
 
     REDIRECT_CHEMFILES_WARNING.call_once(|| {
