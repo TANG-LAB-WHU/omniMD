@@ -454,6 +454,7 @@ END
     fn read_water() {
         let mut file = tempfile::Builder::new().suffix(".xyz").tempfile().unwrap();
         write!(file, "{WATER}").unwrap();
+        file.as_file().sync_all().unwrap();
 
         let molecule = read_molecule(file.path()).unwrap();
 
@@ -481,6 +482,7 @@ END
     fn read_pdb_water() {
         let mut file = tempfile::Builder::new().suffix(".pdb").tempfile().unwrap();
         write!(file, "{PDB_WATER}").unwrap();
+        file.as_file().sync_all().unwrap();
 
         let system = TrajectoryBuilder::new().open(&file).unwrap().read().unwrap();
 
@@ -506,6 +508,7 @@ END
     fn read_propane() {
         let mut file = tempfile::Builder::new().suffix(".xyz").tempfile().unwrap();
         write!(file, "{PROPANE}").unwrap();
+        file.as_file().sync_all().unwrap();
 
         let molecule = read_molecule(file.path()).unwrap();
 
