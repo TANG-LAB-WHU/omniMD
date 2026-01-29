@@ -46,7 +46,7 @@ jobs:
         run: cargo build --verbose
 
       - name: Test omnimd-core
-        run: cargo test -p omnimd-core -- --test-threads=1
+        run: cargo test -p omnimd-core
 
       - name: Test omnimd-sim
         run: cargo test -p omnimd-sim
