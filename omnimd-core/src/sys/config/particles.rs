@@ -16,7 +16,7 @@ pub struct ParticleKind(pub u32);
 impl ParticleKind {
     /// Get an invalid value (`u32::max_value()`) to use as a marker
     pub fn invalid() -> ParticleKind {
-        ParticleKind(u32::max_value())
+        ParticleKind(u32::MAX)
     }
 }
 

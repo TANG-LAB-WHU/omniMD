@@ -166,7 +166,7 @@ impl<'a> MoleculeRef<'a> {
     }
 }
 
-impl<'a> Deref for MoleculeRef<'a> {
+impl Deref for MoleculeRef<'_> {
     type Target = Bonding;
 
     fn deref(&self) -> &Self::Target {
@@ -229,7 +229,7 @@ impl<'a> MoleculeRefMut<'a> {
     }
 }
 
-impl<'a> Deref for MoleculeRefMut<'a> {
+impl Deref for MoleculeRefMut<'_> {
     type Target = Bonding;
 
     fn deref(&self) -> &Self::Target {

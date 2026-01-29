@@ -25,7 +25,7 @@ impl<'a> EnergyEvaluator<'a> {
     }
 }
 
-impl<'a> EnergyEvaluator<'a> {
+impl EnergyEvaluator<'_> {
     /// Compute the energy associated with the pair of particles `i, j` at
     /// distance `r`
     #[inline]

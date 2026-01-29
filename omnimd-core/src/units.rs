@@ -22,17 +22,11 @@ use std::f64::consts::PI;
 use std::fmt;
 use std::num;
 
-use lazy_static::lazy_static;
+use std::sync::LazyLock;
 
-use crate::consts::{AVOGADRO_NUMBER, BOHR_RADIUS};
-
-// Atomic mass unit in kg
-const U_IN_KG: f64 = 1.660538782e-27;
-
-lazy_static! {
-    /// A map of conversion factors from various units to omnimd internal units
-    pub static ref CONVERSION_FACTORS: BTreeMap<&'static str, f64> = {
-        let mut map = BTreeMap::new();
+/// A map of conversion factors from various units to omnimd internal units
+pub static CONVERSION_FACTORS: LazyLock<BTreeMap<&'static str, f64>> = LazyLock::new(|| {
+    let mut map = BTreeMap::new();
         // Distances units.
         assert!(map.insert("A", 1.0).is_none());
         assert!(map.insert("nm", 10.0).is_none());
@@ -80,9 +74,8 @@ lazy_static! {
         assert!(map.insert("bar", 1e-35 / U_IN_KG).is_none());
         assert!(map.insert("atm", 101325.0 * 1e-40 / U_IN_KG).is_none());
 
-        return map;
-    };
-}
+    map
+});
 
 /// Possible error causes when parsing an unit string.
 #[derive(Debug)]

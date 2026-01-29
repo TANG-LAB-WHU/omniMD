@@ -127,7 +127,7 @@ fn compute_ewald_factors(
         CellShape::Infinite => panic!("Ewald is not defined with infinite unit cell"),
         // TODO: there is a faster algorithm for orthorhombic cell
         CellShape::Orthorhombic | CellShape::Triclinic => {
-            compute_ewald_factors_triclinic(factors, cell, parameters)
+            compute_ewald_factors_triclinic(factors, cell, parameters);
         }
     }
 }
@@ -362,8 +362,7 @@ impl Ewald {
         }
 
         info!(
-            "Setting Ewald summation parameters: cutoff = {}, alpha = {}, kmax = {}",
-            cutoff, alpha, kmax
+            "Setting Ewald summation parameters: cutoff = {cutoff}, alpha = {alpha}, kmax = {kmax}"
         );
 
         Ewald::new(cutoff, kmax, alpha)
@@ -861,7 +860,7 @@ impl Ewald {
 ///
 /// This wrapper allow to share a Ewald solver between threads (make it `Send
 /// + Sync`) while still using caching in Monte Carlo simulations (with
-/// interior mutability).
+///   interior mutability).
 pub struct SharedEwald(RwLock<Ewald>);
 
 impl SharedEwald {

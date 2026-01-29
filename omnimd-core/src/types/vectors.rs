@@ -200,7 +200,7 @@ impl_arithmetic!(
 impl_in_place_arithmetic!(Vector3D, Vector3D, AddAssign, add_assign, self, other, {
     self[0] += other[0];
     self[1] += other[1];
-    self[2] += other[2]
+    self[2] += other[2];
 });
 
 impl_arithmetic!(
@@ -217,7 +217,7 @@ impl_arithmetic!(
 impl_in_place_arithmetic!(Vector3D, Vector3D, SubAssign, sub_assign, self, other, {
     self[0] -= other[0];
     self[1] -= other[1];
-    self[2] -= other[2]
+    self[2] -= other[2];
 });
 
 // Dot product
@@ -294,7 +294,7 @@ impl Neg for Vector3D {
     }
 }
 
-impl<'a> Neg for &'a Vector3D {
+impl Neg for &Vector3D {
     type Output = Vector3D;
     #[inline]
     fn neg(self) -> Vector3D {
@@ -302,7 +302,7 @@ impl<'a> Neg for &'a Vector3D {
     }
 }
 
-impl<'a> Neg for &'a mut Vector3D {
+impl Neg for &mut Vector3D {
     type Output = Vector3D;
     #[inline]
     fn neg(self) -> Vector3D {

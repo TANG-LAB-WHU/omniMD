@@ -575,7 +575,7 @@ impl PairPotential for Mie {
     fn tail_energy(&self, cutoff: f64) -> f64 {
         if self.m <= 3.0 {
             return 0.0;
-        };
+        }
         let sigma_rc = self.sigma / cutoff;
         let n_3 = self.n - 3.0;
         let m_3 = self.m - 3.0;
@@ -587,7 +587,7 @@ impl PairPotential for Mie {
     fn tail_virial(&self, cutoff: f64) -> f64 {
         if self.m <= 3.0 {
             return 0.0;
-        };
+        }
         let sigma_rc = self.sigma / cutoff;
         let n_3 = self.n - 3.0;
         let m_3 = self.m - 3.0;

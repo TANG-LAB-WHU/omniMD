@@ -105,7 +105,7 @@ impl Interactions {
     pub fn set_pair(&mut self, (i, j): (&str, &str), potential: PairInteraction) {
         let kind = normalize_pair((self.get_kind(i), self.get_kind(j)));
         if self.pairs.insert(kind, potential).is_some() {
-            warn!("replaced pair potential for ({}, {})", i, j);
+            warn!("replaced pair potential for ({i}, {j})");
         }
     }
 
@@ -113,7 +113,7 @@ impl Interactions {
     pub fn set_bond(&mut self, (i, j): (&str, &str), potential: Box<dyn BondPotential>) {
         let kind = normalize_pair((self.get_kind(i), self.get_kind(j)));
         if self.bonds.insert(kind, potential).is_some() {
-            warn!("replaced bond potential for ({}, {})", i, j);
+            warn!("replaced bond potential for ({i}, {j})");
         }
     }
 
@@ -121,7 +121,7 @@ impl Interactions {
     pub fn set_angle(&mut self, (i, j, k): (&str, &str, &str), potential: Box<dyn AnglePotential>) {
         let kind = normalize_angle((self.get_kind(i), self.get_kind(j), self.get_kind(k)));
         if self.angles.insert(kind, potential).is_some() {
-            warn!("replaced angle potential for ({}, {}, {})", i, j, k);
+            warn!("replaced angle potential for ({i}, {j}, {k})");
         }
     }
 
@@ -135,7 +135,7 @@ impl Interactions {
         let kind = (self.get_kind(i), self.get_kind(j), self.get_kind(k), self.get_kind(m));
         let kind = normalize_dihedral(kind);
         if self.dihedrals.insert(kind, potential).is_some() {
-            warn!("replaced dihedral angle potential for ({}, {}, {}, {})", i, j, k, m);
+            warn!("replaced dihedral angle potential for ({i}, {j}, {k}, {m})");
         }
     }
 }
@@ -169,10 +169,7 @@ impl Interactions {
     pub fn maximum_cutoff(&self) -> Option<f64> {
         // Coulomb potential, return cutoff
         let coulomb_cutoff = match self.coulomb {
-            Some(ref coulomb) => match coulomb.cutoff() {
-                Some(cutoff) => cutoff,
-                None => f64::NAN,
-            },
+            Some(ref coulomb) => coulomb.cutoff().unwrap_or(f64::NAN),
             None => f64::NAN,
         };
 
