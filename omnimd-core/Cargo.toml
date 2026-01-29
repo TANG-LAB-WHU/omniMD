@@ -1,11 +1,11 @@
 [package]
 name = "omnimd-core"
 version = "0.0.0"
-authors = ["Luthaf <luthaf@luthaf.fr>"]
+authors = ["Siqi Tang <siqit@outlook.com>"]
 documentation = "https://lumol.org/"
 repository = "https://github.com/TANG-LAB-WHU/omniMD"
 readme = "../README.md"
-license = "BSD-3-Clause"
+license = "MIT"
 edition = "2021"
 
 [lib]

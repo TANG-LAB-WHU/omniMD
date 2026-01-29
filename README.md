@@ -84,23 +84,20 @@ documentation and helping with language issues; testing the code on your systems
 to find bugs; adding new algorithms and potentials; providing feature requests.
 Please come by and [talk with us][Gitter] a bit before staring new work, or open
 an [issue][issues] to discuss improvements. We also have
-[recommendations][contributing] for contributors.
-
-See the [AUTHORS](AUTHORS) file for a list of contributors to the code.
 
 ## License
 
-This software is licensed under the BSD license, see the LICENSE file for legal
+This software is licensed under the MIT license, see the LICENSE file for legal
 text.
 
 Unless you explicitly state otherwise, any contribution intentionally submitted
-for inclusion in the work by you, shall be licensed under the same BSD license,
+for inclusion in the work by you, shall be licensed under the same MIT license,
 without any additional terms or conditions.
 
 [Rust]: https://www.rust-lang.org/downloads.html
 [Gitter]: https://gitter.im/TANG-LAB-WHU/omniMD
 [issues]: https://github.com/TANG-LAB-WHU/omniMD/issues/new
-[contributing]: Contributing.md
+
 [user_manual]: http://TANG-LAB-WHU.github.io/omniMD/latest/book/
 [input_reference]: http://TANG-LAB-WHU.github.io/omniMD/latest/book/
 [devdoc]: http://TANG-LAB-WHU.github.io/omniMD/latest/omniMD/
