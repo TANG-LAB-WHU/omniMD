@@ -1,6 +1,5 @@
 // omnimd-input/src/interactions/global.rs
 
-
 use omnimd_core::energy::TorchPotential;
 use omnimd_core::System;
 
