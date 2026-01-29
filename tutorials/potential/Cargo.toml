@@ -1,0 +1,19 @@
+[package]
+name = "lumol_tutorial_potential"
+version = "0.0.0"
+publish = false
+edition = "2021"
+
+[dependencies]
+lumol = {path = "../../"}
+
+[[bin]]
+name = "lumol_tutorial_potential"
+test = false
+doctest = false
+bench = false
+
+[lib]
+test = false
+doctest = false
+bench = false
