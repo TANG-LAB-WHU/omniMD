@@ -56,8 +56,7 @@ impl Move {
         if let Some(acceptance) = target_acceptance {
             assert!(
                 0.0 < acceptance && acceptance < 1.0,
-                "target acceptance ratio must be between 0 and 1, got {}",
-                acceptance
+                "target acceptance ratio must be between 0 and 1, got {acceptance}"
             );
         }
         self.target_acceptance = target_acceptance;
@@ -97,7 +96,7 @@ impl Move {
         if let Some(ta) = self.target_acceptance {
             if self.attempted == 0 {
                 return None;
-            };
+            }
             let quotient = self.accepted as f64 / self.attempted as f64 / ta;
             // Limit the change to 20%
             if quotient > 1.2 {
@@ -167,8 +166,7 @@ impl MonteCarloBuilder {
     pub fn from_rng(temperature: f64, rng: Box<dyn rand::RngCore>) -> MonteCarloBuilder {
         assert!(
             temperature > 0.0,
-            "Monte Carlo temperature must be positive, got {}",
-            temperature
+            "Monte Carlo temperature must be positive, got {temperature}"
         );
         MonteCarloBuilder {
             beta: 1.0 / (K_BOLTZMANN * temperature),
@@ -311,7 +309,7 @@ impl Propagator for MonteCarlo {
 
         // compute cost
         let cost = current_move.cost(system, self.beta, &mut self.cache);
-        trace!("    --> Move cost is {}", cost);
+        trace!("    --> Move cost is {cost}");
 
         // apply metropolis criterion
         let accepted = cost <= 0.0 || self.rng.gen::<f64>() < f64::exp(-cost);

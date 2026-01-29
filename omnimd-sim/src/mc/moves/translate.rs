@@ -6,7 +6,7 @@ use rand_distr::{Distribution, Uniform};
 
 use std::collections::BTreeSet;
 use std::f64;
-use std::usize;
+
 
 use log::warn;
 use log_once::warn_once;
@@ -43,7 +43,7 @@ impl Translate {
         let delta = delta / f64::sqrt(3.0);
         Translate {
             hash: hash.into(),
-            molid: usize::max_value(),
+            molid: usize::MAX,
             newpos: Vec::new(),
             delta: delta,
             maximum_cutoff: None,
@@ -53,7 +53,7 @@ impl Translate {
 }
 
 impl MCMove for Translate {
-    fn describe(&self) -> &str {
+    fn describe(&self) -> &'static str {
         "molecular translation"
     }
 
@@ -140,6 +140,6 @@ impl MCMove for Translate {
 
             self.delta *= s;
             self.range = Uniform::new(-self.delta, self.delta);
-        };
+        }
     }
 }

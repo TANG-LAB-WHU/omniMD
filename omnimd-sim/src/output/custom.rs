@@ -58,7 +58,7 @@ impl fmt::Display for CustomOutputError {
 }
 
 impl error::Error for CustomOutputError {
-    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+    fn source(&self) -> Option<&(dyn error::Error + 'static)> {
         match *self {
             CustomOutputError::Io(ref err) => Some(err),
             CustomOutputError::Expr(ref err) => Some(err),

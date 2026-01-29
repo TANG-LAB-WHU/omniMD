@@ -56,7 +56,7 @@ impl Output for TrajectoryOutput {
         match self.file.write(system) {
             Ok(()) => (),
             Err(err) => {
-                panic!("Error in while writing trajectory: {}", err);
+                panic!("Error in while writing trajectory: {err}");
             }
         }
     }

@@ -236,7 +236,7 @@ impl Integrator for BerendsenBarostat {
                      of particles."
                 );
             }
-        };
+        }
 
         let eta3 = 1.0 - WATER_COMPRESSIBILITY / self.tau * (self.pressure - system.pressure());
         self.eta = f64::cbrt(eta3);
@@ -320,7 +320,7 @@ impl Integrator for AnisoBerendsenBarostat {
                      the number of particles."
                 );
             }
-        };
+        }
 
         let factor = self.timestep * WATER_COMPRESSIBILITY / self.tau;
         self.eta = Matrix3::one() - factor * (self.stress - system.stress());
