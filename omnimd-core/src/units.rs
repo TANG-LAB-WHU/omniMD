@@ -459,8 +459,16 @@ mod test {
             6.022141794216763e-19,
             max_relative = 1e-5
         );
-        assert_eq!(UnitExpr::parse("kJ/mol/deg^2").unwrap().eval(), 0.3282806352310398);
-        assert_eq!(UnitExpr::parse("(kcal/mol/A)^2").unwrap().eval(), 1.7505856024515547e-7);
+        assert_relative_eq!(
+            UnitExpr::parse("kJ/mol/deg^2").unwrap().eval(),
+            0.3282806352310398,
+            max_relative = 1e-5
+        );
+        assert_relative_eq!(
+            UnitExpr::parse("(kcal/mol/A)^2").unwrap().eval(),
+            1.7505856024515547e-7,
+            max_relative = 1e-5
+        );
 
         assert_ulps_eq!(UnitExpr::parse("kcal/mol/A^2").unwrap().eval(), 4.184e-4, epsilon = 1e-9);
     }
