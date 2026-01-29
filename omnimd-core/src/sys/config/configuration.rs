@@ -1,5 +1,5 @@
-// Lumol, an extensible molecular simulation engine
-// Copyright (C) 2015-2016 Lumol's contributors — BSD license
+// OmniMD, an extensible molecular simulation engine
+// Copyright (C) 2015-2016 OmniMD's contributors — MIT license
 
 use std::cmp::{max, min};
 use std::marker::PhantomData;

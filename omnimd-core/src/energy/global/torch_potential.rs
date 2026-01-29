@@ -1,15 +1,15 @@
-// Lumol, an extensible molecular simulation engine
-// Copyright (C) Lumol's contributors — BSD license
+// OmniMD, an extensible molecular simulation engine
+// Copyright (C) OmniMD's contributors — MIT license
 
 use std::path::Path;
 use std::sync::{Arc, Mutex};
 
-use tch::{CModule, Device, Kind, Tensor};
+use tch::{CModule, Device, IValue, Kind, Tensor};
 
 use crate::sys::Configuration;
 use crate::types::{Matrix3, Vector3D};
 use crate::units;
-use crate::{BoxCloneGlobal, GlobalCache, GlobalPotential};
+use super::{BoxCloneGlobal, GlobalCache, GlobalPotential};
 
 /// A global potential using a PyTorch TorchScript model to compute energy and forces.
 ///
@@ -44,7 +44,7 @@ impl TorchPotential {
         let device = Device::cuda_if_available();
         let mut module = CModule::load(model_path)?;
         module.set_eval();
-        module.to(device);
+        module.to(device, Kind::Float, false);
 
         let ev = units::from(1.0, "eV").expect("Could not find eV unit");
 
@@ -177,7 +177,10 @@ impl GlobalPotential for TorchPotential {
         // Forward pass
         // Model signature: forward(z, pos, cell) -> Dict<str, Tensor>
         // We pass inputs as IValues
-        let output = module.forward_ts(&[z, pos, cell]).expect("TorchScript forward failed"); // Handle error properly in real code
+        let inputs = [IValue::Tensor(z), IValue::Tensor(pos), IValue::Tensor(cell)];
+        let output = module
+            .forward_is(&inputs)
+            .expect("TorchScript forward failed"); // Handle error properly in real code
 
         let dict = match output {
             tch::IValue::GenericDict(d) => d,
@@ -210,7 +213,10 @@ impl GlobalPotential for TorchPotential {
         let (z, pos, cell) = self.prepare_inputs(configuration);
         let module = self.module.lock().unwrap();
 
-        let output = module.forward_ts(&[z, pos, cell]).expect("TorchScript forward failed");
+        let inputs = [IValue::Tensor(z), IValue::Tensor(pos), IValue::Tensor(cell)];
+        let output = module
+            .forward_is(&inputs)
+            .expect("TorchScript forward failed");
 
         let dict = match output {
             tch::IValue::GenericDict(d) => d,
@@ -233,7 +239,7 @@ impl GlobalPotential for TorchPotential {
             // We assume contiguous row-major.
             // Convert to Vec<f64>
             let num_atoms = configuration.size();
-            let f_data: Vec<f64> = Vec::from(t.flatten(0, 1)); // flatten to 1D
+            let f_data: Vec<f64> = t.flatten(0, 1).try_into().unwrap(); // flatten to 1D
 
             for (i, force) in forces.iter_mut().enumerate() {
                 if i < num_atoms {
@@ -263,7 +269,10 @@ impl GlobalPotential for TorchPotential {
         let (z, pos, cell) = self.prepare_inputs(configuration);
         let module = self.module.lock().unwrap();
 
-        let output = module.forward_ts(&[z, pos, cell]).expect("TorchScript forward failed");
+        let inputs = [IValue::Tensor(z), IValue::Tensor(pos), IValue::Tensor(cell)];
+        let output = module
+            .forward_is(&inputs)
+            .expect("TorchScript forward failed");
 
         let dict = match output {
             tch::IValue::GenericDict(d) => d,
@@ -284,20 +293,26 @@ impl GlobalPotential for TorchPotential {
                 _ => panic!("Virial key must be a Tensor"),
             };
             // 3x3
-            let v_data: Vec<f64> = Vec::from(t.flatten(0, 1));
+            let v_data: Vec<f64> = t.flatten(0, 1).try_into().unwrap();
             // Convert to Matrix3
             // Assume standard layout.
-            let m = Matrix3::new(
-                v_data[0] * self.energy_factor,
-                v_data[1] * self.energy_factor,
-                v_data[2] * self.energy_factor,
-                v_data[3] * self.energy_factor,
-                v_data[4] * self.energy_factor,
-                v_data[5] * self.energy_factor,
-                v_data[6] * self.energy_factor,
-                v_data[7] * self.energy_factor,
-                v_data[8] * self.energy_factor,
-            );
+            let m = Matrix3::new([
+                [
+                    v_data[0] * self.energy_factor,
+                    v_data[1] * self.energy_factor,
+                    v_data[2] * self.energy_factor,
+                ],
+                [
+                    v_data[3] * self.energy_factor,
+                    v_data[4] * self.energy_factor,
+                    v_data[5] * self.energy_factor,
+                ],
+                [
+                    v_data[6] * self.energy_factor,
+                    v_data[7] * self.energy_factor,
+                    v_data[8] * self.energy_factor,
+                ],
+            ]);
             return m;
         }
 
@@ -313,7 +328,7 @@ impl GlobalPotential for TorchPotential {
 // `GlobalCache` is for MC.
 // If we run MD, we don't need efficient GlobalCache.
 impl GlobalCache for TorchPotential {
-    fn move_molecule_cost(&self, configuration: &Configuration, _: usize, _: &[Vector3D]) -> f64 {
+    fn move_molecule_cost(&self, _configuration: &Configuration, _: usize, _: &[Vector3D]) -> f64 {
         // This is inefficient but correct: calculate full energy difference.
         // But `move_molecule_cost` is supposed to be differential.
         // If we can't support it efficiently, we might warn or just implement expensive full diff.

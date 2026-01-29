@@ -1,5 +1,5 @@
 // Cymbalum, an extensible molecular simulation engine
-// Copyright (C) 2015-2016 G. Fraux — BSD license
+// Copyright (C) 2015-2016 G. Fraux — MIT license
 
 use rand::RngCore;
 use rand_distr::{Distribution, Uniform};

@@ -1,5 +1,5 @@
-// Lumol, an extensible molecular simulation engine
-// Copyright (C) Lumol's contributors — BSD license
+// OmniMD, an extensible molecular simulation engine
+// Copyright (C) OmniMD's contributors — MIT license
 use criterion::{criterion_group, criterion_main, BatchSize, Criterion};
 
 use omnimd::{EnergyCache, Vector3D};

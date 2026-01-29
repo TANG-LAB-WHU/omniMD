@@ -1,5 +1,5 @@
-// Lumol, an extensible molecular simulation engine
-// Copyright (C) Lumol's contributors — BSD license
+// OmniMD, an extensible molecular simulation engine
+// Copyright (C) OmniMD's contributors — MIT license
 
 //! Simulations in computational chemistry are often made using periodic
 //! boundaries conditions. The `UnitCell` type represents the enclosing box of
