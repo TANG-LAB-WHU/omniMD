@@ -479,7 +479,6 @@ END
     }
 
     #[test]
-    #[ignore = "SIGFPE in chemfiles C++ library on Ubuntu 24.04 - see https://github.com/chemfiles/chemfiles/issues"]
     fn read_pdb_water() {
         let mut file = tempfile::Builder::new().suffix(".pdb").tempfile().unwrap();
         write!(file, "{PDB_WATER}").unwrap();
