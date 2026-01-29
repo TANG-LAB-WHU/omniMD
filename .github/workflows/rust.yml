@@ -1,0 +1,53 @@
+name: Rust CI (Dev)
+
+on:
+  push:
+    branches: ["main", "dev"]
+  pull_request:
+    branches: ["main", "dev"]
+
+env:
+  CARGO_TERM_COLOR: always
+  LIBTORCH_USE_PYTORCH: 1
+
+jobs:
+  build:
+    name: Build and Test
+    runs-on: ubuntu-24.04
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install PyTorch (CPU)
+        run: pip install torch --index-url https://download.pytorch.org/whl/cpu
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      - name: Check formatting
+        run: cargo fmt --all -- --check
+
+      - name: Clippy Linting
+        run: cargo clippy --all-targets --all-features -- -D warnings
+
+      - name: Build
+        run: cargo build --verbose
+
+      - name: Test omnimd-core
+        run: cargo test -p omnimd-core
+
+      - name: Test omnimd-sim
+        run: cargo test -p omnimd-sim
+
+      - name: Test omnimd-input
+        run: cargo test -p omnimd-input
+
+      - name: Run Integration Tests
+        run: cargo test --tests
