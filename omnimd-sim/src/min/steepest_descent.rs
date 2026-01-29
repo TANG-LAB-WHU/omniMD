@@ -1,11 +1,11 @@
-﻿// Lumol, an extensible molecular simulation engine
+// Lumol, an extensible molecular simulation engine
 // Copyright (C) Lumol's contributors — BSD license
 
-use std::f64;
 use soa_derive::soa_zip;
+use std::f64;
 
-use omnimd_core::{units, System, DegreesOfFreedom};
 use super::{Minimizer, Tolerance};
+use omnimd_core::{units, DegreesOfFreedom, System};
 
 /// Steepest descent minimization algorithm.
 ///
@@ -41,7 +41,9 @@ impl Minimizer for SteepestDescent {
         // Update coordinates, reducing gamma until we find a configuration of
         // lower energy
         loop {
-            for (position, prevpos, force) in soa_zip!(system.particles_mut(), [mut position], &prevpos, &forces) {
+            for (position, prevpos, force) in
+                soa_zip!(system.particles_mut(), [mut position], &prevpos, &forces)
+            {
                 *position = prevpos + self.gamma * force;
             }
 
@@ -70,7 +72,7 @@ impl Minimizer for SteepestDescent {
 mod tests {
     use super::*;
     use omnimd_core::{Harmonic, PairInteraction};
-    use omnimd_core::{System, UnitCell, Molecule, Particle};
+    use omnimd_core::{Molecule, Particle, System, UnitCell};
 
     use crate::min::Minimization;
     use crate::propagator::Propagator;
@@ -105,4 +107,3 @@ mod tests {
         assert_relative_eq!(system.distance(0, 1), 2.3, epsilon = 1e-3);
     }
 }
-

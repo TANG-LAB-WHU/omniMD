@@ -83,7 +83,6 @@ impl Angle {
     }
 }
 
-
 /// A `Dihedral` angle formed by the particles at indexes `i`, `j`, `k` and `m`
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct Dihedral {
@@ -137,7 +136,6 @@ impl Dihedral {
         self.m
     }
 }
-
 
 bitflags! {
     /// The `BondDistances` bitflag encode the topological distance between

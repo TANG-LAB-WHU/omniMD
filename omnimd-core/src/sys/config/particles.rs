@@ -2,8 +2,8 @@
 // Copyright (C) Lumol's contributors — BSD license
 #![allow(clippy::iter_without_into_iter)]
 
-use std::fmt;
 use soa_derive::StructOfArray;
+use std::fmt;
 
 use crate::sys::get_atomic_mass;
 use crate::Vector3D;

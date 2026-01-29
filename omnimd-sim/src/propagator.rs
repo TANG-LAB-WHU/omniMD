@@ -1,8 +1,8 @@
-﻿// Lumol, an extensible molecular simulation engine
+// Lumol, an extensible molecular simulation engine
 // Copyright (C) Lumol's contributors — BSD license
 
 //! A propagator is responsible for updating the system during a simulation
-use omnimd_core::{System, DegreesOfFreedom};
+use omnimd_core::{DegreesOfFreedom, System};
 
 /// Possible temperature computation strategies. Different propagators needs
 /// different ways to compute the temperature: Monte Carlo temperature is a
@@ -42,4 +42,3 @@ pub trait Propagator {
     /// Finish the simulation, and maybe output some information about it
     fn finish(&mut self, _: &System) {}
 }
-

@@ -1,16 +1,16 @@
-﻿// Lumol, an extensible molecular simulation engine
+// Lumol, an extensible molecular simulation engine
 // Copyright (C) Lumol's contributors — BSD license
 
 use std::fs::File;
-use std::io::{self, BufWriter};
 use std::io::prelude::*;
+use std::io::{self, BufWriter};
 use std::path::{Path, PathBuf};
 
 use log::error;
 
 use super::Output;
-use omnimd_core::System;
 use omnimd_core::units;
+use omnimd_core::System;
 
 /// The `ForcesOutput` writes the forces acting on the atoms using XYZ format
 pub struct ForcesOutput {
@@ -50,8 +50,8 @@ impl Output for ForcesOutput {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use super::super::tests::test_output;
+    use super::*;
 
     #[test]
     fn energy() {
@@ -65,4 +65,3 @@ mod tests {
         );
     }
 }
-

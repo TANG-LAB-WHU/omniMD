@@ -1,4 +1,4 @@
-﻿// Lumol, an extensible molecular simulation engine
+// Lumol, an extensible molecular simulation engine
 // Copyright (C) Lumol's contributors — BSD license
 use toml::de::from_str as parse;
 use toml::value::{Table, Value};
@@ -10,14 +10,14 @@ use std::path::PathBuf;
 use omnimd_core::energy::PairRestriction;
 use omnimd_core::System;
 
-use crate::Error;
 use crate::validate;
+use crate::Error;
 
-mod potentials;
-mod pairs;
 mod angles;
 mod coulomb;
 mod global;
+mod pairs;
+mod potentials;
 
 /// Input file for reading interactions
 pub struct InteractionsInput {
@@ -45,9 +45,7 @@ impl InteractionsInput {
 
     /// Read the interactions from a TOML table.
     pub(crate) fn from_toml(config: Table) -> InteractionsInput {
-        InteractionsInput {
-            config: config
-        }
+        InteractionsInput { config: config }
     }
 
     /// Read the interactions from this input into the `system`.
@@ -72,34 +70,31 @@ fn read_restriction(config: &Table) -> Result<Option<PairRestriction>, Error> {
     };
 
     match restriction.expect("Unreachable").clone() {
-        Value::String(name) => {
-            match &*name {
-                "none" => Ok(Some(PairRestriction::None)),
-                "intramolecular" | "IntraMolecular" | "intra-molecular" => {
-                    Ok(Some(PairRestriction::IntraMolecular))
-                }
-                "intermolecular" | "InterMolecular" | "inter-molecular" => {
-                    Ok(Some(PairRestriction::InterMolecular))
-                }
-                "exclude12" => Ok(Some(PairRestriction::Exclude12)),
-                "exclude13" => Ok(Some(PairRestriction::Exclude13)),
-                "exclude14" => Ok(Some(PairRestriction::Exclude14)),
-                "scale14" => Err(Error::from("'scale14' restriction must be a table")),
-                other => Err(Error::from(format!("Unknown restriction '{other}'"))),
+        Value::String(name) => match &*name {
+            "none" => Ok(Some(PairRestriction::None)),
+            "intramolecular" | "IntraMolecular" | "intra-molecular" => {
+                Ok(Some(PairRestriction::IntraMolecular))
             }
-        }
+            "intermolecular" | "InterMolecular" | "inter-molecular" => {
+                Ok(Some(PairRestriction::InterMolecular))
+            }
+            "exclude12" => Ok(Some(PairRestriction::Exclude12)),
+            "exclude13" => Ok(Some(PairRestriction::Exclude13)),
+            "exclude14" => Ok(Some(PairRestriction::Exclude14)),
+            "scale14" => Err(Error::from("'scale14' restriction must be a table")),
+            other => Err(Error::from(format!("Unknown restriction '{other}'"))),
+        },
         Value::Table(ref restriction) => {
             if restriction.keys().len() != 1 || restriction.get("scale14").is_none() {
                 return Err(Error::from("Restriction table must be 'scale14'"));
             }
 
-            let scale = restriction["scale14"].as_float().ok_or(
-                Error::from("'scale14' parameter must be a float")
-            )?;
+            let scale = restriction["scale14"]
+                .as_float()
+                .ok_or(Error::from("'scale14' parameter must be a float"))?;
 
             Ok(Some(PairRestriction::Scale14(scale)))
         }
         _ => Err(Error::from("Restriction must be a table or a string")),
     }
 }
-

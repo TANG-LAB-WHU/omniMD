@@ -1,4 +1,4 @@
-﻿// Lumol, an extensible molecular simulation engine
+// Lumol, an extensible molecular simulation engine
 // Copyright (C) Lumol's contributors — BSD license
 
 //! Interaction potentials for energy and forces computations
@@ -239,20 +239,19 @@ pub trait DihedralPotential: Potential + BoxCloneDihedral {}
 impl_box_clone!(DihedralPotential, BoxCloneDihedral, box_clone_dihedral);
 
 mod functions;
+pub use self::functions::Mie;
 pub use self::functions::{BornMayerHuggins, Buckingham, Gaussian, Morse, Torsion};
 pub use self::functions::{CosineHarmonic, Harmonic, LennardJones, NullPotential};
-pub use self::functions::Mie;
 
 mod computations;
 pub use self::computations::{Computation, TableComputation};
 
 mod restrictions;
-pub use self::restrictions::{PairRestriction, RestrictionInfo, BondPath};
+pub use self::restrictions::{BondPath, PairRestriction, RestrictionInfo};
 
 mod global;
 pub use self::global::{CoulombicPotential, GlobalCache, GlobalPotential};
-pub use self::global::{Ewald, SharedEwald, Wolf, TorchPotential};
+pub use self::global::{Ewald, SharedEwald, TorchPotential, Wolf};
 
 mod pairs;
 pub use self::pairs::PairInteraction;
-

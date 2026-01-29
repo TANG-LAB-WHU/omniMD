@@ -1,4 +1,4 @@
-﻿// Lumol, an extensible molecular simulation engine
+// Lumol, an extensible molecular simulation engine
 // Copyright (C) Lumol's contributors — BSD license
 
 //! Saving properties of a system during a simulation
@@ -51,4 +51,3 @@ pub use self::properties::PropertiesOutput;
 
 mod trajectory;
 pub use self::trajectory::TrajectoryOutput;
-

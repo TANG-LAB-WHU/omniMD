@@ -1,15 +1,15 @@
-﻿// Lumol, an extensible molecular simulation engine
+// Lumol, an extensible molecular simulation engine
 // Copyright (C) Lumol's contributors — BSD license
 #![allow(clippy::wildcard_imports)]
 
 use toml::value::Table;
 
-use omnimd_sim::md::*;
 use omnimd_core::units;
+use omnimd_sim::md::*;
 
 use crate::alternator::Alternator;
-use crate::{Error, FromToml, FromTomlWithData};
 use crate::extract;
+use crate::{Error, FromToml, FromTomlWithData};
 
 impl FromToml for MolecularDynamics {
     fn from_toml(config: &Table) -> Result<MolecularDynamics, Error> {
@@ -19,9 +19,9 @@ impl FromToml for MolecularDynamics {
 
         let mut md;
         if let Some(integrator) = config.get("integrator") {
-            let integrator = integrator.as_table().ok_or(
-                Error::from("'integrator' must be a table in molecular dynamics")
-            )?;
+            let integrator = integrator
+                .as_table()
+                .ok_or(Error::from("'integrator' must be a table in molecular dynamics"))?;
 
             let integrator: Box<dyn Integrator> = match extract::typ(integrator, "integrator")? {
                 "BerendsenBarostat" => {
@@ -42,9 +42,9 @@ impl FromToml for MolecularDynamics {
         }
 
         if let Some(thermostat) = config.get("thermostat") {
-            let thermostat = thermostat.as_table().ok_or(
-                Error::from("'thermostat' must be a table in molecular dynamics")
-            )?;
+            let thermostat = thermostat
+                .as_table()
+                .ok_or(Error::from("'thermostat' must be a table in molecular dynamics"))?;
 
             let thermostat: Box<dyn Thermostat> = match extract::typ(thermostat, "thermostat")? {
                 "Berendsen" => Box::new(BerendsenThermostat::from_toml(thermostat)?),
@@ -56,22 +56,20 @@ impl FromToml for MolecularDynamics {
         }
 
         if let Some(controls) = config.get("controls") {
-            let controls = controls.as_array().ok_or(
-                Error::from("'controls' must be an array of tables in molecular dynamics")
-            )?;
+            let controls = controls.as_array().ok_or(Error::from(
+                "'controls' must be an array of tables in molecular dynamics",
+            ))?;
 
             for control in controls {
-                let control = control.as_table().ok_or(
-                    Error::from("'controls' must be an array of tables in molecular dynamics")
-                )?;
+                let control = control.as_table().ok_or(Error::from(
+                    "'controls' must be an array of tables in molecular dynamics",
+                ))?;
 
                 let control: Box<dyn Control> = match extract::typ(control, "control")? {
                     "RemoveTranslation" => {
                         Box::new(Alternator::<RemoveTranslation>::from_toml(control)?)
                     }
-                    "RemoveRotation" => {
-                        Box::new(Alternator::<RemoveRotation>::from_toml(control)?)
-                    }
+                    "RemoveRotation" => Box::new(Alternator::<RemoveRotation>::from_toml(control)?),
                     "Rewrap" => Box::new(Alternator::<Rewrap>::from_toml(control)?),
                     other => return Err(Error::from(format!("unknown control '{other}'"))),
                 };
@@ -139,9 +137,9 @@ impl FromToml for RescaleThermostat {
         let temperature = units::from_str(temperature)?;
 
         if let Some(tolerance) = config.get("tolerance") {
-            let tolerance = tolerance.as_str().ok_or(
-                Error::from("'tolerance' must be a string rescale thermostat")
-            )?;
+            let tolerance = tolerance
+                .as_str()
+                .ok_or(Error::from("'tolerance' must be a string rescale thermostat"))?;
             let tolerance = units::from_str(tolerance)?;
 
             Ok(RescaleThermostat::with_tolerance(temperature, tolerance))
@@ -192,4 +190,3 @@ impl FromToml for Alternator<Rewrap> {
         Ok(Alternator::new(every, Rewrap))
     }
 }
-

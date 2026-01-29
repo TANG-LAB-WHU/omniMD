@@ -1,4 +1,4 @@
-﻿// Lumol, an extensible molecular simulation engine
+// Lumol, an extensible molecular simulation engine
 // Copyright (C) Lumol's contributors — BSD license
 
 //! Metropolis Monte Carlo propagator implementation
@@ -6,13 +6,13 @@ use std::ops::{Deref, DerefMut};
 
 use rand::{self, Rng, SeedableRng};
 
-use log::{warn, info, trace};
+use log::{info, trace, warn};
 
 use omnimd_core::consts::K_BOLTZMANN;
 use omnimd_core::{DegreesOfFreedom, EnergyCache, System};
 
-use crate::propagator::{Propagator, TemperatureStrategy};
 use super::{MCDegreeOfFreedom, MCMove};
+use crate::propagator::{Propagator, TemperatureStrategy};
 
 /// This struct keeps a move and some statistics on the move (number of times
 /// it was called, how often it was accepted, ...)
@@ -156,8 +156,8 @@ impl MonteCarloBuilder {
     /// Create a new Monte Carlo propagator at temperature `T`.
     pub fn new(temperature: f64) -> MonteCarloBuilder {
         let rng = Box::new(rand_xorshift::XorShiftRng::from_seed([
-            0xeb, 0xa8, 0xe4, 0x29, 0xca, 0x60, 0x44, 0xb0,
-            0xd3, 0x77, 0xc6, 0xa0, 0x21, 0x71, 0x37, 0xf7,
+            0xeb, 0xa8, 0xe4, 0x29, 0xca, 0x60, 0x44, 0xb0, 0xd3, 0x77, 0xc6, 0xa0, 0x21, 0x71,
+            0x37, 0xf7,
         ]));
         return MonteCarloBuilder::from_rng(temperature, rng);
     }
@@ -165,7 +165,11 @@ impl MonteCarloBuilder {
     /// Create a Monte Carlo propagator at temperature `T`, using the `rng`
     /// random number generator.
     pub fn from_rng(temperature: f64, rng: Box<dyn rand::RngCore>) -> MonteCarloBuilder {
-        assert!(temperature > 0.0, "Monte Carlo temperature must be positive, got {}", temperature);
+        assert!(
+            temperature > 0.0,
+            "Monte Carlo temperature must be positive, got {}",
+            temperature
+        );
         MonteCarloBuilder {
             beta: 1.0 / (K_BOLTZMANN * temperature),
             moves: Vec::new(),
@@ -290,10 +294,12 @@ impl Propagator for MonteCarlo {
         let current_move = {
             let probability: f64 = self.rng.gen();
             // Get the index of the first move with frequency >= probability.
-            let (i, _) = self.frequencies.iter()
-                             .enumerate()
-                             .find(|&(_, f)| probability <= *f)
-                             .expect("Could not find a move in MonteCarlo moves list");
+            let (i, _) = self
+                .frequencies
+                .iter()
+                .enumerate()
+                .find(|&(_, f)| probability <= *f)
+                .expect("Could not find a move in MonteCarlo moves list");
             &mut self.moves[i]
         };
         trace!("Selected move is '{}'", current_move.describe());
@@ -346,10 +352,10 @@ impl Propagator for MonteCarlo {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use rand::RngCore;
-    use crate::propagator::Propagator;
     use crate::mc::{MCDegreeOfFreedom, MCMove};
+    use crate::propagator::Propagator;
     use omnimd_core::{EnergyCache, System};
+    use rand::RngCore;
 
     struct DummyMove;
     impl MCMove for DummyMove {
@@ -441,4 +447,3 @@ mod tests {
         assert_eq!(counter.scaling_factor(), Some(1.1));
     }
 }
-

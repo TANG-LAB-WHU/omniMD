@@ -1,4 +1,4 @@
-﻿// Lumol, an extensible molecular simulation engine
+// Lumol, an extensible molecular simulation engine
 // Copyright (C) Lumol's contributors — BSD license
 use toml::Value;
 
@@ -8,21 +8,26 @@ use omnimd_core::System;
 use log::{info, warn};
 
 use super::read_restriction;
-use crate::{InteractionsInput, Error, FromToml, FromTomlWithRefData};
+use crate::{Error, FromToml, FromTomlWithRefData, InteractionsInput};
 
 impl InteractionsInput {
     /// Read the "coulomb" section from the potential configuration.
     pub(crate) fn read_coulomb(&self, system: &mut System) -> Result<(), Error> {
-        let Some(coulomb) = self.config.get("coulomb") else { return Ok(()) };
+        let Some(coulomb) = self.config.get("coulomb") else {
+            return Ok(());
+        };
 
-        let coulomb = coulomb.as_table().ok_or(Error::from("the 'coulomb' section must be a table"))?;
+        let coulomb =
+            coulomb.as_table().ok_or(Error::from("the 'coulomb' section must be a table"))?;
 
-        let solvers = coulomb.keys().filter(|&key| key != "restriction").cloned().collect::<Vec<_>>();
+        let solvers =
+            coulomb.keys().filter(|&key| key != "restriction").cloned().collect::<Vec<_>>();
 
         if solvers.len() != 1 {
-            return Err(Error::from(
-                format!("got more than one coulombic solver: {}", solvers.join(" and ")),
-            ));
+            return Err(Error::from(format!(
+                "got more than one coulombic solver: {}",
+                solvers.join(" and ")
+            )));
         }
 
         let key = &*solvers[0];
@@ -49,11 +54,12 @@ impl InteractionsInput {
 
     /// Read the "charges" from the potential configuration.
     pub(crate) fn read_charges(&self, system: &mut System) -> Result<(), Error> {
-        let Some(charges) = self.config.get("charges") else { return Ok(()) };
+        let Some(charges) = self.config.get("charges") else {
+            return Ok(());
+        };
 
-        let charges = charges.as_table().ok_or(
-            Error::from("the 'charges' section must be a table")
-        )?;
+        let charges =
+            charges.as_table().ok_or(Error::from("the 'charges' section must be a table"))?;
 
         let mut total_charge = 0.0;
         for (name, charge) in charges {
@@ -87,4 +93,3 @@ impl InteractionsInput {
         Ok(())
     }
 }
-

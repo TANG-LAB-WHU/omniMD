@@ -1,4 +1,4 @@
-﻿// Lumol, an extensible molecular simulation engine
+// Lumol, an extensible molecular simulation engine
 // Copyright (C) Lumol's contributors — BSD license
 
 //! Control algorithms operate on the system state after the integration, and
@@ -52,7 +52,8 @@ impl Control for RemoveRotation {
         // Angular momentum
         let mut moment = Vector3D::zero();
         let mut inertia = Matrix3::zero();
-        for (&mass, position, velocity) in soa_zip!(system.particles(), [mass, position, velocity]) {
+        for (&mass, position, velocity) in soa_zip!(system.particles(), [mass, position, velocity])
+        {
             let delta = position - com;
             moment += mass * (delta ^ velocity);
             inertia += -mass * delta.tensorial(&delta);
@@ -89,7 +90,7 @@ impl Control for Rewrap {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use omnimd_core::{Particle, Molecule, System, UnitCell};
+    use omnimd_core::{Molecule, Particle, System, UnitCell};
 
     #[test]
     fn remove_translation() {
@@ -130,4 +131,3 @@ mod tests {
         assert_eq!(system.particles().position[1], Vector3D::new(5.0, 0.0, 0.0));
     }
 }
-

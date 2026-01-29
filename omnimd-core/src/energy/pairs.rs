@@ -1,8 +1,8 @@
-﻿// Lumol, an extensible molecular simulation engine
+// Lumol, an extensible molecular simulation engine
 // Copyright (C) Lumol's contributors — BSD license
 
-use crate::{PairPotential, PairRestriction};
 use crate::{Matrix3, Vector3D};
+use crate::{PairPotential, PairRestriction};
 
 /// The different way to compute non-bonded pair interactions
 #[derive(Clone, Copy, Debug)]
@@ -300,8 +300,8 @@ impl PairInteraction {
 #[allow(clippy::unreadable_literal)]
 mod tests {
     use super::*;
-    use crate::{LennardJones, NullPotential, PairRestriction};
     use crate::Potential;
+    use crate::{LennardJones, NullPotential, PairRestriction};
 
     use approx::assert_ulps_eq;
 
@@ -359,4 +359,3 @@ mod tests {
         assert_ulps_eq!(pairs.tail_virial().trace(), -0.24995930989583334);
     }
 }
-

@@ -1,4 +1,4 @@
-﻿// Lumol, an extensible molecular simulation engine
+// Lumol, an extensible molecular simulation engine
 // Copyright (C) Lumol's contributors — BSD license
 use omnimd::input::Input;
 use omnimd::units;
@@ -12,11 +12,12 @@ mod utils;
 #[test]
 fn npt() {
     START.call_once(::env_logger::init);
-    let path = Path::new(file!()).parent()
-                                 .unwrap()
-                                 .join("data")
-                                 .join("mc-argon")
-                                 .join("npt.toml");
+    let path = Path::new(file!())
+        .parent()
+        .unwrap()
+        .join("data")
+        .join("mc-argon")
+        .join("npt.toml");
 
     let mut config = Input::new(path).unwrap().read().unwrap();
 
@@ -30,4 +31,3 @@ fn npt() {
     let pressure = crate::utils::mean(pressures);
     assert!(f64::abs(pressure - expected) / expected < 1e-2);
 }
-

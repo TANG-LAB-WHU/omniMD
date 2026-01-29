@@ -1,4 +1,4 @@
-﻿// Lumol, an extensible molecular simulation engine
+// Lumol, an extensible molecular simulation engine
 // Copyright (C) Lumol's contributors — BSD license
 use omnimd::input::Input;
 use omnimd::units;
@@ -14,11 +14,12 @@ mod utils;
 #[test]
 fn wolf_nvt() {
     START.call_once(::env_logger::init);
-    let path = Path::new(file!()).parent()
-                                 .unwrap()
-                                 .join("data")
-                                 .join("mc-water")
-                                 .join("nvt-wolf.toml");
+    let path = Path::new(file!())
+        .parent()
+        .unwrap()
+        .join("data")
+        .join("mc-water")
+        .join("nvt-wolf.toml");
 
     let mut config = Input::new(path).unwrap().read().unwrap();
     config.simulation.run(&mut config.system, config.nsteps);
@@ -27,11 +28,12 @@ fn wolf_nvt() {
 #[test]
 fn wolf_npt() {
     START.call_once(::env_logger::init);
-    let path = Path::new(file!()).parent()
-                                 .unwrap()
-                                 .join("data")
-                                 .join("mc-water")
-                                 .join("npt-wolf.toml");
+    let path = Path::new(file!())
+        .parent()
+        .unwrap()
+        .join("data")
+        .join("mc-water")
+        .join("npt-wolf.toml");
 
     let mut config = Input::new(path).unwrap().read().unwrap();
 
@@ -53,25 +55,26 @@ fn wolf_npt() {
 #[test]
 fn ewald_nvt() {
     START.call_once(::env_logger::init);
-    let path = Path::new(file!()).parent()
-                                 .unwrap()
-                                 .join("data")
-                                 .join("mc-water")
-                                 .join("nvt-ewald.toml");
+    let path = Path::new(file!())
+        .parent()
+        .unwrap()
+        .join("data")
+        .join("mc-water")
+        .join("nvt-ewald.toml");
 
     let mut config = Input::new(path).unwrap().read().unwrap();
     config.simulation.run(&mut config.system, config.nsteps);
 }
 
-
 #[test]
 fn ewald_npt() {
     START.call_once(::env_logger::init);
-    let path = Path::new(file!()).parent()
-                                 .unwrap()
-                                 .join("data")
-                                 .join("mc-water")
-                                 .join("npt-ewald.toml");
+    let path = Path::new(file!())
+        .parent()
+        .unwrap()
+        .join("data")
+        .join("mc-water")
+        .join("npt-ewald.toml");
 
     let mut config = Input::new(path).unwrap().read().unwrap();
 
@@ -87,4 +90,3 @@ fn ewald_npt() {
 
     assert!(f64::abs(pressure - expected) < tolerance);
 }
-

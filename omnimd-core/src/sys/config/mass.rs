@@ -1,4 +1,4 @@
-﻿// Lumol, an extensible molecular simulation engine
+// Lumol, an extensible molecular simulation engine
 // Copyright (C) Lumol's contributors — BSD license
 
 //! Atomic masses for all elements
@@ -153,4 +153,3 @@ mod test {
         assert_eq!(get_atomic_mass("HOH"), None);
     }
 }
-

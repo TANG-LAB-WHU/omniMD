@@ -7,11 +7,11 @@ use std::marker::PhantomData;
 use log::trace;
 use log_once::warn_once;
 
+use crate::BondPath;
 use crate::Vector3D;
 use crate::{BondDistances, Bonding, ParticleKind, UnitCell};
-use crate::{ParticleSlice, ParticleSliceMut, ParticleVec, ParticlePtr, ParticlePtrMut};
 use crate::{Molecule, MoleculeRef, MoleculeRefMut};
-use crate::BondPath;
+use crate::{ParticlePtr, ParticlePtrMut, ParticleSlice, ParticleSliceMut, ParticleVec};
 
 /// The `Permutation` struct contains the old and new particle index in a
 /// `Configuration` after the particles where moved due to a new bond being
@@ -26,10 +26,7 @@ pub struct Permutation {
 
 impl Permutation {
     fn new(old: usize, new: usize) -> Permutation {
-        Permutation {
-            old: old,
-            new: new,
-        }
+        Permutation { old: old, new: new }
     }
 }
 
@@ -73,9 +70,7 @@ impl Configuration {
     /// Get an iterator over the molecules in the configuration.
     pub fn molecules(&self) -> MoleculeIter<'_> {
         let ptr = self.particles.as_ptr();
-        let end = unsafe {
-            ptr.add(self.particles.len())
-        };
+        let end = unsafe { ptr.add(self.particles.len()) };
         MoleculeIter {
             bondings: self.bondings.iter(),
             ptr: ptr,
@@ -87,9 +82,7 @@ impl Configuration {
     /// Get an iterator over the molecules in the configuration.
     pub fn molecules_mut(&mut self) -> MoleculeIterMut<'_> {
         let ptr = self.particles.as_mut_ptr();
-        let end = unsafe {
-            ptr.add(self.particles.len())
-        };
+        let end = unsafe { ptr.add(self.particles.len()) };
         MoleculeIterMut {
             bondings: self.bondings.iter(),
             ptr: ptr,
@@ -241,7 +234,8 @@ impl Configuration {
             if *particle.mass < 0.0 || f64::is_nan(*particle.mass) {
                 warn_once!(
                     "Adding a particle ({}) with an invalid mass: {}",
-                    particle.name, particle.mass
+                    particle.name,
+                    particle.mass
                 );
             }
         }
@@ -349,8 +343,7 @@ impl Configuration {
         let size = old_mol.size() as isize;
 
         // translate all indexes in the molecules between new_mol and old_mol
-        for molecule in
-            self.bondings.iter_mut().skip(new_molid + 1).take(old_molid - new_molid - 1)
+        for molecule in self.bondings.iter_mut().skip(new_molid + 1).take(old_molid - new_molid - 1)
         {
             molecule.translate_by(size);
         }
@@ -367,7 +360,11 @@ impl Configuration {
         self.bondings[new_molid] = new_mol;
         let _ = self.bondings.remove(old_molid);
 
-        debug_assert!(check_molid_sorted(&self.molecule_ids), "Unsorted molecule ids {:?}", self.molecule_ids);
+        debug_assert!(
+            check_molid_sorted(&self.molecule_ids),
+            "Unsorted molecule ids {:?}",
+            self.molecule_ids
+        );
 
         return delta;
     }
@@ -407,7 +404,7 @@ impl Configuration {
         self.cell.angle(
             &self.particles.position[i],
             &self.particles.position[j],
-            &self.particles.position[k]
+            &self.particles.position[k],
         )
     }
 
@@ -419,11 +416,11 @@ impl Configuration {
         j: usize,
         k: usize,
     ) -> (f64, Vector3D, Vector3D, Vector3D) {
-      self.cell.angle_and_derivatives(
-          &self.particles.position[i],
-          &self.particles.position[j],
-          &self.particles.position[k]
-      )
+        self.cell.angle_and_derivatives(
+            &self.particles.position[i],
+            &self.particles.position[j],
+            &self.particles.position[k],
+        )
     }
 
     /// Get the dihedral angle between the particles `i`, `j`, `k` and `m`
@@ -432,7 +429,7 @@ impl Configuration {
             &self.particles.position[i],
             &self.particles.position[j],
             &self.particles.position[k],
-            &self.particles.position[m]
+            &self.particles.position[m],
         )
     }
 
@@ -449,7 +446,7 @@ impl Configuration {
             &self.particles.position[i],
             &self.particles.position[j],
             &self.particles.position[k],
-            &self.particles.position[m]
+            &self.particles.position[m],
         )
     }
 }
@@ -459,7 +456,7 @@ pub struct MoleculeIter<'a> {
     bondings: ::std::slice::Iter<'a, Bonding>,
     ptr: ParticlePtr,
     end: ParticlePtr,
-    _marker: PhantomData<ParticleSlice<'a>>
+    _marker: PhantomData<ParticleSlice<'a>>,
 }
 
 unsafe impl<'a> Send for MoleculeIter<'a> {}
@@ -520,7 +517,7 @@ pub struct MoleculeIterMut<'a> {
     bondings: ::std::slice::Iter<'a, Bonding>,
     ptr: ParticlePtrMut,
     end: ParticlePtrMut,
-    _marker: PhantomData<ParticleSliceMut<'a>>
+    _marker: PhantomData<ParticleSliceMut<'a>>,
 }
 
 unsafe impl<'a> Send for MoleculeIterMut<'a> {}
@@ -576,13 +573,12 @@ impl<'a> DoubleEndedIterator for MoleculeIterMut<'a> {
     }
 }
 
-
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::Vector3D;
-    use crate::{Angle, Bond, Dihedral, Particle, Molecule};
     use crate::BondPath;
+    use crate::Vector3D;
+    use crate::{Angle, Bond, Dihedral, Molecule, Particle};
 
     use lazy_static::lazy_static;
 
@@ -785,12 +781,25 @@ mod tests {
         configuration.add_molecule(Molecule::new(particle("H")));
         configuration.add_molecule(Molecule::new(particle("H")));
 
-        assert_eq!(configuration.add_bond(0, 3), vec![Permutation::new(3, 1), Permutation::new(1, 2), Permutation::new(2, 3)]);
-        assert_eq!(configuration.add_bond(0, 3), vec![Permutation::new(3, 2), Permutation::new(2, 3)]);
+        assert_eq!(
+            configuration.add_bond(0, 3),
+            vec![
+                Permutation::new(3, 1),
+                Permutation::new(1, 2),
+                Permutation::new(2, 3)
+            ]
+        );
+        assert_eq!(
+            configuration.add_bond(0, 3),
+            vec![Permutation::new(3, 2), Permutation::new(2, 3)]
+        );
         assert_eq!(configuration.add_bond(0, 3), vec![]);
 
         assert_eq!(configuration.add_bond(4, 5), vec![]);
-        assert_eq!(configuration.add_bond(4, 7), vec![Permutation::new(7, 6), Permutation::new(6, 7)]);
+        assert_eq!(
+            configuration.add_bond(4, 7),
+            vec![Permutation::new(7, 6), Permutation::new(6, 7)]
+        );
         assert_eq!(configuration.add_bond(4, 7), vec![]);
 
         // This is a regression test for issue #76
@@ -799,7 +808,10 @@ mod tests {
         configuration.add_molecule(Molecule::new(particle("H")));
         configuration.add_molecule(Molecule::new(particle("O")));
 
-        assert_eq!(configuration.add_bond(0, 2), vec![Permutation::new(2, 1), Permutation::new(1, 2)]);
+        assert_eq!(
+            configuration.add_bond(0, 2),
+            vec![Permutation::new(2, 1), Permutation::new(1, 2)]
+        );
         assert_eq!(configuration.add_bond(2, 1), vec![]);
         assert_eq!(configuration.molecules().count(), 1);
     }
@@ -856,19 +868,10 @@ mod tests {
 
         assert_eq!(configuration.molecules().count(), 5);
         // The helium particles
-        assert_eq!(
-            configuration.molecule(0).hash(),
-            configuration.molecule(3).hash()
-        );
+        assert_eq!(configuration.molecule(0).hash(), configuration.molecule(3).hash());
 
         // The water molecules
-        assert_eq!(
-            configuration.molecule(1).hash(),
-            configuration.molecule(2).hash()
-        );
-        assert_ne!(
-            configuration.molecule(1).hash(),
-            configuration.molecule(4).hash()
-        );
+        assert_eq!(configuration.molecule(1).hash(), configuration.molecule(2).hash());
+        assert_ne!(configuration.molecule(1).hash(), configuration.molecule(4).hash());
     }
 }

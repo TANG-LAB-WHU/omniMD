@@ -1,12 +1,12 @@
-﻿// Lumol, an extensible molecular simulation engine
+// Lumol, an extensible molecular simulation engine
 // Copyright (C) Lumol's contributors — BSD license
 
 use std::path::Path;
 
 use super::Output;
 
-use omnimd_core::{OpenMode, Trajectory, TrajectoryBuilder, TrajectoryError};
 use omnimd_core::System;
+use omnimd_core::{OpenMode, Trajectory, TrajectoryBuilder, TrajectoryError};
 
 /// The `TrajectoryOutput` allows to write the trajectory of the system to a
 /// file, using any format supported by the [Chemfiles][chemfiles] library.
@@ -29,7 +29,7 @@ impl TrajectoryOutput {
     {
         let builder = TrajectoryBuilder::new().mode(OpenMode::Write);
         Ok(TrajectoryOutput {
-            file: builder.open(path)?
+            file: builder.open(path)?,
         })
     }
 
@@ -46,7 +46,7 @@ impl TrajectoryOutput {
     {
         let builder = TrajectoryBuilder::new().mode(OpenMode::Write).format(format);
         Ok(TrajectoryOutput {
-            file: builder.open(path)?
+            file: builder.open(path)?,
         })
     }
 }
@@ -64,8 +64,8 @@ impl Output for TrajectoryOutput {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use super::super::tests::test_output;
+    use super::*;
 
     #[test]
     fn cell() {
@@ -79,4 +79,3 @@ mod tests {
         );
     }
 }
-

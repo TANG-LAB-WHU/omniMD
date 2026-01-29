@@ -1,18 +1,17 @@
-﻿// Lumol, an extensible molecular simulation engine
+// Lumol, an extensible molecular simulation engine
 // Copyright (C) Lumol's contributors — BSD license
 
 //! Monte Carlo simulation of a Xenon crystal melt.
 use omnimd::energy::{LennardJones, PairInteraction};
-use omnimd::{TrajectoryBuilder, UnitCell};
 use omnimd::units;
+use omnimd::{TrajectoryBuilder, UnitCell};
 
+use omnimd::sim::mc::{MonteCarloBuilder, Translate};
 use omnimd::sim::output::TrajectoryOutput;
 use omnimd::sim::Simulation;
-use omnimd::sim::mc::{MonteCarloBuilder, Translate};
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let mut system = TrajectoryBuilder::new().open("data/xenon.xyz")?
-                                             .read()?;
+    let mut system = TrajectoryBuilder::new().open("data/xenon.xyz")?.read()?;
     system.cell = UnitCell::cubic(units::from(21.65, "A")?);
 
     let lj = Box::new(LennardJones {
@@ -37,4 +36,3 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     Ok(())
 }
-

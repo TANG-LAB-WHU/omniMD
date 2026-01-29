@@ -1,14 +1,14 @@
-﻿// Lumol, an extensible molecular simulation engine
+// Lumol, an extensible molecular simulation engine
 // Copyright (C) Lumol's contributors — BSD license
 #![allow(clippy::wildcard_imports)]
 
 use toml::value::Table;
 
-use omnimd_sim::min::*;
 use omnimd_core::units;
+use omnimd_sim::min::*;
 
-use crate::{FromToml, Error};
 use crate::extract;
+use crate::{Error, FromToml};
 
 impl FromToml for Minimization {
     fn from_toml(config: &Table) -> Result<Minimization, Error> {
@@ -20,9 +20,9 @@ impl FromToml for Minimization {
         };
 
         let tolerance = if let Some(tolerance) = config.get("tolerance") {
-            let tolerance = tolerance.as_table().ok_or(
-                Error::from("'tolerance' must be a table in minimization propagator")
-            )?;
+            let tolerance = tolerance
+                .as_table()
+                .ok_or(Error::from("'tolerance' must be a table in minimization propagator"))?;
             Tolerance::from_toml(tolerance)?
         } else {
             Tolerance {
@@ -46,10 +46,8 @@ impl FromToml for Tolerance {
     }
 }
 
-
 impl FromToml for SteepestDescent {
     fn from_toml(_: &Table) -> Result<SteepestDescent, Error> {
         Ok(SteepestDescent::new())
     }
 }
-

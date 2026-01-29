@@ -1,4 +1,4 @@
-﻿// Lumol, an extensible molecular simulation engine
+// Lumol, an extensible molecular simulation engine
 // Copyright (C) Lumol's contributors — BSD license
 
 //! Testing physical properties of a Lennard-Jones gaz of Helium using
@@ -12,15 +12,15 @@ use std::path::Path;
 use std::sync::Once;
 static START: Once = Once::new();
 
-
 #[test]
 fn perfect_gas() {
     START.call_once(::env_logger::init);
-    let path = Path::new(file!()).parent()
-                                 .unwrap()
-                                 .join("data")
-                                 .join("mc-helium")
-                                 .join("nvt.toml");
+    let path = Path::new(file!())
+        .parent()
+        .unwrap()
+        .join("data")
+        .join("mc-helium")
+        .join("nvt.toml");
 
     let mut config = Input::new(path).unwrap().read().unwrap();
     config.simulation.run(&mut config.system, config.nsteps);
@@ -33,4 +33,3 @@ fn perfect_gas() {
     let msg = format!("{} {}", f64::abs(pv - nkt), f64::abs(pv - nkt) / pv);
     assert!(f64::abs(pv - nkt) / pv < 2e-2, "{}", msg);
 }
-

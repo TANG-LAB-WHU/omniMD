@@ -1,4 +1,4 @@
-﻿// Lumol, an extensible molecular simulation engine
+// Lumol, an extensible molecular simulation engine
 // Copyright (C) Lumol's contributors — BSD license
 use toml::de::from_str as parse_toml;
 use toml::value::Table;
@@ -7,21 +7,21 @@ use std::fs::File;
 use std::io::prelude::*;
 use std::path::{Path, PathBuf};
 
-use omnimd_sim::Simulation;
 use omnimd_core::System;
+use omnimd_sim::Simulation;
 
-use crate::Error;
 use crate::validate;
+use crate::Error;
 
 mod logging;
-mod system;
+mod mc;
+mod md;
+mod min;
 mod outputs;
 mod propagator;
 #[allow(clippy::module_inception)]
 mod simulations;
-mod min;
-mod md;
-mod mc;
+mod system;
 
 pub use self::logging::setup_default_logger;
 
@@ -57,7 +57,7 @@ impl Input {
 
     /// Read the `Input` from a TOML formatted string.
     pub fn from_str(path: PathBuf, string: &str) -> Result<Input, Error> {
-        let config = parse_toml(string).map_err(|err| { Error::TOML(Box::new(err)) })?;
+        let config = parse_toml(string).map_err(|err| Error::TOML(Box::new(err)))?;
         validate(&config)?;
         Ok(Input {
             path: path,
@@ -89,4 +89,3 @@ fn get_input_path<P1: AsRef<Path>, P2: AsRef<Path>>(root: P1, path: P2) -> PathB
         parent.join(path)
     }
 }
-

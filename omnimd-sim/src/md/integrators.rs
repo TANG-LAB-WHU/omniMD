@@ -1,8 +1,8 @@
-﻿// Lumol, an extensible molecular simulation engine
+// Lumol, an extensible molecular simulation engine
 // Copyright (C) Lumol's contributors — BSD license
 use soa_derive::soa_zip;
 
-use omnimd_core::{System, Matrix3, Vector3D};
+use omnimd_core::{Matrix3, System, Vector3D};
 
 /// The `Integrator` trait define integrator interface for molecular dynamics.
 /// An integrator is an algorithm responsible for propagating the equations of
@@ -45,25 +45,25 @@ impl Integrator for VelocityVerlet {
         let dt = self.timestep;
 
         // Update velocities at t + ∆t/2 and positions at t + ∆t
-        for (position, velocity, acceleration) in soa_zip!(
-            system.particles_mut(), [mut position, mut velocity], &self.accelerations
-        ) {
+        for (position, velocity, acceleration) in
+            soa_zip!(system.particles_mut(), [mut position, mut velocity], &self.accelerations)
+        {
             *velocity += 0.5 * dt * acceleration;
             *position += velocity * dt;
         }
 
         let forces = system.forces();
         // Update accelerations at t + ∆t
-        for (&mass, acceleration, force) in soa_zip!(
-            system.particles(), [mass], &mut self.accelerations, forces
-        ) {
+        for (&mass, acceleration, force) in
+            soa_zip!(system.particles(), [mass], &mut self.accelerations, forces)
+        {
             *acceleration = force / mass;
         }
 
         // Update velocities at t + ∆t
-        for (velocity, acceleration) in soa_zip!(
-            system.particles_mut(), [mut velocity], &self.accelerations
-        ) {
+        for (velocity, acceleration) in
+            soa_zip!(system.particles_mut(), [mut velocity], &self.accelerations)
+        {
             *velocity += 0.5 * dt * acceleration;
         }
     }
@@ -95,9 +95,9 @@ impl Integrator for Verlet {
 
         let dt = self.timestep;
         // Approximate the positions at t - ∆t
-        for (position, velocity, prevpos) in soa_zip!(
-            system.particles(), [position, velocity], &mut self.prevpos
-        ) {
+        for (position, velocity, prevpos) in
+            soa_zip!(system.particles(), [position, velocity], &mut self.prevpos)
+        {
             *prevpos = position - velocity * dt;
         }
     }
@@ -108,7 +108,10 @@ impl Integrator for Verlet {
         let dt2 = dt * dt;
 
         for (position, velocity, mass, prevpos, force) in soa_zip!(
-            system.particles_mut(), [mut position, mut velocity, mass], &mut self.prevpos, forces
+            system.particles_mut(),
+            [mut position, mut velocity, mass],
+            &mut self.prevpos,
+            forces
         ) {
             // Save positions at t
             let tmp = *position;
@@ -151,16 +154,16 @@ impl Integrator for LeapFrog {
         let dt = self.timestep;
         let dt2 = dt * dt;
 
-        for (position, velocity, acceleration) in soa_zip!(
-            system.particles_mut(), [mut position, velocity], &self.accelerations
-        ) {
+        for (position, velocity, acceleration) in
+            soa_zip!(system.particles_mut(), [mut position, velocity], &self.accelerations)
+        {
             *position += velocity * dt + 0.5 * acceleration * dt2;
         }
 
         let forces = system.forces();
-        for (velocity, &mass, acceleration, force) in soa_zip!(
-            system.particles_mut(), [mut velocity, mass], &mut self.accelerations, &forces
-        ) {
+        for (velocity, &mass, acceleration, force) in
+            soa_zip!(system.particles_mut(), [mut velocity, mass], &mut self.accelerations, &forces)
+        {
             let new_acceleration = force / mass;
             *velocity += 0.5 * ((*acceleration) + new_acceleration) * dt;
             *acceleration = new_acceleration;
@@ -213,9 +216,9 @@ impl Integrator for BerendsenBarostat {
         let dt = self.timestep;
 
         // Update velocities at t + ∆t/2 and positions at t + ∆t
-        for (position, velocity, acceleration) in soa_zip!(
-            system.particles_mut(), [mut position, mut velocity], &self.accelerations
-        ) {
+        for (position, velocity, acceleration) in
+            soa_zip!(system.particles_mut(), [mut position, mut velocity], &self.accelerations)
+        {
             *velocity += 0.5 * dt * acceleration;
             // Scale all positions
             *position *= self.eta;
@@ -240,9 +243,9 @@ impl Integrator for BerendsenBarostat {
 
         let forces = system.forces();
         // Update accelerations at t + ∆t and velocities at t + ∆t
-        for (velocity, &mass, acceleration, force) in soa_zip!(
-            system.particles_mut(), [mut velocity, mass], &mut self.accelerations, &forces
-        ) {
+        for (velocity, &mass, acceleration, force) in
+            soa_zip!(system.particles_mut(), [mut velocity, mass], &mut self.accelerations, &forces)
+        {
             *acceleration = force / mass;
             *velocity += 0.5 * dt * acceleration;
         }
@@ -297,9 +300,9 @@ impl Integrator for AnisoBerendsenBarostat {
         let dt = self.timestep;
 
         // Update velocities at t + ∆t/2 and positions at t + ∆t
-        for (position, velocity, acceleration) in soa_zip!(
-            system.particles_mut(), [mut position, mut velocity], &self.accelerations
-        ) {
+        for (position, velocity, acceleration) in
+            soa_zip!(system.particles_mut(), [mut position, mut velocity], &self.accelerations)
+        {
             *velocity += 0.5 * dt * acceleration;
             // Scale all positions
             *position = self.eta * (*position);
@@ -332,12 +335,11 @@ impl Integrator for AnisoBerendsenBarostat {
 
         let forces = system.forces();
         // Update accelerations at t + ∆t and velocities at t + ∆t
-        for (velocity, &mass, acceleration, force) in soa_zip!(
-            system.particles_mut(), [mut velocity, mass], &mut self.accelerations, &forces
-        ) {
+        for (velocity, &mass, acceleration, force) in
+            soa_zip!(system.particles_mut(), [mut velocity, mass], &mut self.accelerations, &forces)
+        {
             *acceleration = force / mass;
             *velocity += 0.5 * dt * acceleration;
         }
     }
 }
-

@@ -1,4 +1,4 @@
-﻿// Lumol, an extensible molecular simulation engine
+// Lumol, an extensible molecular simulation engine
 // Copyright (C) Lumol's contributors — BSD license
 
 //! Utilities to test the output algorithms
@@ -13,8 +13,8 @@ use std::path::Path;
 
 use super::Output;
 use omnimd_core::energy::{Harmonic, PairInteraction};
-use omnimd_core::{System, Molecule, Particle, UnitCell};
 use omnimd_core::units;
+use omnimd_core::{Molecule, Particle, System, UnitCell};
 
 pub fn test_output<F>(function: F, expected: &str)
 where
@@ -58,4 +58,3 @@ fn check_file_content(mut file: File, content: &str) {
         assert_eq!(l1, l2.trim_start());
     }
 }
-

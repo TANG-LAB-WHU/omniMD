@@ -120,9 +120,7 @@ impl EnergyCache {
         if let Some(updater) = updater {
             updater(self, system);
         } else {
-            panic!(
-                "called EnergyCache::update without call a `*_cost` function first"
-            );
+            panic!("called EnergyCache::update without call a `*_cost` function first");
         }
     }
 
@@ -158,7 +156,9 @@ impl EnergyCache {
         // Iterate over all interactions between a particle in the moved
         // molecule and a particle in another molecule
         for (i, part_i) in molecule.indexes().enumerate() {
-            for (_, other_molecule) in system.molecules().enumerate().filter(|(id, _)| molecule_id != *id) {
+            for (_, other_molecule) in
+                system.molecules().enumerate().filter(|(id, _)| molecule_id != *id)
+            {
                 for part_j in other_molecule.indexes() {
                     let r = system.cell.distance(&positions[part_j], &new_positions[i]);
                     let path = system.bond_path(part_i, part_j);
@@ -177,7 +177,8 @@ impl EnergyCache {
 
         // Bonds / Angles / Dihedrals terms do not change
 
-        let coulomb_delta = system.coulomb_potential()
+        let coulomb_delta = system
+            .coulomb_potential()
             .map_or(0.0, |coulomb| coulomb.move_molecule_cost(system, molecule_id, new_positions));
 
         let mut global_delta = 0.0;
@@ -265,7 +266,9 @@ impl EnergyCache {
         // compute the new tail correction
         let pairs_tail = evaluator.pairs_tail();
 
-        let cost = pairs_delta + (pairs_tail - self.pairs_tail) + (new_coulomb - self.coulomb)
+        let cost = pairs_delta
+            + (pairs_tail - self.pairs_tail)
+            + (new_coulomb - self.coulomb)
             + (new_global - self.global);
 
         self.updater = Some(Box::new(move |cache, system| {
@@ -295,14 +298,14 @@ impl EnergyCache {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{Harmonic, LennardJones, NullPotential, Wolf};
+    use crate::units;
+    use crate::utils::system_from_xyz;
     use crate::PairInteraction;
     use crate::System;
     use crate::Vector3D;
-    use crate::utils::system_from_xyz;
-    use crate::units;
+    use crate::{Harmonic, LennardJones, NullPotential, Wolf};
 
-    use approx::{assert_ulps_eq, assert_relative_eq};
+    use approx::{assert_relative_eq, assert_ulps_eq};
 
     fn testing_system() -> System {
         let mut system = system_from_xyz(

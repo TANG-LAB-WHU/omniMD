@@ -1,17 +1,17 @@
-﻿// Lumol, an extensible molecular simulation engine
+// Lumol, an extensible molecular simulation engine
 // Copyright (C) Lumol's contributors — BSD license
 
 #![allow(clippy::wildcard_imports)]
 
-use toml::value::Table;
 use log::warn;
+use toml::value::Table;
 
-use omnimd_core::units;
 use omnimd_core::energy::*;
+use omnimd_core::units;
 use omnimd_core::Configuration;
 
-use crate::{Error, FromToml, FromTomlWithData, FromTomlWithRefData};
 use crate::extract;
+use crate::{Error, FromToml, FromTomlWithData, FromTomlWithRefData};
 
 impl FromToml for NullPotential {
     fn from_toml(_: &Table) -> Result<NullPotential, Error> {
@@ -52,12 +52,7 @@ impl FromToml for Mie {
             warn!("'m' is smaller than 3. Tail corrections for Mie potential are set to zero.");
         };
 
-        Ok(Mie::new(
-                units::from_str(sigma)?,
-                units::from_str(epsilon)?,
-                n as f64,
-                m as f64)
-        )
+        Ok(Mie::new(units::from_str(sigma)?, units::from_str(epsilon)?, n as f64, m as f64))
     }
 }
 
@@ -143,10 +138,13 @@ impl FromToml for Gaussian {
 impl FromTomlWithData for TableComputation {
     type Data = Box<dyn PairPotential>;
 
-    fn from_toml(table: &Table, potential: Box<dyn PairPotential>) -> Result<TableComputation, Error> {
-        let table = table["table"].as_table().ok_or(
-            Error::from("'table' key in computation must be a TOML table")
-        )?;
+    fn from_toml(
+        table: &Table,
+        potential: Box<dyn PairPotential>,
+    ) -> Result<TableComputation, Error> {
+        let table = table["table"]
+            .as_table()
+            .ok_or(Error::from("'table' key in computation must be a TOML table"))?;
 
         let n = extract::uint("n", table, "table computation")?;
         let max = extract::str("max", table, "table computation")?;
@@ -172,7 +170,7 @@ impl FromTomlWithRefData for Ewald {
         if table.contains_key("accuracy") {
             if table.contains_key("kmax") || table.contains_key("alpha") {
                 return Err(Error::from(
-                    "can not have both accuracy and kmax/alpha in Ewald coulombic potential"
+                    "can not have both accuracy and kmax/alpha in Ewald coulombic potential",
                 ));
             }
             let accuracy = extract::number("accuracy", table, "Ewald coulombic potential")?;
@@ -190,4 +188,3 @@ impl FromTomlWithRefData for Ewald {
         Ok(Ewald::new(cutoff, kmax as usize, alpha))
     }
 }
-

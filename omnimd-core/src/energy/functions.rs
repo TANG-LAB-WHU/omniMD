@@ -1,8 +1,8 @@
-﻿// Lumol, an extensible molecular simulation engine
+// Lumol, an extensible molecular simulation engine
 // Copyright (C) Lumol's contributors — BSD license
 
-use crate::{AnglePotential, BondPotential, DihedralPotential, PairPotential};
 use crate::Potential;
+use crate::{AnglePotential, BondPotential, DihedralPotential, PairPotential};
 
 use crate::math::erfc;
 
@@ -312,12 +312,13 @@ impl PairPotential for Buckingham {
         let rc2 = rc * rc;
         let rc3 = rc2 * rc;
         let exp = f64::exp(-rc / self.rho);
-        let factor = rc3 + 3.0 * rc2 * self.rho + 6.0 * rc * self.rho * self.rho +
-                     6.0 * self.rho * self.rho * self.rho;
+        let factor = rc3
+            + 3.0 * rc2 * self.rho
+            + 6.0 * rc * self.rho * self.rho
+            + 6.0 * self.rho * self.rho * self.rho;
         self.a * exp * factor - 20.0 * self.c / rc3 + 8.0
     }
 }
-
 
 /// Born-Mayer-Huggins potential.
 ///
@@ -379,8 +380,10 @@ impl PairPotential for BornMayerHuggins {
         let rc2 = rc * rc;
         let rc3 = rc2 * rc;
         let exp = f64::exp((self.sigma - rc) / self.rho);
-        let factor = rc3 + 3.0 * rc2 * self.rho + 6.0 * rc * self.rho * self.rho +
-                     6.0 * self.rho * self.rho * self.rho;
+        let factor = rc3
+            + 3.0 * rc2 * self.rho
+            + 6.0 * rc * self.rho * self.rho
+            + 6.0 * self.rho * self.rho * self.rho;
         self.a * exp * factor - 20.0 * self.c / rc3 + 8.0 * self.d / (5.0 * rc2 * rc3)
     }
 }
@@ -483,13 +486,13 @@ impl Potential for Gaussian {
 
 impl PairPotential for Gaussian {
     fn tail_energy(&self, rc: f64) -> f64 {
-        self.energy(rc) * rc / (2.0 * self.b) -
-        self.a * f64::sqrt(PI) * erfc(f64::sqrt(self.b) * rc) / (4.0 * self.b.powf(3.0 / 2.0))
+        self.energy(rc) * rc / (2.0 * self.b)
+            - self.a * f64::sqrt(PI) * erfc(f64::sqrt(self.b) * rc) / (4.0 * self.b.powf(3.0 / 2.0))
     }
 
     fn tail_virial(&self, rc: f64) -> f64 {
-        3.0 * f64::sqrt(PI) * self.a * erfc(f64::sqrt(self.b) * rc) / (4.0 * self.b.powf(3.0 / 2.0)) -
-        self.energy(rc) * rc * (2.0 * self.b * rc * rc + 3.0) / (2.0 * self.b)
+        3.0 * f64::sqrt(PI) * self.a * erfc(f64::sqrt(self.b) * rc) / (4.0 * self.b.powf(3.0 / 2.0))
+            - self.energy(rc) * rc * (2.0 * self.b * rc * rc + 3.0) / (2.0 * self.b)
     }
 }
 
@@ -538,7 +541,10 @@ pub struct Mie {
 impl Mie {
     /// Return Mie potential.
     pub fn new(sigma: f64, epsilon: f64, n: f64, m: f64) -> Mie {
-        assert!(m < n, "The repulsive exponent n has to be larger than the attractive exponent m");
+        assert!(
+            m < n,
+            "The repulsive exponent n has to be larger than the attractive exponent m"
+        );
         let prefac = n / (n - m) * (n / m).powf(m / (n - m)) * epsilon;
         Mie {
             sigma: sigma,
@@ -568,7 +574,7 @@ impl Potential for Mie {
 impl PairPotential for Mie {
     fn tail_energy(&self, cutoff: f64) -> f64 {
         if self.m <= 3.0 {
-            return 0.0
+            return 0.0;
         };
         let sigma_rc = self.sigma / cutoff;
         let n_3 = self.n - 3.0;
@@ -580,7 +586,7 @@ impl PairPotential for Mie {
 
     fn tail_virial(&self, cutoff: f64) -> f64 {
         if self.m <= 3.0 {
-            return 0.0
+            return 0.0;
         };
         let sigma_rc = self.sigma / cutoff;
         let n_3 = self.n - 3.0;
@@ -591,13 +597,12 @@ impl PairPotential for Mie {
     }
 }
 
-
 #[cfg(test)]
 #[allow(clippy::unreadable_literal)]
 mod tests {
     use super::*;
     use crate::{PairPotential, Potential};
-    use approx::{assert_ulps_eq, assert_relative_eq};
+    use approx::{assert_relative_eq, assert_ulps_eq};
 
     const EPS: f64 = 1e-9;
 
@@ -800,7 +805,9 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(expected = "The repulsive exponent n has to be larger than the attractive exponent m")]
+    #[should_panic(
+        expected = "The repulsive exponent n has to be larger than the attractive exponent m"
+    )]
     fn test_mie_n_lower_m() {
         let mie = Mie::new(2.0, 0.8, 6.0, 12.0);
         assert_eq!(mie.energy(2.0), 0.0);
@@ -813,4 +820,3 @@ mod tests {
         assert_eq!(mie.tail_virial(2.0), 0.0);
     }
 }
-

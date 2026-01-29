@@ -1,12 +1,12 @@
-﻿// Lumol, an extensible molecular simulation engine
+// Lumol, an extensible molecular simulation engine
 // Copyright (C) Lumol's contributors — BSD license
 
 //! Global potential are potentials acting on the whole system at once
 //!
 //! They can be coulombic potentials, or external provided potential function
 //! for example.
-use crate::PairRestriction;
 use crate::Configuration;
+use crate::PairRestriction;
 use crate::{Matrix3, Vector3D};
 
 /// A potential acting on the whole [System][System] at once.
@@ -211,4 +211,3 @@ pub use self::ewald::{Ewald, SharedEwald};
 
 mod torch_potential;
 pub use self::torch_potential::TorchPotential;
-

@@ -5,9 +5,8 @@ use std::collections::HashSet;
 use std::hash::{Hash, Hasher};
 use std::ops::Range;
 
-use crate::{Angle, Bond, BondDistances, Dihedral};
 use crate::Array2;
-
+use crate::{Angle, Bond, BondDistances, Dihedral};
 
 /// The basic building block for a topology. A `Bonding` contains data about
 /// the connectivity (bonds, angles, dihedrals) between particles in a single
@@ -63,7 +62,9 @@ impl Bonding {
 
     /// Hash the bonds in this molecule
     pub(crate) fn hash<H: Hasher + Sized>(&self, hasher: &mut H) {
-        let mut bonds = self.bonds.iter()
+        let mut bonds = self
+            .bonds
+            .iter()
             .map(|bond| Bond::new(bond.i() - self.start(), bond.j() - self.start()))
             .collect::<Vec<_>>();
 
@@ -191,9 +192,8 @@ impl Bonding {
 
         let mut new_bonds = HashSet::new();
         for bond in &self.bonds {
-            let _ = new_bonds.insert(
-                Bond::new(bond.i().wrapping_add(delta), bond.j().wrapping_add(delta)),
-            );
+            let _ = new_bonds
+                .insert(Bond::new(bond.i().wrapping_add(delta), bond.j().wrapping_add(delta)));
         }
         self.bonds = new_bonds;
 

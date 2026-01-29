@@ -1,4 +1,4 @@
-﻿// Lumol, an extensible molecular simulation engine
+// Lumol, an extensible molecular simulation engine
 // Copyright (C) Lumol's contributors — BSD license
 
 //! Complex type
@@ -329,8 +329,8 @@ impl One for Complex {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::f64::consts;
     use approx::assert_ulps_eq;
+    use std::f64::consts;
 
     #[test]
     fn norm() {
@@ -494,4 +494,3 @@ mod tests {
         assert_eq!(a, c);
     }
 }
-

@@ -1,4 +1,4 @@
-﻿// Lumol, an extensible molecular simulation engine
+// Lumol, an extensible molecular simulation engine
 // Copyright (C) Lumol's contributors — BSD license
 
 //! Encoding restrictions in interactions.
@@ -93,8 +93,10 @@ impl PairRestriction {
                 path == BondPath::OneBond || path == BondPath::TwoBonds
             }
             PairRestriction::Exclude14 => {
-                path == BondPath::OneBond || path == BondPath::TwoBonds || path == BondPath::ThreeBonds
-            },
+                path == BondPath::OneBond
+                    || path == BondPath::TwoBonds
+                    || path == BondPath::ThreeBonds
+            }
         };
 
         let scaling = if let PairRestriction::Scale14(scaling) = *self {
@@ -113,7 +115,6 @@ impl PairRestriction {
         }
     }
 }
-
 
 #[cfg(test)]
 mod tests {
@@ -294,4 +295,3 @@ mod tests {
         assert!(!restriction.information(system.bond_path(8, 2)).excluded);
     }
 }
-

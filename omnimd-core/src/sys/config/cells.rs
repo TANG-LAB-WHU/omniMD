@@ -358,7 +358,6 @@ impl UnitCell {
         return (f64::acos(cos), d1, d2, d3);
     }
 
-
     /// Get the dihedral angle formed by the points at `r1`, `r2`, `r3`, and `r4` using
     /// periodic boundary conditions.
     pub fn dihedral(&self, r1: &Vector3D, r2: &Vector3D, r3: &Vector3D, r4: &Vector3D) -> f64 {
@@ -398,7 +397,7 @@ impl UnitCell {
         let r23_norm = f64::sqrt(r23_norm2);
 
         let d1 = (-r23_norm / u_norm2) * u;
-        let d4 = ( r23_norm / v_norm2) * v;
+        let d4 = (r23_norm / v_norm2) * v;
 
         let r23_r34 = r23 * r34;
         let r12_r23 = r12 * r23;
@@ -422,26 +421,26 @@ fn angle(u: Vector3D, v: Vector3D) -> f64 {
 #[allow(clippy::unreadable_literal)]
 mod tests {
     use super::*;
+    use crate::Matrix3;
     use std::f64;
     use std::f64::consts::PI;
-    use crate::Matrix3;
 
-    use approx::{assert_ulps_eq, assert_relative_eq};
+    use approx::{assert_relative_eq, assert_ulps_eq};
 
     #[test]
-    #[should_panic(expected="Cell lengths must be positive")]
+    #[should_panic(expected = "Cell lengths must be positive")]
     fn negative_cubic() {
         let _ = UnitCell::cubic(-4.0);
     }
 
     #[test]
-    #[should_panic(expected="Cell lengths must be positive")]
+    #[should_panic(expected = "Cell lengths must be positive")]
     fn negative_ortho() {
         let _ = UnitCell::ortho(3.0, 0.0, -5.0);
     }
 
     #[test]
-    #[should_panic(expected="Cell lengths must be positive")]
+    #[should_panic(expected = "Cell lengths must be positive")]
     fn negative_triclinic() {
         let _ = UnitCell::triclinic(3.0, 0.0, -5.0, 90.0, 90.0, 90.0);
     }
@@ -538,7 +537,10 @@ mod tests {
         assert_eq!(triclinic.lengths(), Vector3D::new(3.0, 4.0, 5.0));
 
         let triclinic = UnitCell::triclinic(3.0, 4.0, 5.0, 90.0, 80.0, 100.0);
-        assert_eq!(triclinic.lengths(), Vector3D::new(2.908132319388713, 3.9373265973230853, 4.921658246653857));
+        assert_eq!(
+            triclinic.lengths(),
+            Vector3D::new(2.908132319388713, 3.9373265973230853, 4.921658246653857)
+        );
     }
 
     #[test]
@@ -552,7 +554,7 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(expected="can not scale infinite cells")]
+    #[should_panic(expected = "can not scale infinite cells")]
     fn scale_infinite() {
         let cell = UnitCell::infinite();
         let _ = cell.scale(2.0 * Matrix3::one());
@@ -569,7 +571,7 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(expected="can not scale infinite cells")]
+    #[should_panic(expected = "can not scale infinite cells")]
     fn scale_mut_infinite() {
         let mut cell = UnitCell::infinite();
         cell.scale_mut(2.0 * Matrix3::one());
@@ -581,20 +583,18 @@ mod tests {
         let two_pi_vol = 2.0 * PI / cell.volume();
         let kvec = cell.k_vector([1.0, 1.0, 1.0]);
 
-        assert_eq!(kvec, Vector3D::new(
-            4.0 * 5.0 * two_pi_vol,
-            3.0 * 5.0 * two_pi_vol,
-            3.0 * 4.0 * two_pi_vol,
-        ));
+        assert_eq!(
+            kvec,
+            Vector3D::new(4.0 * 5.0 * two_pi_vol, 3.0 * 5.0 * two_pi_vol, 3.0 * 4.0 * two_pi_vol,)
+        );
 
         let cell = UnitCell::triclinic(3.0, 4.0, 5.0, 90.0, 90.0, 90.0);
         let kvec = cell.k_vector([1.0, 1.0, 1.0]);
 
-        assert_ulps_eq!(kvec, Vector3D::new(
-            4.0 * 5.0 * two_pi_vol,
-            3.0 * 5.0 * two_pi_vol,
-            3.0 * 4.0 * two_pi_vol,
-        ));
+        assert_ulps_eq!(
+            kvec,
+            Vector3D::new(4.0 * 5.0 * two_pi_vol, 3.0 * 5.0 * two_pi_vol, 3.0 * 4.0 * two_pi_vol,)
+        );
 
         let cell = UnitCell::infinite();
         let kvec = cell.k_vector([1.0, 1.0, 1.0]);

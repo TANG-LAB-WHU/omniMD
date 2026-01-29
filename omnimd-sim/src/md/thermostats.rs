@@ -1,11 +1,11 @@
-﻿// Lumol, an extensible molecular simulation engine
+// Lumol, an extensible molecular simulation engine
 // Copyright (C) Lumol's contributors — BSD license
 
-use omnimd_core::System;
 use omnimd_core::consts::K_BOLTZMANN;
+use omnimd_core::System;
 
 use rand::{self, SeedableRng};
-use rand_distr::{Distribution, Normal, Gamma};
+use rand_distr::{Distribution, Gamma, Normal};
 
 use crate::velocities;
 
@@ -22,7 +22,6 @@ pub trait Thermostat {
     /// Function called once at the end of the simulation.
     fn finish(&mut self, _: &System) {}
 }
-
 
 /// Velocity rescaling thermostat.
 ///
@@ -147,10 +146,10 @@ impl CSVRThermostat {
     /// timestep of `tau` times the integrator timestep.
     pub fn new(temperature: f64, tau: f64) -> CSVRThermostat {
         let rng = Box::new(rand_xorshift::XorShiftRng::from_seed([
-            0xeb, 0xa8, 0xe4, 0x29, 0xca, 0x60, 0x44, 0xb0,
-            0xd3, 0x77, 0xc6, 0xa0, 0x21, 0x71, 0x37, 0xf7,
+            0xeb, 0xa8, 0xe4, 0x29, 0xca, 0x60, 0x44, 0xb0, 0xd3, 0x77, 0xc6, 0xa0, 0x21, 0x71,
+            0x37, 0xf7,
         ]));
-        return CSVRThermostat::from_rng(temperature, tau, rng)
+        return CSVRThermostat::from_rng(temperature, tau, rng);
     }
 
     /// Create a new `CSVRThermostat` enforcing the given `temperature`, with a
@@ -196,13 +195,14 @@ impl Thermostat for CSVRThermostat {
     fn apply(&mut self, system: &mut System) {
         let kinetic = system.kinetic_energy();
         let kinetic_factor = self.target_kinetic_per_dof / kinetic;
-        let exp_1 = f64::exp(-1.0/self.tau);
+        let exp_1 = f64::exp(-1.0 / self.tau);
         let exp_2 = (1.0 - exp_1) * kinetic_factor;
 
         let dof = system.degrees_of_freedom();
         let (gauss, wiener) = self.sum_noises(dof - 1);
 
-        let scale = exp_1 + exp_2 * (gauss * gauss + wiener) + 2.0 * gauss * f64::sqrt(exp_1 * exp_2);
+        let scale =
+            exp_1 + exp_2 * (gauss * gauss + wiener) + 2.0 * gauss * f64::sqrt(exp_1 * exp_2);
         let alpha = f64::sqrt(scale);
         for velocity in system.particles_mut().velocity {
             *velocity *= alpha;
@@ -217,45 +217,44 @@ mod tests {
     // The actual thermostat code is tested in lumol-sim/tests/thermostats.rs
 
     #[test]
-    #[should_panic(expected="The temperature must be positive in thermostats.")]
+    #[should_panic(expected = "The temperature must be positive in thermostats.")]
     fn negative_temperature_rescale() {
         let _ = RescaleThermostat::new(-56.0);
     }
 
     #[test]
-    #[should_panic(expected="The temperature must be positive in thermostats.")]
+    #[should_panic(expected = "The temperature must be positive in thermostats.")]
     fn negative_temperature_berendsen() {
         let _ = BerendsenThermostat::new(-56.0, 1000.0);
     }
 
     #[test]
-    #[should_panic(expected="The timestep must be larger than 1 in berendsen thermostat.")]
+    #[should_panic(expected = "The timestep must be larger than 1 in berendsen thermostat.")]
     fn negative_timestep_berendsen() {
         let _ = BerendsenThermostat::new(56.0, -2.0);
     }
 
     #[test]
-    #[should_panic(expected="The timestep must be larger than 1 in berendsen thermostat.")]
+    #[should_panic(expected = "The timestep must be larger than 1 in berendsen thermostat.")]
     fn too_small_timestep_berendsen() {
         let _ = BerendsenThermostat::new(56.0, 0.3);
     }
 
     #[test]
-    #[should_panic(expected="The temperature must be positive in thermostats.")]
+    #[should_panic(expected = "The temperature must be positive in thermostats.")]
     fn negative_temperature_csvr() {
         let _ = CSVRThermostat::new(-56.0, 1000.0);
     }
 
     #[test]
-    #[should_panic(expected="The timestep must be larger than 1 in CSVR thermostat.")]
+    #[should_panic(expected = "The timestep must be larger than 1 in CSVR thermostat.")]
     fn negative_timestep_csvr() {
         let _ = CSVRThermostat::new(56.0, -2.0);
     }
 
     #[test]
-    #[should_panic(expected="The timestep must be larger than 1 in CSVR thermostat.")]
+    #[should_panic(expected = "The timestep must be larger than 1 in CSVR thermostat.")]
     fn too_small_timestep_csvr() {
         let _ = CSVRThermostat::new(56.0, 0.3);
     }
 }
-

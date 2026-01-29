@@ -1,4 +1,4 @@
-﻿// Lumol, an extensible molecular simulation engine
+// Lumol, an extensible molecular simulation engine
 // Copyright (C) Lumol's contributors — BSD license
 #![allow(dead_code)]
 
@@ -52,4 +52,3 @@ pub fn mean(data: SharedVec) -> f64 {
     let data = data.read().unwrap();
     data.iter().sum::<f64>() / data.len() as f64
 }
-

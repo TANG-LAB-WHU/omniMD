@@ -1,10 +1,10 @@
-﻿// Lumol, an extensible molecular simulation engine
+// Lumol, an extensible molecular simulation engine
 // Copyright (C) Lumol's contributors — BSD license
 
 //! Using a custom potential in simulations
 use omnimd::energy::{PairInteraction, PairPotential, Potential};
-use omnimd::{Particle, Molecule, System, Vector3D};
 use omnimd::units;
+use omnimd::{Molecule, Particle, System, Vector3D};
 
 use omnimd::sim::{MolecularDynamics, Simulation};
 
@@ -65,4 +65,3 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     Ok(())
 }
-

@@ -1,10 +1,10 @@
-﻿// Lumol, an extensible molecular simulation engine
+// Lumol, an extensible molecular simulation engine
 // Copyright (C) Lumol's contributors — BSD license
 use omnimd_sim::Simulation;
 use toml::value::Table;
 
-use crate::{Input, Error};
 use crate::extract;
+use crate::{Error, Input};
 
 impl Input {
     /// Get the the simulation.
@@ -21,13 +21,11 @@ impl Input {
     /// Get the number of steps in the simulation.
     pub(crate) fn read_nsteps(&self) -> Result<usize, Error> {
         let simulation = self.simulation_table()?;
-        let nsteps = simulation.get("nsteps").ok_or(
-            Error::from("missing 'nsteps' key in simulation")
-        )?;
+        let nsteps = simulation
+            .get("nsteps")
+            .ok_or(Error::from("missing 'nsteps' key in simulation"))?;
 
-        let nsteps = nsteps.as_integer().ok_or(
-            Error::from("'nsteps' key must be an integer")
-        )?;
+        let nsteps = nsteps.as_integer().ok_or(Error::from("'nsteps' key must be an integer"))?;
 
         Ok(nsteps as usize)
     }
@@ -39,11 +37,9 @@ impl Input {
             return Err(Error::from("only one simulation is supported in the input"));
         }
 
-        let simulation = simulations[0].as_table().ok_or(
-            Error::from("simulations should be tables")
-        )?;
+        let simulation =
+            simulations[0].as_table().ok_or(Error::from("simulations should be tables"))?;
 
         return Ok(simulation);
     }
 }
-

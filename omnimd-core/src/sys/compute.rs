@@ -5,13 +5,13 @@
 
 use std::f64::consts::PI;
 
+use log_once::warn_once;
 use rayon::prelude::*;
 use soa_derive::soa_zip;
-use log_once::warn_once;
 
 use crate::consts::K_BOLTZMANN;
+use crate::{DegreesOfFreedom, System};
 use crate::{Matrix3, Vector3D};
-use crate::{System, DegreesOfFreedom};
 
 use crate::utils::ThreadLocalVec;
 
@@ -181,7 +181,6 @@ impl Compute for Volume {
     }
 }
 
-
 /// Compute the virial tensor of the system using the atomic definition.
 ///
 /// $$ \underline{W} = \sum_i \vec r_i \otimes \vec f_i - \underline H
@@ -303,8 +302,8 @@ impl Compute for MolecularVirial {
                                 local_virial += w_ab * (r_ab * r_ij) / r_ab.norm2();
                             }
                         }
-                     }
-                 }
+                    }
+                }
             }
             return local_virial;
         });
@@ -340,7 +339,8 @@ impl Compute for MolecularVirial {
                         };
                         warn_once!(
                             "Ignoring non null bond potential ({}, {}) in molecular virial",
-                            name_i, name_j
+                            name_i,
+                            name_j
                         );
                     }
                 }
@@ -375,7 +375,9 @@ impl Compute for Virial {
     fn compute(&self, system: &System) -> Matrix3 {
         match system.simulated_degrees_of_freedom {
             DegreesOfFreedom::Molecules => MolecularVirial.compute(system),
-            DegreesOfFreedom::Particles | DegreesOfFreedom::Frozen(_) => AtomicVirial.compute(system),
+            DegreesOfFreedom::Particles | DegreesOfFreedom::Frozen(_) => {
+                AtomicVirial.compute(system)
+            }
         }
     }
 }
@@ -482,11 +484,11 @@ impl Compute for Stress {
 #[cfg(test)]
 mod test {
     use super::*;
-    use crate::System;
     use crate::consts::K_BOLTZMANN;
-    use crate::{Harmonic, NullPotential, PairInteraction};
-    use crate::utils::system_from_xyz;
     use crate::units;
+    use crate::utils::system_from_xyz;
+    use crate::System;
+    use crate::{Harmonic, NullPotential, PairInteraction};
 
     use approx::assert_ulps_eq;
 
@@ -511,7 +513,6 @@ mod test {
 
         // unused interaction to check that we do handle this right
         system.set_pair_potential(("H", "O"), PairInteraction::new(Box::new(NullPotential), 0.0));
-
 
         return system;
     }
@@ -629,7 +630,7 @@ mod test {
     }
 
     #[test]
-    #[should_panic(expected="Can not compute virial for infinite cell")]
+    #[should_panic(expected = "Can not compute virial for infinite cell")]
     fn virial_infinite_cell() {
         let _ = Virial.compute(&System::new());
     }
@@ -662,7 +663,7 @@ mod test {
     }
 
     #[test]
-    #[should_panic(expected="assertion failed: self.temperature >= 0.0")]
+    #[should_panic(expected = "assertion failed: self.temperature >= 0.0")]
     fn pressure_at_temperature_negative_temperature() {
         let system = &test_pairs_system();
         let pressure = PressureAtTemperature { temperature: -4.0 };
@@ -670,7 +671,7 @@ mod test {
     }
 
     #[test]
-    #[should_panic(expected="Can not compute pressure for infinite cell")]
+    #[should_panic(expected = "Can not compute pressure for infinite cell")]
     fn pressure_at_temperature_infinite_cell() {
         let pressure = PressureAtTemperature { temperature: -4.0 };
         let _ = pressure.compute(&System::new());
@@ -711,7 +712,7 @@ mod test {
     }
 
     #[test]
-    #[should_panic(expected="assertion failed: self.temperature >= 0.0")]
+    #[should_panic(expected = "assertion failed: self.temperature >= 0.0")]
     fn stress_at_temperature_negative_temperature() {
         let system = &test_pairs_system();
         let stress = StressAtTemperature { temperature: -4.0 };
@@ -719,7 +720,7 @@ mod test {
     }
 
     #[test]
-    #[should_panic(expected="Can not compute stress for infinite cell")]
+    #[should_panic(expected = "Can not compute stress for infinite cell")]
     fn stress_at_temperature_infinite_cell() {
         let stress = StressAtTemperature { temperature: 300.0 };
         let _ = stress.compute(&System::new());
@@ -747,7 +748,7 @@ mod test {
     }
 
     #[test]
-    #[should_panic(expected="Can not compute stress for infinite cell")]
+    #[should_panic(expected = "Can not compute stress for infinite cell")]
     fn stress_infinite_cell() {
         let _ = Stress.compute(&System::new());
     }
@@ -764,7 +765,7 @@ mod test {
     }
 
     #[test]
-    #[should_panic(expected="Can not compute pressure for infinite cell")]
+    #[should_panic(expected = "Can not compute pressure for infinite cell")]
     fn pressure_infinite_cell() {
         let _ = Pressure.compute(&System::new());
     }

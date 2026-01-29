@@ -39,7 +39,7 @@ impl<'a> EnergyEvaluator<'a> {
                     0.0
                 }
             }
-            None => 0.0
+            None => 0.0,
         }
     }
 
@@ -82,8 +82,7 @@ impl<'a> EnergyEvaluator<'a> {
     /// distance `r`
     #[inline]
     pub fn bond(&self, r: f64, i: usize, j: usize) -> f64 {
-        self.system.bond_potential(i, j)
-                   .map_or(0.0, |potential| potential.energy(r))
+        self.system.bond_potential(i, j).map_or(0.0, |potential| potential.energy(r))
     }
 
     /// Compute the energy of all the bonds in the system
@@ -102,8 +101,9 @@ impl<'a> EnergyEvaluator<'a> {
     /// Compute the energy associated with the angle `i, j, k` at angle `theta`
     #[inline]
     pub fn angle(&self, theta: f64, i: usize, j: usize, k: usize) -> f64 {
-        self.system.angle_potential(i, j, k)
-                   .map_or(0.0, |potential| potential.energy(theta))
+        self.system
+            .angle_potential(i, j, k)
+            .map_or(0.0, |potential| potential.energy(theta))
     }
 
     /// Compute the energy of all the angles in the system
@@ -123,8 +123,9 @@ impl<'a> EnergyEvaluator<'a> {
     /// angle `phi`
     #[inline]
     pub fn dihedral(&self, phi: f64, i: usize, j: usize, k: usize, m: usize) -> f64 {
-        self.system.dihedral_potential(i, j, k, m)
-                   .map_or(0.0, |potential| potential.energy(phi))
+        self.system
+            .dihedral_potential(i, j, k, m)
+            .map_or(0.0, |potential| potential.energy(phi))
     }
 
     /// Compute the energy of all the dihedral angles in the system
@@ -143,7 +144,8 @@ impl<'a> EnergyEvaluator<'a> {
     /// Compute the energy of the electrostatic interactions
     #[inline]
     pub fn coulomb(&self) -> f64 {
-        self.system.coulomb_potential()
+        self.system
+            .coulomb_potential()
             .map_or(0.0, |coulomb| coulomb.energy(self.system))
     }
 
@@ -161,10 +163,10 @@ impl<'a> EnergyEvaluator<'a> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::units;
+    use crate::utils::system_from_xyz;
     use crate::{Harmonic, LennardJones, NullPotential, PairInteraction};
     use crate::{System, UnitCell};
-    use crate::utils::system_from_xyz;
-    use crate::units;
 
     use approx::assert_ulps_eq;
 
@@ -259,6 +261,10 @@ mod tests {
     fn dihedrals() {
         let system = testing_system();
         let evaluator = EnergyEvaluator::new(&system);
-        assert_ulps_eq!(evaluator.dihedrals(), units::from(1250.0, "kJ/mol").unwrap(), max_ulps = 15);
+        assert_ulps_eq!(
+            evaluator.dihedrals(),
+            units::from(1250.0, "kJ/mol").unwrap(),
+            max_ulps = 15
+        );
     }
 }

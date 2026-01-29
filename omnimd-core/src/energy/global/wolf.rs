@@ -1,14 +1,14 @@
-﻿// Lumol, an extensible molecular simulation engine
+// Lumol, an extensible molecular simulation engine
 // Copyright (C) Lumol's contributors — BSD license
-use std::f64::consts::{PI, FRAC_2_SQRT_PI};
+use std::f64::consts::{FRAC_2_SQRT_PI, PI};
 
 use rayon::prelude::*;
 
-use crate::math::erfc;
 use crate::consts::FOUR_PI_EPSILON_0;
-use crate::PairRestriction;
+use crate::math::erfc;
 use crate::utils::ThreadLocalVec;
 use crate::Configuration;
+use crate::PairRestriction;
 use crate::{Matrix3, Vector3D};
 
 use super::{CoulombicPotential, GlobalCache, GlobalPotential};
@@ -73,7 +73,8 @@ impl Wolf {
         let alpha_cutoff_2 = alpha_cutoff * alpha_cutoff;
 
         let energy_constant = erfc(alpha_cutoff) / cutoff;
-        let force_constant = erfc(alpha_cutoff) / (cutoff * cutoff) + FRAC_2_SQRT_PI * alpha * f64::exp(-alpha_cutoff_2) / cutoff;
+        let force_constant = erfc(alpha_cutoff) / (cutoff * cutoff)
+            + FRAC_2_SQRT_PI * alpha * f64::exp(-alpha_cutoff_2) / cutoff;
         Wolf {
             alpha: alpha,
             cutoff: cutoff,
@@ -139,7 +140,9 @@ impl GlobalCache for Wolf {
                 continue;
             }
 
-            for (_, other_molecule) in configuration.molecules().enumerate().filter(|(id, _)| molecule_id != *id) {
+            for (_, other_molecule) in
+                configuration.molecules().enumerate().filter(|(id, _)| molecule_id != *id)
+            {
                 for part_j in other_molecule.indexes() {
                     let qj = charges[part_j];
                     if qj == 0.0 {
@@ -315,13 +318,13 @@ impl GlobalPotential for Wolf {
                         let force = info.scaling * self.force_pair(q_a * q_b, r_ab.norm()) * r_ab;
                         let w_ab = force.tensorial(&r_ab);
                         local_virial += w_ab * (r_ab * r_ij) / r_ab.norm2();
-                     }
-                 }
-             }
-             return local_virial;
-         });
-         return virials.sum();
-     }
+                    }
+                }
+            }
+            return local_virial;
+        });
+        return virials.sum();
+    }
 }
 
 impl CoulombicPotential for Wolf {
@@ -333,11 +336,11 @@ impl CoulombicPotential for Wolf {
 #[cfg(test)]
 mod tests {
     pub use super::*;
-    use crate::{System, Matrix3};
-    use crate::GlobalPotential;
     use crate::utils::system_from_xyz;
+    use crate::GlobalPotential;
+    use crate::{Matrix3, System};
 
-    use approx::{assert_ulps_eq, assert_relative_eq};
+    use approx::{assert_relative_eq, assert_ulps_eq};
 
     pub fn testing_system() -> System {
         let mut system = system_from_xyz(
@@ -440,10 +443,10 @@ mod tests {
 
     mod cache {
         use super::*;
-        use crate::{CoulombicPotential, GlobalCache, GlobalPotential, PairRestriction};
+        use crate::utils::system_from_xyz;
         use crate::System;
         use crate::Vector3D;
-        use crate::utils::system_from_xyz;
+        use crate::{CoulombicPotential, GlobalCache, GlobalPotential, PairRestriction};
 
         pub fn testing_system() -> System {
             let mut system = system_from_xyz(
@@ -499,4 +502,3 @@ mod tests {
         }
     }
 }
-

@@ -1,4 +1,4 @@
-﻿// Lumol, an extensible molecular simulation engine
+// Lumol, an extensible molecular simulation engine
 // Copyright (C) Lumol's contributors — BSD license
 
 #![allow(clippy::unreadable_literal, clippy::needless_return)]
@@ -12,8 +12,8 @@
 use omnimd::consts::K_BOLTZMANN;
 use omnimd::energy::{CoulombicPotential, Ewald, PairRestriction, SharedEwald};
 use omnimd::energy::{LennardJones, NullPotential, PairInteraction};
-use omnimd::sys::{System, UnitCell};
 use omnimd::sys::TrajectoryBuilder;
+use omnimd::sys::{System, UnitCell};
 use omnimd::types::Vector3D;
 use omnimd::units;
 
@@ -31,18 +31,21 @@ pub fn get_system(path: &str) -> System {
     let line = buffer.lines().nth(1).unwrap();
     let mut splited = line.split_whitespace();
     assert_eq!(splited.next(), Some("cell:"));
-    let a: f64 = splited.next()
-                        .expect("Missing 'a' cell parameter")
-                        .parse()
-                        .expect("'a' cell parameter is not a float");
-    let b: f64 = splited.next()
-                        .expect("Missing 'b' cell parameter")
-                        .parse()
-                        .expect("'b' cell parameter is not a float");
-    let c: f64 = splited.next()
-                        .expect("Missing 'c' cell parameter")
-                        .parse()
-                        .expect("'c' cell parameter is not a float");
+    let a: f64 = splited
+        .next()
+        .expect("Missing 'a' cell parameter")
+        .parse()
+        .expect("'a' cell parameter is not a float");
+    let b: f64 = splited
+        .next()
+        .expect("Missing 'b' cell parameter")
+        .parse()
+        .expect("'b' cell parameter is not a float");
+    let c: f64 = splited
+        .next()
+        .expect("Missing 'c' cell parameter")
+        .parse()
+        .expect("'c' cell parameter is not a float");
 
     system.cell = UnitCell::ortho(a, b, c);
 
@@ -82,7 +85,6 @@ pub fn set_nist_interactions(system: &mut System, cutoff: f64) {
     ewald.set_restriction(PairRestriction::InterMolecular);
     system.set_coulomb_potential(Box::new(ewald));
 }
-
 
 // For comparaison of forces, as LAMMPS does not allow to set all parameters
 // to the same one used by NIST
@@ -529,4 +531,3 @@ mod cutoff_10 {
         }
     }
 }
-

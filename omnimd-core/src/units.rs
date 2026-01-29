@@ -1,4 +1,4 @@
-﻿// Lumol, an extensible molecular simulation engine
+// Lumol, an extensible molecular simulation engine
 // Copyright (C) Lumol's contributors — BSD license
 
 //! This module allow to convert from and to the internal unit system.
@@ -16,20 +16,20 @@
 //! internal unit for energy is 1e-4 kJ/mol.
 #![allow(clippy::unreadable_literal)]
 
+use std::collections::BTreeMap;
 use std::error::Error;
+use std::f64::consts::PI;
 use std::fmt;
 use std::num;
-use std::collections::BTreeMap;
-use std::f64::consts::PI;
 
 use lazy_static::lazy_static;
 
-use crate::consts::{BOHR_RADIUS, AVOGADRO_NUMBER};
+use crate::consts::{AVOGADRO_NUMBER, BOHR_RADIUS};
 
 // Atomic mass unit in kg
 const U_IN_KG: f64 = 1.660538782e-27;
 
-lazy_static!{
+lazy_static! {
     /// A map of conversion factors from various units to lumol internal units
     pub static ref CONVERSION_FACTORS: BTreeMap<&'static str, f64> = {
         let mut map = BTreeMap::new();
@@ -131,9 +131,9 @@ impl Error for ParseError {
         match *self {
             ParseError::Power(ref err) => Some(err),
             ParseError::Value(ref err) => Some(err),
-            ParseError::ParenthesesMismatch |
-            ParseError::NotFound { .. } |
-            ParseError::MalformedExpr(..) => None,
+            ParseError::ParenthesesMismatch
+            | ParseError::NotFound { .. }
+            | ParseError::MalformedExpr(..) => None,
         }
     }
 }
@@ -260,7 +260,6 @@ fn shunting_yard(tokens: Vec<Token>) -> Result<Vec<Token>, ParseError> {
     return Ok(output);
 }
 
-
 /// Possible members in unit expressions
 #[derive(Debug, PartialEq)]
 enum UnitExpr {
@@ -294,9 +293,9 @@ impl UnitExpr {
             Ok(ast)
         } else {
             let remaining = stream.iter().map(|t| t.as_str()).collect::<Vec<_>>().join(" ");
-            return Err(ParseError::MalformedExpr(
-                format!("remaining values after the end of the unit: {remaining}"),
-            ));
+            return Err(ParseError::MalformedExpr(format!(
+                "remaining values after the end of the unit: {remaining}"
+            )));
         }
     }
 }
@@ -306,12 +305,10 @@ impl UnitExpr {
 fn read_expr(stream: &mut Vec<Token>) -> Result<UnitExpr, ParseError> {
     if let Some(token) = stream.pop() {
         match token {
-            Token::Value(unit) => {
-                match CONVERSION_FACTORS.get(&*unit) {
-                    Some(&value) => Ok(UnitExpr::Val(value)),
-                    None => Err(ParseError::NotFound { unit: unit }),
-                }
-            }
+            Token::Value(unit) => match CONVERSION_FACTORS.get(&*unit) {
+                Some(&value) => Ok(UnitExpr::Val(value)),
+                None => Err(ParseError::NotFound { unit: unit }),
+            },
             Token::Mul => {
                 let rhs = read_expr(stream).map_err(|err| {
                     ParseError::MalformedExpr(format!("Error in unit at the right of '*': {err}"))
@@ -332,20 +329,19 @@ fn read_expr(stream: &mut Vec<Token>) -> Result<UnitExpr, ParseError> {
             }
             Token::Pow => {
                 let pow = match stream.pop() {
-                    Some(pow) => {
-                        match pow {
-                            Token::Value(value) => value.parse()?,
-                            _ => {
-                                return Err(ParseError::MalformedExpr(
-                                    format!("Invalid value after ^: {}", pow.as_str()),
-                                ))
-                            }
+                    Some(pow) => match pow {
+                        Token::Value(value) => value.parse()?,
+                        _ => {
+                            return Err(ParseError::MalformedExpr(format!(
+                                "Invalid value after ^: {}",
+                                pow.as_str()
+                            )))
                         }
-                    }
+                    },
                     None => {
-                        return Err(
-                            ParseError::MalformedExpr(String::from("Missing value after '^'")),
-                        )
+                        return Err(ParseError::MalformedExpr(String::from(
+                            "Missing value after '^'",
+                        )))
                     }
                 };
                 let expr = read_expr(stream).map_err(|err| {
@@ -408,8 +404,8 @@ pub fn to(value: f64, unit: &str) -> Result<f64, ParseError> {
 #[cfg(test)]
 mod test {
     use super::*;
-    use super::{Token, UnitExpr};
     use super::{shunting_yard, tokenize};
+    use super::{Token, UnitExpr};
     use approx::assert_ulps_eq;
 
     #[test]
@@ -492,4 +488,3 @@ mod test {
         assert_eq!(to(25.0, "kJ/mol").unwrap(), 249999.99982494753);
     }
 }
-

@@ -1,17 +1,17 @@
 // Lumol, an extensible molecular simulation engine
 // Copyright (C) 2015-2016 Lumol's contributors — BSD license
 
-use std::ops::{Deref, DerefMut};
 use std::cmp::{max, min};
+use std::ops::{Deref, DerefMut};
 
-use soa_derive::soa_zip;
 use log_once::warn_once;
+use soa_derive::soa_zip;
 
-use crate::{Matrix3, Vector3D};
 use crate::{AnglePotential, BondPotential, DihedralPotential, PairInteraction};
-use crate::{CoulombicPotential, GlobalPotential};
 use crate::{Composition, EnergyEvaluator, Interactions};
 use crate::{Configuration, Molecule, UnitCell};
+use crate::{CoulombicPotential, GlobalPotential};
+use crate::{Matrix3, Vector3D};
 
 /// The number of degrees of freedom simulated in a given system
 #[derive(Clone, PartialEq, Debug)]
@@ -235,13 +235,13 @@ impl System {
     }
 }
 
-use crate::compute::{KineticEnergy, PotentialEnergy, TotalEnergy};
-use crate::compute::{Pressure, Stress, Virial};
-use crate::compute::{PressureAtTemperature, StressAtTemperature};
 use crate::compute::Compute;
 use crate::compute::Forces;
 use crate::compute::Temperature;
 use crate::compute::Volume;
+use crate::compute::{KineticEnergy, PotentialEnergy, TotalEnergy};
+use crate::compute::{Pressure, Stress, Virial};
+use crate::compute::{PressureAtTemperature, StressAtTemperature};
 
 /// Functions to get physical properties of a system.
 impl System {
@@ -291,11 +291,10 @@ impl System {
     /// instantaneous temperature.
     pub fn pressure(&self) -> f64 {
         match self.external_temperature {
-            Some(temperature) => {
-                PressureAtTemperature {
-                    temperature: temperature,
-                }.compute(self)
+            Some(temperature) => PressureAtTemperature {
+                temperature: temperature,
             }
+            .compute(self),
             None => Pressure.compute(self),
         }
     }
@@ -303,11 +302,10 @@ impl System {
     /// Get the stress tensor of the system from the virial equation.
     pub fn stress(&self) -> Matrix3 {
         match self.external_temperature {
-            Some(temperature) => {
-                StressAtTemperature {
-                    temperature: temperature,
-                }.compute(self)
+            Some(temperature) => StressAtTemperature {
+                temperature: temperature,
             }
+            .compute(self),
             None => Stress.compute(self),
         }
     }
@@ -373,7 +371,10 @@ impl System {
                     warn_once!(
                         "no potential defined for the dihedral angle {:?}",
                         self.sorted_names_dihedral(
-                            dihedral.i(), dihedral.j(), dihedral.k(), dihedral.m()
+                            dihedral.i(),
+                            dihedral.j(),
+                            dihedral.k(),
+                            dihedral.m()
                         )
                     );
                 }
@@ -410,7 +411,13 @@ impl System {
         }
     }
 
-    fn sorted_names_dihedral(&self, i: usize, j: usize, k: usize, m: usize) -> (&str, &str, &str, &str) {
+    fn sorted_names_dihedral(
+        &self,
+        i: usize,
+        j: usize,
+        k: usize,
+        m: usize,
+    ) -> (&str, &str, &str, &str) {
         // Use the same sorting as interactions
         let name_i = &self.particles().name[i];
         let name_j = &self.particles().name[j];
@@ -424,7 +431,7 @@ impl System {
                 } else {
                     (name_m, name_k, name_j, name_i)
                 }
-            },
+            }
             (ij, km) if ij < km => (name_i, name_j, name_k, name_m),
             (_, _) => (name_m, name_k, name_j, name_i),
         }
@@ -447,10 +454,10 @@ impl DerefMut for System {
 
 #[cfg(test)]
 mod tests {
-    use crate::{System, Molecule, Particle, ParticleKind};
+    use crate::{Molecule, Particle, ParticleKind, System};
 
     #[test]
-    #[should_panic(expected="External temperature must be positive")]
+    #[should_panic(expected = "External temperature must be positive")]
     fn negative_simulated_temperature() {
         let mut system = System::new();
         system.simulated_temperature(Some(-1.0));
@@ -517,14 +524,16 @@ mod tests {
 
     #[test]
     fn check_potentials() {
-        use std::sync::{Arc, Mutex};
         use std::fmt::Write;
+        use std::sync::{Arc, Mutex};
         struct TestLogger {
             message: Arc<Mutex<String>>,
         }
 
         impl log::Log for TestLogger {
-            fn enabled(&self, _: &log::Metadata<'_>) -> bool {true}
+            fn enabled(&self, _: &log::Metadata<'_>) -> bool {
+                true
+            }
 
             fn log(&self, record: &log::Record<'_>) {
                 if record.level() == log::Level::Warn {
@@ -537,10 +546,11 @@ mod tests {
         }
 
         let message = Arc::new(Mutex::new(String::from("\n")));
-        let logger = TestLogger {message: message.clone()};
+        let logger = TestLogger {
+            message: message.clone(),
+        };
         log::set_boxed_logger(Box::new(logger)).unwrap();
         log::set_max_level(log::LevelFilter::Info);
-
 
         let mut system = System::new();
         system.add_molecule(Molecule::new(Particle::new("He")));

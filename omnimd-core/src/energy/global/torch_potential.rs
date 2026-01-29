@@ -1,15 +1,15 @@
 // Lumol, an extensible molecular simulation engine
 // Copyright (C) Lumol's contributors — BSD license
 
-use std::sync::{Arc, Mutex};
 use std::path::Path;
+use std::sync::{Arc, Mutex};
 
-use tch::{CModule, Tensor, Device, Kind};
+use tch::{CModule, Device, Kind, Tensor};
 
-use crate::{GlobalPotential, GlobalCache, BoxCloneGlobal};
 use crate::sys::Configuration;
-use crate::types::{Vector3D, Matrix3};
+use crate::types::{Matrix3, Vector3D};
 use crate::units;
+use crate::{BoxCloneGlobal, GlobalCache, GlobalPotential};
 
 /// A global potential using a PyTorch TorchScript model to compute energy and forces.
 ///
@@ -38,14 +38,16 @@ pub struct TorchPotential {
 
 impl TorchPotential {
     /// Create a new `TorchPotential` from the given `model_path`.
-    pub fn new<P: AsRef<Path>>(model_path: P) -> Result<TorchPotential, Box<dyn std::error::Error + Send + Sync>> {
+    pub fn new<P: AsRef<Path>>(
+        model_path: P,
+    ) -> Result<TorchPotential, Box<dyn std::error::Error + Send + Sync>> {
         let device = Device::cuda_if_available();
         let mut module = CModule::load(model_path)?;
         module.set_eval();
         module.to(device);
-        
+
         let ev = units::from(1.0, "eV").expect("Could not find eV unit");
-        
+
         // Lumol internal length is Angstrom.
         // Energy: eV -> internal
         // Force: eV/A -> internal/A = internal
@@ -62,26 +64,28 @@ impl TorchPotential {
 
     fn prepare_inputs(&self, configuration: &Configuration) -> (Tensor, Tensor, Tensor) {
         let n = configuration.size();
-        
+
         // 1. Atomic numbers
         // We need to map particle names to atomic constants, but lumol doesn't strictly store Z.
-        // We will fallback to using the mass or name lookup if possible, 
+        // We will fallback to using the mass or name lookup if possible,
         // but for now let's try to parse the name as an element.
         // A better way is to rely on `lumol-input` to set this up, but here we only have `Configuration`.
         // We will iterate and try to match names to atomic numbers using a helper or lookup.
-        // Since `chemfiles` is a dependency, maybe we can use it? 
+        // Since `chemfiles` is a dependency, maybe we can use it?
         // Actually, `lumol` core doesn't expose a simple Z lookup easily in `Configuration` without a full table.
         // However, `Particle` has a `name`.
         // We will assume `name` is the element symbol.
-        let species: Vec<i64> = configuration.particles()
+        let species: Vec<i64> = configuration
+            .particles()
             .iter()
             .map(|p| element_to_z(&p.name).unwrap_or(0))
             .collect();
-            
+
         let z_tensor = Tensor::from_slice(&species).to(self.device);
 
         // 2. Positions (Angstroms)
-        let coords: Vec<f64> = configuration.particles()
+        let coords: Vec<f64> = configuration
+            .particles()
             .iter()
             .flat_map(|p| vec![p.position[0], p.position[1], p.position[2]])
             .collect();
@@ -91,7 +95,7 @@ impl TorchPotential {
             .to(self.device);
 
         // 3. Cell (Angstroms)
-        // Lumol Matrix3 is column major? 
+        // Lumol Matrix3 is column major?
         // Matrix3 struct:
         // pub struct Matrix3 { pub m: [[f64; 3]; 3] }
         // internal indexing m[i][j] where i is row, j is column? Or vice versa?
@@ -101,9 +105,8 @@ impl TorchPotential {
         // Let's send the matrix as is.
         let cell = configuration.cell.matrix();
         let cell_data = vec![
-            cell[0][0], cell[0][1], cell[0][2],
-            cell[1][0], cell[1][1], cell[1][2],
-            cell[2][0], cell[2][1], cell[2][2],
+            cell[0][0], cell[0][1], cell[0][2], cell[1][0], cell[1][1], cell[1][2], cell[2][0],
+            cell[2][1], cell[2][2],
         ];
         // Reshape to 3x3
         let cell_tensor = Tensor::from_slice(&cell_data)
@@ -164,34 +167,32 @@ impl GlobalPotential for TorchPotential {
     fn cutoff(&self) -> Option<f64> {
         // MLIPs usually have a local cutoff but act globally in this interface.
         // Returning None implies it affects everything (like Ewald).
-        None 
+        None
     }
 
     fn energy(&self, configuration: &Configuration) -> f64 {
         let (z, pos, cell) = self.prepare_inputs(configuration);
         let module = self.module.lock().unwrap();
-        
+
         // Forward pass
         // Model signature: forward(z, pos, cell) -> Dict<str, Tensor>
         // We pass inputs as IValues
         let output = module.forward_ts(&[z, pos, cell]).expect("TorchScript forward failed"); // Handle error properly in real code
-        
+
         let dict = match output {
             tch::IValue::GenericDict(d) => d,
             _ => panic!("Expected Dictionary output from MLIP model"),
         };
 
         // Extract energy
-        // Key needs to be an IValue::String match? 
+        // Key needs to be an IValue::String match?
         // tch-rs generic dict is Vec<(IValue, IValue)>
         // We scan for "energy"
-        let energy_val = dict.iter().find(|(k, _)| {
-            match k {
-                tch::IValue::String(s) => s == "energy",
-                _ => false,
-            }
+        let energy_val = dict.iter().find(|(k, _)| match k {
+            tch::IValue::String(s) => s == "energy",
+            _ => false,
         });
-        
+
         if let Some((_, v)) = energy_val {
             let t = match v {
                 tch::IValue::Tensor(t) => t,
@@ -201,57 +202,55 @@ impl GlobalPotential for TorchPotential {
             let e_ev: f64 = t.double_value(&[]);
             return e_ev * self.energy_factor;
         }
-        
+
         0.0 // Or error
     }
 
     fn forces(&self, configuration: &Configuration, forces: &mut [Vector3D]) {
         let (z, pos, cell) = self.prepare_inputs(configuration);
-         let module = self.module.lock().unwrap();
-        
+        let module = self.module.lock().unwrap();
+
         let output = module.forward_ts(&[z, pos, cell]).expect("TorchScript forward failed");
-        
+
         let dict = match output {
             tch::IValue::GenericDict(d) => d,
             _ => panic!("Expected Dictionary output from MLIP model"),
         };
 
         // Extract forces
-        let forces_val = dict.iter().find(|(k, _)| {
-            match k {
-                tch::IValue::String(s) => s == "forces",
-                _ => false,
-            }
+        let forces_val = dict.iter().find(|(k, _)| match k {
+            tch::IValue::String(s) => s == "forces",
+            _ => false,
         });
 
         if let Some((_, v)) = forces_val {
-             let t = match v {
+            let t = match v {
                 tch::IValue::Tensor(t) => t,
                 _ => panic!("Forces key must be a Tensor"),
             };
-            
+
             // Expected shape [N, 3]
             // We assume contiguous row-major.
             // Convert to Vec<f64>
             let num_atoms = configuration.size();
             let f_data: Vec<f64> = Vec::from(t.flatten(0, 1)); // flatten to 1D
-            
+
             for (i, force) in forces.iter_mut().enumerate() {
                 if i < num_atoms {
-                    let fx = f_data[3*i] * self.force_factor;
-                    let fy = f_data[3*i+1] * self.force_factor;
-                    let fz = f_data[3*i+2] * self.force_factor;
-                    // Add to existing forces? 
+                    let fx = f_data[3 * i] * self.force_factor;
+                    let fy = f_data[3 * i + 1] * self.force_factor;
+                    let fz = f_data[3 * i + 2] * self.force_factor;
+                    // Add to existing forces?
                     // The trait definition says: "Compute the force contribution...".
                     // Usually this means we ADD to the forces buffer, or SET it?
                     // Let's check `GlobalPotential::forces` doc: "Compute the force contribution... This function should return...".
-                    // The signature is `forces: &mut [Vector3D]`. 
-                    // In `lumol`, usually we accumulate. 
+                    // The signature is `forces: &mut [Vector3D]`.
+                    // In `lumol`, usually we accumulate.
                     // Wait, `forces` is passed as mutable slice.
                     // The doc says "Compute the force contribution".
                     // Looking at `Ewald::forces`, it does `forces[i] += ...`.
                     // So we must ACCUMULATE.
-                    
+
                     force[0] += fx;
                     force[1] += fy;
                     force[2] += fz;
@@ -261,24 +260,22 @@ impl GlobalPotential for TorchPotential {
     }
 
     fn atomic_virial(&self, configuration: &Configuration) -> Matrix3 {
-         let (z, pos, cell) = self.prepare_inputs(configuration);
-         let module = self.module.lock().unwrap();
-        
+        let (z, pos, cell) = self.prepare_inputs(configuration);
+        let module = self.module.lock().unwrap();
+
         let output = module.forward_ts(&[z, pos, cell]).expect("TorchScript forward failed");
-        
+
         let dict = match output {
             tch::IValue::GenericDict(d) => d,
             _ => panic!("Expected Dictionary output from MLIP model"),
         };
 
         // Extract virial
-        // "virial" or "stress"? 
+        // "virial" or "stress"?
         // We documented "virial".
-        let virial_val = dict.iter().find(|(k, _)| {
-            match k {
-                tch::IValue::String(s) => s == "virial",
-                _ => false,
-            }
+        let virial_val = dict.iter().find(|(k, _)| match k {
+            tch::IValue::String(s) => s == "virial",
+            _ => false,
         });
 
         if let Some((_, v)) = virial_val {
@@ -287,15 +284,21 @@ impl GlobalPotential for TorchPotential {
                 _ => panic!("Virial key must be a Tensor"),
             };
             // 3x3
-             let v_data: Vec<f64> = Vec::from(t.flatten(0, 1));
-             // Convert to Matrix3
-             // Assume standard layout.
-             let m = Matrix3::new(
-                 v_data[0] * self.energy_factor, v_data[1] * self.energy_factor, v_data[2] * self.energy_factor,
-                 v_data[3] * self.energy_factor, v_data[4] * self.energy_factor, v_data[5] * self.energy_factor,
-                 v_data[6] * self.energy_factor, v_data[7] * self.energy_factor, v_data[8] * self.energy_factor,
-             );
-             return m;
+            let v_data: Vec<f64> = Vec::from(t.flatten(0, 1));
+            // Convert to Matrix3
+            // Assume standard layout.
+            let m = Matrix3::new(
+                v_data[0] * self.energy_factor,
+                v_data[1] * self.energy_factor,
+                v_data[2] * self.energy_factor,
+                v_data[3] * self.energy_factor,
+                v_data[4] * self.energy_factor,
+                v_data[5] * self.energy_factor,
+                v_data[6] * self.energy_factor,
+                v_data[7] * self.energy_factor,
+                v_data[8] * self.energy_factor,
+            );
+            return m;
         }
 
         Matrix3::zero()
@@ -311,13 +314,13 @@ impl GlobalPotential for TorchPotential {
 // If we run MD, we don't need efficient GlobalCache.
 impl GlobalCache for TorchPotential {
     fn move_molecule_cost(&self, configuration: &Configuration, _: usize, _: &[Vector3D]) -> f64 {
-         // This is inefficient but correct: calculate full energy difference.
-         // But `move_molecule_cost` is supposed to be differential.
-         // If we can't support it efficiently, we might warn or just implement expensive full diff.
-         // For now, let's unimplemented!() or return 0 if we assume it's only for MD.
-         // But the trait requires it.
-         // Let's implement a panic to prevent silent slow MC.
-         unimplemented!("TorchPotential does not support Monte Carlo moves yet (GlobalCache)")
+        // This is inefficient but correct: calculate full energy difference.
+        // But `move_molecule_cost` is supposed to be differential.
+        // If we can't support it efficiently, we might warn or just implement expensive full diff.
+        // For now, let's unimplemented!() or return 0 if we assume it's only for MD.
+        // But the trait requires it.
+        // Let's implement a panic to prevent silent slow MC.
+        unimplemented!("TorchPotential does not support Monte Carlo moves yet (GlobalCache)")
     }
 
     fn update(&self) {
