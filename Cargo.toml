@@ -1,6 +1,6 @@
 [package]
 name = "omnimd"
-version = "2026a"
+version = "2026.1.0"
 authors = ["siqit@outlook.com"]
 documentation = "https://TANG-LAB-WHU.github.io/omniMD"
 repository = "https://github.com/TANG-LAB-WHU/omniMD"
