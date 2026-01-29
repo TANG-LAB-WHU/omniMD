@@ -277,7 +277,9 @@ impl GlobalPotential for TorchPotential {
         });
 
         if let Some((_, v)) = energy_val {
-            let IValue::Tensor(t) = v else { panic!("Energy key must be a Tensor") };
+            let IValue::Tensor(t) = v else {
+                panic!("Energy key must be a Tensor")
+            };
             // Get scalar
             let e_ev: f64 = t.double_value(&[]);
             return e_ev * self.energy_factor;
@@ -304,7 +306,9 @@ impl GlobalPotential for TorchPotential {
         });
 
         if let Some((_, v)) = forces_val {
-            let IValue::Tensor(t) = v else { panic!("Forces key must be a Tensor") };
+            let IValue::Tensor(t) = v else {
+                panic!("Forces key must be a Tensor")
+            };
 
             // Expected shape [N, 3]
             // We assume contiguous row-major.
@@ -356,7 +360,9 @@ impl GlobalPotential for TorchPotential {
         });
 
         if let Some((_, v)) = virial_val {
-            let IValue::Tensor(t) = v else { panic!("Virial key must be a Tensor") };
+            let IValue::Tensor(t) = v else {
+                panic!("Virial key must be a Tensor")
+            };
             // 3x3
             let v_data: Vec<f64> = t.flatten(0, 1).try_into().unwrap();
             // Convert to Matrix3
