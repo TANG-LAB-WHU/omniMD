@@ -9,8 +9,7 @@ use std::{env, fs, io};
 
 use walkdir::WalkDir;
 
-use rustc_test::ShouldPanic::No;
-use rustc_test::{DynTestFn, DynTestName, TestDesc, TestDescAndFn};
+use libtest_mimic::{Arguments, Failed, Trial};
 
 use omnimd_core::System;
 use omnimd_input::{Error, Input, InteractionsInput};
@@ -19,65 +18,69 @@ fn main() {
     env_logger::init();
     let _cleanup = TestsCleanup;
 
-    let args: Vec<_> = env::args().filter(|arg| !arg.contains("test-threads")).collect();
-
-    let mut opts = match rustc_test::parse_opts(&args).expect("no options") {
-        Ok(opts) => opts,
-        Err(msg) => panic!("{msg:?}"),
-    };
-    opts.verbose = true;
-
+    let args = Arguments::from_args();
     let tests = all_tests();
-    let result = rustc_test::run_tests_console(&opts, tests);
-    match result {
-        Ok(true) => {}
-        Ok(false) => std::process::exit(-1),
-        Err(err) => panic!("io error when running tests: {:?}", err),
-    }
+
+    libtest_mimic::run(&args, tests).exit();
 }
 
-fn all_tests() -> Vec<TestDescAndFn> {
+fn all_tests() -> Vec<Trial> {
     let mut tests = Vec::new();
 
     tests.extend(
         generate_tests("simulation/good", |path, content| {
-            Box::new(move || {
-                let input = Input::from_str(path.clone(), &content).unwrap();
-                input.read().unwrap();
-            })
+            move || {
+                let input = Input::from_str(path.clone(), &content)
+                    .map_err(|e| Failed::from(e.to_string()))?;
+                input.read().map_err(|e| Failed::from(e.to_string()))?;
+                Ok(())
+            }
         })
         .expect("Could not generate the tests"),
     );
 
     tests.extend(
         generate_tests("simulation/bad", |path, content| {
-            Box::new(move || {
+            move || {
                 let message = get_error_message(&content);
                 let result = Input::from_str(path.clone(), &content).and_then(|input| input.read());
 
                 match result {
-                    Err(Error::Config(reason)) => assert_eq!(reason, message),
-                    _ => panic!("This test should fail with a Config error"),
+                    Err(Error::Config(reason)) => {
+                        if reason == message {
+                            Ok(())
+                        } else {
+                            Err(Failed::from(format!(
+                                "Expected error message: {}\nGot: {}",
+                                message, reason
+                            )))
+                        }
+                    }
+                    _ => Err(Failed::from("This test should fail with a Config error")),
                 }
-            })
+            }
         })
         .expect("Could not generate the tests"),
     );
 
     tests.extend(
         generate_tests("interactions/good", |_, content| {
-            Box::new(move || {
+            move || {
                 let mut system = System::new();
-                let input = InteractionsInput::from_str(&content).unwrap();
-                input.read(&mut system).unwrap();
-            })
+                let input = InteractionsInput::from_str(&content)
+                    .map_err(|e| Failed::from(e.to_string()))?;
+                input
+                    .read(&mut system)
+                    .map_err(|e| Failed::from(e.to_string()))?;
+                Ok(())
+            }
         })
         .expect("Could not generate the tests"),
     );
 
     tests.extend(
         generate_tests("interactions/bad", |_, content| {
-            Box::new(move || {
+            move || {
                 let message = get_error_message(&content);
 
                 let mut system = System::new();
@@ -85,10 +88,19 @@ fn all_tests() -> Vec<TestDescAndFn> {
                     InteractionsInput::from_str(&content).and_then(|input| input.read(&mut system));
 
                 match result {
-                    Err(Error::Config(reason)) => assert_eq!(reason, message),
-                    _ => panic!("This test should fail with a Config error"),
+                    Err(Error::Config(reason)) => {
+                        if reason == message {
+                            Ok(())
+                        } else {
+                            Err(Failed::from(format!(
+                                "Expected error message: {}\nGot: {}",
+                                message, reason
+                            )))
+                        }
+                    }
+                    _ => Err(Failed::from("This test should fail with a Config error")),
                 }
-            })
+            }
         })
         .expect("Could not generate the tests"),
     );
@@ -98,13 +110,17 @@ fn all_tests() -> Vec<TestDescAndFn> {
 
 /// Generate the tests by calling `callback` for every TOML files at the given
 /// `root`.
-fn generate_tests<F>(root: &str, callback: F) -> Result<Vec<TestDescAndFn>, io::Error>
+fn generate_tests<F, T>(root: &str, callback: F) -> Result<Vec<Trial>, io::Error>
 where
-    F: Fn(PathBuf, String) -> Box<dyn FnMut() + Send>,
+    F: Fn(PathBuf, String) -> T,
+    T: Fn() -> Result<(), Failed> + Send + 'static,
 {
     let mut tests = Vec::new();
 
-    let dir = PathBuf::new().join(env!("CARGO_MANIFEST_DIR")).join("tests").join(root);
+    let dir = PathBuf::new()
+        .join(env!("CARGO_MANIFEST_DIR"))
+        .join("tests")
+        .join(root);
     for entry in WalkDir::new(dir) {
         let entry = entry?;
         let file_type = entry.file_type();
@@ -127,20 +143,13 @@ where
 
                     let count = content.split("+++").count();
                     for (i, test_case) in content.split("+++").enumerate() {
-                        let name = if count > 1 {
+                        let test_name = if count > 1 {
                             format!("{} - {}/{}", name, i + 1, count)
                         } else {
                             name.clone()
                         };
-                        let test = TestDescAndFn {
-                            desc: TestDesc {
-                                name: DynTestName(name),
-                                ignore: false,
-                                should_panic: No,
-                                allow_fail: false,
-                            },
-                            testfn: DynTestFn(callback(path.to_path_buf(), test_case.into())),
-                        };
+                        let test_fn = callback(path.to_path_buf(), test_case.into());
+                        let test = Trial::test(test_name, test_fn);
                         tests.push(test);
                     }
                 }
