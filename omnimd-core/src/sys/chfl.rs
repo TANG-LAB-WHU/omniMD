@@ -450,7 +450,6 @@ END
 ";
 
     #[test]
-    #[ignore = "SIGFPE in chemfiles library initialization"]
     #[allow(clippy::unreadable_literal)]
     fn read_water() {
         let mut file = tempfile::Builder::new().suffix(".xyz").tempfile().unwrap();
@@ -480,7 +479,6 @@ END
     }
 
     #[test]
-    #[ignore = "SIGFPE in chemfiles library initialization"]
     fn read_pdb_water() {
         let mut file = tempfile::Builder::new().suffix(".pdb").tempfile().unwrap();
         write!(file, "{PDB_WATER}").unwrap();
@@ -506,7 +504,6 @@ END
     }
 
     #[test]
-    #[ignore = "SIGFPE in chemfiles library initialization"]
     #[allow(clippy::unreadable_literal)]
     fn read_propane() {
         let mut file = tempfile::Builder::new().suffix(".xyz").tempfile().unwrap();
