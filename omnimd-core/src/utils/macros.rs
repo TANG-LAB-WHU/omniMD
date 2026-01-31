@@ -25,10 +25,12 @@ macro_rules! zip {
 /// Usage:
 ///
 /// ```rust
+/// # #[macro_use] extern crate omnimd_core;
 /// trait Foo: BoxCloneFoo {}
 ///
 /// impl_box_clone!(Foo, BoxCloneFoo, box_clone_foo);
 /// ```
+#[macro_export]
 macro_rules! impl_box_clone {
     ($Trait: ident, $BoxClone: ident, $box_clone: ident) => {
         #[doc(hidden)]
