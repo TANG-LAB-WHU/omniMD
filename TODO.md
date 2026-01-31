@@ -28,16 +28,24 @@ The chemfiles library triggers a SIGFPE (floating-point exception) signal during
   - `omnimd-core/src/sys/chfl.rs`: `#[ignore]` attribute
   - `omnimd-sim/src/output/trajectory.rs`: `#[ignore]` attribute
 
+**Research Findings (2026-01-31):**
+
+- **Root Cause:** SIGFPE (Signal Floating-Point Exception) usually indicates an invalid arithmetic operation (e.g., division by zero, overflow) in the underlying C++ library.
+- **Context:** No widespread "known bug" for `chemfiles` on Ubuntu 22.04 matching this exactly, suggesting it may be specific to:
+  - Certain input files used in tests (e.g., malformed `.xyz` or invalid box dimensions).
+  - Subtle environment differences (math library linking) on GitHub Actions runners.
+- **Version:** Current dependency `0.10` likely resolves to `0.10.x`. Latest available is `0.10.41`.
+
 **Potential Solutions:**
 
-- [ ] Investigate upstream chemfiles for fixes
-- [ ] Test on different CI environments (macOS, other Linux distros)
-- [ ] Consider using Docker containers for testing
-- [ ] Report issue to chemfiles maintainers
+- [ ] **Data Validation:** Audit test data files (`.xyz`, `.toml`) for values that could cause division by zero (e.g., zero box lengths, overlapping atoms).
+- [ ] **Dependency Update:** Explicitly try updating to the absolute latest `chemfiles` patch version (`cargo update -p chemfiles`).
+- [ ] **Debugging:** If possible, enable core dumps in a custom CI workflow or add specific logging around `chemfiles` calls in Rust to identify exactly *which* file or call triggers the crash.
+- [ ] **Upstream:** Report the specific reproduction case (with data) to chemfiles maintainers if isolated.
 
 **Related Links:**
 
-- chemfiles repository: https://github.com/chemfiles/chemfiles
+- chemfiles repository: <https://github.com/chemfiles/chemfiles>
 
 ---
 
