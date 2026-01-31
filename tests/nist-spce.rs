@@ -21,10 +21,6 @@ use std::fs::File;
 use std::io::prelude::*;
 use std::path::Path;
 
-fn is_ci() -> bool {
-    std::env::var("CI").map(|v| v == "true").unwrap_or(false)
-}
-
 pub fn get_system(path: &str) -> System {
     let path = Path::new(file!()).parent().unwrap().join("data").join("nist-spce").join(path);
     let mut system = TrajectoryBuilder::new().open(&path).and_then(|mut traj| traj.read()).unwrap();
@@ -140,9 +136,6 @@ mod cutoff_9 {
 
     #[test]
     fn nist1() {
-        if super::is_ci() {
-            return;
-        }
         let mut system = get_system("spce-1.xyz");
         set_nist_interactions(&mut system, 9.0);
 
@@ -166,9 +159,6 @@ mod cutoff_9 {
 
     #[test]
     fn nist1_forces() {
-        if super::is_ci() {
-            return;
-        }
         let mut system = get_system("spce-1.xyz");
         set_lammps_interactions(&mut system, 9.0, 8, 0.364209);
 
@@ -192,9 +182,6 @@ mod cutoff_9 {
 
     #[test]
     fn nist2() {
-        if super::is_ci() {
-            return;
-        }
         let mut system = get_system("spce-2.xyz");
         set_nist_interactions(&mut system, 9.0);
 
@@ -218,9 +205,6 @@ mod cutoff_9 {
 
     #[test]
     fn nist2_forces() {
-        if super::is_ci() {
-            return;
-        }
         let mut system = get_system("spce-2.xyz");
         set_lammps_interactions(&mut system, 9.0, 8, 0.370036);
 
@@ -244,9 +228,6 @@ mod cutoff_9 {
 
     #[test]
     fn nist3() {
-        if super::is_ci() {
-            return;
-        }
         let mut system = get_system("spce-3.xyz");
         set_nist_interactions(&mut system, 9.0);
 
@@ -270,9 +251,6 @@ mod cutoff_9 {
 
     #[test]
     fn nist3_forces() {
-        if super::is_ci() {
-            return;
-        }
         let mut system = get_system("spce-3.xyz");
         set_lammps_interactions(&mut system, 9.0, 8, 0.373403);
 
@@ -302,9 +280,6 @@ mod cutoff_9 {
 
     #[test]
     fn nist4() {
-        if super::is_ci() {
-            return;
-        }
         let mut system = get_system("spce-4.xyz");
         set_nist_interactions(&mut system, 9.0);
 
@@ -328,9 +303,6 @@ mod cutoff_9 {
 
     #[test]
     fn nist4_forces() {
-        if super::is_ci() {
-            return;
-        }
         let mut system = get_system("spce-4.xyz");
         set_lammps_interactions(&mut system, 9.0, 12, 0.370914);
 
@@ -365,9 +337,6 @@ mod cutoff_10 {
 
     #[test]
     fn nist1() {
-        if super::is_ci() {
-            return;
-        }
         let mut system = get_system("spce-1.xyz");
         set_nist_interactions(&mut system, 10.0);
 
@@ -391,9 +360,6 @@ mod cutoff_10 {
 
     #[test]
     fn nist1_forces() {
-        if super::is_ci() {
-            return;
-        }
         let mut system = get_system("spce-1.xyz");
         set_lammps_interactions(&mut system, 10.0, 7, 0.326983);
 
@@ -417,9 +383,6 @@ mod cutoff_10 {
 
     #[test]
     fn nist2() {
-        if super::is_ci() {
-            return;
-        }
         let mut system = get_system("spce-2.xyz");
         set_nist_interactions(&mut system, 10.0);
 
@@ -443,9 +406,6 @@ mod cutoff_10 {
 
     #[test]
     fn nist2_forces() {
-        if super::is_ci() {
-            return;
-        }
         let mut system = get_system("spce-2.xyz");
         set_lammps_interactions(&mut system, 10.0, 8, 0.332241);
 
@@ -469,9 +429,6 @@ mod cutoff_10 {
 
     #[test]
     fn nist3() {
-        if super::is_ci() {
-            return;
-        }
         let mut system = get_system("spce-3.xyz");
         set_nist_interactions(&mut system, 10.0);
 
@@ -495,9 +452,6 @@ mod cutoff_10 {
 
     #[test]
     fn nist3_forces() {
-        if super::is_ci() {
-            return;
-        }
         let mut system = get_system("spce-3.xyz");
         set_lammps_interactions(&mut system, 10.0, 8, 0.335278);
 
@@ -527,9 +481,6 @@ mod cutoff_10 {
 
     #[test]
     fn nist4() {
-        if super::is_ci() {
-            return;
-        }
         let mut system = get_system("spce-4.xyz");
         set_nist_interactions(&mut system, 10.0);
 
@@ -553,9 +504,6 @@ mod cutoff_10 {
 
     #[test]
     fn nist4_forces() {
-        if super::is_ci() {
-            return;
-        }
         let mut system = get_system("spce-4.xyz");
         set_lammps_interactions(&mut system, 10.0, 11, 0.333033);
 

@@ -31,9 +31,6 @@ fn bonds_detection() {
 
 #[test]
 fn constant_energy() {
-    if is_ci() {
-        return;
-    }
     START.call_once(::env_logger::init);
     let path = Path::new(file!())
         .parent()
