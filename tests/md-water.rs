@@ -14,7 +14,9 @@ fn is_ci() -> bool {
 
 #[test]
 fn constant_energy_ewald() {
-    if is_ci() { return; }
+    if is_ci() {
+        return;
+    }
     START.call_once(::env_logger::init);
     let path = Path::new(file!())
         .parent()
@@ -34,7 +36,9 @@ fn constant_energy_ewald() {
 
 #[test]
 fn constant_energy_wolf() {
-    if is_ci() { return; }
+    if is_ci() {
+        return;
+    }
     START.call_once(::env_logger::init);
     let path = Path::new(file!())
         .parent()

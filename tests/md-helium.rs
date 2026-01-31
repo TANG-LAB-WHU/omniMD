@@ -15,7 +15,9 @@ mod utils;
 
 #[test]
 fn constant_energy_velocity_verlet() {
-    if crate::utils::is_ci() { return; }
+    if crate::utils::is_ci() {
+        return;
+    }
     START.call_once(::env_logger::init);
     let path = Path::new(file!())
         .parent()
@@ -33,7 +35,9 @@ fn constant_energy_velocity_verlet() {
 
 #[test]
 fn constant_energy_verlet() {
-    if crate::utils::is_ci() { return; }
+    if crate::utils::is_ci() {
+        return;
+    }
     START.call_once(::env_logger::init);
     let path = Path::new(file!())
         .parent()
@@ -51,7 +55,9 @@ fn constant_energy_verlet() {
 
 #[test]
 fn constant_energy_leap_frog() {
-    if crate::utils::is_ci() { return; }
+    if crate::utils::is_ci() {
+        return;
+    }
     START.call_once(::env_logger::init);
     let path = Path::new(file!())
         .parent()
@@ -69,7 +75,9 @@ fn constant_energy_leap_frog() {
 
 #[test]
 fn perfect_gas() {
-    if crate::utils::is_ci() { return; }
+    if crate::utils::is_ci() {
+        return;
+    }
     START.call_once(::env_logger::init);
     let path = Path::new(file!())
         .parent()
@@ -91,7 +99,9 @@ fn perfect_gas() {
 
 #[test]
 fn berendsen_barostat() {
-    if crate::utils::is_ci() { return; }
+    if crate::utils::is_ci() {
+        return;
+    }
     START.call_once(::env_logger::init);
     let path = Path::new(file!())
         .parent()
@@ -119,7 +129,9 @@ fn berendsen_barostat() {
 
 #[test]
 fn shifted() {
-    if crate::utils::is_ci() { return; }
+    if crate::utils::is_ci() {
+        return;
+    }
     START.call_once(::env_logger::init);
     let path = Path::new(file!())
         .parent()
@@ -137,7 +149,9 @@ fn shifted() {
 
 #[test]
 fn table_computation() {
-    if crate::utils::is_ci() { return; }
+    if crate::utils::is_ci() {
+        return;
+    }
     START.call_once(::env_logger::init);
     let path = Path::new(file!())
         .parent()

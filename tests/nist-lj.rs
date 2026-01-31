@@ -60,7 +60,9 @@ mod cutoff_3_lrc {
 
     #[test]
     fn nist1() {
-        if super::is_ci() { return; }
+        if super::is_ci() {
+            return;
+        }
         START.call_once(::env_logger::init);
         let path = "lj-1.toml";
         let mut system = get_system(path);
@@ -81,7 +83,9 @@ mod cutoff_3_lrc {
 
     #[test]
     fn nist2() {
-        if super::is_ci() { return; }
+        if super::is_ci() {
+            return;
+        }
         START.call_once(::env_logger::init);
         let path = "lj-2.toml";
         let mut system = get_system(path);
@@ -102,7 +106,9 @@ mod cutoff_3_lrc {
 
     #[test]
     fn nist3() {
-        if super::is_ci() { return; }
+        if super::is_ci() {
+            return;
+        }
         START.call_once(::env_logger::init);
         let path = "lj-3.toml";
         let mut system = get_system(path);
@@ -123,7 +129,9 @@ mod cutoff_3_lrc {
 
     #[test]
     fn nist4() {
-        if super::is_ci() { return; }
+        if super::is_ci() {
+            return;
+        }
         START.call_once(::env_logger::init);
         let path = "lj-4.toml";
         let mut system = get_system(path);
@@ -169,7 +177,9 @@ mod cutoff_4_lrc {
 
     #[test]
     fn nist1() {
-        if super::is_ci() { return; }
+        if super::is_ci() {
+            return;
+        }
         START.call_once(::env_logger::init);
         let path = "lj-1.toml";
         let mut system = get_system(path);
@@ -190,7 +200,9 @@ mod cutoff_4_lrc {
 
     #[test]
     fn nist2() {
-        if super::is_ci() { return; }
+        if super::is_ci() {
+            return;
+        }
         START.call_once(::env_logger::init);
         let path = "lj-2.toml";
         let mut system = get_system(path);
@@ -211,7 +223,9 @@ mod cutoff_4_lrc {
 
     #[test]
     fn nist3() {
-        if super::is_ci() { return; }
+        if super::is_ci() {
+            return;
+        }
         START.call_once(::env_logger::init);
         let path = "lj-3.toml";
         let mut system = get_system(path);
@@ -232,7 +246,9 @@ mod cutoff_4_lrc {
 
     #[test]
     fn nist4() {
-        if super::is_ci() { return; }
+        if super::is_ci() {
+            return;
+        }
         START.call_once(::env_logger::init);
         let path = "lj-4.toml";
         let mut system = get_system(path);
