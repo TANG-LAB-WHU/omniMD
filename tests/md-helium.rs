@@ -15,9 +15,6 @@ mod utils;
 
 #[test]
 fn constant_energy_velocity_verlet() {
-    if crate::utils::is_ci() {
-        return;
-    }
     START.call_once(::env_logger::init);
     let path = Path::new(file!())
         .parent()

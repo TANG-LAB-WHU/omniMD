@@ -51,11 +51,8 @@ jobs:
       - name: Test omnimd-sim
         run: cargo test -p omnimd-sim -- --test-threads=1
 
-      # NOTE: simulation tests are automatically ignored in CI due to SIGFPE
-      # in chemfiles library. Interaction tests still run normally.
       - name: Test omnimd-input
         run: cargo test -p omnimd-input -- --test-threads=1
 
       - name: Run Integration Tests
-        # NOTE: Tests using chemfiles (argon, nacl, water) skip in CI due to SIGFPE
         run: cargo test --tests -- --test-threads=1

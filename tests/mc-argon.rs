@@ -9,15 +9,8 @@ static START: Once = Once::new();
 
 mod utils;
 
-fn is_ci() -> bool {
-    std::env::var("CI").map(|v| v == "true").unwrap_or(false)
-}
-
 #[test]
 fn npt() {
-    if is_ci() {
-        return;
-    }
     START.call_once(::env_logger::init);
     let path = Path::new(file!())
         .parent()

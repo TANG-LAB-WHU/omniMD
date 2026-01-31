@@ -8,9 +8,7 @@ use std::path::Path;
 use std::sync::Once;
 static START: Once = Once::new();
 
-fn is_ci() -> bool {
-    std::env::var("CI").map(|v| v == "true").unwrap_or(false)
-}
+
 
 #[test]
 fn constant_energy_ewald() {
@@ -36,9 +34,6 @@ fn constant_energy_ewald() {
 
 #[test]
 fn constant_energy_wolf() {
-    if is_ci() {
-        return;
-    }
     START.call_once(::env_logger::init);
     let path = Path::new(file!())
         .parent()

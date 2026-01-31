@@ -8,9 +8,6 @@ use omnimd::System;
 use std::rc::Rc;
 use std::sync::RwLock;
 
-pub fn is_ci() -> bool {
-    std::env::var("CI").map(|v| v == "true").unwrap_or(false)
-}
 
 pub type SharedVec = Rc<RwLock<Vec<f64>>>;
 

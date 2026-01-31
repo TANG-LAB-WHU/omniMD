@@ -117,7 +117,6 @@ fn all_tests() -> Vec<Trial> {
                     }
                 }
             },
-            false, // no chemfiles
         )
         .expect("Could not generate the tests"),
     );
@@ -125,25 +124,17 @@ fn all_tests() -> Vec<Trial> {
     return tests;
 }
 
-/// Check if running in CI environment (GitHub Actions sets CI=true)
-fn is_ci() -> bool {
-    env::var("CI").map(|v| v == "true").unwrap_or(false)
-}
-
 /// Generate the tests by calling `callback` for every TOML files at the given
-/// `root`. If `uses_chemfiles` is true and running in CI, tests will be ignored
-/// due to SIGFPE issues with chemfiles library initialization.
+/// `root`.
 fn generate_tests<F, T>(
     root: &str,
     callback: F,
-    uses_chemfiles: bool,
 ) -> Result<Vec<Trial>, io::Error>
 where
     F: Fn(PathBuf, String) -> T,
     T: Fn() -> Result<(), Failed> + Send + 'static,
 {
     let mut tests = Vec::new();
-    let ignore_in_ci = uses_chemfiles && is_ci();
 
     let dir = PathBuf::new().join(env!("CARGO_MANIFEST_DIR")).join("tests").join(root);
     for entry in WalkDir::new(dir) {
@@ -175,9 +166,6 @@ where
                         };
                         let test_fn = callback(path.to_path_buf(), test_case.into());
                         let mut test = Trial::test(test_name, test_fn);
-                        if ignore_in_ci {
-                            test = test.with_ignored_flag(true);
-                        }
                         tests.push(test);
                     }
                 }
