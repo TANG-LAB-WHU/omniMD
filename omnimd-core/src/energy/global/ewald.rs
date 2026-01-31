@@ -28,7 +28,7 @@ use super::{CoulombicPotential, GlobalCache, GlobalPotential};
 ///
 ///  ```rust
 ///  # use omnimd_core::Complex;
-///  # use omnimd_core::energy::global::Ewald3DArray;
+///  # use omnimd_core::energy::Ewald3DArray;
 ///  let mut array = Ewald3DArray::zeros((-6..5, 8, 2));
 ///
 ///  // Negative numbers are allowed for indexing into the array, as long as
