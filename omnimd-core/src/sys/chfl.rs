@@ -120,7 +120,7 @@ impl<'a> From<&'a System> for chemfiles::Frame {
     fn from(system: &'a System) -> chemfiles::Frame {
         let mut frame = chemfiles::Frame::new();
         frame.resize(system.size());
-        frame.set_step(system.step as usize);
+        frame.set_index(system.step as usize);
 
         for (position, chfl_position) in
             soa_zip!(system.particles(), [position], frame.positions_mut())

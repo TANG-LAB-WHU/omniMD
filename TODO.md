@@ -36,11 +36,10 @@ The chemfiles library triggers a SIGFPE (floating-point exception) signal during
   - Subtle environment differences (math library linking) on GitHub Actions runners.
 - **Version:** Current dependency `0.10` likely resolves to `0.10.x`. Latest available is `0.10.41`.
 
-**Potential Solutions:**
-
-- [ ] **Data Validation:** Audit test data files (`.xyz`, `.toml`) for values that could cause division by zero (e.g., zero box lengths, overlapping atoms).
-- [ ] **Dependency Update:** Explicitly try updating to the absolute latest `chemfiles` patch version (`cargo update -p chemfiles`).
-- [ ] **Debugging:** If possible, enable core dumps in a custom CI workflow or add specific logging around `chemfiles` calls in Rust to identify exactly *which* file or call triggers the crash.
+- [x] **Data Validation:** Audit test data files (`.xyz`, `.toml`) for values that could cause division by zero (e.g., zero box lengths, overlapping atoms).
+- [x] **Dependency Update:** Explicitly try updating to the absolute latest `chemfiles` patch version (`cargo update -p chemfiles`). Upgrade to 0.11.0.
+- [x] **Debugging:** Identified $0.0/0.0$ in `UnitCell` as a potential root cause, likely trapped by PyTorch FPE monitors in CI.
+- [ ] **Patching:** (Skipped) User does not have commit permissions for `chemfiles`. Relying on 0.11.0 refactors or environment tuning.
 - [ ] **Upstream:** Report the specific reproduction case (with data) to chemfiles maintainers if isolated.
 
 **Related Links:**
