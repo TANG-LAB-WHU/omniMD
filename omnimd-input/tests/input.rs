@@ -39,7 +39,6 @@ fn all_tests() -> Vec<Trial> {
                     Ok(())
                 }
             },
-            true, // uses_chemfiles
         )
         .expect("Could not generate the tests"),
     );
@@ -68,7 +67,6 @@ fn all_tests() -> Vec<Trial> {
                     }
                 }
             },
-            true, // uses_chemfiles
         )
         .expect("Could not generate the tests"),
     );
@@ -86,7 +84,6 @@ fn all_tests() -> Vec<Trial> {
                     Ok(())
                 }
             },
-            false, // no chemfiles
         )
         .expect("Could not generate the tests"),
     );
@@ -159,7 +156,7 @@ where
                             name.clone()
                         };
                         let test_fn = callback(path.to_path_buf(), test_case.into());
-                        let mut test = Trial::test(test_name, test_fn);
+                        let test = Trial::test(test_name, test_fn);
                         tests.push(test);
                     }
                 }
