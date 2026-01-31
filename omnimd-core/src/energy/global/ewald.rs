@@ -26,8 +26,10 @@ use super::{CoulombicPotential, GlobalCache, GlobalPotential};
 ///
 /// # Examples
 ///
-///  ```ignore
-///  let array = Ewald3DArray::zeros((-6..5, 8, 2));
+///  ```rust
+///  # use Complex;
+///  # use crate::Complex;
+///  # use Complex;
 ///
 ///  // Negative numbers are allowed for indexing into the array, as long as
 ///  // they fit in the range

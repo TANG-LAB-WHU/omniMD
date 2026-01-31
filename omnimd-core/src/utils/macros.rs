@@ -24,7 +24,7 @@ macro_rules! zip {
 ///
 /// Usage:
 ///
-/// ```ignore
+/// ```rust
 /// trait Foo: BoxCloneFoo {}
 ///
 /// impl_box_clone!(Foo, BoxCloneFoo, box_clone_foo);

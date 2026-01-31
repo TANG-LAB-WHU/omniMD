@@ -68,7 +68,6 @@ mod tests {
     use super::*;
 
     #[test]
-    #[ignore = "SIGFPE in chemfiles"]
     fn cell() {
         test_output(
             |path| Box::new(TrajectoryOutput::with_format(path, "XYZ").unwrap()),
