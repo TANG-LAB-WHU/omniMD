@@ -133,7 +133,11 @@ fn is_ci() -> bool {
 /// Generate the tests by calling `callback` for every TOML files at the given
 /// `root`. If `uses_chemfiles` is true and running in CI, tests will be ignored
 /// due to SIGFPE issues with chemfiles library initialization.
-fn generate_tests<F, T>(root: &str, callback: F, uses_chemfiles: bool) -> Result<Vec<Trial>, io::Error>
+fn generate_tests<F, T>(
+    root: &str,
+    callback: F,
+    uses_chemfiles: bool,
+) -> Result<Vec<Trial>, io::Error>
 where
     F: Fn(PathBuf, String) -> T,
     T: Fn() -> Result<(), Failed> + Send + 'static,
