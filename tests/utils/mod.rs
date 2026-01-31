@@ -8,7 +8,6 @@ use omnimd::System;
 use std::rc::Rc;
 use std::sync::RwLock;
 
-
 pub type SharedVec = Rc<RwLock<Vec<f64>>>;
 
 /// Collect pressure and temperature of a simulation after a starting step

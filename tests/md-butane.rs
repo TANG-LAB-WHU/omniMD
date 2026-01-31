@@ -8,7 +8,6 @@ use std::path::Path;
 use std::sync::Once;
 static START: Once = Once::new();
 
-
 #[test]
 fn bonds_detection() {
     START.call_once(::env_logger::init);

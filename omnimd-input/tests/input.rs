@@ -92,32 +92,29 @@ fn all_tests() -> Vec<Trial> {
     );
 
     tests.extend(
-        generate_tests(
-            "interactions/bad",
-            |_, content| {
-                move || {
-                    let message = get_error_message(&content);
+        generate_tests("interactions/bad", |_, content| {
+            move || {
+                let message = get_error_message(&content);
 
-                    let mut system = System::new();
-                    let result = InteractionsInput::from_str(&content)
-                        .and_then(|input| input.read(&mut system));
+                let mut system = System::new();
+                let result =
+                    InteractionsInput::from_str(&content).and_then(|input| input.read(&mut system));
 
-                    match result {
-                        Err(Error::Config(reason)) => {
-                            if reason == message {
-                                Ok(())
-                            } else {
-                                Err(Failed::from(format!(
-                                    "Expected error message: {}\nGot: {}",
-                                    message, reason
-                                )))
-                            }
+                match result {
+                    Err(Error::Config(reason)) => {
+                        if reason == message {
+                            Ok(())
+                        } else {
+                            Err(Failed::from(format!(
+                                "Expected error message: {}\nGot: {}",
+                                message, reason
+                            )))
                         }
-                        _ => Err(Failed::from("This test should fail with a Config error")),
                     }
+                    _ => Err(Failed::from("This test should fail with a Config error")),
                 }
-            },
-        )
+            }
+        })
         .expect("Could not generate the tests"),
     );
 
@@ -126,10 +123,7 @@ fn all_tests() -> Vec<Trial> {
 
 /// Generate the tests by calling `callback` for every TOML files at the given
 /// `root`.
-fn generate_tests<F, T>(
-    root: &str,
-    callback: F,
-) -> Result<Vec<Trial>, io::Error>
+fn generate_tests<F, T>(root: &str, callback: F) -> Result<Vec<Trial>, io::Error>
 where
     F: Fn(PathBuf, String) -> T,
     T: Fn() -> Result<(), Failed> + Send + 'static,
