@@ -9,10 +9,15 @@ static START: Once = Once::new();
 
 mod utils;
 
+fn is_ci() -> bool {
+    std::env::var("CI").map(|v| v == "true").unwrap_or(false)
+}
+
 // This test only run a Monte Carlo simulation of water, but do not test
 // anything for now. It should test the g(r) function someday.
 #[test]
 fn wolf_nvt() {
+    if is_ci() { return; }
     START.call_once(::env_logger::init);
     let path = Path::new(file!())
         .parent()
@@ -27,6 +32,7 @@ fn wolf_nvt() {
 
 #[test]
 fn wolf_npt() {
+    if is_ci() { return; }
     START.call_once(::env_logger::init);
     let path = Path::new(file!())
         .parent()
@@ -54,6 +60,7 @@ fn wolf_npt() {
 // anything for now. It should test the g(r) function someday.
 #[test]
 fn ewald_nvt() {
+    if is_ci() { return; }
     START.call_once(::env_logger::init);
     let path = Path::new(file!())
         .parent()
@@ -68,6 +75,7 @@ fn ewald_nvt() {
 
 #[test]
 fn ewald_npt() {
+    if is_ci() { return; }
     START.call_once(::env_logger::init);
     let path = Path::new(file!())
         .parent()

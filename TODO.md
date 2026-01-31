@@ -16,14 +16,15 @@ The chemfiles library triggers a SIGFPE (floating-point exception) signal during
 - All simulation tests in `omnimd-input` (loading `.xyz` files)
 - chfl-related tests in `omnimd-core`
 - Trajectory tests in `omnimd-sim`
-- Integration tests in `tests/docs.rs` (argon, nacl, water)
+- All integration tests in `tests/*.rs` (docs, mc-*, md-*, nist-*) when using chemfiles
 
 **Current Workaround:**
 
 - Automatically skip these tests in CI environment
 - Related code locations:
   - `omnimd-input/tests/input.rs`: `is_ci()` detection + `uses_chemfiles` flag
-  - `tests/docs.rs`: `is_ci()` detection with early return
+  - `tests/*.rs`: Added `is_ci()` check with early return in all test functions
+  - `tests/utils/mod.rs`: Added `is_ci()` helper for tests using utils
   - `omnimd-core/src/sys/chfl.rs`: `#[ignore]` attribute
   - `omnimd-sim/src/output/trajectory.rs`: `#[ignore]` attribute
 
