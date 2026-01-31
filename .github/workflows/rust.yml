@@ -57,4 +57,5 @@ jobs:
         run: cargo test -p omnimd-input -- --test-threads=1
 
       - name: Run Integration Tests
+        # NOTE: Tests using chemfiles (argon, nacl, water) skip in CI due to SIGFPE
         run: cargo test --tests -- --test-threads=1
