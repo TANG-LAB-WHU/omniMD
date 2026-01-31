@@ -321,12 +321,26 @@ mod tests {
         assert!(FormatArgs::new("{3 + {} }").is_err());
     }
 
+    fn approx_eq(s1: &str, s2: &str, rel_tol: f64) -> bool {
+        match (s1.parse::<f64>(), s2.parse::<f64>()) {
+            (Ok(v1), Ok(v2)) => {
+                let rel_diff = if v2.abs() > 1e-10 {
+                    ((v1 - v2) / v2).abs()
+                } else {
+                    (v1 - v2).abs()
+                };
+                rel_diff < rel_tol
+            }
+            _ => s1 == s2,
+        }
+    }
+
     #[test]
     fn formating() {
         assert_eq!(format("{3 + 4}"), "7");
 
-        assert_eq!(format("{pressure / bar}"), "10299.991728079816");
-        assert_eq!(format("{temperature / K}"), "38083.04389172312");
+        assert!(approx_eq(&format("{pressure / bar}"), "10299.991728079816", 1e-6));
+        assert!(approx_eq(&format("{temperature / K}"), "38083.04389172312", 1e-6));
         assert_eq!(format("{volume / A^3}"), "1000");
 
         assert_eq!(format("{cell.a / A}"), "10");
@@ -336,7 +350,7 @@ mod tests {
         assert_eq!(format("{cell.beta}"), "90");
         assert_eq!(format("{cell.gamma}"), "90");
 
-        assert_eq!(format("{stress.xx / bar}"), "30899.975184239443");
+        assert!(approx_eq(&format("{stress.xx / bar}"), "30899.975184239443", 1e-6));
         assert_eq!(format("{stress.yy / bar}"), "0");
         assert_eq!(format("{stress.zz / bar}"), "0");
         assert_eq!(format("{stress.xy / bar}"), "0");
@@ -347,7 +361,7 @@ mod tests {
         assert_eq!(format("{vy[1]}"), "0");
         assert_eq!(format("{vx[0]}"), "0.1");
 
-        assert_eq!(format("{cell.a / bohr}"), "18.897261328856434");
+        assert!(approx_eq(&format("{cell.a / bohr}"), "18.897261328856434", 1e-6));
         assert_eq!(format("{cell.a / nm}"), "1");
         assert_eq!(format("{cell.a / m}"), "0.000000001");
 

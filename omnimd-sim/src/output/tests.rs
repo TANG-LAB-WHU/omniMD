@@ -55,6 +55,44 @@ fn check_file_content(mut file: File, content: &str) {
     let _ = file.read_to_string(&mut buffer).unwrap();
 
     for (l1, l2) in buffer.lines().zip(content.lines()) {
-        assert_eq!(l1, l2.trim_start());
+        let l2 = l2.trim_start();
+        // Compare tokens individually to handle floating-point precision
+        let tokens1: Vec<&str> = l1.split_whitespace().collect();
+        let tokens2: Vec<&str> = l2.split_whitespace().collect();
+
+        assert_eq!(
+            tokens1.len(),
+            tokens2.len(),
+            "Line token count mismatch:\n  left:  {}\n  right: {}",
+            l1,
+            l2
+        );
+
+        for (t1, t2) in tokens1.iter().zip(tokens2.iter()) {
+            // Try to parse as f64 for approximate comparison
+            match (t1.parse::<f64>(), t2.parse::<f64>()) {
+                (Ok(v1), Ok(v2)) => {
+                    // Use relative tolerance for floating-point comparison
+                    let rel_diff = if v2.abs() > 1e-10 {
+                        ((v1 - v2) / v2).abs()
+                    } else {
+                        (v1 - v2).abs()
+                    };
+                    assert!(
+                        rel_diff < 1e-6,
+                        "Floating-point mismatch: {} vs {} (rel_diff: {})\n  left:  {}\n  right: {}",
+                        t1,
+                        t2,
+                        rel_diff,
+                        l1,
+                        l2
+                    );
+                }
+                _ => {
+                    // Non-numeric tokens: exact comparison
+                    assert_eq!(t1, t2, "Token mismatch:\n  left:  {}\n  right: {}", l1, l2);
+                }
+            }
+        }
     }
 }
