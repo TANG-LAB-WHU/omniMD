@@ -6,9 +6,14 @@ This document tracks unresolved issues in the `dev` branch for future developmen
 
 ## ✅ Resolved Issues
 
-### 1. Chemfiles Library SIGFPE Issue
-**Problem:** The chemfiles library triggered a SIGFPE signal during initialization in CI, likely due to a $0.0/0.0$ division in `UnitCell`.
-**Resolution:** Upgraded to **Chemfiles 0.11.0** (via git dependency), which correctly handles zero-initialization and avoids the crash. All CI-specific test skips have been removed.
+### 1. CI Stability and Chemfiles Integration
+**Problem:** The chemfiles library triggered a SIGFPE signal in CI. Several tests were ignored, and integration tests used CI-skips to avoid crashes.
+**Resolution:**
+- Upgraded to **Chemfiles 0.11.0** (via git dependency) to resolve zero-initialization SIGFPE.
+- Re-enabled all ignored tests in `omnimd-core` and `omnimd-sim`.
+- Fixed broken doctests by exporting and properly scoping items (`Ewald3DArray`, `impl_box_clone!`).
+- Created a new **Ubuntu 24.04** CI workflow (`rust-ubuntu-24.yml`) to ensure future compatibility.
+- Cleaned up all `is_ci()` workarounds and redundant test arguments.
 **Date Resolved:** 2026-01-31
 
 ---
