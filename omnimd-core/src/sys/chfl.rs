@@ -130,7 +130,7 @@ impl<'a> From<&'a System> for chemfiles::Frame {
 
         frame.add_velocities();
         for (velocity, chfl_velocity) in
-            soa_zip!(system.particles(), [position], frame.positions_mut())
+            soa_zip!(system.particles(), [velocity], frame.velocities_mut())
         {
             *chfl_velocity = **velocity;
         }
