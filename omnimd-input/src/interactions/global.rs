@@ -8,12 +8,17 @@ use crate::Error;
 
 impl InteractionsInput {
     /// Read the "global" section from the configuration.
+    /// This expects [[global]] array format for global potentials.
+    /// If [global] is used as a table (for pairs defaults), this is handled by pairs.rs.
     pub(crate) fn read_globals(&self, system: &mut System) -> Result<(), Error> {
         let Some(globals) = self.config.get("global") else {
             return Ok(());
         };
 
-        let globals = globals.as_array().ok_or(Error::from("'global' section must be an array"))?;
+        // If it's a table (used for pairs defaults like cutoff), skip here - pairs.rs handles it
+        let Some(globals) = globals.as_array() else {
+            return Ok(());
+        };
 
         for global in globals {
             let global =
