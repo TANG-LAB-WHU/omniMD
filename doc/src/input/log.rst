@@ -1,17 +1,17 @@
 ``[log]`` section
 *****************
 
-Lumol sends various logging messages while running a simulation. Some of them
+OmniMD sends various logging messages while running a simulation. Some of them
 are informational messages (``charge was set to 1.2 for 132 particles``), others
 are warnings or error message (``infinite energy!``) and some are for debugging
 purposes.
 
-By default, Lumol prints all the informational, warning and error messages to
+By default, OmniMD prints all the informational, warning and error messages to
 the standard terminal output. This allows to run the code and redirect the
-output to a specific file in the usual UNIX way: ``lumol input.toml >
+output to a specific file in the usual UNIX way: ``omnimd input.toml >
 simulation.log``.
 
-Lumol also offers more detailed configuration for logging output, for example if
+OmniMD also offers more detailed configuration for logging output, for example if
 you only want to print errors and warnings, and redirect everything else to a
 file. This configuration happens in the ``[log]`` section of the input file.
 This section can contain either a single output ``target``, or multiple
@@ -23,18 +23,18 @@ This section can contain either a single output ``target``, or multiple
 
     # Single log target
     [log]
-    target = "lumol.log"
+    target = "omnimd.log"
 
     # Multiple log targets
     [log]
     targets = [
-        {target = "lumol.log"},
+        {target = "omnimd.log"},
         {target = "<stdout>", level = "warning"}
     ]
 
     # Multiple log targets, alternative syntax
     [[log.targets]]
-    target = "lumol.log"
+    target = "omnimd.log"
 
     [[log.targets]]
     target = "<stdout>"
@@ -79,8 +79,8 @@ overwritten by every simulation run.
     targets = [
         # Print warnings to the standard output stream
         {target = "<stdout>", level = "warning"},
-        # Save all messages to the 'lumol.log' file
-        {target = "lumol.log"},
+        # Save all messages to the 'omnimd.log' file
+        {target = "omnimd.log"},
         # Save debug messages to 'debug.log', keeping the file across simulation
         # runs.
         {target = "debug.log", level = "debug", append = true},

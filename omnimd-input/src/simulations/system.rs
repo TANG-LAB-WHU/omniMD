@@ -21,7 +21,7 @@ impl Input {
         let file = get_input_path(&self.path, file);
         let mut trajectory = TrajectoryBuilder::new().open(file)?;
 
-        let with_cell = self.read_cell()?.map_or(false, |cell| {
+        let with_cell = self.read_cell()?.is_some_and(|cell| {
             trajectory.set_cell(&cell);
             true
         });

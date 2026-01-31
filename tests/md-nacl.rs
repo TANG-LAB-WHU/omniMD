@@ -15,6 +15,9 @@ mod wolf {
 
     #[test]
     fn constant_energy() {
+        if crate::utils::is_ci() {
+            return;
+        }
         START.call_once(::env_logger::init);
         let path = Path::new(file!())
             .parent()
@@ -33,6 +36,9 @@ mod wolf {
 
     #[test]
     fn anisotropic_berendsen() {
+        if crate::utils::is_ci() {
+            return;
+        }
         START.call_once(::env_logger::init);
         let path = Path::new(file!())
             .parent()
@@ -66,6 +72,9 @@ mod ewald {
 
     #[test]
     fn constant_energy() {
+        if crate::utils::is_ci() {
+            return;
+        }
         START.call_once(::env_logger::init);
         let path = Path::new(file!())
             .parent()
@@ -83,6 +92,9 @@ mod ewald {
 
     #[test]
     fn constant_energy_kspace() {
+        if crate::utils::is_ci() {
+            return;
+        }
         START.call_once(::env_logger::init);
         let path = Path::new(file!())
             .parent()

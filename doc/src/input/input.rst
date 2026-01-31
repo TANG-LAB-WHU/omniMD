@@ -9,6 +9,6 @@ All input files must contain an ``[input]`` section looking like this:
     version = 1
 
 Introducing a ``version`` key helps us to make changes to the input file format
-while keeping compatibility with previous formats. Please note that Lumol is not
+while keeping compatibility with previous formats. Please note that OmniMD is not
 in version 1.0 yet and we currently cannot guarantee compatibility for input
 files.

@@ -67,7 +67,7 @@ fn read_restriction(config: &Table) -> Result<Option<PairRestriction>, Error> {
     if restriction.is_none() {
         // No restriction found
         return Ok(None);
-    };
+    }
 
     match restriction.expect("Unreachable").clone() {
         Value::String(name) => match &*name {

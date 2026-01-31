@@ -219,7 +219,7 @@ impl Configuration {
             particle_j -= delta; // j moved
         } else {
             particle_i -= delta; // i moved
-        };
+        }
 
         assert_eq!(self.molecule_ids[particle_i], self.molecule_ids[particle_j]);
         self.bondings[self.molecule_ids[particle_i]].add_bond(particle_i, particle_j);
@@ -459,7 +459,7 @@ pub struct MoleculeIter<'a> {
     _marker: PhantomData<ParticleSlice<'a>>,
 }
 
-unsafe impl<'a> Send for MoleculeIter<'a> {}
+unsafe impl Send for MoleculeIter<'_> {}
 
 impl<'a> Iterator for MoleculeIter<'a> {
     type Item = MoleculeRef<'a>;
@@ -493,7 +493,7 @@ impl<'a> Iterator for MoleculeIter<'a> {
     }
 }
 
-impl<'a> DoubleEndedIterator for MoleculeIter<'a> {
+impl DoubleEndedIterator for MoleculeIter<'_> {
     #[inline]
     fn next_back(&mut self) -> Option<Self::Item> {
         if let Some(bonding) = self.bondings.next_back() {
@@ -520,7 +520,7 @@ pub struct MoleculeIterMut<'a> {
     _marker: PhantomData<ParticleSliceMut<'a>>,
 }
 
-unsafe impl<'a> Send for MoleculeIterMut<'a> {}
+unsafe impl Send for MoleculeIterMut<'_> {}
 
 impl<'a> Iterator for MoleculeIterMut<'a> {
     type Item = MoleculeRefMut<'a>;
@@ -554,7 +554,7 @@ impl<'a> Iterator for MoleculeIterMut<'a> {
     }
 }
 
-impl<'a> DoubleEndedIterator for MoleculeIterMut<'a> {
+impl DoubleEndedIterator for MoleculeIterMut<'_> {
     #[inline]
     fn next_back(&mut self) -> Option<Self::Item> {
         if let Some(bonding) = self.bondings.next_back() {

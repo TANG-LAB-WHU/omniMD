@@ -5,7 +5,6 @@ use rand_distr::{Distribution, Uniform, UnitSphere};
 
 use std::collections::BTreeSet;
 use std::f64;
-use std::usize;
 
 use log::warn;
 use log_once::warn_once;
@@ -39,7 +38,7 @@ impl Rotate {
         assert!(theta > 0.0, "theta must be positive in Rotate move");
         Rotate {
             hash: hash.into(),
-            molid: usize::max_value(),
+            molid: usize::MAX,
             newpos: Vec::new(),
             theta: theta,
             range: Uniform::new(-theta, theta),
@@ -48,7 +47,7 @@ impl Rotate {
 }
 
 impl MCMove for Rotate {
-    fn describe(&self) -> &str {
+    fn describe(&self) -> &'static str {
         "molecular rotation"
     }
 

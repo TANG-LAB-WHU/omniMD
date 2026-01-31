@@ -129,6 +129,7 @@ impl_box_clone!(GlobalPotential, BoxCloneGlobal, box_clone_gobal);
 ///
 /// /// Shift the energy of all the particles by a given delta.
 /// #[derive(Clone)]
+/// #[allow(dead_code)]
 /// struct ShiftAll {
 ///     delta: f64,
 /// }

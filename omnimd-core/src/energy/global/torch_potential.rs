@@ -6,7 +6,7 @@ use std::sync::{Arc, Mutex};
 
 use tch::{CModule, Device, IValue, Kind, Tensor};
 
-use super::{BoxCloneGlobal, GlobalCache, GlobalPotential};
+use super::{GlobalCache, GlobalPotential};
 use crate::sys::Configuration;
 use crate::types::{Matrix3, Vector3D};
 use crate::units;
@@ -78,7 +78,7 @@ impl TorchPotential {
         let species: Vec<i64> = configuration
             .particles()
             .iter()
-            .map(|p| element_to_z(&p.name).unwrap_or(0))
+            .map(|p| element_to_z(p.name).unwrap_or(0))
             .collect();
 
         let z_tensor = Tensor::from_slice(&species).to(self.device);
@@ -90,7 +90,7 @@ impl TorchPotential {
             .flat_map(|p| vec![p.position[0], p.position[1], p.position[2]])
             .collect();
         let pos_tensor = Tensor::from_slice(&coords)
-            .reshape(&[n as i64, 3])
+            .reshape([n as i64, 3])
             .to_kind(Kind::Float)
             .to(self.device);
 
@@ -110,7 +110,7 @@ impl TorchPotential {
         ];
         // Reshape to 3x3
         let cell_tensor = Tensor::from_slice(&cell_data)
-            .reshape(&[3, 3])
+            .reshape([3, 3])
             .to_kind(Kind::Float)
             .to(self.device);
 
@@ -120,6 +120,7 @@ impl TorchPotential {
 
 // Simple lookup for common elements used in AIMD (CHON, metals, etc.)
 // A full table would be better, but we keep it simple for this prototype.
+#[allow(clippy::too_many_lines)]
 fn element_to_z(name: &str) -> Option<i64> {
     match name {
         "H" => Some(1),
@@ -261,9 +262,8 @@ impl GlobalPotential for TorchPotential {
         let inputs = [IValue::Tensor(z), IValue::Tensor(pos), IValue::Tensor(cell)];
         let output = module.forward_is(&inputs).expect("TorchScript forward failed"); // Handle error properly in real code
 
-        let dict = match output {
-            tch::IValue::GenericDict(d) => d,
-            _ => panic!("Expected Dictionary output from MLIP model"),
+        let IValue::GenericDict(dict) = output else {
+            panic!("Expected Dictionary output from MLIP model")
         };
 
         // Extract energy
@@ -271,14 +271,13 @@ impl GlobalPotential for TorchPotential {
         // tch-rs generic dict is Vec<(IValue, IValue)>
         // We scan for "energy"
         let energy_val = dict.iter().find(|(k, _)| match k {
-            tch::IValue::String(s) => s == "energy",
+            IValue::String(s) => s == "energy",
             _ => false,
         });
 
         if let Some((_, v)) = energy_val {
-            let t = match v {
-                tch::IValue::Tensor(t) => t,
-                _ => panic!("Energy key must be a Tensor"),
+            let IValue::Tensor(t) = v else {
+                panic!("Energy key must be a Tensor")
             };
             // Get scalar
             let e_ev: f64 = t.double_value(&[]);
@@ -295,21 +294,19 @@ impl GlobalPotential for TorchPotential {
         let inputs = [IValue::Tensor(z), IValue::Tensor(pos), IValue::Tensor(cell)];
         let output = module.forward_is(&inputs).expect("TorchScript forward failed");
 
-        let dict = match output {
-            tch::IValue::GenericDict(d) => d,
-            _ => panic!("Expected Dictionary output from MLIP model"),
+        let IValue::GenericDict(dict) = output else {
+            panic!("Expected Dictionary output from MLIP model")
         };
 
         // Extract forces
         let forces_val = dict.iter().find(|(k, _)| match k {
-            tch::IValue::String(s) => s == "forces",
+            IValue::String(s) => s == "forces",
             _ => false,
         });
 
         if let Some((_, v)) = forces_val {
-            let t = match v {
-                tch::IValue::Tensor(t) => t,
-                _ => panic!("Forces key must be a Tensor"),
+            let IValue::Tensor(t) = v else {
+                panic!("Forces key must be a Tensor")
             };
 
             // Expected shape [N, 3]
@@ -349,23 +346,21 @@ impl GlobalPotential for TorchPotential {
         let inputs = [IValue::Tensor(z), IValue::Tensor(pos), IValue::Tensor(cell)];
         let output = module.forward_is(&inputs).expect("TorchScript forward failed");
 
-        let dict = match output {
-            tch::IValue::GenericDict(d) => d,
-            _ => panic!("Expected Dictionary output from MLIP model"),
+        let IValue::GenericDict(dict) = output else {
+            panic!("Expected Dictionary output from MLIP model")
         };
 
         // Extract virial
         // "virial" or "stress"?
         // We documented "virial".
         let virial_val = dict.iter().find(|(k, _)| match k {
-            tch::IValue::String(s) => s == "virial",
+            IValue::String(s) => s == "virial",
             _ => false,
         });
 
         if let Some((_, v)) = virial_val {
-            let t = match v {
-                tch::IValue::Tensor(t) => t,
-                _ => panic!("Virial key must be a Tensor"),
+            let IValue::Tensor(t) = v else {
+                panic!("Virial key must be a Tensor")
             };
             // 3x3
             let v_data: Vec<f64> = t.flatten(0, 1).try_into().unwrap();

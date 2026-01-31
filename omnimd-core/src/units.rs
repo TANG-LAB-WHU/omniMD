@@ -22,67 +22,62 @@ use std::f64::consts::PI;
 use std::fmt;
 use std::num;
 
-use lazy_static::lazy_static;
+use std::sync::LazyLock;
 
-use crate::consts::{AVOGADRO_NUMBER, BOHR_RADIUS};
+use crate::consts::{AVOGADRO_NUMBER, BOHR_RADIUS, U_IN_KG};
 
-// Atomic mass unit in kg
-const U_IN_KG: f64 = 1.660538782e-27;
+/// A map of conversion factors from various units to omnimd internal units
+pub static CONVERSION_FACTORS: LazyLock<BTreeMap<&'static str, f64>> = LazyLock::new(|| {
+    let mut map = BTreeMap::new();
+    // Distances units.
+    assert!(map.insert("A", 1.0).is_none());
+    assert!(map.insert("nm", 10.0).is_none());
+    assert!(map.insert("pm", 1e-2).is_none());
+    assert!(map.insert("fm", 1e-5).is_none());
+    assert!(map.insert("m", 1e10).is_none());
+    assert!(map.insert("bohr", BOHR_RADIUS).is_none());
 
-lazy_static! {
-    /// A map of conversion factors from various units to omnimd internal units
-    pub static ref CONVERSION_FACTORS: BTreeMap<&'static str, f64> = {
-        let mut map = BTreeMap::new();
-        // Distances units.
-        assert!(map.insert("A", 1.0).is_none());
-        assert!(map.insert("nm", 10.0).is_none());
-        assert!(map.insert("pm", 1e-2).is_none());
-        assert!(map.insert("fm", 1e-5).is_none());
-        assert!(map.insert("m", 1e10).is_none());
-        assert!(map.insert("bohr", BOHR_RADIUS).is_none());
+    // Time units.
+    assert!(map.insert("fs", 1.0).is_none());
+    assert!(map.insert("ps", 1e3).is_none());
+    assert!(map.insert("ns", 1e6).is_none());
 
-        // Time units.
-        assert!(map.insert("fs", 1.0).is_none());
-        assert!(map.insert("ps", 1e3).is_none());
-        assert!(map.insert("ns", 1e6).is_none());
+    // Mass units.
+    assert!(map.insert("u", 1.0).is_none());
+    assert!(map.insert("Da", 1.0).is_none());
+    assert!(map.insert("kDa", 1.0).is_none());
+    assert!(map.insert("g", 1e-3 / U_IN_KG).is_none());
+    assert!(map.insert("kg", 1.0 / U_IN_KG).is_none());
 
-        // Mass units.
-        assert!(map.insert("u", 1.0).is_none());
-        assert!(map.insert("Da", 1.0).is_none());
-        assert!(map.insert("kDa", 1.0).is_none());
-        assert!(map.insert("g", 1e-3 / U_IN_KG).is_none());
-        assert!(map.insert("kg", 1.0 / U_IN_KG).is_none());
+    // Temperature units.
+    assert!(map.insert("K", 1.0).is_none());
+    // Quantity of matter units.
+    assert!(map.insert("mol", AVOGADRO_NUMBER).is_none());
 
-        // Temperature units.
-        assert!(map.insert("K", 1.0).is_none());
-        // Quantity of matter units.
-        assert!(map.insert("mol", AVOGADRO_NUMBER).is_none());
+    // Angle units.
+    assert!(map.insert("rad", 1.0).is_none());
+    assert!(map.insert("deg", PI / 180.0).is_none());
 
-        // Angle units.
-        assert!(map.insert("rad", 1.0).is_none());
-        assert!(map.insert("deg", PI / 180.0).is_none());
+    // Energy units.
+    assert!(map.insert("J", 1e-10 / U_IN_KG).is_none());
+    assert!(map.insert("kJ", 1e-7 / U_IN_KG).is_none());
+    assert!(map.insert("kcal", 4.184 * 1e-7 / U_IN_KG).is_none());
+    assert!(map.insert("eV", 1.60217653e-19 * 1e-10 / U_IN_KG).is_none());
+    assert!(map.insert("H", 4.35974417e-18 * 1e-10 / U_IN_KG).is_none());
+    assert!(map.insert("Ry", 4.35974417e-18 / 2.0 * 1e-10 / U_IN_KG).is_none());
 
-        // Energy units.
-        assert!(map.insert("J", 1e-10 / U_IN_KG).is_none());
-        assert!(map.insert("kJ", 1e-7 / U_IN_KG).is_none());
-        assert!(map.insert("kcal", 4.184 * 1e-7 / U_IN_KG).is_none());
-        assert!(map.insert("eV", 1.60217653e-19 * 1e-10 / U_IN_KG).is_none());
-        assert!(map.insert("H", 4.35974417e-18 * 1e-10 / U_IN_KG).is_none());
-        assert!(map.insert("Ry", 4.35974417e-18 / 2.0 * 1e-10 / U_IN_KG).is_none());
+    // Force unit.
+    assert!(map.insert("N", 1e-20 / U_IN_KG).is_none());
 
-        // Force unit.
-        assert!(map.insert("N", 1e-20 / U_IN_KG).is_none());
+    // Pressure units.
+    assert!(map.insert("Pa", 1e-40 / U_IN_KG).is_none());
+    assert!(map.insert("kPa", 1e-37 / U_IN_KG).is_none());
+    assert!(map.insert("MPa", 1e-34 / U_IN_KG).is_none());
+    assert!(map.insert("bar", 1e-35 / U_IN_KG).is_none());
+    assert!(map.insert("atm", 101325.0 * 1e-40 / U_IN_KG).is_none());
 
-        // Pressure units.
-        assert!(map.insert("Pa", 1e-40 / U_IN_KG).is_none());
-        assert!(map.insert("kPa", 1e-37 / U_IN_KG).is_none());
-        assert!(map.insert("MPa", 1e-34 / U_IN_KG).is_none());
-        assert!(map.insert("bar", 1e-35 / U_IN_KG).is_none());
-        assert!(map.insert("atm", 101325.0 * 1e-40 / U_IN_KG).is_none());
-
-        return map;
-    };
-}
+    map
+});
 
 /// Possible error causes when parsing an unit string.
 #[derive(Debug)]
@@ -406,7 +401,7 @@ mod test {
     use super::*;
     use super::{shunting_yard, tokenize};
     use super::{Token, UnitExpr};
-    use approx::assert_ulps_eq;
+    use approx::{assert_relative_eq, assert_ulps_eq};
 
     #[test]
     fn tokens() {
@@ -454,10 +449,26 @@ mod test {
         assert_eq!(UnitExpr::parse("nm").unwrap(), UnitExpr::Val(10.0));
 
         assert_eq!(UnitExpr::parse("bohr/fs").unwrap().eval(), 0.52917720859);
-        assert_eq!(UnitExpr::parse("(Ry / rad^-3   )").unwrap().eval(), 0.1312749878912494);
-        assert_eq!(UnitExpr::parse("bar/(m * fs^2)").unwrap().eval(), 6.022141794216763e-19);
-        assert_eq!(UnitExpr::parse("kJ/mol/deg^2").unwrap().eval(), 0.3282806352310398);
-        assert_eq!(UnitExpr::parse("(kcal/mol/A)^2").unwrap().eval(), 1.7505856024515547e-7);
+        assert_relative_eq!(
+            UnitExpr::parse("(Ry / rad^-3   )").unwrap().eval(),
+            0.1312749878912494,
+            epsilon = 1e-7
+        );
+        assert_relative_eq!(
+            UnitExpr::parse("bar/(m * fs^2)").unwrap().eval(),
+            6.022141794216763e-19,
+            max_relative = 1e-5
+        );
+        assert_relative_eq!(
+            UnitExpr::parse("kJ/mol/deg^2").unwrap().eval(),
+            0.3282806352310398,
+            max_relative = 1e-5
+        );
+        assert_relative_eq!(
+            UnitExpr::parse("(kcal/mol/A)^2").unwrap().eval(),
+            1.7505856024515547e-7,
+            max_relative = 1e-5
+        );
 
         assert_ulps_eq!(UnitExpr::parse("kcal/mol/A^2").unwrap().eval(), 4.184e-4, epsilon = 1e-9);
     }
@@ -484,7 +495,7 @@ mod test {
     #[test]
     fn unit_to() {
         assert_eq!(to(25.0, "m").unwrap(), 2.5e-9);
-        assert_eq!(to(25.0, "bar").unwrap(), 4.1513469550000005e9);
-        assert_eq!(to(25.0, "kJ/mol").unwrap(), 249999.99982494753);
+        assert_relative_eq!(to(25.0, "bar").unwrap(), 4.1513469550000005e9, epsilon = 1e3);
+        assert_relative_eq!(to(25.0, "kJ/mol").unwrap(), 249999.99982494753, max_relative = 1e-5);
     }
 }

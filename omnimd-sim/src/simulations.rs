@@ -38,7 +38,7 @@ impl Output for OutputFrequency {
     }
 
     fn write(&mut self, system: &System) {
-        if system.step % self.frequency == 0 {
+        if system.step.is_multiple_of(self.frequency) {
             self.output.write(system);
         }
     }
@@ -79,9 +79,9 @@ impl Simulation {
         match system.simulated_degrees_of_freedom {
             DegreesOfFreedom::Molecules => info!("All molecules are treated as rigid bodies"),
             DegreesOfFreedom::Particles => {
-                info!("All particles are allowed to move in this simulation")
+                info!("All particles are allowed to move in this simulation");
             }
-            DegreesOfFreedom::Frozen(n) => info!("{} degrees of freedom are frozen", n),
+            DegreesOfFreedom::Frozen(n) => info!("{n} degrees of freedom are frozen"),
         }
 
         system.check();
@@ -93,7 +93,7 @@ impl Simulation {
                 output.write(system);
             }
 
-            if i % 10_000 == 0 {
+            if i.is_multiple_of(10_000) {
                 sanity_check(system);
             }
         }

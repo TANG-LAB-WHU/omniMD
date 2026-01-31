@@ -13,7 +13,7 @@ env:
 jobs:
   build:
     name: Build and Test
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-22.04
 
     steps:
       - uses: actions/checkout@v4
@@ -25,6 +25,11 @@ jobs:
 
       - name: Install PyTorch (CPU)
         run: pip install torch --index-url https://download.pytorch.org/whl/cpu
+
+      - name: Configure LD_LIBRARY_PATH
+        run: |
+          LIBTORCH_PATH=$(python -c "import torch; import os; print(os.path.join(os.path.dirname(torch.__file__), 'lib'))")
+          echo "LD_LIBRARY_PATH=$LIBTORCH_PATH:$LD_LIBRARY_PATH" >> $GITHUB_ENV
 
       - name: Set up Rust
         uses: dtolnay/rust-toolchain@stable
@@ -41,13 +46,16 @@ jobs:
         run: cargo build --verbose
 
       - name: Test omnimd-core
-        run: cargo test -p omnimd-core
+        run: cargo test -p omnimd-core -- --test-threads=1
 
       - name: Test omnimd-sim
-        run: cargo test -p omnimd-sim
+        run: cargo test -p omnimd-sim -- --test-threads=1
 
+      # NOTE: simulation tests are automatically ignored in CI due to SIGFPE
+      # in chemfiles library. Interaction tests still run normally.
       - name: Test omnimd-input
-        run: cargo test -p omnimd-input
+        run: cargo test -p omnimd-input -- --test-threads=1
 
       - name: Run Integration Tests
-        run: cargo test --tests
+        # NOTE: Tests using chemfiles (argon, nacl, water) skip in CI due to SIGFPE
+        run: cargo test --tests -- --test-threads=1

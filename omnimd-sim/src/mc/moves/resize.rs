@@ -41,7 +41,7 @@ impl Resize {
 }
 
 impl MCMove for Resize {
-    fn describe(&self) -> &str {
+    fn describe(&self) -> &'static str {
         "resizing of the cell"
     }
 
@@ -84,7 +84,7 @@ impl MCMove for Resize {
                      of particles."
                 );
             }
-        };
+        }
 
         let cell = system.cell;
         for mut molecule in system.molecules_mut() {

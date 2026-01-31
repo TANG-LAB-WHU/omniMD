@@ -180,7 +180,7 @@ impl CSVRThermostat {
         }
 
         let rr = self.normal.sample(&mut self.rng);
-        if n % 2 == 0 {
+        if n.is_multiple_of(2) {
             let gamma = Gamma::new((n / 2) as f64, 1.0).expect("bad gamma distribution");
             return (rr, 2.0 * gamma.sample(&mut self.rng));
         } else {
