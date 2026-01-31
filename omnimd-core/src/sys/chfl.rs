@@ -120,7 +120,7 @@ impl<'a> From<&'a System> for chemfiles::Frame {
     fn from(system: &'a System) -> chemfiles::Frame {
         let mut frame = chemfiles::Frame::new();
         frame.resize(system.size());
-        frame.set_step(system.step as usize);
+        frame.set_index(system.step as usize);
 
         for (position, chfl_position) in
             soa_zip!(system.particles(), [position], frame.positions_mut())
@@ -129,9 +129,11 @@ impl<'a> From<&'a System> for chemfiles::Frame {
         }
 
         frame.add_velocities();
-        for (velocity, chfl_velocity) in
-            soa_zip!(system.particles(), [position], frame.positions_mut())
-        {
+        for (velocity, chfl_velocity) in soa_zip!(
+            system.particles(),
+            [velocity],
+            frame.velocities_mut().expect("velocities should be present")
+        ) {
             *chfl_velocity = **velocity;
         }
 
@@ -450,7 +452,6 @@ END
 ";
 
     #[test]
-    #[ignore = "SIGFPE in chemfiles library initialization"]
     #[allow(clippy::unreadable_literal)]
     fn read_water() {
         let mut file = tempfile::Builder::new().suffix(".xyz").tempfile().unwrap();
@@ -480,7 +481,6 @@ END
     }
 
     #[test]
-    #[ignore = "SIGFPE in chemfiles library initialization"]
     fn read_pdb_water() {
         let mut file = tempfile::Builder::new().suffix(".pdb").tempfile().unwrap();
         write!(file, "{PDB_WATER}").unwrap();
@@ -506,7 +506,6 @@ END
     }
 
     #[test]
-    #[ignore = "SIGFPE in chemfiles library initialization"]
     #[allow(clippy::unreadable_literal)]
     fn read_propane() {
         let mut file = tempfile::Builder::new().suffix(".xyz").tempfile().unwrap();

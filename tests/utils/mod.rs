@@ -8,10 +8,6 @@ use omnimd::System;
 use std::rc::Rc;
 use std::sync::RwLock;
 
-pub fn is_ci() -> bool {
-    std::env::var("CI").map(|v| v == "true").unwrap_or(false)
-}
-
 pub type SharedVec = Rc<RwLock<Vec<f64>>>;
 
 /// Collect pressure and temperature of a simulation after a starting step

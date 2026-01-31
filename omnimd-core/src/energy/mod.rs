@@ -257,7 +257,7 @@ pub use self::restrictions::{BondPath, PairRestriction, RestrictionInfo};
 
 mod global;
 pub use self::global::{CoulombicPotential, GlobalCache, GlobalPotential};
-pub use self::global::{Ewald, SharedEwald, TorchPotential, Wolf};
+pub use self::global::{Ewald, Ewald3DArray, SharedEwald, TorchPotential, Wolf};
 
 mod pairs;
 pub use self::pairs::PairInteraction;

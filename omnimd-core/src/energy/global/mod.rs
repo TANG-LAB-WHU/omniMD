@@ -208,7 +208,8 @@ mod wolf;
 pub use self::wolf::Wolf;
 
 mod ewald;
-pub use self::ewald::{Ewald, SharedEwald};
+#[allow(unused_imports)]
+pub use self::ewald::{Ewald, Ewald3DArray, SharedEwald};
 
 mod torch_potential;
 pub use self::torch_potential::TorchPotential;

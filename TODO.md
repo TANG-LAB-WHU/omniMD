@@ -4,40 +4,17 @@ This document tracks unresolved issues in the `dev` branch for future developmen
 
 ---
 
-## 🔴 High Priority
+## ✅ Resolved Issues
 
-### 1. Chemfiles Library SIGFPE Issue
-
-**Problem:**
-The chemfiles library triggers a SIGFPE (floating-point exception) signal during initialization on GitHub Actions CI environment (Ubuntu 22.04), causing tests to crash.
-
-**Affected Areas:**
-
-- All simulation tests in `omnimd-input` (loading `.xyz` files)
-- chfl-related tests in `omnimd-core`
-- Trajectory tests in `omnimd-sim`
-- All integration tests in `tests/*.rs` (docs, mc-*, md-*, nist-*) when using chemfiles
-
-**Current Workaround:**
-
-- Automatically skip these tests in CI environment
-- Related code locations:
-  - `omnimd-input/tests/input.rs`: `is_ci()` detection + `uses_chemfiles` flag
-  - `tests/*.rs`: Added `is_ci()` check with early return in all test functions
-  - `tests/utils/mod.rs`: Added `is_ci()` helper for tests using utils
-  - `omnimd-core/src/sys/chfl.rs`: `#[ignore]` attribute
-  - `omnimd-sim/src/output/trajectory.rs`: `#[ignore]` attribute
-
-**Potential Solutions:**
-
-- [ ] Investigate upstream chemfiles for fixes
-- [ ] Test on different CI environments (macOS, other Linux distros)
-- [ ] Consider using Docker containers for testing
-- [ ] Report issue to chemfiles maintainers
-
-**Related Links:**
-
-- chemfiles repository: https://github.com/chemfiles/chemfiles
+### 1. CI Stability and Chemfiles Integration
+**Problem:** The chemfiles library triggered a SIGFPE signal in CI. Several tests were ignored, and integration tests used CI-skips to avoid crashes.
+**Resolution:**
+- Upgraded to **Chemfiles 0.11.0** (via git dependency) to resolve zero-initialization SIGFPE.
+- Re-enabled all ignored tests in `omnimd-core` and `omnimd-sim`.
+- Fixed broken doctests by exporting and properly scoping items (`Ewald3DArray`, `impl_box_clone!`).
+- Created a new **Ubuntu 24.04** CI workflow (`rust-ubuntu-24.yml`) to ensure future compatibility.
+- Cleaned up all `is_ci()` workarounds and redundant test arguments.
+**Date Resolved:** 2026-01-31
 
 ---
 

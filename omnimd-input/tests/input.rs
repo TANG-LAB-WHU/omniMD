@@ -29,121 +29,93 @@ fn all_tests() -> Vec<Trial> {
 
     // Simulation tests use chemfiles to load xyz files - ignore in CI due to SIGFPE
     tests.extend(
-        generate_tests(
-            "simulation/good",
-            |path, content| {
-                move || {
-                    let input = Input::from_str(path.clone(), &content)
-                        .map_err(|e| Failed::from(e.to_string()))?;
-                    input.read().map_err(|e| Failed::from(e.to_string()))?;
-                    Ok(())
-                }
-            },
-            true, // uses_chemfiles
-        )
+        generate_tests("simulation/good", |path, content| {
+            move || {
+                let input = Input::from_str(path.clone(), &content)
+                    .map_err(|e| Failed::from(e.to_string()))?;
+                input.read().map_err(|e| Failed::from(e.to_string()))?;
+                Ok(())
+            }
+        })
         .expect("Could not generate the tests"),
     );
 
     tests.extend(
-        generate_tests(
-            "simulation/bad",
-            |path, content| {
-                move || {
-                    let message = get_error_message(&content);
-                    let result =
-                        Input::from_str(path.clone(), &content).and_then(|input| input.read());
+        generate_tests("simulation/bad", |path, content| {
+            move || {
+                let message = get_error_message(&content);
+                let result = Input::from_str(path.clone(), &content).and_then(|input| input.read());
 
-                    match result {
-                        Err(Error::Config(reason)) => {
-                            if reason == message {
-                                Ok(())
-                            } else {
-                                Err(Failed::from(format!(
-                                    "Expected error message: {}\nGot: {}",
-                                    message, reason
-                                )))
-                            }
+                match result {
+                    Err(Error::Config(reason)) => {
+                        if reason == message {
+                            Ok(())
+                        } else {
+                            Err(Failed::from(format!(
+                                "Expected error message: {}\nGot: {}",
+                                message, reason
+                            )))
                         }
-                        _ => Err(Failed::from("This test should fail with a Config error")),
                     }
+                    _ => Err(Failed::from("This test should fail with a Config error")),
                 }
-            },
-            true, // uses_chemfiles
-        )
+            }
+        })
         .expect("Could not generate the tests"),
     );
 
     // Interaction tests don't use chemfiles - run normally
     tests.extend(
-        generate_tests(
-            "interactions/good",
-            |_, content| {
-                move || {
-                    let mut system = System::new();
-                    let input = InteractionsInput::from_str(&content)
-                        .map_err(|e| Failed::from(e.to_string()))?;
-                    input.read(&mut system).map_err(|e| Failed::from(e.to_string()))?;
-                    Ok(())
-                }
-            },
-            false, // no chemfiles
-        )
+        generate_tests("interactions/good", |_, content| {
+            move || {
+                let mut system = System::new();
+                let input = InteractionsInput::from_str(&content)
+                    .map_err(|e| Failed::from(e.to_string()))?;
+                input.read(&mut system).map_err(|e| Failed::from(e.to_string()))?;
+                Ok(())
+            }
+        })
         .expect("Could not generate the tests"),
     );
 
     tests.extend(
-        generate_tests(
-            "interactions/bad",
-            |_, content| {
-                move || {
-                    let message = get_error_message(&content);
+        generate_tests("interactions/bad", |_, content| {
+            move || {
+                let message = get_error_message(&content);
 
-                    let mut system = System::new();
-                    let result = InteractionsInput::from_str(&content)
-                        .and_then(|input| input.read(&mut system));
+                let mut system = System::new();
+                let result =
+                    InteractionsInput::from_str(&content).and_then(|input| input.read(&mut system));
 
-                    match result {
-                        Err(Error::Config(reason)) => {
-                            if reason == message {
-                                Ok(())
-                            } else {
-                                Err(Failed::from(format!(
-                                    "Expected error message: {}\nGot: {}",
-                                    message, reason
-                                )))
-                            }
+                match result {
+                    Err(Error::Config(reason)) => {
+                        if reason == message {
+                            Ok(())
+                        } else {
+                            Err(Failed::from(format!(
+                                "Expected error message: {}\nGot: {}",
+                                message, reason
+                            )))
                         }
-                        _ => Err(Failed::from("This test should fail with a Config error")),
                     }
+                    _ => Err(Failed::from("This test should fail with a Config error")),
                 }
-            },
-            false, // no chemfiles
-        )
+            }
+        })
         .expect("Could not generate the tests"),
     );
 
     return tests;
 }
 
-/// Check if running in CI environment (GitHub Actions sets CI=true)
-fn is_ci() -> bool {
-    env::var("CI").map(|v| v == "true").unwrap_or(false)
-}
-
 /// Generate the tests by calling `callback` for every TOML files at the given
-/// `root`. If `uses_chemfiles` is true and running in CI, tests will be ignored
-/// due to SIGFPE issues with chemfiles library initialization.
-fn generate_tests<F, T>(
-    root: &str,
-    callback: F,
-    uses_chemfiles: bool,
-) -> Result<Vec<Trial>, io::Error>
+/// `root`.
+fn generate_tests<F, T>(root: &str, callback: F) -> Result<Vec<Trial>, io::Error>
 where
     F: Fn(PathBuf, String) -> T,
     T: Fn() -> Result<(), Failed> + Send + 'static,
 {
     let mut tests = Vec::new();
-    let ignore_in_ci = uses_chemfiles && is_ci();
 
     let dir = PathBuf::new().join(env!("CARGO_MANIFEST_DIR")).join("tests").join(root);
     for entry in WalkDir::new(dir) {
@@ -174,10 +146,7 @@ where
                             name.clone()
                         };
                         let test_fn = callback(path.to_path_buf(), test_case.into());
-                        let mut test = Trial::test(test_name, test_fn);
-                        if ignore_in_ci {
-                            test = test.with_ignored_flag(true);
-                        }
+                        let test = Trial::test(test_name, test_fn);
                         tests.push(test);
                     }
                 }

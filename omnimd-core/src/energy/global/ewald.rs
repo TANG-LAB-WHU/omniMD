@@ -24,10 +24,12 @@ use super::{CoulombicPotential, GlobalCache, GlobalPotential};
 /// 3D array with negative indexing on the first dimension, for use in Ewald
 /// phase factors.
 ///
-/// # Examples
+///  # Examples
 ///
-///  ```ignore
-///  let array = Ewald3DArray::zeros((-6..5, 8, 2));
+///  ```rust
+///  # use omnimd_core::Complex;
+///  # use omnimd_core::energy::Ewald3DArray;
+///  let mut array = Ewald3DArray::zeros((-6..5, 8, 2));
 ///
 ///  // Negative numbers are allowed for indexing into the array, as long as
 ///  // they fit in the range
@@ -35,7 +37,7 @@ use super::{CoulombicPotential, GlobalCache, GlobalPotential};
 ///  array[(3, 0, 0)] = Complex::polar(2.2, 0.0);
 ///  ```
 #[derive(Clone, Debug)]
-struct Ewald3DArray {
+pub struct Ewald3DArray {
     data: Array3<Complex>,
     offset: isize,
 }

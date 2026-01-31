@@ -11,9 +11,6 @@ mod utils;
 
 #[test]
 fn constant_pressure() {
-    if crate::utils::is_ci() {
-        return;
-    }
     START.call_once(::env_logger::init);
     let path = Path::new(file!())
         .parent()
