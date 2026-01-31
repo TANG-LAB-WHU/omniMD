@@ -69,9 +69,7 @@ fn all_tests() -> Vec<Trial> {
                 let mut system = System::new();
                 let input = InteractionsInput::from_str(&content)
                     .map_err(|e| Failed::from(e.to_string()))?;
-                input
-                    .read(&mut system)
-                    .map_err(|e| Failed::from(e.to_string()))?;
+                input.read(&mut system).map_err(|e| Failed::from(e.to_string()))?;
                 Ok(())
             }
         })
@@ -117,10 +115,7 @@ where
 {
     let mut tests = Vec::new();
 
-    let dir = PathBuf::new()
-        .join(env!("CARGO_MANIFEST_DIR"))
-        .join("tests")
-        .join(root);
+    let dir = PathBuf::new().join(env!("CARGO_MANIFEST_DIR")).join("tests").join(root);
     for entry in WalkDir::new(dir) {
         let entry = entry?;
         let file_type = entry.file_type();
