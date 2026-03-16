@@ -5,23 +5,17 @@
 [![Documentation](https://img.shields.io/badge/documentation-latest-brightgreen.svg)](https://TANG-LAB-WHU.github.io/omniMD/latest/index.html)
 [![Gitter](https://badges.gitter.im/TANG-LAB-WHU/omniMD.svg)](https://gitter.im/TANG-LAB-WHU/omniMD)
 
-omniMD: Omnipotent Molecular Dynamics bridging dimensional dilemma over unbiased molecular interatomic potentials. Machine learning based interatomic potentials are adopted.
+**omniMD: Omnipotent Molecular Dynamics** is a versatile simulation engine designed to bridge the dimensional gap in unbiased molecular interactions by leveraging machine learning-based interatomic potentials.
 
-omniMD provides a solid base for developing new algorithms and methods. Using omniMD, you can customize the behavior of all the algorithms in a simulation. Adding a new force field, customizing Monte Carlo moves or molecular dynamics integrators is easy and well documented.
+omniMD provides a solid foundation for developing new simulation algorithms and methods. It allows users to fully customize the behavior of algorithms during a simulation. Whether you are adding a new force field, customizing Monte Carlo moves, or implementing new molecular dynamics integrators, the process is straightforward and well-documented.
 
-omniMD goals are to be flexible, reliable and extensible. For us, this means that
-this software should be:
+Our primary goals for omniMD are flexibility, reliability, and extensibility. Specifically, this means the software is:
 
-- **flexible**: the code can simulate all kind of systems, from proteins to
-  crystals, using various methods: molecular dynamics, Monte Carlo, *etc.*
-- **reliable**: the code is well tested, both at the function level; and at the
-  simulation level, checking thermodynamic properties of the systems;
-- **extendable**: the code is modular, object-oriented, well documented,
-  open-source, and easy to read.
+- **Flexible**: Capable of simulating a wide variety of systems—from proteins to crystals—using diverse methods such as molecular dynamics and Monte Carlo algorithms.
+- **Reliable**: Rigorously tested at both the function level and the simulation level to ensure the accuracy of the systems' thermodynamic properties.
+- **Extensible**: Designed with a modular, object-oriented, and open-source architecture that is highly readable and easy to build upon.
 
-omniMD is actively developed, and should be considered as alpha software. If
-you are interested, have some questions or want to participate, you can open a
-[Github issue][issues].
+omniMD is under active development and should currently be considered alpha software. If you are interested in the project, have questions, or would like to contribute, please feel free to open a [GitHub issue][issues].
 
 ## Features
 
