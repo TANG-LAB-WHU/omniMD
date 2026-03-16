@@ -45,8 +45,7 @@ in multiple parts:
   the input file system of omniMD.
   Use this document if you want to use omniMD as a command line tool
   without writing code.
-- To use omniMD as a library inside your own code, we have a [developer
-  documentation][devdoc], which contains documentation for all the library
+- To use omniMD as a library inside your own code, we have a [developer][devdoc], which contains documentation for all the library
   public functions, and examples for most of them.
 
 ### Prerequisites
@@ -68,14 +67,13 @@ To utilize your GPU (e.g., RTX 5080) with CUDA 12.9 support, we recommend using 
    ```bash
    pip install torch torchvision --index-url https://download.pytorch.org/whl/cu129
    ```
-
 2. **Download matching LibTorch C++ Library:**
    You must download the **LibTorch C++ library** that corresponds to the installed PyTorch version.
+
    - Go to [pytorch.org](https://pytorch.org/get-started/locally/).
    - Ensure the version matches the PyTorch version installed above (check `python -c "import torch; print(torch.__version__)"`).
    - Please download the **cxx11 ABI** version if you are on Linux and rely on gcc > 5.
    - **Important:** Since we are using cutting-edge features/versions, `omnimd-core` points to the latest `tch-rs` git repository to ensure compatibility.
-
 3. Extract the downloaded `libtorch` archive.
 4. Set the `LIBTORCH` environment variable to the extracted path.
 5. Add the `lib` subdirectory to your system `PATH` (Windows) or `LD_LIBRARY_PATH` (Linux/macOS).
@@ -119,8 +117,7 @@ A tutorial about how to implement new algorithms in omniMD is coming.
 
 If you want to contribute to omniMD, there are several ways to go: improving the
 documentation and helping with language issues; testing the code on your systems
-to find bugs; adding new algorithms and potentials; providing feature requests.
-providing feature requests. Please open an [issue][issues] to discuss improvements.
+to find bugs; adding new algorithms and potentials; providing feature requests. Please open an [issue][issues] to discuss improvements.
 
 ## License
 
@@ -131,9 +128,7 @@ Unless you explicitly state otherwise, any contribution intentionally submitted
 for inclusion in the work by you, shall be licensed under the same MIT license,
 without any additional terms or conditions.
 
-
 [issues]: https://github.com/TANG-LAB-WHU/omniMD/issues/new
-
 [user_manual]: http://TANG-LAB-WHU.github.io/omniMD/latest/book/
 [input_reference]: http://TANG-LAB-WHU.github.io/omniMD/latest/book/
 [devdoc]: http://TANG-LAB-WHU.github.io/omniMD/latest/omniMD/
