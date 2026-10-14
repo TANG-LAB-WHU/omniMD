@@ -1,56 +1,42 @@
-# Next bounded native training milestone (proposed, not implemented)
+# Training follow-up after the first implementation
 
-Keep the descriptor, embedding networks, fitting hidden layers, and separate
-`atom_energy_bias` fixed. Fit only the final affine readout for each species.
-This gives a useful small CPU float64 energy-and-force training path with exact
-derivatives and no shared `Potential` or model-format change.
+The frozen-hidden final-readout milestone is implemented and exercised through
+the native CLI. See [TRAINING.md](TRAINING.md) for its actual input, objective,
+limits and results. It does not train descriptor or hidden-network parameters.
 
-For fixed hidden features `h_i`, per-type weights `w_t`, and biases `b_t`:
-
-```text
-E = sum_t [w_t . sum_{i:type_i=t} h_i + b_t N_t] + E_fixed
-F_q = -sum_t w_t . sum_{i:type_i=t} d(h_i)/d(r_q)
-```
-
-Energy and force are linear in the trainable coefficients. Build force design
-rows from analytic hidden-feature coordinate derivatives, not detached force
-predictions. Bias columns have zero force derivative. Existing fixed offsets
-are included exactly once. Selection/cutoff boundaries remain subject to the
-native neighbor-capacity and differentiability constraints.
-
-Implement a native-only feature/Jacobian path and a small training CLI reading
-shared-contract frames with explicit energy/force labels. Use a documented
-weighted least-squares objective with separate mean-square energy and force
-normalization, optional explicit ridge regularization, and a rank-aware QR
-solve. Do not invert normal equations. Fixed-composition data cannot identify
-all species bias offsets; freeze biases by default or report deficient rank.
-Keep any needed label/training structs inside `mlmd/native` until the parent
-approves a shared dataset contract. No dependency installation is assumed.
-
-Minimal acceptance:
-
-1. Arbitrary readout coefficients reproduce ordinary native E/F through the
-   feature matrices, including fixed offsets.
-2. A coordinate finite-difference check verifies the sign and indexing of
-   force features away from neighbor-topology changes.
-3. Fit a small manufactured dataset from known readouts, reduce the stated
-   E/F objective, and reproduce independent-frame predictions at a stated
-   tolerance. Compare predictions, not non-identifiable coefficient vectors.
-4. Save native v1 weights, reload and evaluate through the unchanged Potential;
-   report actual training/validation errors, with no chemical-accuracy claim.
-
-A later full fitting-MLP trainer with frozen descriptors requires mixed
-parameter-coordinate derivatives. For half squared loss with seeds
-`a = lambda_E (E-E*)` and `v = lambda_F (F-F*)`:
+Full fitting-network training would first need parameter layouts for every
+matrix, bias and timestep; reusable forward/reverse network tapes; and activation
+first/second derivatives. Frozen descriptor values and coordinate derivatives
+can be cached. For half squared loss with residual seeds
+`a=lambda_E(E-E*)` and `v=lambda_F(F-F*)`, after applying the documented loss
+normalization:
 
 ```text
 grad_theta L = a grad_theta E - grad_theta [v . grad_r E]
 ```
 
-Treat the residual seeds as fixed during this seeded derivative. Forward
-coordinate-directional differentiation followed by reverse parameter
-differentiation computes the mixed term without a full Hessian. It needs
-activation second derivatives and derivative propagation through residuals and
-timesteps. Ordinary energy backpropagation alone is insufficient for force
-training. Gate that extension on one mixed-gradient finite-difference check and
-actual force-loss reduction; end-to-end descriptor training is a later scope.
+Keep the residual seeds fixed during this seeded derivative. Reverse parameter
+differentiation through a forward coordinate-directional derivative computes
+the mixed term without materializing a full Hessian. Residual paths and timestep
+products must contribute to both derivative levels. Ordinary energy
+backpropagation alone cannot optimize the force loss correctly.
+
+Training embedding networks as well requires extending that derivative path
+through environment normalization, embedding activations, the descriptor
+contraction, and all neighbor contributions. Keep type mapping, selection,
+normalization statistics and cutoff policy fixed initially. The existing
+quintic switch has the needed smooth second derivative at its boundaries;
+neighbor-capacity overflow remains an error. Virial-loss training would add
+strain-directional seeds with the same cell deformation convention.
+
+Replace repeated basis evaluations with cached/shared computation before making
+large-model performance claims. A later optimizer needs native minibatching,
+seeded ordering, checkpointed optimizer state, explicit learning-rate settings,
+and validation-only reporting. The current dataset and inference model formats
+can stay intact; any shared training-state contract needs parent coordination.
+
+Acceptance for the next extension: one small analytic mixed parameter-coordinate
+gradient versus finite differences, real energy-and-force objective reduction,
+and exported-model inference agreement. Finite differences are a test oracle,
+not a production parameter-gradient implementation. Full-network and embedding
+training remain future work; no new dependency or optimizer install is assumed.

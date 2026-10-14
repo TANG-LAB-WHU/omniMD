@@ -1,0 +1,290 @@
+{
+  "scope": "actual native final-readout training only; not full-network DeepMD training",
+  "data_seed": 20261014,
+  "split_seed": 20261015,
+  "frames": 48,
+  "train_frames": 36,
+  "validation_frames": [
+    {
+      "id": "set.000/8",
+      "index": 8
+    },
+    {
+      "id": "set.000/12",
+      "index": 12
+    },
+    {
+      "id": "set.000/17",
+      "index": 17
+    },
+    {
+      "id": "set.000/18",
+      "index": 18
+    },
+    {
+      "id": "set.000/21",
+      "index": 21
+    },
+    {
+      "id": "set.000/29",
+      "index": 29
+    },
+    {
+      "id": "set.000/31",
+      "index": 31
+    },
+    {
+      "id": "set.000/34",
+      "index": 34
+    },
+    {
+      "id": "set.000/40",
+      "index": 40
+    },
+    {
+      "id": "set.000/44",
+      "index": 44
+    },
+    {
+      "id": "set.000/45",
+      "index": 45
+    },
+    {
+      "id": "set.000/47",
+      "index": 47
+    }
+  ],
+  "data_rank": 10,
+  "parameters": 10,
+  "initial_training": {
+    "energy_per_atom_rmse_ev": 0.12997315043024407,
+    "energy_rmse_ev": 0.5009140933702525,
+    "force_component_rmse_ev_per_angstrom": 0.0084769247397381,
+    "frames": 36,
+    "normalized_ef_objective": 0.6930168688662203,
+    "virial_component_rmse_ev": 0.006688855811895709
+  },
+  "final_training": {
+    "energy_per_atom_rmse_ev": 3.791600564787836e-16,
+    "energy_rmse_ev": 1.1544080407852114e-15,
+    "force_component_rmse_ev_per_angstrom": 1.1279619873974453e-17,
+    "frames": 36,
+    "normalized_ef_objective": 1.3672756013202425e-30,
+    "virial_component_rmse_ev": 9.290003132371833e-18
+  },
+  "initial_validation": {
+    "energy_per_atom_rmse_ev": 0.12937049805887882,
+    "energy_rmse_ev": 0.49864511576497383,
+    "force_component_rmse_ev_per_angstrom": 0.010606491417115444,
+    "frames": 12,
+    "normalized_ef_objective": 1.0997425121700863,
+    "virial_component_rmse_ev": 0.009024856892786728
+  },
+  "final_validation": {
+    "energy_per_atom_rmse_ev": 4.045594887078717e-16,
+    "energy_rmse_ev": 1.227850952056612e-15,
+    "force_component_rmse_ev_per_angstrom": 1.4395814190403968e-17,
+    "frames": 12,
+    "normalized_ef_objective": 2.1355246224245632e-30,
+    "virial_component_rmse_ev": 1.2229941921719657e-17
+  },
+  "exported_model_max_abs_error_to_teacher": {
+    "energy": 2.1649348980190553e-15,
+    "forces": 9.71445146547012e-17,
+    "virial": 5.551115123125783e-17
+  },
+  "native_v1_reload_max_abs_energy_force_virial": [
+    0.0,
+    0.0,
+    0.0
+  ],
+  "frozen_parameters_unchanged": true,
+  "sha256": {
+    "dataset.jsonl": "dbe51bff493036f2ac3a8e23e7c0be1ee4252b431c1d43398b338a4032bd18d6",
+    "teacher.json": "2a95b4adde8b4e2eb281fbdb99323e0a1e18a4640713f51c0c613939d4b16252",
+    "initial.json": "b40650c04fb46746d187b3bc531ea7214cd91b014a7e3d9a1e2df8a52f28b0e2",
+    "model.json": "2f5ff59d3785e57e7cf38fc6309af4f4a6053ba532c6e446c89547f902a2556c",
+    "report.json": "22288a67ece7b3bd2319dda1123871fde636cbad5944cb2d1fc3a6fd94c6c07b",
+    "eval_executable": "e68ea118dba0195b30ca4622692919301716ca3230b212baef2c54a62efb4058",
+    "train_executable": "cdc505c88595f4526f2ae18654a921d9e7cd01aa9b917e224dd54a9a84fc45a2"
+  },
+  "config": {
+    "energy_scale_ev_per_atom": 1.0,
+    "energy_weight": 1.0,
+    "fit_bias": false,
+    "force_scale_ev_per_angstrom": 0.01,
+    "force_weight": 1.0,
+    "rank_rtol": 1e-12,
+    "ridge_inverse_ev2": 0.0,
+    "split": {
+      "mode": "seeded",
+      "seed": 20261015,
+      "validation_fraction": 0.25
+    }
+  },
+  "source_sha256": {
+    "replay_readout_training.py": "636ce38d15a6eccac996e02d5fe1d9bef4b090372e8b472e2b4d28a32bd223e2",
+    "teacher.json": "2a95b4adde8b4e2eb281fbdb99323e0a1e18a4640713f51c0c613939d4b16252"
+  },
+  "training_frames": [
+    {
+      "id": "set.000/0",
+      "index": 0
+    },
+    {
+      "id": "set.000/1",
+      "index": 1
+    },
+    {
+      "id": "set.000/2",
+      "index": 2
+    },
+    {
+      "id": "set.000/3",
+      "index": 3
+    },
+    {
+      "id": "set.000/4",
+      "index": 4
+    },
+    {
+      "id": "set.000/5",
+      "index": 5
+    },
+    {
+      "id": "set.000/6",
+      "index": 6
+    },
+    {
+      "id": "set.000/7",
+      "index": 7
+    },
+    {
+      "id": "set.000/9",
+      "index": 9
+    },
+    {
+      "id": "set.000/10",
+      "index": 10
+    },
+    {
+      "id": "set.000/11",
+      "index": 11
+    },
+    {
+      "id": "set.000/13",
+      "index": 13
+    },
+    {
+      "id": "set.000/14",
+      "index": 14
+    },
+    {
+      "id": "set.000/15",
+      "index": 15
+    },
+    {
+      "id": "set.000/16",
+      "index": 16
+    },
+    {
+      "id": "set.000/19",
+      "index": 19
+    },
+    {
+      "id": "set.000/20",
+      "index": 20
+    },
+    {
+      "id": "set.000/22",
+      "index": 22
+    },
+    {
+      "id": "set.000/23",
+      "index": 23
+    },
+    {
+      "id": "set.000/24",
+      "index": 24
+    },
+    {
+      "id": "set.000/25",
+      "index": 25
+    },
+    {
+      "id": "set.000/26",
+      "index": 26
+    },
+    {
+      "id": "set.000/27",
+      "index": 27
+    },
+    {
+      "id": "set.000/28",
+      "index": 28
+    },
+    {
+      "id": "set.000/30",
+      "index": 30
+    },
+    {
+      "id": "set.000/32",
+      "index": 32
+    },
+    {
+      "id": "set.000/33",
+      "index": 33
+    },
+    {
+      "id": "set.000/35",
+      "index": 35
+    },
+    {
+      "id": "set.000/36",
+      "index": 36
+    },
+    {
+      "id": "set.000/37",
+      "index": 37
+    },
+    {
+      "id": "set.000/38",
+      "index": 38
+    },
+    {
+      "id": "set.000/39",
+      "index": 39
+    },
+    {
+      "id": "set.000/41",
+      "index": 41
+    },
+    {
+      "id": "set.000/42",
+      "index": 42
+    },
+    {
+      "id": "set.000/43",
+      "index": 43
+    },
+    {
+      "id": "set.000/46",
+      "index": 46
+    }
+  ],
+  "checks": {
+    "cargo_test_command": "cargo test --locked --offline --manifest-path mlmd/native/Cargo.toml",
+    "passed_tests": 10,
+    "held_out_label_perturbation_leaves_weights_unchanged": true,
+    "a_missing_label_record_rejected_without_output": "set.001/0",
+    "public_capi_parity_after_float_roundtrip": {
+      "frames": 4,
+      "passed": true,
+      "max_abs_energy_force_virial": [
+        2.2737367544323206e-13,
+        4.6629367034256575e-15,
+        7.549516567451064e-15
+      ]
+    }
+  }
+}

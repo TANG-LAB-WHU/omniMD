@@ -1,7 +1,11 @@
 //! CPU float64 inference for the explicitly versioned native se_e2_a subset.
+mod least_squares;
 mod model;
 mod neighbor;
 mod network;
+pub mod readout;
+pub mod training;
+pub mod training_data;
 
 pub use model::{Activation, Descriptor, Layer, Model, Network, Normalization, Residual};
 use neighbor::Neighbor;

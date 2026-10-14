@@ -2,8 +2,8 @@
 
 `omnimd-native` implements `omnimd_ml_contract::Potential` with float64 Rust
 arithmetic. It evaluates energy, analytic forces, and strain-gradient virial in
-one call. The only dependencies are the existing shared contract, serde and
-serde_json. No DeepMD runtime, BLAS, Python, GPU, or training is used by inference.
+one call. Dependencies are the existing shared contract, serde, serde_json, and the
+shared project's sha2 for training provenance hashes. No DeepMD runtime, BLAS, Python, GPU, or training is used by inference.
 
 ## Run
 
@@ -159,5 +159,7 @@ See `THIRD_PARTY_NOTICES.md` for mathematical references and licenses.
 
 The public frozen-model replay now passes four frames with maximum E/F/virial
 errors of 2.27e-13 / 4.22e-15 / 6.66e-15. Exact graph-profile limits and replay
-evidence are in [FROZEN.md](FROZEN.md). A bounded next training milestone is
-specified in [TRAINING_NEXT.md](TRAINING_NEXT.md); training is not implemented.
+evidence are in [FROZEN.md](FROZEN.md). Frozen-hidden final-readout training is now implemented; see
+[TRAINING.md](TRAINING.md) for the native CLI, exact E/F features, reproducible
+split and actual teacher-recovery results. This is not full-network training.
+[TRAINING_NEXT.md](TRAINING_NEXT.md) assesses the mixed derivatives needed next.
