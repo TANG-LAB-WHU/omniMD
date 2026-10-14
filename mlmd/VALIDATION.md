@@ -276,16 +276,31 @@ formats are unchanged, and no dependency was added.
 Two new CPU-only routing tests passed in both default and native-cuda builds;
 the feature-enabled Windows CLI compiled and its static capabilities report
 confirmed the feature. The tests neither initialize CUDA nor invoke NVRTC.
-A did not execute a GPU or rerun the owner's benchmark. Unified-CLI GPU
-end-to-end acceptance remains pending, separately from B's validated standalone
-native evaluator. DeepMD C API model GPU parity/timing also remains pending.
-No CUDA integration has been pushed; published shawn_dev is the CPU baseline.
+In one subsequent exclusive GPU window, A used the existing Windows CUDA 12.8
+runtime and the feature-enabled debug CLI at f912b2d. The [CLI replay report](evidence/native-cuda-cli.json)
+records one CPU eight-step NVE run, one CUDA eight-step run and one CUDA four-step
+continuation from the step-four checkpoint. All use the same checked-in original
+112-parameter tanh model and four-atom triclinic frame, dt=0.001 fs. Headers
+confirm native-se-e2-a-v1 versus native-cuda-se-e2-a-v1 and the same model SHA.
+Across nine matched snapshots, maximum absolute E/F/virial differences were
+0 / 6.6613e-16 / 8.8818e-16; positions and velocities matched exactly. Every
+resumed snapshot and final checkpoint state equaled the continuous CUDA output
+after JSON decoding. Both runs had maximum energy drift 7.2564e-13 eV. This is a
+short CLI/restart integration check, not a timestep/stability or timing study.
+
+All three sequential processes exited successfully. No error or retry occurred;
+no omnimd-mlmd process remained at 05:04:49 UTC and the GPU window was released.
+Only the compact report and reproducer are tracked; raw requests, trajectories,
+checkpoints and logs stay in the task-local runtime. The owner's GPU benchmark
+was not rerun. DeepMD C API model GPU parity/timing remains pending and was not
+invoked by this replay. No CUDA integration has been pushed; published shawn_dev
+is the CPU baseline.
 
 ## Limits and local provenance
 
 The C API guarantees double buffers, not all models' internal precision or
-training units. GPU requests fail. Native inference accepts only its documented
-CPU se_e2_a subset. Bounded tanh full-network training is integrated; generic
+training units. CPU remains the default; explicit CUDA is bounded by the local
+acceptance above. Native inference accepts only its documented se_e2_a subset. Bounded tanh full-network training is integrated; generic
 DeepMD training and hybrid se_e3 remain unsupported. Native CUDA has the bounded
 local acceptance above; C API GPU model validation remains pending.
 The supported safe-serialization converter and generated-model comparison are integrated.
@@ -298,6 +313,7 @@ dev `186817f5a85837df5f1df28e0fd2e8b2de6ecade`
 old shawn_dev `3440f605dde61b01e894f6532693612bc57c0aaa`
 (main...shawn_dev 0/1, only .DS_Store ignore).
 New shared baseline is `8121e214e062077b88c39d0ccd861c55efaecc2c`.
-No old shawn_dev-specific work or private HAP inputs were imported. No remote
-was changed. Toolchains/runtimes were installed only in task-local locations
+No old shawn_dev-specific work or private HAP inputs were imported. The accepted
+CPU tree was published as fce0af9; subsequent CUDA changes remain local.
+Toolchains/runtimes were installed only in task-local locations
 and the isolated CPU container; no global PATH, driver or security changes.

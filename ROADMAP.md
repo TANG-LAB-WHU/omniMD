@@ -56,8 +56,9 @@
 - Native CUDA inference and three-fixture CPU/GPU numerical evidence are
   integrated locally behind the explicit native-cuda CLI feature. The bounded
   216-atom timing was 1.155x faster; small cases were about 8.4x slower.
-  The unified CLI has CPU routing/build checks; its GPU end-to-end check is
-  pending. Native CUDA training remains unimplemented.
+  The unified CLI passed CPU routing/build checks and a short same-model NVE
+  CPU/GPU comparison with exact checkpoint continuation. Broader GPU simulation
+  validation and native CUDA training remain unimplemented.
 - Broader descriptors, including hybrids, only with implementation and validation.
 
 ## Publication gate

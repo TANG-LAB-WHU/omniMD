@@ -16,8 +16,10 @@ inference implementation and measured evidence are integrated locally with an
 opt-in unified CLI feature; see [native CUDA](mlmd/native/CUDA.md) and
 [device selection](mlmd/engine/README.md#explicit-native-cuda-inference).
 The measured 216-atom case was 1.155x faster and small cases about 8.4x slower;
-CPU stays the default. Native CUDA is inference only, and this CLI wrapper's
-GPU end-to-end check is still pending.
+CPU stays the default. Native CUDA is inference only. The unified CLI passed a
+short same-model CPU/GPU NVE comparison and exact checkpoint continuation;
+see [CLI acceptance evidence](mlmd/evidence/native-cuda-cli.json). This local
+acceptance does not validate C API GPU execution or long-time MD stability.
 
 ## Available in the accepted CPU release
 

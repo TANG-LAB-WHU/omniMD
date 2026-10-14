@@ -67,9 +67,21 @@ kernels and final reduction, exclude initialization, and were affected by deskto
 graphics load. This is inference only: CPU PBC/neighbor geometry and final E/F/V
 reduction remain; there is no native CUDA training or general speedup claim.
 
-A's unified-CLI integration has CPU routing/build checks only; its own GPU
-end-to-end acceptance has not been run. The separate DeepMD C API CUDA model
-parity/timing remains pending. These local changes are not yet published.
+The unified CLI passed an eight-step native CUDA NVE comparison with CPU on the
+original four-atom triclinic tanh fixture, plus continuation from step four.
+Maximum E/F/virial differences were 0 / 6.66e-16 / 8.88e-16; positions and
+velocities matched exactly. All resumed snapshots and final checkpoint state
+matched the continuous CUDA run exactly after JSON decoding. See the compact
+[acceptance evidence](../evidence/native-cuda-cli.json). This debug-build check
+exercises routing, MD and restart, not performance or long-time stability.
+
+Reproduce only in a coordinated GPU window with the feature-enabled binary and
+existing official CUDA runtime (the output directory must be new):
+
+    python mlmd/scripts/validate_native_cuda_cli.py --binary /path/omnimd-mlmd --work /new/native-cli-replay --run-gpu
+
+The separate DeepMD C API CUDA model parity/timing remains pending. These local
+CUDA changes are not yet published.
 
 ## Dataset workflows
 
