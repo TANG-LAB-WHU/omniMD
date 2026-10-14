@@ -44,7 +44,10 @@ schema types are in `src/model.rs`. This is a custom intermediate format, **not
 DeepMD's serialization format**, and is not a direct Rust loader for `.pb`, `.pth`, `.dp`, HAP, or hybrid models.
 `tools/convert_deepmd.py` now converts a strict DeepMD-kit 3.1.3 `.dp` / safe YAML
 subset into this representation. See [CONVERSION.md](CONVERSION.md) for the
-explicit geometry mode, units, supported schema, and complete replay command. Every object rejects unknown fields.
+explicit geometry mode, units, supported schema, and complete replay command.
+`tools/export_frozen.py` separately exports two audited frozen `.pb` graph
+profiles, including the public DeepMD test model; see [FROZEN.md](FROZEN.md).
+Every native model object rejects unknown fields.
 
 | Field | Required meaning |
 | --- | --- |
@@ -153,3 +156,8 @@ ranges beyond representable bounds, ill-conditioned cells, distances <= 1e-12
 angstrom, nonfinite parameters/intermediates/outputs, and malformed shapes fail.
 
 See `THIRD_PARTY_NOTICES.md` for mathematical references and licenses.
+
+The public frozen-model replay now passes four frames with maximum E/F/virial
+errors of 2.27e-13 / 4.22e-15 / 6.66e-15. Exact graph-profile limits and replay
+evidence are in [FROZEN.md](FROZEN.md). A bounded next training milestone is
+specified in [TRAINING_NEXT.md](TRAINING_NEXT.md); training is not implemented.
