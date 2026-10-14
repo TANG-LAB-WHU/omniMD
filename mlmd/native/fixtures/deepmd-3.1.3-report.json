@@ -1,0 +1,76 @@
+{
+  "fixture": "original synthetic, untrained; numerical compatibility only",
+  "deepmd_version": "3.1.3",
+  "seeds": [
+    20261014,
+    20261015
+  ],
+  "docker_image_id": "sha256:7953cbd4b48798e936bae520d44a12ae747c3eb45d9aca8ac75668edc95240a2",
+  "coordinate_and_weight_precision": "float64",
+  "geometry": "tensorflow",
+  "source_rcut_smth": 2.1,
+  "effective_rcut_smth": 2.0999999046325684,
+  "frame_cases": [
+    "nonperiodic",
+    "triclinic periodic",
+    "periodic wrapping"
+  ],
+  "conversion_checks": {
+    "dp_yaml_equal": true,
+    "geometry_modes_checked": true,
+    "biases_and_pair_order_checked": true,
+    "rejected": [
+      "producer version",
+      "unknown descriptor field",
+      "hybrid descriptor",
+      "non-unit output scale",
+      "per-slot normalization",
+      "float32 weights",
+      "malformed weights",
+      "vacuum subtraction"
+    ]
+  },
+  "comparison": {
+    "frames": 3,
+    "passed": true,
+    "failed_components": 0,
+    "max_absolute_error": {
+      "energy": 4.440892098500626e-16,
+      "forces": 5.0306980803327406e-17,
+      "virial": 3.469446951953614e-17
+    },
+    "worst_mismatch": null
+  },
+  "sha256": {
+    "synthetic.dp": "08bb60c9c1054496ff1ce660422601fda7abfa3234ee00de8c8e762c524ddc8d",
+    "synthetic.pb": "3fc0e101964433200ff2ac17b5c4e3038d3eb791ae6d157c9f365864084ae78f",
+    "native-from-dp.json": "33ae8f941a4438a8d8d00399f04ecb2f6d5907256f5e04999cb82e725312d0da",
+    "frames.jsonl": "79c44fb41b0dc10650cde8d557b3390a1bdb8cc0f18823bc69bb6338edf25201",
+    "omnimd-deepmd": "ee038c7841d329924eb2fe75d7db0f2441cab6a2c833766c25baa9788fde172d",
+    "omnimd-native-eval.exe": "376168e212bdac322a89cdb97787fac7092b0afcc23cf5139a156e2ed40d495c"
+  },
+  "converter_reports": [
+    {
+      "input_sha256": "08bb60c9c1054496ff1ce660422601fda7abfa3234ee00de8c8e762c524ddc8d",
+      "output_sha256": "33ae8f941a4438a8d8d00399f04ecb2f6d5907256f5e04999cb82e725312d0da",
+      "geometry": "tensorflow",
+      "producer": "deepmd-kit 3.1.3",
+      "format": "omnimd-native-se-e2-a",
+      "type_map": [
+        "O",
+        "H"
+      ]
+    },
+    {
+      "input_sha256": "31ba894578af43822a029926c0424194889da0a9598899ff3ffae93fa7406a94",
+      "output_sha256": "33ae8f941a4438a8d8d00399f04ecb2f6d5907256f5e04999cb82e725312d0da",
+      "geometry": "tensorflow",
+      "producer": "deepmd-kit 3.1.3",
+      "format": "omnimd-native-se-e2-a",
+      "type_map": [
+        "O",
+        "H"
+      ]
+    }
+  ]
+}
