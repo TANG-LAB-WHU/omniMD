@@ -21,8 +21,11 @@ It is an initial software delivery, not a physical model or a performance claim.
   error metrics and model/capability queries. No units or labels are guessed.
 - **Native readout training:** frozen-hidden final linear weights (optional
   biases), exact E/F features, rank-aware QR, explicit validation splits and
-  unchanged native-v1 model export. Full supported-network training is pending
-  final integration and is not yet included in this list.
+  unchanged native-v1 model export.
+- **Full supported-network training:** tanh embedding/hidden networks with linear
+  outputs, exact mixed E/F parameter gradients, full-batch Adam and deterministic
+  checkpoints. All neural weights/biases/timesteps train; geometry, normalization
+  and separate atomic offsets stay fixed. CPU reference-size limits apply.
 - **Fixed-cell minimization:** both inference backends, bounded steepest descent,
   force plus energy-change stopping criteria, explicit failure/nonconvergence,
   and geometry-only extxyz/JSONL exports.
@@ -72,20 +75,23 @@ see [DeepMD setup and limits](mlmd/deepmd/README.md).
 - Arbitrary DeepMD architectures, hybrid se_e3 or generic .pb/.pth/pickle import.
 - Partial PBC, mixed-type/virtual atoms or automatic unit/type-map guessing.
 - Classical-potential mixing and the full legacy Simulation/Propagator pipeline.
+- Minibatch/GPU training, virial-loss training, learned normalization or generic
+  DeepMD training compatibility; duplicated one-side embeddings are not tied.
 - Production validation, long-time stability guarantees or demonstrated speedup.
 
 The root legacy workspace remains available with its original default features;
-these do not imply equivalent support in the new MLIP runner. Full supported-network
-training is a separate ongoing integration; broader training algorithms and
-GPU training remain future work.
+these do not imply equivalent support in the new MLIP runner. Training covers the
+documented native tanh subset; it does not reproduce the full DeepMD training stack.
 
 ## Documentation, verification and licensing
 
 - [Shared contract](mlmd/CONTRACT.md), [data formats](mlmd/engine/DATA.md),
   [minimization](mlmd/engine/MINIMIZATION.md), [MD runner](mlmd/engine/README.md).
 - [Native models](mlmd/native/README.md), [conversion](mlmd/native/CONVERSION.md),
-  [frozen graph scope](mlmd/native/FROZEN.md), [readout training](mlmd/native/TRAINING.md).
-- [Validation and its limits](mlmd/VALIDATION.md), [roadmap](ROADMAP.md).
+  [frozen graph scope](mlmd/native/FROZEN.md), [readout training](mlmd/native/TRAINING.md),
+  [full supported-network training](mlmd/native/FULL_TRAINING.md).
+- [Validation and its limits](mlmd/VALIDATION.md), [roadmap](ROADMAP.md),
+  [publication scope and procedure](mlmd/RELEASE.md).
 - [MIT license](LICENSE), [third-party notices](mlmd/THIRD_PARTY_NOTICES.md).
   DeepMD-derived topology profiles retain separate LGPL notices/licenses.
 

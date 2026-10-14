@@ -28,6 +28,32 @@ separate DeepMD LGPL provenance and license texts. They are not executable
 pretrained models. The synthetic fixtures are original test data, not physical
 models. Compact evidence summaries are not raw runtime or terminal logs.
 
+Outside mlmd/, the exact changed code paths are:
+
+    omnimd-core/Cargo.toml
+    omnimd-core/src/energy/global/mod.rs
+    omnimd-core/src/energy/mod.rs
+    omnimd-core/src/sys/config/cells.rs
+    omnimd-core/src/sys/interactions.rs
+    omnimd-core/src/sys/mod.rs
+    omnimd-core/src/sys/system.rs
+    omnimd-sim/Cargo.toml
+    omnimd-sim/src/md/mlip.rs
+    omnimd-sim/src/md/mod.rs
+    omnimd-sim/src/md/thermostats.rs
+    omnimd-sim/src/min/mlip.rs
+    omnimd-sim/src/min/mod.rs
+    omnimd-sim/src/min/steepest_descent.rs
+    omnimd-sim/src/output/mod.rs
+    omnimd-sim/src/velocities.rs
+
+The remaining root changes are .gitignore, Cargo.toml, README.md, new ROADMAP.md,
+and untracking ls_remote_output.txt. No omnimd-input, legacy research directory,
+root example/benchmark data or old TorchPotential implementation is modified.
+The exact complete manifest is reproducible with:
+
+    git diff --name-status 3440f605dde61b01e894f6532693612bc57c0aaa shawn_dev
+
 ## Exclusions and history boundary
 
 No user model, private research data, HAP input/result, pretrained model binary,

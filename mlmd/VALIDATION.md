@@ -214,11 +214,52 @@ The full end-to-end run precedes only a whitespace-tolerant scalar-parser polish
 and a more accurate numerical-error status label; its binary hash is retained
 in evidence. The final sources are separately rebuilt and targeted tests pass.
 
+## Final CPU delivery acceptance
+
+B full-training commit f78c146 was integrated as 40b7319 without changes to
+native code or dependencies. The final affected mlmd workspace passed 39 tests
+on Windows, including all 13 native tests, C API contract checks, data imports,
+minimization, NVE/CSVR and checkpoint tests. Windows debug and Linux release
+binaries built offline with the existing Rust 1.99 toolchains; the README native
+fixture command also passed. The legacy root workspace was not rerun.
+
+The single final [release replay](evidence/release-workflow.json) uses
+scripts/validate_release.py and B's existing full-training recipe. It trains all
+112 neural parameters on 24 original synthetic frames (18 train/6 validation),
+then checks the serialized 150+150 restart against 300 continuous Adam updates.
+Models and moments match exactly. Export/reload E/F/virial differences are zero.
+Training objective fell from 8.83036148 to 0.00053021182. Held-out E/atom RMSE fell
+from 0.0603337 to 0.000447666 eV, and force-component RMSE from 0.317807 to
+0.00679365 eV/angstrom. Virial is assessed, not optimized. These are synthetic
+teacher-learning checks, not chemical accuracy or generic DeepMD training.
+
+The unified train-native command resumed the checkpoint for one additional
+update to global step 301. The resulting model passed extxyz import of 12
+periodic frames, batch prediction, fixed-cell minimization, geometry-only export
+and exact reimport, then five MD steps. This synthetic minimization exhausted
+its explicit 50-step budget (maximum force 0.691402 eV/angstrom) and correctly
+returned nonzero; the subsequent MD is only an IO/integration check, not an
+equilibration claim. Its energy drift was 3.8858e-16 eV over those five tiny steps.
+
+The unchanged public regression model again converged in both C API and native
+minimizers in 51 accepted steps. Final maximum E/F/virial backend differences
+were 2.2737e-13 / 7.5218e-15 / 4.7956e-15. The report records the exact release
+binary hashes; no generated weights, datasets, checkpoints or raw logs are
+committed. All replay outputs remain in the task-local runtime directory.
+
+Reproduce on a prepared runtime with existing public fixture paths:
+
+    python mlmd/scripts/validate_release.py --binary /path/omnimd-mlmd --native-eval /path/omnimd-native-eval --native-train /path/omnimd-native-train --public-request /path/eval.request.json --public-native-model /path/public-native.json --work /new/replay-directory
+
+This CPU candidate does not include CUDA implementation or GPU validation.
+The separately authorized CUDA work starts from this stable baseline.
+
 ## Limits and local provenance
 
 The C API guarantees double buffers, not all models' internal precision or
 training units. GPU requests fail. Native inference accepts only its documented
-CPU se_e2_a subset; full native training/GPU and hybrid se_e3 are unimplemented.
+CPU se_e2_a subset. Bounded tanh full-network training is integrated; generic
+DeepMD training, GPU execution and hybrid se_e3 remain unsupported.
 The supported safe-serialization converter and generated-model comparison are integrated.
 The two audited frozen-graph profiles are integrated; the public regression .pb
 lacks training serialization metadata, so generic export is not claimed.

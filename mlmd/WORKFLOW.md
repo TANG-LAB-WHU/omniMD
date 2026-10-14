@@ -37,7 +37,7 @@ Plain Xyz and explicit DeepMD NPY set import are also available; see
 [DATA.md](engine/DATA.md). No reference labels, split or unit conversion are
 inferred. Unknown physical fields or unsupported PBC fail explicitly.
 
-## 3. Predict; optionally fit the last readout
+## 3. Predict; optionally train the native model
 
     omnimd-mlmd batch-eval evaluate.json new-predictions.jsonl
 
@@ -50,8 +50,9 @@ The final record reports label coverage and E, E/atom, force-component and
 virial-component MAE/RMSE/max residuals. Unlabeled structures still get predictions.
 
 Training is an explicit separate command, requires E and F labels on every frame,
-and currently fits only the final linear readout. Descriptor/embedding and hidden
-layers remain frozen. Create a request following [TRAINING.md](native/TRAINING.md):
+and offers two strict modes. The readout mode below fits only the final linear
+readout with descriptor/embedding and hidden layers frozen; see
+[TRAINING.md](native/TRAINING.md):
 
     {
       "schema":"omnimd-native-readout-train-v1",
@@ -76,8 +77,15 @@ The wrapper runs the adjacent omnimd-native-train executable unchanged.
 Choose validation IDs appropriate to your own dataset; the example IDs are
 placeholders. Inspect training/validation metrics and rank in report.json.
 Validation labels never enter the fit. Then use the saved model.json as
-native_model for subsequent commands. Full-network training remains separate,
-ongoing work and is not claimed by this readout command.
+native_model for subsequent commands.
+
+For all neural weights/biases/timesteps in the supported tanh network, use the
+complete omnimd-native-full-train-v1 request in
+[FULL_TRAINING.md](native/FULL_TRAINING.md) with the same train-native command.
+That mode uses exact mixed E/F gradients and Adam, with checkpoint restart.
+Normalization, geometry/type metadata and atomic offsets remain fixed; the
+document lists bounds, independent one-side copies and unsupported activations.
+Both training modes export the same native-v1 model for the steps below.
 
 ## 4. Minimize at fixed cell
 

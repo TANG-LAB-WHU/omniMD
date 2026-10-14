@@ -35,10 +35,10 @@ fn capabilities() -> serde_json::Value {
             "deepmd_c_api":{"precision":"float64-io","internal_weight_precision":"model dependent","runtime_dependencies":"trusted official DeepMD library","extra_fparam_aparam_spin":false}
         },
         "datasets":{"schema":dataset::SCHEMA,"import":["DeepMD standard NPY C-order float64","XYZ","bounded extxyz profile"],"explicit_sets":true,"partial_labels":true,"training":false,"automatic_split":false},
-        "training":{"entry":"train-native","scope":"frozen-hidden final-readout E+F fit","backend":"native CPU","full_network":false},
+        "training":{"entry":"train-native","scope":["frozen-hidden final-readout E+F fit","full supported tanh network E+F Adam"],"backend":"native CPU float64","full_network":true,"full_network_scope":"native-v1 tanh hidden / linear output; fixed normalization, cutoff, type-map, selection and atomic offsets; reference-size bounds","request_schemas":["omnimd-native-readout-train-v1","omnimd-native-full-train-v1"]},
         "minimization":{"method":"bounded steepest descent","fixed_cell":true,"force_and_energy_criteria":true},
         "dynamics":{"ensembles":["nve","nvt_csvr"],"fixed_cell":true,"units":"EvAngstromFsU","dataset_frame_input":true},
-        "unsupported":["GPU","mixed-type/virtual atoms","partial PBC","NPT/barostat","full native training"],
+        "unsupported":["GPU","mixed-type/virtual atoms","partial PBC","NPT/barostat","generic DeepMD training","GPU/minibatch/virial-loss training"],
         "virial_convention":"W_ab=-dE/d epsilon_ab; r'=r(I+epsilon), all nine entries, eV; not stress"
     })
 }

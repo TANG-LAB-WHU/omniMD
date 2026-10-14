@@ -1,0 +1,185 @@
+{
+  "scope": "bounded CPU tanh training and software integration; no chemical accuracy claim",
+  "full_training": {
+    "scope": "full supported tanh network; original synthetic teacher; no physical accuracy claim",
+    "data_seed": 20261014,
+    "split_seed": 20261015,
+    "frames": 24,
+    "train_frames": 18,
+    "validation_frames": 6,
+    "parameters": 112,
+    "steps": 300,
+    "initial_training": {
+      "energy_per_atom_rmse_ev": 0.07572476790753267,
+      "energy_rmse_ev": 0.2928229827879663,
+      "force_component_rmse_ev_per_angstrom": 0.2841021659652936,
+      "frames": 18,
+      "normalized_ef_objective": 8.830361483640703,
+      "virial_component_rmse_ev": 0.28901191858939845
+    },
+    "final_training": {
+      "energy_per_atom_rmse_ev": 0.0002416845288877518,
+      "energy_rmse_ev": 0.0008176976670068123,
+      "force_component_rmse_ev_per_angstrom": 0.002260379374292813,
+      "frames": 18,
+      "normalized_ef_objective": 0.0005302118207591061,
+      "virial_component_rmse_ev": 0.0022565936217324094
+    },
+    "initial_validation": {
+      "energy_per_atom_rmse_ev": 0.060333711564035525,
+      "energy_rmse_ev": 0.23612446270426185,
+      "force_component_rmse_ev_per_angstrom": 0.3178073922785384,
+      "frames": 6,
+      "normalized_ef_objective": 10.140334936324338,
+      "virial_component_rmse_ev": 0.4072473794946535
+    },
+    "final_validation": {
+      "energy_per_atom_rmse_ev": 0.000447666219988378,
+      "energy_rmse_ev": 0.001790333625447697,
+      "force_component_rmse_ev_per_angstrom": 0.006793651861295363,
+      "frames": 6,
+      "normalized_ef_objective": 0.004456557551842395,
+      "virial_component_rmse_ev": 0.010949940571906593
+    },
+    "parameter_changes_from_initial": {
+      "embedding": {
+        "changed": 56,
+        "delta_l2": 0.4171875602176809,
+        "parameters": 56
+      },
+      "fitting_hidden": {
+        "changed": 48,
+        "delta_l2": 0.24783702474763092,
+        "parameters": 48
+      },
+      "fitting_output": {
+        "changed": 8,
+        "delta_l2": 0.08145689221813879,
+        "parameters": 8
+      }
+    },
+    "resume_150_plus_150_equals_continuous_300": true,
+    "exported_model_max_abs_error_to_teacher": {
+      "energy": 0.0042384517716644865,
+      "forces": 0.03826902739420346,
+      "virial": 0.05709896343536869
+    },
+    "native_v1_reload_max_abs_energy_force_virial": [
+      0.0,
+      0.0,
+      0.0
+    ],
+    "sha256": {
+      "dataset.jsonl": "8fc7ea1c2404175b9be2a9638529d871ec72ea68bdc3d5eb87ce5364cf56f544",
+      "initial.json": "888956457e1bc394038f38e760d95010b1b71da232984262f410127aa1ec77db",
+      "teacher.json": "daa02849df94cd8fbe9f9f6c67fe546d71ce3346fb031b104f89a408f988646e",
+      "model.json": "5aa5987500bdc2cd3a44350ff60244cc1a5ddb81d3af8b73c6011e491c63c5c3",
+      "report.json": "26df3dcf039694f0025832b8bfe6162c75e1b39d6ae823eea370fdd023d292c5",
+      "checkpoint.json": "942d5fd87049120789ce5548f6677170acd59ab82eb552008d9f88a55043c18b",
+      "eval_executable": "115211cd72a787f847942e78a99432b6cd4bb08ea6db0147163d30a746ad7806",
+      "train_executable": "e2db9d8aabb5c9d5aaec2dd4fe5222debdd2773826756b50aa717ff190ef81c9"
+    }
+  },
+  "unified_training_resume_step": 301,
+  "imported_periodic_frames": 12,
+  "batch_metrics": {
+    "energy_per_atom": {
+      "count": 12,
+      "mae": 0.00019909418811623705,
+      "max_absolute": 0.0005839377194620058,
+      "rmse": 0.00025700789401988825,
+      "units": "eV/atom"
+    },
+    "energy_total": {
+      "count": 12,
+      "mae": 0.0007208942633846933,
+      "max_absolute": 0.0017518131583860175,
+      "rmse": 0.0009100201052270614,
+      "units": "eV"
+    },
+    "force_components": {
+      "count": 132,
+      "mae": 0.0017712036449771974,
+      "max_absolute": 0.0062706108398091764,
+      "rmse": 0.0024226231910809055,
+      "units": "eV/angstrom"
+    },
+    "frames": 12,
+    "labeled_frames": {
+      "energy": 12,
+      "forces": 12,
+      "virial": 12
+    },
+    "virial_components": {
+      "count": 108,
+      "mae": 0.0016977932298086957,
+      "max_absolute": 0.010942008682826021,
+      "rmse": 0.002560880977064198,
+      "units": "eV"
+    }
+  },
+  "trained_minimization": {
+    "converged": false,
+    "energy_change_criterion_met": false,
+    "energy_change_ev": -0.02814533435699873,
+    "evaluations": 51,
+    "final_energy_ev": -0.39032342507679324,
+    "force_criterion_met": false,
+    "initial_energy_ev": 2.681537664435732,
+    "initial_stationary_policy": "already_converged verifies force only; energy-change criterion is null without an accepted step",
+    "iterations": 50,
+    "kind": "completed",
+    "max_force_ev_per_angstrom": 0.6914016690813236,
+    "status": "max_iterations"
+  },
+  "md_steps": 5,
+  "md_max_energy_drift_ev": 3.885780586188048e-16,
+  "public_minimization": {
+    "capi": {
+      "converged": true,
+      "energy_change_criterion_met": true,
+      "energy_change_ev": -9.915282362271682e-06,
+      "evaluations": 52,
+      "final_energy_ev": -939.3587530539953,
+      "force_criterion_met": true,
+      "initial_energy_ev": -931.0534104554943,
+      "initial_stationary_policy": "already_converged verifies force only; energy-change criterion is null without an accepted step",
+      "iterations": 51,
+      "kind": "completed",
+      "max_force_ev_per_angstrom": 0.0030875257869963104,
+      "status": "converged"
+    },
+    "native": {
+      "converged": true,
+      "energy_change_criterion_met": true,
+      "energy_change_ev": -9.915282589645358e-06,
+      "evaluations": 52,
+      "final_energy_ev": -939.3587530539955,
+      "force_criterion_met": true,
+      "initial_energy_ev": -931.0534104554945,
+      "initial_stationary_policy": "already_converged verifies force only; energy-change criterion is null without an accepted step",
+      "iterations": 51,
+      "kind": "completed",
+      "max_force_ev_per_angstrom": 0.0030875257869956074,
+      "status": "converged"
+    }
+  },
+  "public_final_max_absolute_backend_difference": {
+    "energy": 2.2737367544323206e-13,
+    "forces": 7.521760991835436e-15,
+    "virial": 4.795643049337883e-15
+  },
+  "engine_sha256": "7c2ba4283c0c42955c722260c64d36f0db3b1176e136fb15d489cf9efe688570",
+  "replay_sha256": "4cf509d86ddc3f5381cc07e64355cdde7e161038b0de0e6382ddd1e87e5cd800",
+  "checks": [
+    "300-step learning and exact 150+150 restart",
+    "native export reload",
+    "unified CLI full-training checkpoint request",
+    "XYZ labels/geometry roundtrip",
+    "batch prediction",
+    "fixed-cell minimization and honest exit status",
+    "unlabeled structure export and exact reimport",
+    "five-step MD continuation",
+    "public C API/native converged minimum parity"
+  ]
+}

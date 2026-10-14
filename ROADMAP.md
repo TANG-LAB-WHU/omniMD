@@ -41,11 +41,14 @@
 
 ## Training and acceleration
 
-- Native training, optimizers, training checkpoints and force-loss gradients.
 - Bounded frozen-hidden final-readout E+F fitting is integrated, including explicit
   heldout IDs and rank-aware QR. It is not complete-network training.
-- B is implementing exact mixed parameter-coordinate AD and full supported-network
-  E+F training on CPU. That next milestone is not yet integrated or claimed complete.
+- Full supported tanh network E+F training is integrated: exact mixed
+  parameter-coordinate AD, full-batch Adam and deterministic checkpoints.
+  Normalization/cutoff/type-map/selection/atomic offsets stay fixed; small-model
+  CPU bounds and independent duplicated one-side networks are explicit.
+- Minibatching, broader activation support, virial loss and scalable training
+  remain future work; no generic DeepMD training compatibility is claimed.
 - Broader data pipelines, sampling and active learning with explicit formats.
 - Native GPU kernels and CPU/GPU numerical comparison.
 - Broader descriptors, including hybrids, only with implementation and validation.
