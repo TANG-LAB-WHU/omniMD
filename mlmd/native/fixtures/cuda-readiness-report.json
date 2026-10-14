@@ -1,0 +1,38 @@
+{
+  "status": "gpu_validation_pending_exclusive_window",
+  "gpu_executed": false,
+  "cuda_driver_initialized": false,
+  "branch": "mlmd/native-cuda-se-e2-a",
+  "cpu_baseline": "f78c146676faba8f9da7fd8382fa82c8b5011b70",
+  "implementation": "CPU geometry/J and final force/virial reduction; real FP64 CUDA embedding, descriptor, fitting forward/backward and environment pullback kernels",
+  "cargo_default_tests_passed": 13,
+  "cargo_cuda_feature_cpu_only_tests_passed": 14,
+  "nvrtc_compile_only": {
+    "toolkit_directory": "CUDA/v12.8",
+    "target": "compute_75",
+    "gpu_required": false,
+    "ptx_bytes": {
+      "tiny": 46055,
+      "public": 89095,
+      "medium": 117839
+    }
+  },
+  "cpu_prepared_frames": {
+    "tiny_atoms": [
+      4,
+      4,
+      4,
+      1
+    ],
+    "medium_atoms": [
+      216
+    ]
+  },
+  "gpu_parity": null,
+  "gpu_timing": null,
+  "speedup_claim": false,
+  "pending_action": "After parent explicitly releases CAPI worker GPU window, run bounded same-model CPU/CUDA EFV parity and timing exactly once; stop on first failure without retry/reset",
+  "replay_tool": "tools/replay_cuda.py",
+  "new_cargo_dependencies": [],
+  "driver_or_runtime_installations": []
+}

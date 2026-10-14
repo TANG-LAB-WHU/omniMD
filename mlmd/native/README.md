@@ -142,7 +142,7 @@ outputs using `tools/compare_evaluations.py`. A fixed-seed, untrained DeepMD
 E/F/virial errors of 4.44e-16 / 5.03e-17 / 3.47e-17. This establishes numerical
 compatibility for that fixture, not pretrained-model physical accuracy.
 Native training modes are documented below. This crate has no MD integrator,
-GPU kernel, compression table, attention,
+GPU training kernel, compression table, attention,
 spin, type embedding,
 `se_e3`, hybrid descriptor, exclusions, frame/atomic parameters, environment
 protection, or vacuum-subtraction feature is implemented. Such architectures
@@ -168,3 +168,7 @@ implemented in [FULL_TRAINING.md](FULL_TRAINING.md). Its scope is CPU float64,
 small models and fixed descriptor normalization; no general DeepMD training or
 physical-accuracy claim is made. [TRAINING_NEXT.md](TRAINING_NEXT.md) lists
 remaining training limitations.
+
+Optional native CUDA inference is developed behind the `cuda` Cargo feature;
+CPU remains the default. See [CUDA.md](CUDA.md) for actual GPU/CPU computation
+boundaries, build/runtime requirements, strict limits and verification status.
