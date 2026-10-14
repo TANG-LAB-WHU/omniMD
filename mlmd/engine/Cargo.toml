@@ -17,3 +17,5 @@ omnimd-native = { path = "../native" }
 
 rand = "0.8"
 rand_chacha = { version = "0.3", features = ["serde1"] }
+npyz = "=0.9.1"
+py_literal = "=0.4.0"

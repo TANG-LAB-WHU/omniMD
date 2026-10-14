@@ -12,6 +12,8 @@
   initial forces, cached E/F/virial and explicit internal-unit conversion.
 - Backend-selectable run/check CLI, seeded thermal initialization, upstream CSVR
   NVT, explicit DOF, streamed trajectories, periodic checkpoints and exact RNG restart.
+- Explicit DeepMD standard NPY import, normalized dataset JSONL, partial E/F/V
+  labels, batch predictions/metrics, dataset-frame MD entry and model queries.
 - Public-model C API/Python parity and independent integration comparison;
   synthetic native invariance/gradient checks. See mlmd/VALIDATION.md for limits.
 
@@ -21,8 +23,9 @@
   into native weights, with no pickle loading or architecture guessing.
 - Passed same-model native/C API E/F/virial comparison on generated float64 fixtures.
 - Explicit dpmodel/tensorflow geometry semantics; no implicit radius rounding.
-- B is extending export to strictly audited frozen-graph profiles. This is separate
-  from accepting arbitrary .pb models or inferring absent architecture metadata.
+- Implemented two audited frozen-graph profiles with complete offsets and strict
+  topology checks; public and synthetic native/C API parity passed. Arbitrary .pb
+  and hybrid HAP architectures remain unsupported.
 
 ## Next simulation milestones
 
@@ -36,7 +39,9 @@
 ## Future training and acceleration (not implemented)
 
 - Native training, optimizers, training checkpoints and force-loss gradients.
-- Data pipelines, sampling and active learning with explicit supported formats.
+- B is implementing bounded frozen-hidden final-readout E+F fitting using the
+  agreed dataset JSONL. This is not complete-network training and is not yet integrated.
+- Broader data pipelines, sampling and active learning with explicit formats.
 - Native GPU kernels and CPU/GPU numerical comparison.
 - Broader descriptors, including hybrids, only with implementation and validation.
 

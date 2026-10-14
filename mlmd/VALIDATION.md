@@ -131,14 +131,51 @@ records three frames with maximum E/F/virial differences
 does not validate arbitrary pretrained models. See [conversion scope](native/CONVERSION.md).
 
 
+## Frozen graphs and dataset workflow
+
+B's native-only commit 39b2ea6 is integrated as 1498d40. The two audited graph
+profiles preserve both energy offset sites and effective TensorFlow cutoff
+attributes; their provenance and licenses are retained. Public four-frame
+E/F/virial differences are 2.2737e-13 / 4.2188e-15 / 6.6613e-15; generated-model
+differences remain below 4.45e-16 / 5.04e-17 / 3.48e-17. Seven focused rejections
+passed. See [scope](native/FROZEN.md) and [B's evidence](native/fixtures/frozen-graph-report.json).
+No public pretrained weights were committed, and no generic graph support is claimed.
+
+Four engine data tests passed on Windows (27 unique MLMD tests cumulatively,
+not a repeated full workspace run). They cover symbol/order/tensor preservation,
+independent metric arithmetic, PBC/dtype/shape/nonfinite/overflow/unknown-field
+rejections and exact JSONL completion. Windows and Linux CLIs compiled.
+
+[Data workflow evidence](evidence/dataset-workflow.json) uses actual NumPy arrays,
+the same public model and deliberately offset synthetic labels. Two labeled
+periodic frames plus one unlabeled frame exercise coverage/counts and independent
+NumPy MAE/RMSE calculations. Nonperiodic unlabeled input, source-file digests,
+both model-info backends, capabilities, wrong units and incomplete-output
+handling also passed. Batch native/C API maximum differences were E 2.2737e-13,
+F 4.4409e-15 and virial 7.3275e-15 in contract units.
+
+The same imported triclinic frame initialized both MD backends for 20 steps at
+0.01 fs (0.2 fs total). Across all snapshots: coordinates matched exactly;
+maximum velocity difference 5.2042e-18 angstrom/fs, E 2.2737e-13 eV,
+F 6.5503e-15 eV/angstrom, virial 7.5495e-15 eV. Maximum absolute NVE energy drift
+was 3.4538e-10 eV for C API and 3.4515e-10 eV for native. This is a short
+integration/parity check, not chemical accuracy, long-time stability or a speed claim.
+
+Replay with the existing public C API request/evaluation and an exported native
+model (all output paths must be new):
+
+    python mlmd/scripts/validate_dataset.py --binary /absolute/omnimd-mlmd \
+      --work /absolute/new-work --public-request /absolute/eval.request.json \
+      --public-evaluation /absolute/eval.json --native-model /absolute/native.json
+
 ## Limits and local provenance
 
 The C API guarantees double buffers, not all models' internal precision or
 training units. GPU requests fail. Native inference accepts only its documented
 CPU se_e2_a subset; full native training/GPU and hybrid se_e3 are unimplemented.
 The supported safe-serialization converter and generated-model comparison are integrated.
-B is extending only audited frozen-graph profiles; the public regression .pb lacks
-official training serialization metadata, so generic export is not claimed.
+The two audited frozen-graph profiles are integrated; the public regression .pb
+lacks training serialization metadata, so generic export is not claimed.
 
 Upstream main was `761b2484feee132426183c9b66ff2b126d1f7c4a`;
 dev `186817f5a85837df5f1df28e0fd2e8b2de6ecade`

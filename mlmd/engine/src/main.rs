@@ -1,3 +1,4 @@
+mod dataset_commands;
 use omnimd_deepmd::{DeepMd, Device, LoadOptions};
 use omnimd_ml_contract::{Frame, Potential};
 use omnimd_mlmd::{
@@ -96,6 +97,7 @@ struct Request {
     #[serde(default)]
     dynamics_units: DynamicsUnits,
     frame: Option<Frame>,
+    dataset_frame: Option<omnimd_mlmd::dataset::FrameReference>,
     masses: Option<Vec<f64>>,
     velocities: Option<Vec<[f64; 3]>>,
     initialize_velocities: Option<VelocityInitialization>,
@@ -141,6 +143,7 @@ fn prepare(
     let hash = model_hash(request.options.model_path())?;
     let (system, state) = if let Some(path) = &request.restart {
         if request.frame.is_some()
+            || request.dataset_frame.is_some()
             || request.masses.is_some()
             || request.velocities.is_some()
             || request.initialize_velocities.is_some()
@@ -166,7 +169,15 @@ fn prepare(
         }
         (system, state)
     } else {
-        let frame = request.frame.as_ref().ok_or("fresh run requires frame")?;
+        let resolved = request
+            .dataset_frame
+            .as_ref()
+            .map(|r| r.resolve())
+            .transpose()?;
+        let frame = match (&request.frame, &resolved) {
+            (Some(frame), None) | (None, Some(frame)) => frame,
+            _ => return Err("fresh run requires exactly one frame or dataset_frame".into()),
+        };
         let masses = request
             .masses
             .as_ref()
@@ -298,6 +309,7 @@ fn worker(input: &Path, output: Option<&Path>) -> Result<(), Box<dyn Error>> {
             "kind":"header", "schema":"omnimd-mlmd-jsonl-v2", "ensemble":state.ensemble,
             "dynamics_units":request.dynamics_units,
             "metadata":md.metadata(), "timestep_fs":request.timestep_fs,
+            "dataset_frame":request.dataset_frame,
             "requested_steps":request.steps, "start_step":start_step,
             "masses_u":md.system().particles().mass, "model_sha256":hash,
             "degrees_of_freedom":md.system().degrees_of_freedom(),
@@ -349,6 +361,9 @@ fn worker(input: &Path, output: Option<&Path>) -> Result<(), Box<dyn Error>> {
 
 fn run() -> Result<(), Box<dyn Error>> {
     let mut args: Vec<_> = std::env::args_os().skip(1).collect();
+    if dataset_commands::dispatch(&args)? {
+        return Ok(());
+    }
     if args.len() == 3 && args[0] == "--worker" {
         return worker(Path::new(&args[1]), Some(Path::new(&args[2])));
     }
@@ -358,7 +373,7 @@ fn run() -> Result<(), Box<dyn Error>> {
     if args.len() == 1 && (args[0] == "--help" || args[0] == "-h") {
         println!(
             "omnimd-mlmd: CPU DeepMD C API / native se_e2_a dynamics\n\
-Usage:\n  omnimd-mlmd run REQUEST.json NEW_TRAJECTORY.jsonl\n\
+Usage:\n  omnimd-mlmd capabilities\n  omnimd-mlmd model-info OPTIONS.json NEW_INFO.json\n  omnimd-mlmd import-deepmd IMPORT.json NEW_DATASET.jsonl\n  omnimd-mlmd batch-eval EVAL.json NEW_PREDICTIONS.jsonl\n  omnimd-mlmd run REQUEST.json NEW_TRAJECTORY.jsonl\n\
   omnimd-mlmd check REQUEST.json\n\
   omnimd-mlmd REQUEST.json NEW_TRAJECTORY.jsonl\n\
 Units: angstrom, fs, u, K, eV. Ensembles: nve, nvt_csvr.\n\

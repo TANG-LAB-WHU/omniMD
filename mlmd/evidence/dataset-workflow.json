@@ -1,0 +1,66 @@
+{
+  "scope": "public model numerical compatibility plus synthetic-offset labels; not chemical accuracy",
+  "binary_sha256": "0f656535d1ed1d1285cf95bfa67483ee8213cfb8a197b3e4b76c4fcbeed5246c",
+  "native_model_sha256": "3c2a9354e0c163286a04fcbb91214562c7d0503f4a184f155a3843b1eec0e39a",
+  "capi_model_sha256": "fbe846eed0e503411cac336d76ac81fabfd9d0d195a03c96dd9fe00fecacca1f",
+  "dataset_frames": 3,
+  "labeled_frames": 2,
+  "batch_max_absolute_backend_difference": {
+    "energy": 2.2737367544323206e-13,
+    "forces": 4.440892098500626e-15,
+    "virial": 7.327471962526033e-15
+  },
+  "independent_metrics": {
+    "energy_total": {
+      "count": 2,
+      "mae": 0.30000000000001137,
+      "rmse": 0.31622776601683794,
+      "max_absolute": 0.39999999999997726
+    },
+    "energy_per_atom": {
+      "count": 2,
+      "mae": 0.05000000000000189,
+      "rmse": 0.05270462766947299,
+      "max_absolute": 0.06666666666666288
+    },
+    "force_components": {
+      "count": 36,
+      "mae": 0.010000000000000004,
+      "rmse": 0.010000000000000005,
+      "max_absolute": 0.010000000000000009
+    },
+    "virial_components": {
+      "count": 18,
+      "mae": 0.030000000000000013,
+      "rmse": 0.030000000000000013,
+      "max_absolute": 0.030000000000000027
+    }
+  },
+  "short_nve": {
+    "steps": 20,
+    "timestep_fs": 0.01,
+    "elapsed_fs": 0.2,
+    "max_absolute_backend_difference": {
+      "energy": 2.2737367544323206e-13,
+      "forces": 6.5503158452884236e-15,
+      "virial": 7.549516567451064e-15,
+      "positions": 0.0,
+      "velocities": 5.204170427930421e-18
+    },
+    "max_absolute_energy_drift_ev": {
+      "capi": 3.453806129982695e-10,
+      "native": 3.4515323932282627e-10
+    }
+  },
+  "checks": [
+    "real NumPy NPY import",
+    "source SHA256",
+    "both model-info backends",
+    "static capabilities",
+    "independent metric arithmetic",
+    "unlabeled nonperiodic",
+    "truncation fails without completed",
+    "wrong units rejected",
+    "dataset_frame MD entry"
+  ]
+}

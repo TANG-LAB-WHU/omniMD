@@ -32,6 +32,11 @@ are never replaced. Real DeepMD inference uses a fresh worker with GPU visibilit
 disabled and one trusted official model handle. Native inference needs no DeepMD,
 Python, GPU or LibTorch installation.
 
+## Dataset workflows
+
+See [DATA.md](DATA.md) for explicit DeepMD NPY import, batch predictions and
+E/F/virial error statistics, model/capability queries, and dataset-frame MD input.
+
 ## Configuration and units
 
 Copy [examples/native-nvt.json](examples/native-nvt.json) and set its model path

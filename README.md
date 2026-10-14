@@ -37,7 +37,11 @@ GlobalPotential interface are not used for MLIP execution.
 
 Read the [contract](mlmd/CONTRACT.md), [validation results](mlmd/VALIDATION.md),
 [roadmap](ROADMAP.md), and [third-party notices](mlmd/THIRD_PARTY_NOTICES.md).
-Full native training and GPU acceleration are future milestones. Short synthetic
+The [data workflow](mlmd/engine/DATA.md) imports explicit DeepMD NPY sets,
+evaluates labeled/unlabeled frames, reports E/F/virial errors and initializes MD
+from dataset frames. Model/capability queries expose supported runtime behavior.
+The [frozen exporter](mlmd/native/FROZEN.md) accepts two audited graph profiles;
+it is not a generic .pb importer. Full native training and GPU acceleration are future milestones. Short synthetic
 and public-fixture tests establish software behavior, not physical model quality
 or a performance improvement.
 
