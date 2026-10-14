@@ -10,6 +10,7 @@ license = "MIT"
 edition = "2021"
 
 [workspace]
+exclude = ["mlmd"]
 members = [
 	"omnimd-core",
 	"omnimd-sim",
