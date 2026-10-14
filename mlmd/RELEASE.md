@@ -1,9 +1,66 @@
-# First local delivery: publication scope
+# Release scope
 
-No remote push is part of this preparation. The final commit/tree IDs, current
-remote refs and validation result are recorded in the delivery handoff.
+The accepted CPU baseline fce0af9f6a49592a48c13883dfc3aa0d3eb4a28e is published on
+shawn_dev. The CUDA candidate below is local and has not been pushed. Publication
+needs its own explicit authorization; prior CPU publication approval does not
+cover this candidate. The final candidate commit is recorded in the handoff.
 
-## Candidate contents
+## Local CUDA candidate
+
+Relative to the published CPU commit, scope is limited to 32 files:
+
+- README.md and ROADMAP.md: current capabilities, measured limits and status.
+- mlmd/VALIDATION.md and this release scope: acceptance and exact boundaries.
+- Nine mlmd/deepmd files: CUDA/CUPTI runtime verifier, explicit worker device
+  selection, combined-evaluation integration, standalone CLI, focused checks,
+  documentation, saved-output comparator and public-fixture receipt.
+- Four mlmd/engine files: native-cuda feature, shared device routing, static
+  capabilities and CLI documentation. CPU remains the default for every size.
+- Thirteen mlmd/native files: optional Driver/NVRTC inference implementation,
+  CUDA kernels/evaluator/readiness command, feature manifest, docs/notices,
+  reproducible benchmark script and compact readiness/numerical reports.
+- mlmd/evidence/native-cuda-cli.json and mlmd/scripts/validate_native_cuda_cli.py:
+  the short native MD/checkpoint acceptance summary and reproducer.
+
+There are no new dependency or lockfile changes, shared data-contract changes,
+root simulation-code changes, pretrained weights or generated training datasets
+in this delta. No HAP inputs/results, drivers, libraries, containers, checkpoints
+or raw logs are added. Existing native training remains CPU-only; GPU training
+is not implemented.
+
+Both inference paths have actual fixture-based CPU/GPU numerical agreement.
+Native CUDA additionally has short unified NVE/restart acceptance; official
+C API CUDA has verified direct kernel evidence and GPU batch/MD smoke checks.
+Only the documented subsets/runtimes were checked. Some work remains on CPU.
+The C API six-atom case was 8.27 times slower on GPU including verification and
+synchronization. Native small cases were about 8.4 times slower; its separate
+216-atom sample had a CPU/GPU time ratio of 1.155 with desktop-load limitations.
+These are separate bounded measurements, not comparable backend benchmarks,
+general speedup claims, chemical accuracy or long-time stability validation.
+
+C's f839cef validation files were imported exactly as 03965e7 without importing
+the operational-only 46d913b parent into candidate history. Its source hash stays
+in the receipt as provenance. The final integration checks replay saved outputs
+without GPU access and rebuild the feature-enabled CLI/static capabilities;
+no GPU acceptance was repeated during this evidence integration.
+
+Review the exact delta with:
+
+    git diff --name-status fce0af9f6a49592a48c13883dfc3aa0d3eb4a28e HEAD
+
+Reproduction entry points (runtime/model setup and limits are in linked docs):
+
+- [C API report](deepmd/CUDA_VALIDATION.md): offline saved-output comparison via
+  `python mlmd/deepmd/scripts/compare_cuda.py CPU_RESULT GPU_RESULT`; actual
+  evaluation requests/build/runtime details are in [deepmd/README.md](deepmd/README.md).
+- [Native CUDA](native/CUDA.md): build/evaluator and same-model benchmark recipe.
+- [Native unified CLI](engine/README.md#explicit-native-cuda-inference): opt-in
+  build, device selection and `validate_native_cuda_cli.py --run-gpu` replay.
+
+## Published CPU baseline contents
+
+The remaining sections record the scope and ancestry procedure for the already
+published CPU baseline, rather than a request to repeat its publication.
 
 The change starts from upstream main
 761b2484feee132426183c9b66ff2b126d1f7c4a. The existing omniMD source, MIT license,

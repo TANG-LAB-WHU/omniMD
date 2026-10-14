@@ -292,17 +292,53 @@ All three sequential processes exited successfully. No error or retry occurred;
 no omnimd-mlmd process remained at 05:04:49 UTC and the GPU window was released.
 Only the compact report and reproducer are tracked; raw requests, trajectories,
 checkpoints and logs stay in the task-local runtime. The owner's GPU benchmark
-was not rerun. DeepMD C API model GPU parity/timing remains pending and was not
-invoked by this replay. No CUDA integration has been pushed; published shawn_dev
-is the CPU baseline.
+was not rerun. DeepMD C API was not invoked by this native replay; its separate
+completed validation follows. No CUDA integration has been pushed; published
+shawn_dev is the CPU baseline.
+
+## Local C API CUDA integration
+
+Validation commit f839cef was imported as 03965e7 using only its three exact
+validation files: the [report](deepmd/CUDA_VALIDATION.md), compact
+[receipt](deepmd/validation/cuda-public-six-atom.json), and saved-output comparator.
+Operational-only parent 46d913b was not imported into candidate ancestry; its hash
+in the receipt identifies C's actual source HEAD at runtime. Rust implementation
+remains bf6f2cf as already integrated by 3f0b26a.
+
+C's authorized run used the official DeepMD 3.1.0 / TensorFlow 2.18.0 CUDA image
+on RTX 4090 and the public six-atom O/H model. Four frames (nonperiodic,
+orthorhombic, triclinic and permuted triclinic) had maximum absolute CPU/GPU
+E/F/virial differences of 1.1369e-13 eV / 1.5543e-15 eV/angstrom / 2.4425e-15 eV.
+The evaluator recorded 24,863 successful direct CUDA kernel launches over
+92 evaluations and synchronized the observed contexts. This does not imply all
+TensorFlow operations ran on GPU. GPU batch completed four frames and GPU MD
+completed two steps plus a checkpoint. These are bounded integration checks,
+not chemical-accuracy or long-time stability tests.
+
+The paired 80-evaluation steady sample measured 0.485547 ms/frame CPU versus
+4.017700 ms/frame GPU: GPU was 8.27458 times slower. It includes validation,
+packing, transfers, CUPTI kernel checks, synchronization and output validation;
+it excludes process startup, JSON serialization, loading and warmup. This is one
+small sample, not a statistical benchmark or evidence for larger systems. The
+container stopped and the exclusive GPU window was released at 06:13:51.533 UTC.
+
+A integrated the saved evidence without another GPU run. The strict comparator
+passed on the saved CPU/GPU outputs under python -O, exactly matching all ten
+compared report fields (errors, kernel counts, timing conditions and ratios).
+The Windows debug unified CLI built offline with native-cuda. Its static
+capabilities confirmed both CPU defaults, the compiled native CUDA feature,
+GPU training=false and the three existing evidence paths. This query performed
+no GPU probe. The recorded runtime hashes remain those of C's measured binaries,
+not a claim that the newly built integrated binary underwent another GPU acceptance.
 
 ## Limits and local provenance
 
 The C API guarantees double buffers, not all models' internal precision or
 training units. CPU remains the default; explicit CUDA is bounded by the local
-acceptance above. Native inference accepts only its documented se_e2_a subset. Bounded tanh full-network training is integrated; generic
-DeepMD training and hybrid se_e3 remain unsupported. Native CUDA has the bounded
-local acceptance above; C API GPU model validation remains pending.
+acceptance above. Native inference accepts only its documented se_e2_a subset.
+Bounded tanh full-network training is integrated on CPU; GPU training, generic
+DeepMD training and hybrid se_e3 remain unsupported. Both native and C API CUDA
+have the specified local fixture validation above, with different runtime bounds.
 The supported safe-serialization converter and generated-model comparison are integrated.
 The two audited frozen-graph profiles are integrated; the public regression .pb
 lacks training serialization metadata, so generic export is not claimed.

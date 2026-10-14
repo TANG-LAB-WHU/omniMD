@@ -80,8 +80,15 @@ existing official CUDA runtime (the output directory must be new):
 
     python mlmd/scripts/validate_native_cuda_cli.py --binary /path/omnimd-mlmd --work /new/native-cli-replay --run-gpu
 
-The separate DeepMD C API CUDA model parity/timing remains pending. These local
-CUDA changes are not yet published.
+The separate DeepMD C API CUDA path also has recorded public-model numerical
+agreement, verified kernel launches, four-frame batch evaluation and a two-step
+MD smoke test; see [its report](../deepmd/CUDA_VALIDATION.md). The six-atom C API
+sample was about 8.27 times slower on GPU including CUPTI/synchronization. This
+runtime-based measurement is separate from the native benchmark above.
+
+The static capabilities command lists both paths, their evidence and runtime
+requirements without loading a model or probing GPU availability on this host.
+GPU training is not implemented. These local CUDA changes are not yet published.
 
 ## Dataset workflows
 

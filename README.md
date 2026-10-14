@@ -6,20 +6,23 @@ CPU MLIP workspace with one fallible, explicit-unit, float64 E/F/virial contract
 It is an initial software delivery, not a physical model or a performance claim.
 
 The published CPU baseline is commit
-fce0af9f6a49592a48c13883dfc3aa0d3eb4a28e on shawn_dev. This local integration
-branch additionally contains explicit DeepMD C API CUDA worker code. Its real
-model E/F/virial parity and warmed timing are still pending; a successful tiny
-GPU matrix multiplication does not complete that acceptance. See
-[CUDA validation status](mlmd/deepmd/CUDA_VALIDATION.md). These CUDA changes are
-not published or claimed as validated C API acceleration. B's native CUDA
-inference implementation and measured evidence are integrated locally with an
-opt-in unified CLI feature; see [native CUDA](mlmd/native/CUDA.md) and
-[device selection](mlmd/engine/README.md#explicit-native-cuda-inference).
-The measured 216-atom case was 1.155x faster and small cases about 8.4x slower;
-CPU stays the default. Native CUDA is inference only. The unified CLI passed a
-short same-model CPU/GPU NVE comparison and exact checkpoint continuation;
-see [CLI acceptance evidence](mlmd/evidence/native-cuda-cli.json). This local
-acceptance does not validate C API GPU execution or long-time MD stability.
+fce0af9f6a49592a48c13883dfc3aa0d3eb4a28e on shawn_dev. This local CUDA candidate
+adds two explicitly selected inference paths with recorded CPU/GPU numerical
+agreement: [official DeepMD C API CUDA](mlmd/deepmd/CUDA_VALIDATION.md) and
+[bounded native CUDA](mlmd/native/CUDA.md). The native unified CLI also passed a
+short NVE/checkpoint continuation [check](mlmd/evidence/native-cuda-cli.json);
+C API GPU batch evaluation and a two-step MD smoke test passed.
+
+CPU remains the default at every system size. The six-atom C API sample measured
+0.486 ms/frame on CPU versus 4.018 ms/frame on GPU, about 8.27 times slower with
+kernel verification and synchronization included. Separately, the native
+216-atom sample measured a CPU/GPU time ratio of 1.155, while its small cases were
+about 8.4 times slower on GPU. These bounded measurements have different scopes;
+they do not establish general acceleration or long-time stability. **GPU training
+is not implemented**; native training remains CPU-only. Runtime/subset requirements
+are documented under [device selection](mlmd/engine/README.md#explicit-native-cuda-inference).
+The [CUDA release scope](mlmd/RELEASE.md#local-cuda-candidate) remains local and
+has not been pushed.
 
 ## Available in the accepted CPU release
 
