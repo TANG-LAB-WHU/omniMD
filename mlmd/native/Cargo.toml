@@ -1,0 +1,15 @@
+[package]
+name = "omnimd-native"
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+rust-version = "1.82"
+
+# Standalone while line B owns only native/**. Integration may remove this
+# section and add native to the parent workspace without changing the API.
+[workspace]
+
+[dependencies]
+omnimd-ml-contract = { path = "../contract" }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
