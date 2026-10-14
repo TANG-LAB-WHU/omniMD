@@ -14,8 +14,76 @@ use std::{
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
+struct NativeOptions {
+    native_model: PathBuf,
+}
+
+#[derive(Deserialize)]
+#[serde(untagged)]
+enum BackendOptions {
+    DeepMd(LoadOptions),
+    Native(NativeOptions),
+}
+
+enum Backend {
+    DeepMd(DeepMd),
+    Native(omnimd_native::NativePotential),
+}
+
+impl BackendOptions {
+    fn model_path(&self) -> &Path {
+        match self {
+            Self::DeepMd(options) => &options.model,
+            Self::Native(options) => &options.native_model,
+        }
+    }
+
+    fn validate(&self) -> Result<(), Box<dyn Error>> {
+        if !self.model_path().is_absolute() || !self.model_path().is_file() {
+            return Err("model path must be an existing absolute file path".into());
+        }
+        if let Self::DeepMd(options) = self {
+            if !matches!(options.device, Device::Cpu) {
+                return Err("only Cpu is supported".into());
+            }
+        }
+        Ok(())
+    }
+
+    fn load(&self) -> Result<Backend, Box<dyn Error>> {
+        self.validate()?;
+        match self {
+            // The CLI accepts only a trusted official DeepMD C API library.
+            Self::DeepMd(options) => Ok(Backend::DeepMd(unsafe { DeepMd::load(options) }?)),
+            Self::Native(options) => Ok(Backend::Native(omnimd_native::NativePotential::load(
+                &options.native_model,
+            )?)),
+        }
+    }
+}
+
+impl Potential for Backend {
+    fn metadata(&self) -> &omnimd_ml_contract::ModelMetadata {
+        match self {
+            Self::DeepMd(model) => model.metadata(),
+            Self::Native(model) => model.metadata(),
+        }
+    }
+    fn eval(
+        &mut self,
+        frame: &Frame,
+    ) -> omnimd_ml_contract::Result<omnimd_ml_contract::Evaluation> {
+        match self {
+            Self::DeepMd(model) => model.eval(frame),
+            Self::Native(model) => model.eval(frame),
+        }
+    }
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
 struct Request {
-    options: LoadOptions,
+    options: BackendOptions,
     frame: Option<Frame>,
     masses: Option<Vec<f64>>,
     velocities: Option<Vec<[f64; 3]>>,
@@ -75,7 +143,7 @@ fn worker(input: &Path, output: &Path) -> Result<(), Box<dyn Error>> {
     if request.sample_every == 0 {
         return Err("sample_every must be positive".into());
     }
-    let hash = model_hash(&request.options.model)?;
+    let hash = model_hash(request.options.model_path())?;
     let system = match (
         &request.restart,
         &request.frame,
@@ -95,7 +163,7 @@ fn worker(input: &Path, output: &Path) -> Result<(), Box<dyn Error>> {
     start_step
         .checked_add(request.steps)
         .ok_or("step counter overflow")?;
-    let model = unsafe { DeepMd::load(&request.options) }?;
+    let model = request.options.load()?;
     let mut md = MlipDynamics::new(system, model, request.timestep_fs)?;
     let restart_output = checkpoint_path(output);
     if restart_output.exists() {
@@ -156,9 +224,7 @@ fn run() -> Result<(), Box<dyn Error>> {
         return Err("usage: omnimd-mlmd REQUEST.json NEW_TRAJECTORY.jsonl".into());
     }
     let request: Request = serde_json::from_str(&fs::read_to_string(&args[0])?)?;
-    if !matches!(request.options.device, Device::Cpu) {
-        return Err("only Cpu is supported".into());
-    }
+    request.options.validate()?;
     if Path::new(&args[1]).exists() || checkpoint_path(Path::new(&args[1])).exists() {
         return Err("trajectory or checkpoint output already exists".into());
     }

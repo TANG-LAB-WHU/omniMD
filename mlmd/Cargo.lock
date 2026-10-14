@@ -265,10 +265,20 @@ dependencies = [
  "omnimd-core",
  "omnimd-deepmd",
  "omnimd-ml-contract",
+ "omnimd-native",
  "omnimd-sim",
  "serde",
  "serde_json",
  "sha2",
+]
+
+[[package]]
+name = "omnimd-native"
+version = "0.1.0"
+dependencies = [
+ "omnimd-ml-contract",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]

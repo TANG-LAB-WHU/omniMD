@@ -68,6 +68,7 @@ No driver changes, global PATH changes or production model downloads are made.
 
 Mock C functions verify ownership, data order, error propagation, combined
 evaluation and failure paths. They are not a DeepMD numerical parity test.
-A public float64 model plus a compatible runtime is required to verify actual
-numerics, device placement and frozen-model precision end to end.
+A public float64 model and the official DeepMD 3.1.3 CPU runtime have verified actual
+E/F/virial numerics and the MD path. The inspected fixture has float64 constants;
+this is not a general dtype or device introspection facility for arbitrary models.
 See the parent workspace validation report for what was actually executed.

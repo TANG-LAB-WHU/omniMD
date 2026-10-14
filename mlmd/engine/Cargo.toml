@@ -12,3 +12,5 @@ omnimd-deepmd = { path = "../deepmd" }
 serde.workspace = true
 serde_json.workspace = true
 sha2 = "0.10"
+
+omnimd-native = { path = "../native" }

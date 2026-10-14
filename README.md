@@ -1,35 +1,42 @@
-# omniMD: Rust MLMD development
+# omniMD: Rust MLIP molecular dynamics
 
 This local `shawn_dev` starts from upstream main
 `761b2484feee132426183c9b66ff2b126d1f7c4a`. It does not inherit the old
 shawn_dev-only commit. Upstream omniMD remains alpha software under MIT.
 
-The new implementation lives in the independent Cargo workspace [mlmd](mlmd).
-It deliberately has no mandatory LibTorch or chemfiles build dependency.
+The [mlmd workspace](mlmd) provides two CPU backends behind one fallible,
+unit-explicit, float64 energy/force/virial interface:
 
-- **DeepMD backend (A):** Rust calls the official DeePMD-kit C API. This is FFI,
-  not native Rust inference. One model handle serves repeated combined energy,
-  force and virial evaluations with double-precision input/output.
-- **Native backend (B):** first milestone is CPU float64 `se_e2_a` and energy
-  fitting only, with an explicit versioned weight format. It is under development.
-- Full native training and GPU kernels are future milestones. No performance
-  improvement or new algorithm is claimed.
+- [DeepMD C API](mlmd/deepmd): one loaded official model handle, strict type map
+  and output validation. This is FFI; double buffers do not change a model's
+  internal precision.
+- [Native Rust](mlmd/native): CPU float64 `se_e2_a` descriptor and energy fitting
+  networks, with analytic forces and strain virial. Only the documented
+  versioned model format and architecture subset are supported.
 
-Read [ROADMAP](ROADMAP.md), [interface contract](mlmd/CONTRACT.md), and
-[native implementation handoff](mlmd/NATIVE_HANDOFF.md).
-
-The existing root Cargo workspace is preserved as the upstream legacy engine.
-The new backend is not yet connected to its infallible GlobalPotential trait.
-In particular, its old TorchPotential contract is not a DeepMD interface.
-
-No research data, production models, or old HAP tasks are part of this project.
-No remote branch is changed by this local implementation.
-
-## Development
+Both drive the actual upstream `omnimd-core::System` through
+`omnimd-sim::md::MlipDynamics`. The [MD runner](mlmd/engine) implements fixed-cell
+NVE velocity Verlet, cached combined model output, streamed JSONL trajectories,
+and model-fingerprinted restart checkpoints. It rejects classical potential
+mixing and rolls back the published state on a failed integration step.
 
 ```sh
-cargo test --manifest-path mlmd/Cargo.toml --workspace
+cargo build --locked --manifest-path mlmd/Cargo.toml --workspace
+cargo test --locked --manifest-path mlmd/Cargo.toml --workspace
+cargo run --locked --manifest-path mlmd/Cargo.toml -p omnimd-mlmd -- request.json new-trajectory.jsonl
 ```
 
-The DeepMD runtime is an external dependency, licensed LGPL-3.0-or-later.
-See [third-party notices](mlmd/THIRD_PARTY_NOTICES.md).
+These builds have no mandatory LibTorch, chemfiles, Python or DeepMD runtime
+dependency. Real C API inference requires a compatible external DeepMD runtime.
+Legacy root-workspace features remain enabled by default; the new runner selects
+the lightweight core/sim features. The old TorchPotential contract and infallible
+GlobalPotential interface are not used for MLIP execution.
+
+Read the [contract](mlmd/CONTRACT.md), [validation results](mlmd/VALIDATION.md),
+[roadmap](ROADMAP.md), and [third-party notices](mlmd/THIRD_PARTY_NOTICES.md).
+Full native training and GPU acceleration are future milestones. Short synthetic
+and public-fixture tests establish software behavior, not physical model quality
+or a performance improvement.
+
+No private research data or old HAP tasks are included. Remote branches remain
+unchanged; publishing requires a separate review of the exact content scope.

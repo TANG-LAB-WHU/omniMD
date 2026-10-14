@@ -1,0 +1,12 @@
+{
+  "native_steps": 20,
+  "native_max_energy_drift_ev": 2.220446049250313e-16,
+  "resumed_step": 100,
+  "max_absolute_restart_difference": {
+    "position_angstrom": 0.0,
+    "velocity_angstrom_per_fs": 0.0,
+    "energy_ev": 0.0,
+    "forces_ev_per_angstrom": 0.0,
+    "virial_ev": 0.0
+  }
+}

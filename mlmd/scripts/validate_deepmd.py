@@ -150,7 +150,7 @@ def main():
         "evaluated_frames":len(frames),"max_absolute_error_vs_python":max_error,
         "force_fd_error":abs(force_fd-output["evaluations"][2]["forces"][0][0]),
         "offdiagonal_virial_fd_error":abs(virial_fd-output["evaluations"][2]["virial"][0][1]),
-        "nve":records[-1],"nve_final_position_error_angstrom":position_error,
+        "nve":dict(records[-1], timestep_fs=dt, duration_fs=dt*steps),"nve_final_position_error_angstrom":position_error,
         "nve_final_velocity_error_angstrom_per_fs":velocity_error,
         "boundary_errors_checked":["bad-map","missing-model","invalid-model"],
         "device":"CPU","private_inputs_used":False}

@@ -1,33 +1,41 @@
-# Rust-based MLIP-MD roadmap
+# Rust MLIP-MD roadmap
 
-## Milestone 1: strict model evaluation
+## Implemented locally
 
-- Shared fallible, unit-explicit, float64 energy/force/virial contract.
-- A: official DeepMD C API dynamic binding, single-load handle lifecycle,
-  explicit device policy, metadata/type checks, finite/shape/error checks.
-- B: native CPU float64 se_e2_a environment matrix, neighbor images/PBC,
-  smooth cutoff, normalization, embedding and energy fitting networks,
-  versioned weight loader, analytic or automatic energy derivatives.
-- Synthetic/public fixtures only; finite-difference force and strain checks.
-- Unsupported architectures (including se_e2_a + se_e3 hybrids), precisions,
-  units, and features must fail clearly.
+- Shared fallible, explicit eV/angstrom, float64 E/F/virial contract.
+- Official DeepMD 3.1.3 C API binding: one model handle, combined evaluation,
+  strict metadata/type/shape/finite/error checks, explicit CPU policy.
+- Native CPU se_e2_a environment matrix, periodic neighbor images, smooth cutoff,
+  normalization, embedding/fitting networks, versioned weights and analytic
+  energy derivatives. Unsupported architectures fail explicitly.
+- Actual omniMD System integration through fallible fixed-cell NVE dynamics,
+  initial forces, cached E/F/virial and explicit internal-unit conversion.
+- Backend-selectable CLI, streamed trajectories and model-fingerprinted restart.
+- Public-model C API/Python parity and independent integration comparison;
+  synthetic native invariance/gradient checks. See mlmd/VALIDATION.md for limits.
 
-## Milestone 2: engine integration and scientific validation
+## Current model interchange work
 
-- Connect combined evaluation to the upstream simulation engine with a
-  fallible API and an explicit conversion at the internal-unit boundary.
-- Reuse each evaluated state across energy/forces/virial consumers.
-- Public-model parity against official DeepMD, NVE energy conservation,
-  timestep convergence, pressure/virial orientation validation.
-- Model format exporters only after a supported architecture is documented.
-- Benchmarks with fixed hardware, models, precision and error tolerances.
+- Strict conversion of the supported official DeepMD serialized se_e2_a subset
+  into native weights, with no pickle loading or architecture guessing.
+- Same-model native/C API E/F/virial comparison on generated float64 fixtures.
+- Converter results will be recorded separately from the existing public
+  regression model, which lacks the metadata needed for official serialization.
 
-## Milestone 3: training and acceleration (not implemented)
+## Next simulation milestones
 
-- Native training, optimizer/checkpoints/data pipeline and force-loss gradients.
-- Sampling and active-learning workflows with explicit supported data formats.
-- Native GPU kernels and deterministic numerical comparison.
-- Broader architectures only with explicit implementation and validation.
+- Longer NVE and equal-duration timestep convergence on suitable public models.
+- Explicit ensemble support and pressure/stress conventions before NVT/NPT.
+- Typed trajectory import, optional classical coupling and constraints only
+  after the corresponding fallible force/update contracts are implemented.
+- Reproducible benchmarks with fixed hardware, model, precision and tolerances.
+
+## Future training and acceleration (not implemented)
+
+- Native training, optimizers, training checkpoints and force-loss gradients.
+- Data pipelines, sampling and active learning with explicit supported formats.
+- Native GPU kernels and CPU/GPU numerical comparison.
+- Broader descriptors, including hybrids, only with implementation and validation.
 
 ## Publication gate
 
