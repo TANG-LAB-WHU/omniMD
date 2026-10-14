@@ -30,7 +30,7 @@ pub struct TrainConfig {
     pub rank_rtol: f64,
 }
 impl TrainConfig {
-    fn validate(&self) -> Result<()> {
+    pub(crate) fn validate(&self) -> Result<()> {
         if ![
             self.energy_weight,
             self.force_weight,
@@ -101,7 +101,7 @@ fn next(state: &mut u64) -> u64 {
     z = (z ^ (z >> 27)).wrapping_mul(0x94d049bb133111eb);
     z ^ (z >> 31)
 }
-fn partition(dataset: &Dataset, split: &Split) -> Result<(Vec<usize>, Vec<usize>)> {
+pub(crate) fn partition(dataset: &Dataset, split: &Split) -> Result<(Vec<usize>, Vec<usize>)> {
     let n = dataset.frames.len();
     if n < 2 {
         return Err(Error(
@@ -156,7 +156,7 @@ fn partition(dataset: &Dataset, split: &Split) -> Result<(Vec<usize>, Vec<usize>
         (0..n).filter(|i| validation.contains(i)).collect(),
     ))
 }
-fn scales(config: &TrainConfig, frames: usize, atoms: usize) -> (f64, f64) {
+pub(crate) fn scales(config: &TrainConfig, frames: usize, atoms: usize) -> (f64, f64) {
     (
         (config.energy_weight / frames as f64).sqrt()
             / atoms as f64
@@ -166,7 +166,7 @@ fn scales(config: &TrainConfig, frames: usize, atoms: usize) -> (f64, f64) {
             / config.force_scale_ev_per_angstrom,
     )
 }
-fn metrics(
+pub(crate) fn metrics(
     model: &Model,
     dataset: &Dataset,
     indices: &[usize],
