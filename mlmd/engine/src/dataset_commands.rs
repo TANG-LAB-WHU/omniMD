@@ -28,17 +28,17 @@ struct ModelRequest {
 fn capabilities() -> serde_json::Value {
     json!({
         "schema":"omnimd-capabilities-v1",
-        "device":["Cpu",{"Cuda":"index; DeepMD TensorFlow .pb only, explicit CUDA/CUPTI libraries"}],
+        "device":["Cpu",{"Cuda":"explicit index; CAPI requires CUDA/CUPTI, native requires native-cuda feature and Driver/NVRTC"}],
         "evaluation":{"outputs":["energy","forces","virial"],"units":"EvAngstrom","one_model_load_per_request":true},
         "backends":{
-            "native":{"architecture":"bounded se_e2_a format v1","precision":"float64","runtime_dependencies":"none"},
+            "native":{"architecture":"bounded se_e2_a format v1","precision":"float64","runtime_dependencies":"none for CPU","default_device":"Cpu","cuda_compiled":cfg!(feature="native-cuda"),"cuda_scope":"tanh/linear inference only; CPU geometry and force/virial reduction; installed NVIDIA Driver/NVRTC required; no automatic selection"},
             "deepmd_c_api":{"precision":"float64-io","internal_weight_precision":"model dependent","runtime_dependencies":"trusted official DeepMD library","extra_fparam_aparam_spin":false}
         },
         "datasets":{"schema":dataset::SCHEMA,"import":["DeepMD standard NPY C-order float64","XYZ","bounded extxyz profile"],"explicit_sets":true,"partial_labels":true,"training":false,"automatic_split":false},
         "training":{"entry":"train-native","scope":["frozen-hidden final-readout E+F fit","full supported tanh network E+F Adam"],"backend":"native CPU float64","full_network":true,"full_network_scope":"native-v1 tanh hidden / linear output; fixed normalization, cutoff, type-map, selection and atomic offsets; reference-size bounds","request_schemas":["omnimd-native-readout-train-v1","omnimd-native-full-train-v1"]},
         "minimization":{"method":"bounded steepest descent","fixed_cell":true,"force_and_energy_criteria":true},
         "dynamics":{"ensembles":["nve","nvt_csvr"],"fixed_cell":true,"units":"EvAngstromFsU","dataset_frame_input":true},
-        "unsupported":["native GPU","CAPI CUDA graphs/stream capture","mixed-type/virtual atoms","partial PBC","NPT/barostat","generic DeepMD training","GPU/minibatch/virial-loss training"],
+        "unsupported":["native CUDA training","CAPI CUDA graphs/stream capture","mixed-type/virtual atoms","partial PBC","NPT/barostat","generic DeepMD training","GPU/minibatch/virial-loss training"],
         "virial_convention":"W_ab=-dE/d epsilon_ab; r'=r(I+epsilon), all nine entries, eV; not stress"
     })
 }
@@ -58,7 +58,7 @@ fn model_info(input: &Path, output: &Path) -> Result<(), Box<dyn Error>> {
             "schema":"omnimd-model-info-v1", "model_sha256":hash,
             "library_sha256":library_hash, "metadata":model.metadata(),
             "device":request.options.device(), "outputs":["energy","forces","virial"],
-            "placement_attestation":"CUDA kernel execution is checked during evaluation; model-info alone does not evaluate",
+            "placement_attestation":"CAPI CUDA checks observed kernels during evaluation; native CUDA executes explicit kernels with CPU geometry/reduction. Model-info alone does not evaluate or establish numerical parity.",
             "virial_convention":"MinusDEpsilonRow", "geometry":"nonperiodic or all-axis periodic row lattice",
             "architecture_attestation":"native format validated; C API architecture is not inferred from metadata"
         }),

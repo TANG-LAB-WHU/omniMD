@@ -254,12 +254,40 @@ Reproduce on a prepared runtime with existing public fixture paths:
 This CPU candidate does not include CUDA implementation or GPU validation.
 The separately authorized CUDA work starts from this stable baseline.
 
+## Local native CUDA integration
+
+Native implementation 1f572de and measured evidence aa24526 are integrated as
+234173c and 2e8b06b. The [native CUDA report](native/fixtures/cuda-validation-report.json)
+records the owner's actual GPU run on three original/public fixture sets. Maximum
+E/F/virial differences across those cases were 3.55e-15 / 4.44e-16 / 8.88e-16.
+The 216-atom, 28258-parameter case measured 60.385 ms CPU and 52.288 ms CUDA
+(1.155x CPU/CUDA ratio); the small cases were about 8.4x slower. Timing includes
+CPU geometry, transfers and reductions, excludes initialization, and has the
+reported desktop-graphics-load limitation. Native CUDA performs inference,
+not parameter training. See native/CUDA.md for exact subset/platform bounds.
+
+The unified CLI now accepts native options with explicit device=cpu or cuda:N,
+behind the engine native-cuda feature. Default selection remains CPU at every
+system size. Feature-disabled CUDA requests fail explicitly. Both backends use
+the same isolated child device mapping; the native constructor receives visible
+ordinal zero only after validating the worker mapping. Shared Frame/E/F/virial
+formats are unchanged, and no dependency was added.
+
+Two new CPU-only routing tests passed in both default and native-cuda builds;
+the feature-enabled Windows CLI compiled and its static capabilities report
+confirmed the feature. The tests neither initialize CUDA nor invoke NVRTC.
+A did not execute a GPU or rerun the owner's benchmark. Unified-CLI GPU
+end-to-end acceptance remains pending, separately from B's validated standalone
+native evaluator. DeepMD C API model GPU parity/timing also remains pending.
+No CUDA integration has been pushed; published shawn_dev is the CPU baseline.
+
 ## Limits and local provenance
 
 The C API guarantees double buffers, not all models' internal precision or
 training units. GPU requests fail. Native inference accepts only its documented
 CPU se_e2_a subset. Bounded tanh full-network training is integrated; generic
-DeepMD training, GPU execution and hybrid se_e3 remain unsupported.
+DeepMD training and hybrid se_e3 remain unsupported. Native CUDA has the bounded
+local acceptance above; C API GPU model validation remains pending.
 The supported safe-serialization converter and generated-model comparison are integrated.
 The two audited frozen-graph profiles are integrated; the public regression .pb
 lacks training serialization metadata, so generic export is not claimed.

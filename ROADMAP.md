@@ -53,8 +53,11 @@
 - DeepMD C API CUDA device propagation and kernel/synchronization checks are
   integrated locally. Real model GPU parity and warmed timing remain pending;
   the published CPU baseline is unchanged.
-- Native GPU kernels and CPU/GPU numerical comparison are under separate
-  development/acceptance and are not integrated into this branch yet.
+- Native CUDA inference and three-fixture CPU/GPU numerical evidence are
+  integrated locally behind the explicit native-cuda CLI feature. The bounded
+  216-atom timing was 1.155x faster; small cases were about 8.4x slower.
+  The unified CLI has CPU routing/build checks; its GPU end-to-end check is
+  pending. Native CUDA training remains unimplemented.
 - Broader descriptors, including hybrids, only with implementation and validation.
 
 ## Publication gate

@@ -11,8 +11,13 @@ branch additionally contains explicit DeepMD C API CUDA worker code. Its real
 model E/F/virial parity and warmed timing are still pending; a successful tiny
 GPU matrix multiplication does not complete that acceptance. See
 [CUDA validation status](mlmd/deepmd/CUDA_VALIDATION.md). These CUDA changes are
-not published or claimed as validated acceleration. Native CUDA is separately
-under test and is not yet integrated here.
+not published or claimed as validated C API acceleration. B's native CUDA
+inference implementation and measured evidence are integrated locally with an
+opt-in unified CLI feature; see [native CUDA](mlmd/native/CUDA.md) and
+[device selection](mlmd/engine/README.md#explicit-native-cuda-inference).
+The measured 216-atom case was 1.155x faster and small cases about 8.4x slower;
+CPU stays the default. Native CUDA is inference only, and this CLI wrapper's
+GPU end-to-end check is still pending.
 
 ## Available in the accepted CPU release
 

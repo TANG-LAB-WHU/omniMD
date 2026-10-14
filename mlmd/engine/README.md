@@ -32,6 +32,45 @@ are never replaced. Real DeepMD inference uses a fresh worker with GPU visibilit
 disabled and one trusted official model handle. Native inference needs no DeepMD,
 Python, GPU or LibTorch installation.
 
+## Explicit native CUDA inference
+
+CPU remains the default for native options, including small systems. No atom
+count heuristic automatically enables GPU execution. The optional unified CLI
+build is:
+
+    cargo build --release --locked --manifest-path mlmd/Cargo.toml -p omnimd-mlmd --features native-cuda --bin omnimd-mlmd
+
+For model-info, batch-eval, minimize, check or run, select the same model with:
+
+    {"native_model":"/absolute/native-model.json","device":"cuda:0"}
+
+This is the options object within the existing request. Omit device or use cpu
+for the ordinary CPU path. Legacy {"Cuda":0} device spelling is also accepted.
+A native CUDA request without the build feature fails explicitly before a worker
+or CUDA runtime is started. CUDA failures are errors; CPU fallback is an explicit
+new request, not an automatic retry. The train-native command remains CPU-only.
+
+Both inference backends share the fresh-process selector: cuda:N selects index
+N from an inherited CUDA_VISIBLE_DEVICES list, or system CUDA index N when no
+mask is set. The child exposes just that selected device and the backend uses
+visible ordinal zero. Disabled/invalid masks and mismatched worker markers fail.
+See NVIDIA's [device enumeration rules](https://docs.nvidia.com/cuda/cuda-programming-guide/05-appendices/environment-variables.html#cuda-visible-devices).
+Parent process visibility is not mutated. Native CUDA uses the installed NVIDIA
+Driver API and NVRTC, not the C API backend's cuda.runtime/cuda.cupti options;
+see [native CUDA runtime and bounds](../native/CUDA.md). Even model-info with a
+native CUDA request creates its context/compiled model; it is not a GPU-free query.
+
+B's standalone native CUDA evaluator passed E/F/virial parity on three fixture
+sets. The 216-atom case measured 60.385 ms CPU versus 52.288 ms CUDA (1.155x), while
+two small cases were about 8.4x slower. Timings include CPU geometry, transfers,
+kernels and final reduction, exclude initialization, and were affected by desktop
+graphics load. This is inference only: CPU PBC/neighbor geometry and final E/F/V
+reduction remain; there is no native CUDA training or general speedup claim.
+
+A's unified-CLI integration has CPU routing/build checks only; its own GPU
+end-to-end acceptance has not been run. The separate DeepMD C API CUDA model
+parity/timing remains pending. These local changes are not yet published.
+
 ## Dataset workflows
 
 See [DATA.md](DATA.md) for explicit DeepMD NPY import, batch predictions and

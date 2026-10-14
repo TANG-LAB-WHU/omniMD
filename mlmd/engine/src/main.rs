@@ -21,6 +21,8 @@ use std::{
 #[serde(deny_unknown_fields)]
 struct NativeOptions {
     native_model: PathBuf,
+    #[serde(default)]
+    device: Device,
 }
 
 #[derive(Deserialize)]
@@ -33,13 +35,15 @@ enum BackendOptions {
 enum Backend {
     DeepMd(DeepMd),
     Native(omnimd_native::NativePotential),
+    #[cfg(feature = "native-cuda")]
+    NativeCuda(omnimd_native::cuda::CudaPotential),
 }
 
 impl BackendOptions {
     fn device(&self) -> Device {
         match self {
             Self::DeepMd(options) => options.device,
-            Self::Native(_) => Device::Cpu,
+            Self::Native(options) => options.device,
         }
     }
 
@@ -54,6 +58,16 @@ impl BackendOptions {
         if !self.model_path().is_absolute() || !self.model_path().is_file() {
             return Err("model path must be an existing absolute file path".into());
         }
+        #[cfg(not(feature = "native-cuda"))]
+        if matches!(
+            self,
+            Self::Native(NativeOptions {
+                device: Device::Cuda(_),
+                ..
+            })
+        ) {
+            return Err("native CUDA inference requires a build with --features native-cuda; select device=cpu explicitly for CPU".into());
+        }
         Ok(())
     }
 
@@ -62,11 +76,57 @@ impl BackendOptions {
         match self {
             // The CLI accepts only a trusted official DeepMD C API library.
             Self::DeepMd(options) => Ok(Backend::DeepMd(unsafe { DeepMd::load(options) }?)),
-            Self::Native(options) => Ok(Backend::Native(omnimd_native::NativePotential::load(
-                &options.native_model,
-            )?)),
+            Self::Native(options) => {
+                let model = omnimd_native::NativePotential::load(&options.native_model)?;
+                match options.device {
+                    Device::Cpu => Ok(Backend::Native(model)),
+                    Device::Cuda(index) => {
+                        #[cfg(feature = "native-cuda")]
+                        {
+                            // The shared parent launcher exposes one selected device.
+                            // Its visible CUDA ordinal is zero, not the original index.
+                            let ordinal = native_cuda_ordinal(
+                                index,
+                                std::env::var("CUDA_VISIBLE_DEVICES").ok().as_deref(),
+                                std::env::var("OMNIMD_CUDA_INDEX").ok().as_deref(),
+                            )?;
+                            Ok(Backend::NativeCuda(
+                                omnimd_native::cuda::CudaPotential::new(
+                                    model.model().clone(),
+                                    ordinal,
+                                )?,
+                            ))
+                        }
+                        #[cfg(not(feature = "native-cuda"))]
+                        {
+                            let _ = (model, index);
+                            Err("native CUDA inference was not compiled".into())
+                        }
+                    }
+                }
+            }
         }
     }
+}
+
+// Validate only the launch contract; this helper never loads a CUDA library.
+// Native Driver API indices use the same isolated visibility mapping as C API.
+#[cfg(any(feature = "native-cuda", test))]
+fn native_cuda_ordinal(
+    index: u32,
+    visible: Option<&str>,
+    selected: Option<&str>,
+) -> Result<i32, Box<dyn Error>> {
+    let single = visible.is_some_and(|value| {
+        !value.contains(',')
+            && (value.parse::<u32>().is_ok()
+                || (value.starts_with("GPU-") && value.len() > 4)
+                || (value.starts_with("MIG-") && value.len() > 4))
+    });
+    if !single || selected != Some(index.to_string().as_str()) {
+        return Err("native CUDA requires the matching fresh device-isolated worker; do not call internal worker modes directly".into());
+    }
+    Ok(0)
 }
 
 impl Potential for Backend {
@@ -74,6 +134,8 @@ impl Potential for Backend {
         match self {
             Self::DeepMd(model) => model.metadata(),
             Self::Native(model) => model.metadata(),
+            #[cfg(feature = "native-cuda")]
+            Self::NativeCuda(model) => model.metadata(),
         }
     }
     fn eval(
@@ -83,6 +145,8 @@ impl Potential for Backend {
         match self {
             Self::DeepMd(model) => model.eval(frame),
             Self::Native(model) => model.eval(frame),
+            #[cfg(feature = "native-cuda")]
+            Self::NativeCuda(model) => model.eval(frame),
         }
     }
 }
@@ -375,7 +439,7 @@ fn run() -> Result<(), Box<dyn Error>> {
     }
     if args.len() == 1 && (args[0] == "--help" || args[0] == "-h") {
         println!(
-            "omnimd-mlmd: CPU/CUDA DeepMD C API / CPU native se_e2_a dynamics\n\
+            "omnimd-mlmd: CPU/CUDA DeepMD C API / native se_e2_a dynamics (native CUDA requires native-cuda feature)\n\
 Usage:\n  omnimd-mlmd train-native TRAIN.json\n  omnimd-mlmd minimize REQUEST.json NEW_MINIMIZATION.jsonl\n  omnimd-mlmd import-xyz IMPORT.json NEW_DATASET.jsonl\n  omnimd-mlmd capabilities\n  omnimd-mlmd model-info OPTIONS.json NEW_INFO.json\n  omnimd-mlmd import-deepmd IMPORT.json NEW_DATASET.jsonl\n  omnimd-mlmd batch-eval EVAL.json NEW_PREDICTIONS.jsonl\n  omnimd-mlmd run REQUEST.json NEW_TRAJECTORY.jsonl\n\
   omnimd-mlmd check REQUEST.json\n\
   omnimd-mlmd REQUEST.json NEW_TRAJECTORY.jsonl\n\
@@ -424,5 +488,49 @@ fn main() {
     if let Err(e) = run() {
         eprintln!("omnimd-mlmd: {e}");
         std::process::exit(1);
+    }
+}
+
+#[cfg(test)]
+mod backend_tests {
+    use super::*;
+    fn native_options(device: Option<&str>) -> BackendOptions {
+        let mut value = json!({"native_model": Path::new(env!("CARGO_MANIFEST_DIR")).join("../native/fixtures/full-tanh-v1.json")});
+        if let Some(device) = device {
+            value["device"] = json!(device);
+        }
+        serde_json::from_value(value).unwrap()
+    }
+    #[test]
+    fn native_cpu_is_default_and_does_not_load_cuda() {
+        for device in [None, Some("cpu")] {
+            let options = native_options(device);
+            assert_eq!(options.device(), Device::Cpu);
+            let loaded = options.load().unwrap();
+            assert!(matches!(loaded, Backend::Native(_)));
+        }
+        let cuda = native_options(Some("cuda:2"));
+        assert_eq!(cuda.device(), Device::Cuda(2));
+        #[cfg(not(feature = "native-cuda"))]
+        assert!(cuda
+            .validate()
+            .unwrap_err()
+            .to_string()
+            .contains("--features native-cuda"));
+        #[cfg(feature = "native-cuda")]
+        cuda.validate().unwrap(); // Validation only: never construct a GPU potential.
+    }
+    #[test]
+    fn isolated_native_cuda_ordinal_is_zero_and_mismatches_fail_before_driver_load() {
+        assert_eq!(native_cuda_ordinal(2, Some("5"), Some("2")).unwrap(), 0);
+        assert_eq!(
+            native_cuda_ordinal(1, Some("GPU-abc"), Some("1")).unwrap(),
+            0
+        );
+        for mask in [None, Some(""), Some("-1"), Some("0,1"), Some("GPU-")] {
+            assert!(native_cuda_ordinal(2, mask, Some("2")).is_err());
+        }
+        assert!(native_cuda_ordinal(2, Some("5"), Some("0")).is_err());
+        assert!(native_cuda_ordinal(2, Some("5"), None).is_err());
     }
 }
