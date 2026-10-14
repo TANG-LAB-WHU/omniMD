@@ -56,15 +56,11 @@ are printed by the converter. Native JSON remains schema v1.
   uses SafeLoader with duplicate-key rejection; executable tags are not accepted.
   Input size is capped at 256 MiB and each HDF5 dataset at 8 million values.
 
-The converter does **not** consume `.pb`, `.pth`, checkpoint directories, or
-pickle. In the existing public DeepMD inference-test `.pb`,
-`train_attr/training_script` is missing, so the official serializer cannot
-recover its full configuration. Read-only inspection found one `ProdEnvMatA`
-operator, energy output, type map `O H`, and frozen model version `1.1`; these
-identify the angular se_e2_a family, but do not establish a complete supported
-serialization tree or its network semantics. We did not infer an architecture from node
-names or claim conversion of that model. A `.pb` exporter is a separate future
-feature, requiring verification that it retains all inference state.
+This interchange converter does **not** consume `.pb`, `.pth`, checkpoint
+folders, or pickle. A separate [frozen-graph exporter](FROZEN.md) now supports
+two audited exact graph profiles, including the public `deeppot.pb` fixture
+without `train_attr/training_script`. It verifies the actual output graph and
+does not reconstruct a training configuration.
 
 An exploratory official TF `.pb` -> serialized-dictionary roundtrip also lost
 nonzero **model-level** `out_bias` in this synthetic case, shifting total energy
@@ -113,5 +109,5 @@ Measured maximum absolute differences over three frames:
 
 This is **synthetic-model numerical compatibility**, not a trained potential,
 chemical-accuracy result, full DeepMD compatibility claim, or speed benchmark.
-The next useful extension is a verified public-model exporter that retains
-complete frozen-model offsets and explicitly records its effective geometry.
+The separate frozen-graph exporter now retains those complete offsets and
+effective radii; see [FROZEN.md](FROZEN.md) for its narrower graph-profile scope.
