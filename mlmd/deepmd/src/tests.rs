@@ -273,9 +273,11 @@ fn missing_nonfinite_and_runtime_errors_never_return_results() {
 }
 
 #[test]
-fn gpu_request_is_explicitly_rejected() {
-    assert!(validate_device(Device::Cuda(0))
-        .unwrap_err()
-        .0
-        .contains("cannot yet"));
+fn omitted_device_defaults_to_cpu_without_cuda_dependencies() {
+    let options: LoadOptions = serde_json::from_value(serde_json::json!({
+        "library":"/libdeepmd.so", "model":"/model.pb", "type_map":["O","H"], "units":"EvAngstrom"
+    }))
+    .unwrap();
+    assert_eq!(options.device, Device::Cpu);
+    assert!(options.cuda.is_none());
 }

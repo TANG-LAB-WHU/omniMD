@@ -1,4 +1,4 @@
-//! Data CLI commands use the same model loader and fresh CPU worker as dynamics.
+//! Data CLI commands use the same model loader and device-isolated worker as dynamics.
 use super::BackendOptions;
 use omnimd_ml_contract::Potential;
 use omnimd_mlmd::dataset::{self, DatasetReader, ImportRequest, Metrics};
@@ -28,7 +28,7 @@ struct ModelRequest {
 fn capabilities() -> serde_json::Value {
     json!({
         "schema":"omnimd-capabilities-v1",
-        "device":["Cpu"],
+        "device":["Cpu",{"Cuda":"index; DeepMD TensorFlow .pb only, explicit CUDA/CUPTI libraries"}],
         "evaluation":{"outputs":["energy","forces","virial"],"units":"EvAngstrom","one_model_load_per_request":true},
         "backends":{
             "native":{"architecture":"bounded se_e2_a format v1","precision":"float64","runtime_dependencies":"none"},
@@ -38,7 +38,7 @@ fn capabilities() -> serde_json::Value {
         "training":{"entry":"train-native","scope":["frozen-hidden final-readout E+F fit","full supported tanh network E+F Adam"],"backend":"native CPU float64","full_network":true,"full_network_scope":"native-v1 tanh hidden / linear output; fixed normalization, cutoff, type-map, selection and atomic offsets; reference-size bounds","request_schemas":["omnimd-native-readout-train-v1","omnimd-native-full-train-v1"]},
         "minimization":{"method":"bounded steepest descent","fixed_cell":true,"force_and_energy_criteria":true},
         "dynamics":{"ensembles":["nve","nvt_csvr"],"fixed_cell":true,"units":"EvAngstromFsU","dataset_frame_input":true},
-        "unsupported":["GPU","mixed-type/virtual atoms","partial PBC","NPT/barostat","generic DeepMD training","GPU/minibatch/virial-loss training"],
+        "unsupported":["native GPU","CAPI CUDA graphs/stream capture","mixed-type/virtual atoms","partial PBC","NPT/barostat","generic DeepMD training","GPU/minibatch/virial-loss training"],
         "virial_convention":"W_ab=-dE/d epsilon_ab; r'=r(I+epsilon), all nine entries, eV; not stress"
     })
 }
@@ -57,7 +57,8 @@ fn model_info(input: &Path, output: &Path) -> Result<(), Box<dyn Error>> {
         &json!({
             "schema":"omnimd-model-info-v1", "model_sha256":hash,
             "library_sha256":library_hash, "metadata":model.metadata(),
-            "device":"Cpu", "outputs":["energy","forces","virial"],
+            "device":request.options.device(), "outputs":["energy","forces","virial"],
+            "placement_attestation":"CUDA kernel execution is checked during evaluation; model-info alone does not evaluate",
             "virial_convention":"MinusDEpsilonRow", "geometry":"nonperiodic or all-axis periodic row lattice",
             "architecture_attestation":"native format validated; C API architecture is not inferred from metadata"
         }),
@@ -99,7 +100,7 @@ fn evaluate(input: &Path, output: &Path) -> Result<(), Box<dyn Error>> {
     }
     dataset::write_line(
         &mut writer,
-        &json!({"kind":"completed","frames":frames,"metrics":metrics.report()}),
+        &json!({"kind":"completed","frames":frames,"metrics":metrics.report(),"metadata":model.metadata()}),
     )?;
     writer.flush()?;
     Ok(())
@@ -156,16 +157,22 @@ pub fn dispatch(args: &[OsString]) -> Result<bool, Box<dyn Error>> {
         if Path::new(&args[2]).exists() {
             return Err("output already exists".into());
         }
-        let status = Command::new(std::env::current_exe()?)
-            .arg("--data-worker")
-            .args(args)
-            .env("CUDA_VISIBLE_DEVICES", "-1")
-            .env("HIP_VISIBLE_DEVICES", "-1")
-            .env("ROCR_VISIBLE_DEVICES", "-1")
-            .status()?;
+        // All three request schemas share options; workers still validate their full schema.
+        let request: serde_json::Value = serde_json::from_str(&fs::read_to_string(&args[1])?)?;
+        let options: BackendOptions = serde_json::from_value(
+            request
+                .get("options")
+                .ok_or("request requires options")?
+                .clone(),
+        )?;
+        options.validate()?;
+        let mut command = Command::new(std::env::current_exe()?);
+        command.arg("--data-worker").args(args);
+        options.device().configure_worker(&mut command)?;
+        let status = command.status()?;
         if !status.success() {
             return Err(format!(
-                "CPU worker failed: {status}; inspect output status (failed predictions lack completed; nonconverged minimization reports its reason)"
+                "model worker failed: {status}; inspect output status (failed predictions lack completed; nonconverged minimization reports its reason)"
             )
             .into());
         }
