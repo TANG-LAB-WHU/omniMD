@@ -1,4 +1,4 @@
-# Roadmap
+# Rust-based MLIP-MD roadmap
 
 ## Milestone 1: strict model evaluation
 
@@ -25,6 +25,7 @@
 ## Milestone 3: training and acceleration (not implemented)
 
 - Native training, optimizer/checkpoints/data pipeline and force-loss gradients.
+- Sampling and active-learning workflows with explicit supported data formats.
 - Native GPU kernels and deterministic numerical comparison.
 - Broader architectures only with explicit implementation and validation.
 
