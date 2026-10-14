@@ -1,9 +1,9 @@
 # Optional native CUDA inference
 
-Status: CUDA source, Rust integration, CPU-only tests and NVRTC PTX compilation
-are implemented. Actual GPU parity and timing remain pending an exclusive GPU
-window. Do not describe this as a verified speedup until the execution report
-records a successful run. The CPU implementation and default build are unchanged.
+Status: the bounded Windows CUDA subset has passed actual same-model E/F/virial
+checks on original tiny, public converted and 216-atom synthetic fixtures. The
+216-atom case was modestly faster in one end-to-end measurement; tiny cases were
+slower. See the measured results below. The CPU default remains unchanged.
 
 ## Computation boundary
 
@@ -98,7 +98,7 @@ speedup or production scaling claim is made.
 CPU-only test suite with `--features cuda` currently passes 14 tests, including
 strict packing and all existing CPU inference/training checks. NVRTC compilation
 has succeeded for tiny original, public converted and medium synthetic models.
-These checks do **not** establish GPU execution correctness.
+Actual GPU execution was subsequently checked in the controlled run below.
 
 `tools/replay_cuda.py` prepares original tiny and 216-atom medium fixtures and
 optionally adds the existing public converted model. Preparation alone never
@@ -126,3 +126,35 @@ Reports include device identity, input hashes, maximum errors, elapsed totals
 and CPU/CUDA time ratio. This is one bounded measurement, not a benchmark suite
 or evidence of physical model accuracy. Generated data/models/PTX/raw logs stay
 in ignored output directories; only compact acceptance evidence is tracked.
+
+## Recorded GPU result (2026-10-14 UTC)
+
+`fixtures/cuda-validation-report.json` records actual execution of implementation
+commit `1f572deab644a6da2caa0f9ad703b3dd818080ee`. Hardware was an NVIDIA
+GeForce RTX 4090 (compute 8.9, 24564 MiB), Windows WDDM driver 595.97, existing
+CUDA 12.8 NVRTC, and Rust 1.99.0 GNU release build. The parent granted a project
+exclusive window after the other worker stopped. Preflight found no other
+project compute process; ordinary desktop/game graphics remained active
+(observed GPU use 14-46%, about 5.3 GiB). No other application was stopped.
+This background load limits the interpretation of the single timing run.
+
+| Case | Atoms / neural scalars | Max absolute E / F / virial error | CPU ms/eval | CUDA ms/eval | CPU/CUDA ratio |
+| --- | --- | --- | ---: | ---: | ---: |
+| Original tiny | 4,4,4,1 / 112 | 0 / 4.44e-16 / 4.44e-16 | 0.02897 | 0.24293 | 0.119 |
+| Public converted | 6 per frame / 826 | 0 / 4.44e-16 / 8.88e-16 | 0.37143 | 3.14343 | 0.118 |
+| Original medium | 216 / 28258 | 3.55e-15 / 1.82e-18 / 6.71e-19 | 60.38526 | 52.28750 | 1.155 |
+
+The tiny and public cases each used four parity frames and three timed repeats
+(12 evaluations); the medium used one frame and five timed repeats. All
+component checks passed `1e-9 absolute + 1e-9 relative`. Initialization was
+846/961/1164 ms respectively and is excluded from the warmed evaluation table.
+All per-evaluation CPU geometry, transfers, CUDA kernels/synchronization and
+force/virial reduction are included. Model shape/count/hash details are in the
+report. The medium's modest 1.15x measured ratio is not a general acceleration
+claim; the two small cases were about 8.4x slower on this measured path.
+
+The planned run completed once without CUDA errors or retries. All verification
+processes exited and a subsequent process check was empty. The GPU window was
+explicitly released at `2026-10-14T04:50:18.0658055Z`; no further GPU work was
+started. This validates the documented inference subset, not GPU training,
+physical model accuracy or production performance.
