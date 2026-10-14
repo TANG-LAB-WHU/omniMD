@@ -1,9 +1,10 @@
 # Sources and licenses
 
 The new Rust implementation and original synthetic fixtures are MIT-licensed,
-under the repository root LICENSE. The fixture weights are generated locally
-from integer arithmetic in `tools/generate_fixture.py`; no trained or proprietary
-weights or HAP data are included. Weight-free frozen graph profiles are
+under the repository root LICENSE. The original inference fixture weights are
+generated from integer arithmetic in `tools/generate_fixture.py`; the full
+training fixture uses original deterministic trigonometric weights described
+below. No proprietary weights or HAP data are included. Weight-free frozen graph profiles are
 separately attributed below.
 
 The implementation follows published DeepPot-SE mathematics and the documented
@@ -100,3 +101,22 @@ transitive versions are recorded in Cargo.lock. The existing serde_json
 `float_roundtrip` feature was enabled to preserve frozen float64 parameters
 through parse/export. No new package download or global configuration change
 was performed. This is final-readout regression, not a new training algorithm.
+
+## Full supported-network training
+
+The scalar reverse tape, differentiable directional tangents, full-batch Adam,
+checkpoint code and tiny tanh fixture are independently written MIT code/data.
+No external AD or optimizer source is copied or vendored. The added fixture
+uses original deterministic trigonometric weights; the replay perturbs them
+and generates original teacher labels. No pretrained weights or external
+training dataset is included. Existing dependencies and licenses are unchanged.
+
+Mathematical references (not redistributed):
+
+- Kingma and Ba, *Adam: A Method for Stochastic Optimization*, ICLR 2015:
+  https://arxiv.org/abs/1412.6980
+- Baydin et al., *Automatic Differentiation in Machine Learning: a Survey*,
+  JMLR 18(153), 2018: https://arxiv.org/abs/1502.05767
+
+Reverse/forward AD composition and Adam are established methods, not algorithmic
+innovations claimed by this implementation.

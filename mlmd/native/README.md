@@ -141,7 +141,8 @@ outputs using `tools/compare_evaluations.py`. A fixed-seed, untrained DeepMD
 3.1.3 model has now passed actual C API/native comparison on three frames; the committed conversion report records maximum
 E/F/virial errors of 4.44e-16 / 5.03e-17 / 3.47e-17. This establishes numerical
 compatibility for that fixture, not pretrained-model physical accuracy.
-No trainer, optimizer, MD integrator, GPU kernel, compression table, attention,
+Native training modes are documented below. This crate has no MD integrator,
+GPU kernel, compression table, attention,
 spin, type embedding,
 `se_e3`, hybrid descriptor, exclusions, frame/atomic parameters, environment
 protection, or vacuum-subtraction feature is implemented. Such architectures
@@ -161,5 +162,9 @@ The public frozen-model replay now passes four frames with maximum E/F/virial
 errors of 2.27e-13 / 4.22e-15 / 6.66e-15. Exact graph-profile limits and replay
 evidence are in [FROZEN.md](FROZEN.md). Frozen-hidden final-readout training is now implemented; see
 [TRAINING.md](TRAINING.md) for the native CLI, exact E/F features, reproducible
-split and actual teacher-recovery results. This is not full-network training.
-[TRAINING_NEXT.md](TRAINING_NEXT.md) assesses the mixed derivatives needed next.
+split and actual teacher-recovery results. Full supported tanh-network E/F
+training with exact mixed AD, Adam and deterministic checkpoint/restart is now
+implemented in [FULL_TRAINING.md](FULL_TRAINING.md). Its scope is CPU float64,
+small models and fixed descriptor normalization; no general DeepMD training or
+physical-accuracy claim is made. [TRAINING_NEXT.md](TRAINING_NEXT.md) lists
+remaining training limitations.

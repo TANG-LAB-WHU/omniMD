@@ -1,6 +1,9 @@
 # Native final-readout training
 
-`omnimd-native-train` fits only the final linear weights of each species-specific
+This document covers the `omnimd-native-readout-train-v1` mode. For full supported
+network training, see [FULL_TRAINING.md](FULL_TRAINING.md).
+
+In readout mode, `omnimd-native-train` fits only the final linear weights of each species-specific
 fitting network. Descriptor/embedding weights, all hidden layers, normalization,
 cutoffs, selection and separate atomic offsets stay frozen. Final fitting biases
 also stay frozen unless `fit_bias=true`. This is **last-layer training, not

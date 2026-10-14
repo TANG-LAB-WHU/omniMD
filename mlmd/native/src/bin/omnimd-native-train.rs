@@ -1,6 +1,7 @@
-//! Train only final affine readouts; consume A's dataset JSONL v1 unchanged.
+//! Native readout or full supported-network training; A dataset JSONL v1.
 use omnimd_ml_contract::Potential;
 use omnimd_native::{
+    full_training::{train_full, Checkpoint, FullConfig},
     training::{train, TrainConfig},
     training_data::Dataset,
     NativePotential,
@@ -9,17 +10,28 @@ use serde::Deserialize;
 use sha2::{Digest, Sha256};
 use std::{
     fs,
+    io::Write,
     path::{Path, PathBuf},
 };
 
 #[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
-struct Request {
-    schema: String,
-    initial_model: PathBuf,
-    dataset: PathBuf,
-    output_directory: PathBuf,
-    config: TrainConfig,
+#[serde(tag = "schema", deny_unknown_fields)]
+enum Request {
+    #[serde(rename = "omnimd-native-readout-train-v1")]
+    Readout {
+        initial_model: PathBuf,
+        dataset: PathBuf,
+        output_directory: PathBuf,
+        config: TrainConfig,
+    },
+    #[serde(rename = "omnimd-native-full-train-v1")]
+    Full {
+        initial_model: Option<PathBuf>,
+        checkpoint: Option<PathBuf>,
+        dataset: PathBuf,
+        output_directory: PathBuf,
+        config: FullConfig,
+    },
 }
 fn path(base: &Path, value: &Path) -> PathBuf {
     if value.is_absolute() {
@@ -31,6 +43,32 @@ fn path(base: &Path, value: &Path) -> PathBuf {
 fn sha(bytes: &[u8]) -> String {
     format!("{:x}", Sha256::digest(bytes))
 }
+// New files in a new output directory: no overwrite of an existing checkpoint.
+fn save_checkpoint(
+    output: &Path,
+    name: &str,
+    state: &Checkpoint,
+) -> omnimd_ml_contract::Result<()> {
+    let operation = || -> Result<(), Box<dyn std::error::Error>> {
+        let bytes = serde_json::to_vec_pretty(state)?;
+        let temp = output.join(format!("{name}.tmp"));
+        let target = output.join(name);
+        if target.exists() {
+            return Err("checkpoint target already exists".into());
+        }
+        let mut file = fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&temp)?;
+        file.write_all(&bytes)?;
+        file.write_all(b"\n")?;
+        file.sync_all()?;
+        drop(file);
+        fs::rename(temp, target)?;
+        Ok(())
+    };
+    operation().map_err(|e| omnimd_ml_contract::Error(format!("save checkpoint: {e}")))
+}
 fn run() -> Result<(), Box<dyn std::error::Error>> {
     let args: Vec<_> = std::env::args().collect();
     if args.len() != 2 {
@@ -39,23 +77,89 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
     let request_path = fs::canonicalize(&args[1])?;
     let request_bytes = fs::read(&request_path)?;
     let request: Request = serde_json::from_slice(&request_bytes)?;
-    if request.schema != "omnimd-native-readout-train-v1" {
-        return Err("unsupported training request schema".into());
-    }
     let base = request_path.parent().unwrap();
-    let initial_path = path(base, &request.initial_model);
-    let dataset_path = path(base, &request.dataset);
-    let output = path(base, &request.output_directory);
+    let (dataset_path, output) = match &request {
+        Request::Readout {
+            dataset,
+            output_directory,
+            ..
+        }
+        | Request::Full {
+            dataset,
+            output_directory,
+            ..
+        } => (path(base, dataset), path(base, output_directory)),
+    };
     if output.exists() {
         return Err("training output directory must not exist".into());
     }
-    let initial_bytes = fs::read(&initial_path)?;
-    let initial = NativePotential::from_json(std::str::from_utf8(&initial_bytes)?)?;
     let dataset = Dataset::load(dataset_path)?;
-    let outcome = train(initial.model(), &dataset, &request.config)?;
-    let model_json = serde_json::to_string_pretty(&outcome.model)? + "\n";
+    let (model, mut report, input_key, input_sha) = match request {
+        Request::Readout {
+            initial_model,
+            config,
+            ..
+        } => {
+            let bytes = fs::read(path(base, &initial_model))?;
+            let initial = NativePotential::from_json(std::str::from_utf8(&bytes)?)?;
+            let outcome = train(initial.model(), &dataset, &config)?;
+            (
+                outcome.model,
+                serde_json::to_value(outcome.report)?,
+                "initial_model_sha256",
+                sha(&bytes),
+            )
+        }
+        Request::Full {
+            initial_model,
+            checkpoint,
+            config,
+            ..
+        } => {
+            let (state, key, hash) = match (initial_model, checkpoint) {
+                (Some(initial), None) => {
+                    let bytes = fs::read(path(base, &initial))?;
+                    let model = NativePotential::from_json(std::str::from_utf8(&bytes)?)?;
+                    (
+                        Checkpoint::start(model.model(), &dataset, &config)?,
+                        "initial_model_sha256",
+                        sha(&bytes),
+                    )
+                }
+                (None, Some(checkpoint)) => {
+                    let file = path(base, &checkpoint);
+                    if fs::metadata(&file)?.len() > 128 * 1024 * 1024 {
+                        return Err("checkpoint exceeds 128 MiB".into());
+                    }
+                    let bytes = fs::read(file)?;
+                    (
+                        serde_json::from_slice::<Checkpoint>(&bytes)?,
+                        "resume_checkpoint_sha256",
+                        sha(&bytes),
+                    )
+                }
+                _ => {
+                    return Err(
+                        "full training requires exactly one of initial_model or checkpoint".into(),
+                    )
+                }
+            };
+            fs::create_dir(&output)?;
+            let outcome = train_full(state, &dataset, &config, |s| {
+                save_checkpoint(&output, &format!("checkpoint-step-{}.json", s.step), s)
+            })?;
+            save_checkpoint(&output, "checkpoint.json", &outcome.checkpoint)?;
+            (
+                outcome.checkpoint.model,
+                serde_json::to_value(outcome.report)?,
+                key,
+                hash,
+            )
+        }
+    };
+    let model_json = serde_json::to_string_pretty(&model)? + "\n";
     let mut reloaded = NativePotential::from_json(&model_json)?;
-    let mut fitted = NativePotential::new(outcome.model)?;
+    let mut fitted = NativePotential::new(model)?;
     let mut difference = [0.0_f64; 3];
     for frame in &dataset.frames {
         let a = fitted.eval(&frame.frame)?;
@@ -71,9 +175,8 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
     if difference.iter().any(|v| *v > 1e-12) {
         return Err("native-v1 serialization/reload mismatch exceeds 1e-12".into());
     }
-    let mut report = serde_json::to_value(outcome.report)?;
     let object = report.as_object_mut().unwrap();
-    object.insert("initial_model_sha256".into(), sha(&initial_bytes).into());
+    object.insert(input_key.into(), input_sha.into());
     object.insert(
         "output_model_sha256".into(),
         sha(model_json.as_bytes()).into(),
@@ -84,20 +187,22 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
         serde_json::to_value(difference)?,
     );
     let report_json = serde_json::to_string_pretty(&report)? + "\n";
-    fs::create_dir(&output)?;
+    if !output.exists() {
+        fs::create_dir(&output)?;
+    }
     fs::write(output.join("model.json"), model_json)?;
     fs::write(output.join("report.json"), report_json)?;
     println!(
         "{}",
         serde_json::json!({"model":output.join("model.json"),"report":output.join("report.json"),
         "scope":report["scope"],"data_rank":report["data_rank"],"solve_rank":report["solve_rank"],
-        "final_training":report["final_training"],"final_validation":report["final_validation"]})
+        "step_end":report["step_end"],"final_training":report["final_training"],"final_validation":report["final_validation"]})
     );
     Ok(())
 }
 fn main() {
     if let Err(e) = run() {
-        eprintln!("readout training failed: {e}");
+        eprintln!("native training failed: {e}");
         std::process::exit(1);
     }
 }
