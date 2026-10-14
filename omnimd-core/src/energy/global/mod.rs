@@ -211,5 +211,7 @@ mod ewald;
 #[allow(unused_imports)]
 pub use self::ewald::{Ewald, Ewald3DArray, SharedEwald};
 
+#[cfg(feature = "torch")]
 mod torch_potential;
+#[cfg(feature = "torch")]
 pub use self::torch_potential::TorchPotential;

@@ -49,5 +49,7 @@ pub use self::forces::ForcesOutput;
 mod properties;
 pub use self::properties::PropertiesOutput;
 
+#[cfg(feature = "chemfiles")]
 mod trajectory;
+#[cfg(feature = "chemfiles")]
 pub use self::trajectory::TrajectoryOutput;

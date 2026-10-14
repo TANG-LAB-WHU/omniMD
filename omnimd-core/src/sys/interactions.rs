@@ -77,6 +77,12 @@ pub struct Interactions {
 }
 
 impl Interactions {
+    /// True if no force field is installed (registered particle names do not count).
+    pub fn is_empty(&self) -> bool {
+        self.coulomb.is_none() && self.globals.is_empty() && self.pairs.is_empty()
+            && self.bonds.is_empty() && self.angles.is_empty() && self.dihedrals.is_empty()
+    }
+
     /// Create a new empty `Interactions`
     pub fn new() -> Interactions {
         Interactions {
@@ -141,6 +147,7 @@ impl Interactions {
 }
 
 impl Interactions {
+
     /// Get the pair interactions corresponding to the `pair`, if any exists.
     pub fn pair(&self, pair: PairKind) -> Option<&PairInteraction> {
         let kind = normalize_pair(pair);

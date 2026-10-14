@@ -76,3 +76,8 @@ pub use self::thermostats::RescaleThermostat;
 
 mod molecular_dynamics;
 pub use self::molecular_dynamics::MolecularDynamics;
+
+#[cfg(feature = "mlip")]
+mod mlip;
+#[cfg(feature = "mlip")]
+pub use self::mlip::MlipDynamics;

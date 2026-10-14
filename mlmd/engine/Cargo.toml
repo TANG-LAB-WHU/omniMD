@@ -1,0 +1,14 @@
+[package]
+name = "omnimd-mlmd"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+omnimd-core = { path = "../../omnimd-core", default-features = false }
+omnimd-sim = { path = "../../omnimd-sim", default-features = false, features = ["mlip"] }
+omnimd-ml-contract = { path = "../contract" }
+omnimd-deepmd = { path = "../deepmd" }
+serde.workspace = true
+serde_json.workspace = true
+sha2 = "0.10"

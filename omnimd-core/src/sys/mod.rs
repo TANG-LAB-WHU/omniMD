@@ -19,9 +19,13 @@ pub use self::energy::EnergyEvaluator;
 mod cache;
 pub use self::cache::EnergyCache;
 
+#[cfg(feature = "chemfiles")]
 mod chfl;
+#[cfg(feature = "chemfiles")]
 pub use self::chfl::read_molecule;
+#[cfg(feature = "chemfiles")]
 pub use self::chfl::{OpenMode, Trajectory, TrajectoryBuilder};
+#[cfg(feature = "chemfiles")]
 pub use chemfiles::Error as TrajectoryError;
 
 pub mod compute;

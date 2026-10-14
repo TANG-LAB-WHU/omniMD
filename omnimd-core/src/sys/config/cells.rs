@@ -39,6 +39,16 @@ pub struct UnitCell {
 }
 
 impl UnitCell {
+    /// Build a cell with column lattice vectors, preserving arbitrary orientation.
+    /// Returns None for nonfinite, left-handed or numerically singular matrices.
+    pub fn from_matrix(cell: Matrix3) -> Option<Self> {
+        if (0..3).any(|i| (0..3).any(|j| !cell[i][j].is_finite())) { return None; }
+        let determinant = cell.determinant();
+        if !determinant.is_finite() || determinant <= 1e-30 { return None; }
+        let inv = cell.inverse();
+        if (0..3).any(|i| (0..3).any(|j| !inv[i][j].is_finite())) { return None; }
+        Some(Self { cell, inv, shape: CellShape::Triclinic })
+    }
     /// Create an infinite unit cell
     pub fn infinite() -> UnitCell {
         UnitCell {

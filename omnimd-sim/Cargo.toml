@@ -11,8 +11,15 @@ edition = "2021"
 [lib]
 bench = false
 
+[features]
+default = ["chemfiles", "torch"]
+chemfiles = ["omnimd-core/chemfiles"]
+torch = ["omnimd-core/torch"]
+mlip = ["dep:omnimd-ml-contract"]
+
 [dependencies]
-omnimd-core = {path = "../omnimd-core"}
+omnimd-core = {path = "../omnimd-core", default-features = false}
+omnimd-ml-contract = {path = "../mlmd/contract", optional = true}
 rand = "0.8"
 rand_distr = "0.4"
 rand_xorshift = "0.3"

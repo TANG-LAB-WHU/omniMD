@@ -53,6 +53,8 @@ pub struct System {
 }
 
 impl System {
+    /// Whether a classical or global force field is installed in this system.
+    pub fn has_interactions(&self) -> bool { !self.interactions.is_empty() }
     /// Create a new empty `System`
     pub fn new() -> System {
         System::with_configuration(Configuration::new())
