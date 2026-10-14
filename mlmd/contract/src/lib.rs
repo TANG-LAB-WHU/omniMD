@@ -76,8 +76,10 @@ impl ModelMetadata {
 impl Frame {
     pub fn validate(&self) -> Result<()> {
         let n = self.positions.len();
-        if n == 0 || n > i32::MAX as usize || n.checked_mul(3).is_none() {
-            return Err(Error("atom count must be positive and fit C int".into()));
+        if n == 0 || n > (i32::MAX as usize) / 9 || n.checked_mul(3).is_none() {
+            return Err(Error(
+                "atom count must be positive and all C buffer sizes must fit C int".into(),
+            ));
         }
         if n != self.species.len() {
             return Err(Error("positions/species count mismatch".into()));

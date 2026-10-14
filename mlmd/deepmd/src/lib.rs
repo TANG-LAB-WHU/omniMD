@@ -161,8 +161,9 @@ impl DeepMd {
     }
 
     fn initialize(api: Api, filename: &CStr, expected: &[String], units: Units) -> Result<Self> {
-        let handle = NonNull::new(unsafe { (api.new)(filename.as_ptr(), 0, ptr::null(), 0) })
-            .ok_or_else(|| Error("DeepMD constructor returned a null model".into()))?;
+        let handle =
+            NonNull::new(unsafe { (api.new)(filename.as_ptr(), 0, b"\0".as_ptr().cast(), 0) })
+                .ok_or_else(|| Error("DeepMD constructor returned a null model".into()))?;
         // Construct RAII owner before fallible metadata queries so all failures drop.
         let mut model = Self {
             api,

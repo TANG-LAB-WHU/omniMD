@@ -38,7 +38,7 @@ unsafe extern "C" fn new(
     }
     let error = if mode == "load-error" {
         "bad frozen model"
-    } else if rank != 0 || !content.is_null() || size != 0 {
+    } else if rank != 0 || content.is_null() || size != 0 {
         "bad constructor arguments"
     } else {
         ""
