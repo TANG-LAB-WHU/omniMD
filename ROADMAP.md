@@ -50,7 +50,11 @@
 - Minibatching, broader activation support, virial loss and scalable training
   remain future work; no generic DeepMD training compatibility is claimed.
 - Broader data pipelines, sampling and active learning with explicit formats.
-- Native GPU kernels and CPU/GPU numerical comparison.
+- DeepMD C API CUDA device propagation and kernel/synchronization checks are
+  integrated locally. Real model GPU parity and warmed timing remain pending;
+  the published CPU baseline is unchanged.
+- Native GPU kernels and CPU/GPU numerical comparison are under separate
+  development/acceptance and are not integrated into this branch yet.
 - Broader descriptors, including hybrids, only with implementation and validation.
 
 ## Publication gate

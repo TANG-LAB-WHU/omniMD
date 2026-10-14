@@ -5,7 +5,16 @@ from upstream main 761b2484feee132426183c9b66ff2b126d1f7c4a and adds a separate
 CPU MLIP workspace with one fallible, explicit-unit, float64 E/F/virial contract.
 It is an initial software delivery, not a physical model or a performance claim.
 
-## Available
+The published CPU baseline is commit
+fce0af9f6a49592a48c13883dfc3aa0d3eb4a28e on shawn_dev. This local integration
+branch additionally contains explicit DeepMD C API CUDA worker code. Its real
+model E/F/virial parity and warmed timing are still pending; a successful tiny
+GPU matrix multiplication does not complete that acceptance. See
+[CUDA validation status](mlmd/deepmd/CUDA_VALIDATION.md). These CUDA changes are
+not published or claimed as validated acceleration. Native CUDA is separately
+under test and is not yet integrated here.
+
+## Available in the accepted CPU release
 
 - **DeepMD C API inference:** one official model handle, one combined
   energy/force/virial call, explicit CPU selection, and strict type-map,
@@ -69,7 +78,7 @@ provides exact requests for import, prediction/training, minimization and MD.
 Real C API inference additionally requires a trusted compatible DeepMD runtime;
 see [DeepMD setup and limits](mlmd/deepmd/README.md).
 
-## Not implemented in the new MLIP runner
+## Not included in the accepted CPU release
 
 - GPU execution/acceleration, NPT/barostats, cell relaxation or constraints.
 - Arbitrary DeepMD architectures, hybrid se_e3 or generic .pb/.pth/pickle import.
@@ -99,4 +108,4 @@ The candidate contains source, small synthetic fixtures, reproducible scripts,
 compact validation summaries and licenses. External runtimes, public pretrained
 weights, generated training data, raw operational logs and private research
 inputs are excluded. No HAP research inputs or old HAP computations are used.
-No remote publication has been performed.
+The CPU baseline is published; the pending CUDA integration remains local.
