@@ -146,3 +146,65 @@ Input conventions follow the official
 [DeepMD 3.1.3 system format](https://docs.deepmodeling.com/projects/deepmd/en/v3.1.3/data/system.html)
 and [NumPy NPY specification](https://numpy.org/doc/stable/reference/generated/numpy.lib.format.html).
 The bounded subset above is intentionally narrower than those general formats.
+## XYZ and extended XYZ
+
+    omnimd-mlmd import-xyz xyz-import.json new-dataset.jsonl
+
+    {
+      "input": "/absolute/structures.extxyz",
+      "format": "Extxyz",
+      "units": "EvAngstrom",
+      "pbc": "Periodic",
+      "type_map": ["O", "H"]
+    }
+
+The format, units, PBC policy and allowed chemical-symbol map are explicit.
+Multiple frames and varying atom counts are accepted; atom and frame order are
+preserved. IDs are xyz/0, xyz/1, etc. The normalized schema is unchanged and the
+source bytes are fingerprinted. This importer performs no split or training.
+
+Plain Xyz requires exactly symbol x y z on each atom line, with an arbitrary
+comment line and no inferred labels. For Periodic plain XYZ additionally supply
+cell as three row vectors in the request; for NonPeriodic omit cell.
+Structured metadata in plain mode is rejected instead of being silently used
+as a second format.
+
+The Extxyz mode supports the common standard profile:
+
+- Required Properties triplets species:S:1 and pos:R:3, in any order.
+- Optional force:R:3 or forces:R:3, with exact column counts.
+- Optional energy scalar and virial containing nine numbers.
+- Lattice containing three concatenated lattice vectors; required for Periodic
+  and forbidden for NonPeriodic. Request cell overrides are forbidden.
+- Optional pbc with three T/F (or standard true/false) values must agree with
+  the required request policy. Partial PBC is unsupported.
+- Optional units must be EvAngstrom. Nonphysical config_type, comment,
+  model_sha256 and minimization_status metadata are accepted but not labels.
+
+Metadata keys are unquoted key=value pairs; whitespace around equals is allowed.
+Values may be bare or enclosed in double/single quotes or flat brackets/braces.
+Nested/JSON arrays, arbitrary per-atom properties, numeric atomic IDs, stress
+conversion, six-component tensors, constraints, extra input features and unknown
+physical metadata are rejected. This is a bounded standard profile, not every
+extension of every XYZ producer. Missing Properties never triggers a fallback.
+
+Lattice's nine numbers are concatenated a,b,c vectors and become contract rows.
+A standard extxyz virial's nine numbers use Fortran tensor order and are
+converted once into contract rows. An asymmetric tensor fixture tests this
+distinction. No symmetrization, sign change or volume division is applied.
+Energy/forces/virial units and physical convention are the caller's explicit
+EvAngstrom assertion. Absent labels stay null; no value is inferred from a model.
+
+Atom records accept finite decimal/E/D-exponent numbers. Input is UTF-8,
+limited to 256 MiB, 1 MiB per line and one million atoms per frame; the existing
+16 MiB dataset-record bound also applies. Atom counts/column shapes, symbols,
+cells, conflicting units/PBC, duplicate keys and truncated frames fail.
+Only trailing blank lines are allowed.
+
+The geometry-only extxyz exported by minimization roundtrips through this importer.
+It has no energy/force reference labels; see [MINIMIZATION.md](MINIMIZATION.md).
+
+Conventions were checked against the
+[libAtoms specification](https://github.com/libAtoms/extxyz) and the official
+[ASE extxyz reader/writer](https://gitlab.com/ase/ase/-/raw/master/ase/io/extxyz.py),
+including its separate lattice transpose and Fortran-order tensor handling.

@@ -1,5 +1,6 @@
 //! Input conversion for the fallible MLIP dynamics implemented in omnimd-sim.
 pub mod dataset;
+pub mod xyz;
 mod thermal;
 use omnimd_core::{Matrix3, Molecule, Particle, System, UnitCell, Vector3D};
 use omnimd_ml_contract::{Error, Frame, Result};

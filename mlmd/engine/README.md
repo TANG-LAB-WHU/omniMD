@@ -37,6 +37,10 @@ Python, GPU or LibTorch installation.
 See [DATA.md](DATA.md) for explicit DeepMD NPY import, batch predictions and
 E/F/virial error statistics, model/capability queries, and dataset-frame MD input.
 
+See [MINIMIZATION.md](MINIMIZATION.md) for fixed-cell relaxation and explicit
+convergence results. The [end-to-end workflow](../WORKFLOW.md) connects model and
+structure conversion, batch assessment, bounded readout fitting, minimization and MD.
+
 ## Configuration and units
 
 Copy [examples/native-nvt.json](examples/native-nvt.json) and set its model path

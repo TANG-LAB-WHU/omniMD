@@ -1,4 +1,5 @@
 mod dataset_commands;
+mod minimize_command;
 use omnimd_deepmd::{DeepMd, Device, LoadOptions};
 use omnimd_ml_contract::{Frame, Potential};
 use omnimd_mlmd::{
@@ -373,7 +374,7 @@ fn run() -> Result<(), Box<dyn Error>> {
     if args.len() == 1 && (args[0] == "--help" || args[0] == "-h") {
         println!(
             "omnimd-mlmd: CPU DeepMD C API / native se_e2_a dynamics\n\
-Usage:\n  omnimd-mlmd capabilities\n  omnimd-mlmd model-info OPTIONS.json NEW_INFO.json\n  omnimd-mlmd import-deepmd IMPORT.json NEW_DATASET.jsonl\n  omnimd-mlmd batch-eval EVAL.json NEW_PREDICTIONS.jsonl\n  omnimd-mlmd run REQUEST.json NEW_TRAJECTORY.jsonl\n\
+Usage:\n  omnimd-mlmd train-native TRAIN.json\n  omnimd-mlmd minimize REQUEST.json NEW_MINIMIZATION.jsonl\n  omnimd-mlmd import-xyz IMPORT.json NEW_DATASET.jsonl\n  omnimd-mlmd capabilities\n  omnimd-mlmd model-info OPTIONS.json NEW_INFO.json\n  omnimd-mlmd import-deepmd IMPORT.json NEW_DATASET.jsonl\n  omnimd-mlmd batch-eval EVAL.json NEW_PREDICTIONS.jsonl\n  omnimd-mlmd run REQUEST.json NEW_TRAJECTORY.jsonl\n\
   omnimd-mlmd check REQUEST.json\n\
   omnimd-mlmd REQUEST.json NEW_TRAJECTORY.jsonl\n\
 Units: angstrom, fs, u, K, eV. Ensembles: nve, nvt_csvr.\n\

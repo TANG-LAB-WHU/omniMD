@@ -1,0 +1,146 @@
+{
+  "scope": "manufactured teacher workflow and public regression minimization; no physical accuracy claim",
+  "training_frames_total": 24,
+  "explicit_validation_ids": [
+    "xyz/18",
+    "xyz/19",
+    "xyz/20",
+    "xyz/21",
+    "xyz/22",
+    "xyz/23"
+  ],
+  "initial_metrics": {
+    "energy_per_atom": {
+      "count": 24,
+      "mae": 0.12701092542374753,
+      "max_absolute": 0.14660854658778902,
+      "rmse": 0.12954022799295456,
+      "units": "eV/atom"
+    },
+    "energy_total": {
+      "count": 24,
+      "mae": 0.4777077322872942,
+      "max_absolute": 0.5864341863511561,
+      "rmse": 0.499163625595571,
+      "units": "eV"
+    },
+    "force_components": {
+      "count": 264,
+      "mae": 0.007024440558529687,
+      "max_absolute": 0.06402332356372742,
+      "rmse": 0.011545206784534892,
+      "units": "eV/angstrom"
+    },
+    "frames": 24,
+    "labeled_frames": {
+      "energy": 24,
+      "forces": 24,
+      "virial": 24
+    },
+    "virial_components": {
+      "count": 216,
+      "mae": 0.005821959963099754,
+      "max_absolute": 0.041019480546421815,
+      "rmse": 0.008742575656005615,
+      "units": "eV"
+    }
+  },
+  "fitted_metrics": {
+    "energy_per_atom": {
+      "count": 24,
+      "mae": 2.2474306366543965e-16,
+      "max_absolute": 3.608224830031759e-16,
+      "rmse": 2.4475931214408414e-16,
+      "units": "eV/atom"
+    },
+    "energy_total": {
+      "count": 24,
+      "mae": 8.673617379884035e-16,
+      "max_absolute": 1.4432899320127035e-15,
+      "rmse": 9.668745497765284e-16,
+      "units": "eV"
+    },
+    "force_components": {
+      "count": 264,
+      "mae": 6.279388917642016e-18,
+      "max_absolute": 6.938893903907228e-17,
+      "rmse": 1.0924387778450039e-17,
+      "units": "eV/angstrom"
+    },
+    "frames": 24,
+    "labeled_frames": {
+      "energy": 24,
+      "forces": 24,
+      "virial": 24
+    },
+    "virial_components": {
+      "count": 216,
+      "mae": 5.276513315944062e-18,
+      "max_absolute": 2.7755575615628914e-17,
+      "rmse": 7.394004851603651e-18,
+      "units": "eV"
+    }
+  },
+  "trained_minimization": {
+    "converged": false,
+    "energy_change_criterion_met": false,
+    "energy_change_ev": -9.409306543695095e-06,
+    "evaluations": 326,
+    "final_energy_ev": -3.7042956613583975,
+    "force_criterion_met": false,
+    "initial_energy_ev": -0.7676560188331712,
+    "initial_stationary_policy": "already_converged verifies force only; energy-change criterion is null without an accepted step",
+    "iterations": 300,
+    "kind": "completed",
+    "max_force_ev_per_angstrom": 0.03937107721812053,
+    "status": "max_iterations"
+  },
+  "public_minimization": {
+    "capi": {
+      "converged": true,
+      "energy_change_criterion_met": true,
+      "energy_change_ev": -9.915282362271682e-06,
+      "evaluations": 52,
+      "final_energy_ev": -939.3587530539953,
+      "force_criterion_met": true,
+      "initial_energy_ev": -931.0534104554943,
+      "initial_stationary_policy": "already_converged verifies force only; energy-change criterion is null without an accepted step",
+      "iterations": 51,
+      "kind": "completed",
+      "max_force_ev_per_angstrom": 0.0030875257869963104,
+      "status": "converged"
+    },
+    "native": {
+      "converged": true,
+      "energy_change_criterion_met": true,
+      "energy_change_ev": -9.915282589645358e-06,
+      "evaluations": 52,
+      "final_energy_ev": -939.3587530539955,
+      "force_criterion_met": true,
+      "initial_energy_ev": -931.0534104554945,
+      "initial_stationary_policy": "already_converged verifies force only; energy-change criterion is null without an accepted step",
+      "iterations": 51,
+      "kind": "completed",
+      "max_force_ev_per_angstrom": 0.0030875257869956074,
+      "status": "converged"
+    }
+  },
+  "public_final_max_absolute_backend_difference": {
+    "energy": 2.2737367544323206e-13,
+    "forces": 7.521760991835436e-15,
+    "virial": 4.795643049337883e-15
+  },
+  "md_steps": 5,
+  "md_max_energy_drift_ev": 4.440892098500626e-16,
+  "checks": [
+    "extxyz geometry/E/F/V roundtrip",
+    "explicit heldout IDs through unified training command",
+    "both minimization backends decrease energy",
+    "nonconvergence status/exit",
+    "fixed cell",
+    "geometry exports have no inferred reference labels",
+    "export reimport exact",
+    "minimized dataset enters MD"
+  ],
+  "binary_sha256": "b3f6e82ee391fe7fc2ee76e88b2c93bc60ab2ba3dda5bd3cfeba2eb89330f6f5"
+}

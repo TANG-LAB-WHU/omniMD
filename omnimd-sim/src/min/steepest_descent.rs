@@ -13,14 +13,14 @@ use omnimd_core::{units, DegreesOfFreedom, System};
 /// minimum. Although easy to use, it will not converge in all situations.
 pub struct SteepestDescent {
     /// Damping factor
-    gamma: f64,
+    step: DescentStep,
 }
 
 impl SteepestDescent {
     /// Create a new `SteepestDescent` minimizer
     pub fn new() -> SteepestDescent {
         SteepestDescent {
-            gamma: units::from(0.1, "fs^2/u").expect("bad unit"),
+            step: DescentStep::new(units::from(0.1, "fs^2/u").expect("bad unit")),
         }
     }
 }
@@ -44,21 +44,21 @@ impl Minimizer for SteepestDescent {
             for (position, prevpos, force) in
                 soa_zip!(system.particles_mut(), [mut position], &prevpos, &forces)
             {
-                *position = prevpos + self.gamma * force;
+                *position = prevpos + self.step.value * force;
             }
 
             energy = system.potential_energy();
             if energy <= initial_energy {
                 break;
             }
-            self.gamma /= 2.0;
+            self.step.shrink();
             gamma_changed = true;
         }
 
         // If we had a successful iteration without needing to reduce gamma,
         // we can increase it slightly
         if !gamma_changed {
-            self.gamma *= 1.1;
+            self.step.grow();
         }
 
         return Tolerance {
@@ -105,5 +105,22 @@ mod tests {
         }
         assert!(minization.converged());
         assert_relative_eq!(system.distance(0, 1), 2.3, epsilon = 1e-3);
+    }
+}
+
+/// Unit-neutral step-size policy shared by legacy and fallible steepest descent.
+/// Callers supply the appropriate units and validate positive finite inputs.
+pub(crate) struct DescentStep {
+    pub(crate) value: f64,
+}
+impl DescentStep {
+    pub(crate) fn new(value: f64) -> Self {
+        Self { value }
+    }
+    pub(crate) fn shrink(&mut self) {
+        self.value *= 0.5;
+    }
+    pub(crate) fn grow(&mut self) {
+        self.value = (self.value * 1.1).min(std::primitive::f64::MAX);
     }
 }

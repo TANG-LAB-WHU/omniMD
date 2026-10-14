@@ -34,9 +34,11 @@ fn capabilities() -> serde_json::Value {
             "native":{"architecture":"bounded se_e2_a format v1","precision":"float64","runtime_dependencies":"none"},
             "deepmd_c_api":{"precision":"float64-io","internal_weight_precision":"model dependent","runtime_dependencies":"trusted official DeepMD library","extra_fparam_aparam_spin":false}
         },
-        "datasets":{"schema":dataset::SCHEMA,"import":["DeepMD standard NPY C-order float64"],"explicit_sets":true,"partial_labels":true,"training":false,"automatic_split":false},
+        "datasets":{"schema":dataset::SCHEMA,"import":["DeepMD standard NPY C-order float64","XYZ","bounded extxyz profile"],"explicit_sets":true,"partial_labels":true,"training":false,"automatic_split":false},
+        "training":{"entry":"train-native","scope":"frozen-hidden final-readout E+F fit","backend":"native CPU","full_network":false},
+        "minimization":{"method":"bounded steepest descent","fixed_cell":true,"force_and_energy_criteria":true},
         "dynamics":{"ensembles":["nve","nvt_csvr"],"fixed_cell":true,"units":"EvAngstromFsU","dataset_frame_input":true},
-        "unsupported":["GPU","XYZ/extxyz import","mixed-type/virtual atoms","partial PBC","NPT/barostat","full native training"],
+        "unsupported":["GPU","mixed-type/virtual atoms","partial PBC","NPT/barostat","full native training"],
         "virial_convention":"W_ab=-dE/d epsilon_ab; r'=r(I+epsilon), all nine entries, eV; not stress"
     })
 }
@@ -103,8 +105,32 @@ fn evaluate(input: &Path, output: &Path) -> Result<(), Box<dyn Error>> {
     Ok(())
 }
 pub fn dispatch(args: &[OsString]) -> Result<bool, Box<dyn Error>> {
+    if args.len() == 2 && args[0] == "train-native" {
+        let executable = std::env::current_exe()?.with_file_name(if cfg!(windows) {
+            "omnimd-native-train.exe"
+        } else {
+            "omnimd-native-train"
+        });
+        if !executable.is_file() {
+            return Err(
+                "build omnimd-native binaries beside omnimd-mlmd before train-native".into(),
+            );
+        }
+        let status = Command::new(executable).arg(&args[1]).status()?;
+        if !status.success() {
+            return Err(format!("native training failed: {status}").into());
+        }
+        return Ok(true);
+    }
     if args.len() == 1 && args[0] == "capabilities" {
         println!("{}", serde_json::to_string_pretty(&capabilities())?);
+        return Ok(true);
+    }
+    if args.len() == 3 && args[0] == "import-xyz" {
+        let request: omnimd_mlmd::xyz::XyzRequest =
+            serde_json::from_str(&fs::read_to_string(&args[1])?)?;
+        let frames = omnimd_mlmd::xyz::import_xyz(&request, Path::new(&args[2]))?;
+        println!("Imported {frames} XYZ frames with explicit format/units/PBC.");
         return Ok(true);
     }
     if args.len() == 3 && args[0] == "import-deepmd" {
@@ -115,13 +141,18 @@ pub fn dispatch(args: &[OsString]) -> Result<bool, Box<dyn Error>> {
     }
     if args.len() == 4 && args[0] == "--data-worker" {
         match args[1].to_str() {
+            Some("minimize") => {
+                super::minimize_command::worker(Path::new(&args[2]), Path::new(&args[3]))?
+            }
             Some("batch-eval") => evaluate(Path::new(&args[2]), Path::new(&args[3]))?,
             Some("model-info") => model_info(Path::new(&args[2]), Path::new(&args[3]))?,
             _ => return Err("unknown data worker command".into()),
         }
         return Ok(true);
     }
-    if args.len() == 3 && (args[0] == "batch-eval" || args[0] == "model-info") {
+    if args.len() == 3
+        && (args[0] == "batch-eval" || args[0] == "model-info" || args[0] == "minimize")
+    {
         if Path::new(&args[2]).exists() {
             return Err("output already exists".into());
         }
@@ -134,7 +165,7 @@ pub fn dispatch(args: &[OsString]) -> Result<bool, Box<dyn Error>> {
             .status()?;
         if !status.success() {
             return Err(format!(
-                "data worker failed: {status}; incomplete predictions have no completed record"
+                "CPU worker failed: {status}; inspect output status (failed predictions lack completed; nonconverged minimization reports its reason)"
             )
             .into());
         }

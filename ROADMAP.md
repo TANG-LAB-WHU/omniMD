@@ -12,6 +12,9 @@
   initial forces, cached E/F/virial and explicit internal-unit conversion.
 - Backend-selectable run/check CLI, seeded thermal initialization, upstream CSVR
   NVT, explicit DOF, streamed trajectories, periodic checkpoints and exact RNG restart.
+- Standard XYZ and bounded extxyz import with explicit units/PBC and optional labels.
+- Dual-backend fixed-cell steepest descent, bounded Armijo trials, force/energy
+  convergence, explicit nonconvergence and label-free structure export.
 - Explicit DeepMD standard NPY import, normalized dataset JSONL, partial E/F/V
   labels, batch predictions/metrics, dataset-frame MD entry and model queries.
 - Public-model C API/Python parity and independent integration comparison;
@@ -36,11 +39,13 @@
   after the corresponding fallible force/update contracts are implemented.
 - Reproducible benchmarks with fixed hardware, model, precision and tolerances.
 
-## Future training and acceleration (not implemented)
+## Training and acceleration
 
 - Native training, optimizers, training checkpoints and force-loss gradients.
-- B is implementing bounded frozen-hidden final-readout E+F fitting using the
-  agreed dataset JSONL. This is not complete-network training and is not yet integrated.
+- Bounded frozen-hidden final-readout E+F fitting is integrated, including explicit
+  heldout IDs and rank-aware QR. It is not complete-network training.
+- B is implementing exact mixed parameter-coordinate AD and full supported-network
+  E+F training on CPU. That next milestone is not yet integrated or claimed complete.
 - Broader data pipelines, sampling and active learning with explicit formats.
 - Native GPU kernels and CPU/GPU numerical comparison.
 - Broader descriptors, including hybrids, only with implementation and validation.

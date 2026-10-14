@@ -37,7 +37,9 @@ GlobalPotential interface are not used for MLIP execution.
 
 Read the [contract](mlmd/CONTRACT.md), [validation results](mlmd/VALIDATION.md),
 [roadmap](ROADMAP.md), and [third-party notices](mlmd/THIRD_PARTY_NOTICES.md).
-The [data workflow](mlmd/engine/DATA.md) imports explicit DeepMD NPY sets,
+The [end-to-end workflow](mlmd/WORKFLOW.md) links structure conversion, prediction,
+bounded final-readout training, fixed-cell minimization and MD.
+The [data workflow](mlmd/engine/DATA.md) imports XYZ/extxyz and explicit DeepMD NPY sets,
 evaluates labeled/unlabeled frames, reports E/F/virial errors and initializes MD
 from dataset frames. Model/capability queries expose supported runtime behavior.
 The [frozen exporter](mlmd/native/FROZEN.md) accepts two audited graph profiles;

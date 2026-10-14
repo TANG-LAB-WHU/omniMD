@@ -168,6 +168,52 @@ model (all output paths must be new):
       --work /absolute/new-work --public-request /absolute/eval.request.json \
       --public-evaluation /absolute/eval.json --native-model /absolute/native.json
 
+## XYZ, minimization and integrated readout training
+
+B's native-only f941992 is integrated as 26e1d10. It fits final linear readouts
+using exact analytic E/F basis features and rank-aware pivoted QR, retaining
+descriptor/hidden parameters and, by default, biases. Its 48-frame manufactured
+36/12 experiment and ten native tests are documented in
+[native/TRAINING.md](native/TRAINING.md). Full supported-network mixed-derivative
+training is subsequent work, not part of this integrated milestone.
+
+Six targeted engine tests passed: four minimization tests (including legacy
+harmonic behavior after sharing the step-size policy) and two XYZ tests.
+They check force-plus-energy convergence, displacement limits, backtracking,
+rollback on model errors, stationary/iteration/stagnation outcomes, exact
+lattice/virial ordering, label-free export and malformed input rejection.
+These are focused checks, not a repeated full repository test run.
+
+The actual [structure workflow](evidence/structure-workflow.json) uses 24
+explicitly selected periodic synthetic teacher frames imported from extxyz.
+Six named IDs are held out by the training request. Across the 24 assessment
+frames, E/atom RMSE fell from 0.12954023 to 2.4476e-16 eV/atom and force RMSE from
+0.01154521 to 1.0924e-17 eV/angstrom. These are manufactured teacher recovery
+and IO checks, not physical accuracy measurements or a new generalization claim.
+
+Both C API and native public-model minimizers accepted 51 moves (52 evaluations)
+and satisfied the selected force 0.01 eV/angstrom and energy-change 1e-5 eV
+criteria. Maximum final force was 0.00308753 eV/angstrom and last energy change
+about -9.91528e-6 eV. Energy fell from about -931.05341046 to -939.35875305 eV.
+Final backend maximum E/F/virial differences were
+2.2737e-13 / 7.5218e-15 / 4.7956e-15 in contract units. This validates agreement
+and the stopping implementation for a public regression model, not chemistry
+or a global minimum.
+
+The fitted synthetic teacher's separate relaxation reduced energy from
+-0.76765602 to -3.70429566 eV but hit the explicit 300-step limit with maximum
+force 0.03937108 eV/angstrom. It correctly returned nonzero and
+converged=false, status=max_iterations. The last accepted geometry exported
+without reference labels, reimported exactly and entered a five-step MD IO test;
+energy drift was 4.4409e-16 eV. This intentionally tests continuation from an
+explicitly nonconverged geometry and is not an equilibration result.
+
+The integrated trainer, imports and relaxation share dataset JSONL v1 without
+changing the shared Frame/Potential contract. Windows and Linux binaries build.
+The full end-to-end run precedes only a whitespace-tolerant scalar-parser polish
+and a more accurate numerical-error status label; its binary hash is retained
+in evidence. The final sources are separately rebuilt and targeted tests pass.
+
 ## Limits and local provenance
 
 The C API guarantees double buffers, not all models' internal precision or

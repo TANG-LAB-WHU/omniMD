@@ -10,3 +10,8 @@ pub use self::minimization::Tolerance;
 
 mod steepest_descent;
 pub use self::steepest_descent::SteepestDescent;
+
+#[cfg(feature = "mlip")]
+mod mlip;
+#[cfg(feature = "mlip")]
+pub use mlip::{MlipMinimizationSettings, MlipMinimizationStatus, MlipMinimizer};
