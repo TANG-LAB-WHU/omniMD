@@ -5,9 +5,10 @@ from upstream main 761b2484feee132426183c9b66ff2b126d1f7c4a and adds a separate
 CPU MLIP workspace with one fallible, explicit-unit, float64 E/F/virial contract.
 It is an initial software delivery, not a physical model or a performance claim.
 
-The published CPU baseline is commit
-fce0af9f6a49592a48c13883dfc3aa0d3eb4a28e on shawn_dev. This local CUDA candidate
-adds two explicitly selected inference paths with recorded CPU/GPU numerical
+The CPU baseline was published as fce0af9f6a49592a48c13883dfc3aa0d3eb4a28e.
+The [CUDA release 9074817](https://github.com/TANG-LAB-WHU/omniMD/commit/907481708ae5f3df4228a9fb5d5b1110c39f5e23)
+is now published on shawn_dev. It adds two explicitly selected inference paths
+with recorded CPU/GPU numerical
 agreement: [official DeepMD C API CUDA](mlmd/deepmd/CUDA_VALIDATION.md) and
 [bounded native CUDA](mlmd/native/CUDA.md). The native unified CLI also passed a
 short NVE/checkpoint continuation [check](mlmd/evidence/native-cuda-cli.json);
@@ -21,8 +22,8 @@ about 8.4 times slower on GPU. These bounded measurements have different scopes;
 they do not establish general acceleration or long-time stability. **GPU training
 is not implemented**; native training remains CPU-only. Runtime/subset requirements
 are documented under [device selection](mlmd/engine/README.md#explicit-native-cuda-inference).
-The [CUDA release scope](mlmd/RELEASE.md#local-cuda-candidate) remains local and
-has not been pushed.
+The [published CUDA release scope](mlmd/RELEASE.md#published-cuda-release)
+records the code, documentation and compact validation evidence included.
 
 ## Available in the accepted CPU release
 
@@ -114,8 +115,8 @@ documented native tanh subset; it does not reproduce the full DeepMD training st
 - [MIT license](LICENSE), [third-party notices](mlmd/THIRD_PARTY_NOTICES.md).
   DeepMD-derived topology profiles retain separate LGPL notices/licenses.
 
-The candidate contains source, small synthetic fixtures, reproducible scripts,
+The release contains source, small synthetic fixtures, reproducible scripts,
 compact validation summaries and licenses. External runtimes, public pretrained
 weights, generated training data, raw operational logs and private research
 inputs are excluded. No HAP research inputs or old HAP computations are used.
-The CPU baseline is published; the pending CUDA integration remains local.
+The CPU baseline and CUDA release are published on shawn_dev.

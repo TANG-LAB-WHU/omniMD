@@ -293,8 +293,8 @@ no omnimd-mlmd process remained at 05:04:49 UTC and the GPU window was released.
 Only the compact report and reproducer are tracked; raw requests, trajectories,
 checkpoints and logs stay in the task-local runtime. The owner's GPU benchmark
 was not rerun. DeepMD C API was not invoked by this native replay; its separate
-completed validation follows. No CUDA integration has been pushed; published
-shawn_dev is the CPU baseline.
+completed validation follows. The CUDA integration was subsequently published
+on shawn_dev as 907481708ae5f3df4228a9fb5d5b1110c39f5e23.
 
 ## Local C API CUDA integration
 
@@ -350,6 +350,6 @@ old shawn_dev `3440f605dde61b01e894f6532693612bc57c0aaa`
 (main...shawn_dev 0/1, only .DS_Store ignore).
 New shared baseline is `8121e214e062077b88c39d0ccd861c55efaecc2c`.
 No old shawn_dev-specific work or private HAP inputs were imported. The accepted
-CPU tree was published as fce0af9; subsequent CUDA changes remain local.
+CPU tree was published as fce0af9; the CUDA release was published as 9074817.
 Toolchains/runtimes were installed only in task-local locations
 and the isolated CPU container; no global PATH, driver or security changes.

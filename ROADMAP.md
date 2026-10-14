@@ -51,12 +51,12 @@
   remain future work; no generic DeepMD training compatibility is claimed.
 - Broader data pipelines, sampling and active learning with explicit formats.
 - DeepMD C API CUDA device propagation and kernel/synchronization checks are
-  integrated locally with actual public-model E/F/virial agreement, GPU batch
+  published with actual public-model E/F/virial agreement, GPU batch
   and two-step MD evidence. The six-atom paired sample was 8.27 times slower on
   GPU including verification/synchronization overhead. CPU remains the default;
-  larger-model performance is unmeasured and the published CPU baseline is unchanged.
+  larger-model performance is unmeasured.
 - Native CUDA inference and three-fixture CPU/GPU numerical evidence are
-  integrated locally behind the explicit native-cuda CLI feature. The bounded
+  published behind the explicit native-cuda CLI feature. The bounded
   216-atom timing was 1.155x faster; small cases were about 8.4x slower.
   The unified CLI passed CPU routing/build checks and a short same-model NVE
   CPU/GPU comparison with exact checkpoint continuation. Broader GPU simulation
@@ -65,7 +65,7 @@
 
 ## Publication gate
 
-The CPU baseline fce0af9 is already published; the CUDA candidate is local.
+The CPU baseline fce0af9 and CUDA release 9074817 are published on shawn_dev.
 Before any further push, report its exact code/document/fixture scope and
 validation limits and obtain publication authorization. Never include private
 research data/models/logs.

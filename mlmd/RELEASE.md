@@ -1,13 +1,14 @@
 # Release scope
 
-The accepted CPU baseline fce0af9f6a49592a48c13883dfc3aa0d3eb4a28e is published on
-shawn_dev. The CUDA candidate below is local and has not been pushed. Publication
-needs its own explicit authorization; prior CPU publication approval does not
-cover this candidate. The final candidate commit is recorded in the handoff.
+The accepted CPU baseline fce0af9f6a49592a48c13883dfc3aa0d3eb4a28e was published on
+shawn_dev. Following separate user authorization, the CUDA release
+[907481708ae5f3df4228a9fb5d5b1110c39f5e23](https://github.com/TANG-LAB-WHU/omniMD/commit/907481708ae5f3df4228a9fb5d5b1110c39f5e23)
+was published to the same branch with an ordinary non-force push. Its remote
+hash was verified after publication.
 
-## Local CUDA candidate
+## Published CUDA release
 
-Relative to the published CPU commit, scope is limited to 32 files:
+At commit 9074817, the delta from the published CPU commit is limited to 32 files:
 
 - README.md and ROADMAP.md: current capabilities, measured limits and status.
 - mlmd/VALIDATION.md and this release scope: acceptance and exact boundaries.
@@ -46,7 +47,7 @@ no GPU acceptance was repeated during this evidence integration.
 
 Review the exact delta with:
 
-    git diff --name-status fce0af9f6a49592a48c13883dfc3aa0d3eb4a28e HEAD
+    git diff --name-status fce0af9f6a49592a48c13883dfc3aa0d3eb4a28e 907481708ae5f3df4228a9fb5d5b1110c39f5e23
 
 Reproduction entry points (runtime/model setup and limits are in linked docs):
 

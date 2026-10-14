@@ -88,7 +88,8 @@ runtime-based measurement is separate from the native benchmark above.
 
 The static capabilities command lists both paths, their evidence and runtime
 requirements without loading a model or probing GPU availability on this host.
-GPU training is not implemented. These local CUDA changes are not yet published.
+GPU training is not implemented. These CUDA changes are published on shawn_dev
+as 907481708ae5f3df4228a9fb5d5b1110c39f5e23.
 
 ## Dataset workflows
 
