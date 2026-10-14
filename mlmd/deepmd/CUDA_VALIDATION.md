@@ -69,9 +69,18 @@ not found). A later request to create `omnimd-capi-gpu-20261014` for parity/timi
 was **denied before execution** by automatic approval review because explicit
 renewal of the released exclusive window was not confirmed. No container for
 that action was started, no alternate route was used, and no GPU retry occurred.
-The parent has been asked to coordinate a renewed window with native CUDA owner
-B. Stop at the first actual context/kernel/FECS failure; retain logs and do not
-retry by changing drivers, system settings or security controls.
+The parent subsequently reported B's GPU exit/window release at
+2026-10-14 04:50:18 UTC and expressly reassigned an exclusive C API window.
+The exact previously denied container operation was retried once. By
+2026-10-14 04:53:53 UTC, automatic review had again **denied it before execution**,
+stating that it did not recognize the delegation as trusted user approval for
+a second GPU session. This was an approval block, not a CUDA/FECS failure.
+No GPU container or validation process started in that second window, and no
+alternative execution route was attempted. C API relinquished the renewed
+window on this rejection; direct user approval recognized by the execution
+reviewer is still needed before further GPU work. The pending model tests remain
+unexecuted. Stop at the first actual context/kernel/FECS failure; retain logs
+and do not retry by changing drivers, system settings or security controls.
 
 Task-local evidence and prepared requests reside in
 `C:\Users\Shawn\Documents\Codex\2026-10-13\task-4`: `cuda-probe.log`,
