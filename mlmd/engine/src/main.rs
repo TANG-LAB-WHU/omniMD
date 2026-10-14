@@ -36,6 +36,13 @@ enum Backend {
 }
 
 impl BackendOptions {
+    fn device(&self) -> Device {
+        match self {
+            Self::DeepMd(options) => options.device,
+            Self::Native(_) => Device::Cpu,
+        }
+    }
+
     fn model_path(&self) -> &Path {
         match self {
             Self::DeepMd(options) => &options.model,
@@ -46,11 +53,6 @@ impl BackendOptions {
     fn validate(&self) -> Result<(), Box<dyn Error>> {
         if !self.model_path().is_absolute() || !self.model_path().is_file() {
             return Err("model path must be an existing absolute file path".into());
-        }
-        if let Self::DeepMd(options) = self {
-            if !matches!(options.device, Device::Cpu) {
-                return Err("only Cpu is supported".into());
-            }
         }
         Ok(())
     }
@@ -285,7 +287,7 @@ fn worker(input: &Path, output: Option<&Path>) -> Result<(), Box<dyn Error>> {
     let (mut md, mut state, hash) = prepare(&request)?;
     let Some(output) = output else {
         println!(
-            "Valid CPU model/run: {} atoms, {} DOF, {:.6} K, E = {:.12} eV, ensemble {:?}",
+            "Valid model/run: {} atoms, {} DOF, {:.6} K, E = {:.12} eV, ensemble {:?}",
             md.system().size(),
             md.system().degrees_of_freedom(),
             md.temperature_kelvin(),
@@ -373,7 +375,7 @@ fn run() -> Result<(), Box<dyn Error>> {
     }
     if args.len() == 1 && (args[0] == "--help" || args[0] == "-h") {
         println!(
-            "omnimd-mlmd: CPU DeepMD C API / native se_e2_a dynamics\n\
+            "omnimd-mlmd: CPU/CUDA DeepMD C API / CPU native se_e2_a dynamics\n\
 Usage:\n  omnimd-mlmd train-native TRAIN.json\n  omnimd-mlmd minimize REQUEST.json NEW_MINIMIZATION.jsonl\n  omnimd-mlmd import-xyz IMPORT.json NEW_DATASET.jsonl\n  omnimd-mlmd capabilities\n  omnimd-mlmd model-info OPTIONS.json NEW_INFO.json\n  omnimd-mlmd import-deepmd IMPORT.json NEW_DATASET.jsonl\n  omnimd-mlmd batch-eval EVAL.json NEW_PREDICTIONS.jsonl\n  omnimd-mlmd run REQUEST.json NEW_TRAJECTORY.jsonl\n\
   omnimd-mlmd check REQUEST.json\n\
   omnimd-mlmd REQUEST.json NEW_TRAJECTORY.jsonl\n\
@@ -408,11 +410,8 @@ Configuration: mlmd/engine/README.md"
     } else {
         child.arg("--worker").args(&args);
     }
-    let status = child
-        .env("CUDA_VISIBLE_DEVICES", "-1")
-        .env("HIP_VISIBLE_DEVICES", "-1")
-        .env("ROCR_VISIBLE_DEVICES", "-1")
-        .status()?;
+    request.options.device().configure_worker(&mut child)?;
+    let status = child.status()?;
     if !status.success() {
         return Err(format!(
             "MD worker failed: {status}; a failed trajectory has no completed record"

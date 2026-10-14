@@ -1,6 +1,9 @@
 //! A fallible, double-I/O wrapper around the official DeePMD-kit C API.
 //! This crate does not implement the model in Rust. See README.md for scope.
 use libloading::Library;
+mod cuda;
+mod device;
+pub use device::Device;
 use omnimd_ml_contract::{Error, Evaluation, Frame, ModelMetadata, Potential, Result, Units};
 use serde::{Deserialize, Serialize};
 use std::{
@@ -102,12 +105,12 @@ impl Api {
     }
 }
 
-/// CPU is implemented. CUDA requests fail explicitly rather than silently
-/// falling back to CPU; C API v26 has no portable actual-device query.
-#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
-pub enum Device {
-    Cpu,
-    Cuda(u32),
+/// Trusted runtime libraries used only by an explicit CUDA request.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct CudaLibraries {
+    pub runtime: PathBuf,
+    pub cupti: PathBuf,
 }
 
 /// All paths and model type order are explicit. The library must be trusted.
@@ -116,7 +119,10 @@ pub enum Device {
 pub struct LoadOptions {
     pub library: PathBuf,
     pub model: PathBuf,
+    #[serde(default)]
     pub device: Device,
+    #[serde(default)]
+    pub cuda: Option<CudaLibraries>,
     pub type_map: Vec<String>,
     pub units: Units,
 }
@@ -126,21 +132,31 @@ pub struct DeepMd {
     api: Api,
     handle: NonNull<c_void>,
     metadata: ModelMetadata,
+    cuda: Option<cuda::CudaGuard>,
+    cuda_kernel_launches: u64,
+    coords: Vec<f64>,
+    forces: Vec<f64>,
     _single_thread: PhantomData<Rc<()>>,
 }
 
 impl DeepMd {
+    /// Successful direct GPU launches observed during completed evaluations.
+    /// None means CPU; zero means the CUDA model has not yet been evaluated.
+    pub fn cuda_kernel_launches(&self) -> Option<u64> {
+        self.cuda.as_ref().map(|_| self.cuda_kernel_launches)
+    }
+
     /// Load a trusted official DeepMD shared library and one frozen model.
     ///
     /// # Safety
     /// The library must implement the official C ABI correctly. Start this in a
-    /// fresh process with CUDA_VISIBLE_DEVICES, HIP_VISIBLE_DEVICES and
-    /// ROCR_VISIBLE_DEVICES all set to -1 *before* any accelerator/runtime
-    /// initialization. Do not subsequently mutate those environment variables.
-    /// The CLI provides this process isolation. Loading arbitrary native code
+    /// fresh process configured with Device::configure_worker *before* any
+    /// accelerator/runtime initialization. Do not subsequently mutate device
+    /// visibility. Use matching official CUDA/CUPTI libraries for CUDA requests.
+    /// The CLI provides process isolation. Loading arbitrary native code
     /// is not a sandbox.
     pub unsafe fn load(options: &LoadOptions) -> Result<Self> {
-        validate_device(options.device)?;
+        options.device.validate_environment()?;
         for (name, path) in [("library", &options.library), ("model", &options.model)] {
             if !path.is_absolute() || !path.is_file() {
                 return Err(Error(format!(
@@ -156,8 +172,23 @@ impl DeepMd {
                 .ok_or_else(|| Error("model path must be valid UTF-8".into()))?,
         )
         .map_err(|_| Error("model path contains NUL".into()))?;
+        let cuda = match options.device {
+            Device::Cpu => None,
+            Device::Cuda(_) => {
+                if options.model.extension().and_then(|s| s.to_str()) != Some("pb") {
+                    return Err(Error("CUDA C API currently supports TensorFlow frozen .pb models only; select cpu for other supported official backends".into()));
+                }
+                let libs = options.cuda.as_ref().ok_or_else(|| Error("CUDA requires explicit cuda.runtime and cuda.cupti library paths; no automatic CPU fallback, select device=cpu to run on CPU".into()))?;
+                Some(unsafe { cuda::CudaGuard::load(&libs.runtime, &libs.cupti) }?)
+            }
+        };
         let api = unsafe { Api::load(&options.library) }?;
-        Self::initialize(api, &filename, &options.type_map, options.units)
+        let mut model = Self::initialize(api, &filename, &options.type_map, options.units)?;
+        model.cuda = cuda;
+        if model.cuda.is_some() {
+            model.metadata.backend = "deepmd-c-api-cuda-pending-evaluation".into();
+        }
+        Ok(model)
     }
 
     fn initialize(api: Api, filename: &CStr, expected: &[String], units: Units) -> Result<Self> {
@@ -176,6 +207,10 @@ impl DeepMd {
                 units,
             },
             _single_thread: PhantomData,
+            cuda: None,
+            cuda_kernel_launches: 0,
+            coords: Vec::new(),
+            forces: Vec::new(),
         };
         let h = model.handle.as_ptr();
         model.api.check(h, "load model")?;
@@ -209,24 +244,6 @@ impl DeepMd {
     }
 }
 
-fn validate_device(device: Device) -> Result<()> {
-    if let Device::Cuda(index) = device {
-        return Err(Error(format!("CUDA device {index} requested: actual GPU placement cannot yet be attested by this backend; CPU is the supported explicit device")));
-    }
-    for name in [
-        "CUDA_VISIBLE_DEVICES",
-        "HIP_VISIBLE_DEVICES",
-        "ROCR_VISIBLE_DEVICES",
-    ] {
-        if std::env::var(name).as_deref() != Ok("-1") {
-            return Err(Error(format!(
-                "CPU evaluation requires a fresh process with {name}=-1; use the isolated CLI"
-            )));
-        }
-    }
-    Ok(())
-}
-
 impl Potential for DeepMd {
     fn metadata(&self) -> &ModelMetadata {
         &self.metadata
@@ -235,41 +252,61 @@ impl Potential for DeepMd {
     fn eval(&mut self, frame: &Frame) -> Result<Evaluation> {
         let types = frame.type_ids(&self.metadata)?;
         let n = frame.positions.len();
-        let coords: Vec<f64> = frame.positions.iter().flatten().copied().collect();
+        self.coords.clear();
+        self.coords
+            .extend(frame.positions.iter().flatten().copied());
         let cell = frame
             .cell
-            .map(|h| h.into_iter().flatten().collect::<Vec<f64>>());
+            .map(|h| std::array::from_fn::<_, 9, _>(|i| h[i / 3][i % 3]));
         let mut energy = f64::NAN;
-        let mut forces = vec![f64::NAN; coords.len()];
+        self.forces.resize(self.coords.len(), f64::NAN);
+        self.forces.fill(f64::NAN);
         let mut virial = [f64::NAN; 9];
         let h = self.handle.as_ptr();
         self.api.check(h, "before evaluation")?;
+        if let Some(cuda) = &mut self.cuda {
+            cuda.begin()?;
+        }
         unsafe {
             // Exactly one call for energy + force + virial; nframes is always one.
             (self.api.compute)(
                 h,
                 1,
                 n as c_int,
-                coords.as_ptr(),
+                self.coords.as_ptr(),
                 types.as_ptr(),
                 cell.as_ref().map_or(ptr::null(), |v| v.as_ptr()),
                 ptr::null(),
                 ptr::null(),
                 &mut energy,
-                forces.as_mut_ptr(),
+                self.forces.as_mut_ptr(),
                 virial.as_mut_ptr(),
                 ptr::null_mut(),
                 ptr::null_mut(),
             );
         }
-        self.api.check(h, "evaluate model")?;
+        let runtime_result = self.api.check(h, "evaluate model");
+        // Synchronize and verify GPU work even when the runtime reported an error.
+        let gpu_result = self.cuda.as_mut().map(|cuda| cuda.finish()).transpose();
+        runtime_result?;
+        let launches = gpu_result?;
         let output = Evaluation {
             energy,
-            forces: forces.chunks_exact(3).map(|v| [v[0], v[1], v[2]]).collect(),
+            forces: self
+                .forces
+                .chunks_exact(3)
+                .map(|v| [v[0], v[1], v[2]])
+                .collect(),
             virial: std::array::from_fn(|i| std::array::from_fn(|j| virial[3 * i + j])),
             units: Units::EvAngstrom,
         };
         output.validate(n)?;
+        if let Some(launches) = launches {
+            self.cuda_kernel_launches = self.cuda_kernel_launches.saturating_add(launches);
+        }
+        if self.cuda.is_some() {
+            self.metadata.backend = "deepmd-c-api-cuda-kernels-verified".into();
+        }
         Ok(output)
     }
 }
