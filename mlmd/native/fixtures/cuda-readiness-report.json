@@ -1,5 +1,5 @@
 {
-  "status": "gpu_validation_pending_exclusive_window",
+  "status": "historical_cpu_only_readiness_superseded_by_gpu_validation",
   "gpu_executed": false,
   "cuda_driver_initialized": false,
   "branch": "mlmd/native-cuda-se-e2-a",
@@ -34,5 +34,6 @@
   "pending_action": "After parent explicitly releases CAPI worker GPU window, run bounded same-model CPU/CUDA EFV parity and timing exactly once; stop on first failure without retry/reset",
   "replay_tool": "tools/replay_cuda.py",
   "new_cargo_dependencies": [],
-  "driver_or_runtime_installations": []
+  "driver_or_runtime_installations": [],
+  "subsequent_gpu_evidence": "cuda-validation-report.json"
 }

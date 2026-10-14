@@ -1,0 +1,244 @@
+{
+  "gpu_executed": true,
+  "scope": "bounded same-model native CPU/CUDA FP64 EFV inference; no GPU training claim",
+  "check_executable_sha256": "659091caa65d81205d70ad0b87fe33770c39093854fa29c8ad4ecb6f9f580a69",
+  "cases": [
+    {
+      "atoms": [
+        4,
+        4,
+        4,
+        1
+      ],
+      "comparison_tolerance": "1e-9 absolute + 1e-9 relative",
+      "cpu_over_cuda_speed_ratio": 0.11924119241192413,
+      "device": "NVIDIA GeForce RTX 4090; compute 8.9; FP64; device 0",
+      "frames": 4,
+      "max_abs_energy_force_virial": [
+        0.0,
+        4.440892098500626e-16,
+        4.440892098500626e-16
+      ],
+      "repeats": 3,
+      "startup_ms": 846.4557,
+      "timing_scope": "same-model end-to-end EFV; excludes initialization, includes CPU geometry, transfers, kernels and force/virial reduction; single bounded run, not a general benchmark",
+      "warmed_cpu_total_ms": 0.3476,
+      "warmed_cuda_total_ms": 2.9151,
+      "case": "tiny",
+      "model_sha256": "407278c6eab122e6dfee2511b3c3fb4c033f58c04819a580ffc0810df3ce7b9a",
+      "frames_sha256": "99862b79a7de769f8580a33a71603044d7300a8842071bce5e9e0be28b79cdac",
+      "model": {
+        "neural_scalars": 112,
+        "model_json_bytes": 9318,
+        "types": [
+          "O",
+          "H"
+        ],
+        "sel": [
+          8,
+          8
+        ],
+        "embedding_shapes": [
+          [
+            1,
+            2
+          ],
+          [
+            2,
+            2
+          ]
+        ],
+        "fitting_shapes": [
+          [
+            2,
+            3
+          ],
+          [
+            3,
+            3
+          ],
+          [
+            3,
+            1
+          ]
+        ]
+      },
+      "mean_cpu_ms_per_evaluation": 0.02896666666666667,
+      "mean_cuda_ms_per_evaluation": 0.24292499999999997
+    },
+    {
+      "atoms": [
+        6,
+        6,
+        6,
+        6
+      ],
+      "comparison_tolerance": "1e-9 absolute + 1e-9 relative",
+      "cpu_over_cuda_speed_ratio": 0.11816167036043389,
+      "device": "NVIDIA GeForce RTX 4090; compute 8.9; FP64; device 0",
+      "frames": 4,
+      "max_abs_energy_force_virial": [
+        0.0,
+        4.440892098500626e-16,
+        8.881784197001252e-16
+      ],
+      "repeats": 3,
+      "startup_ms": 961.2811999999999,
+      "timing_scope": "same-model end-to-end EFV; excludes initialization, includes CPU geometry, transfers, kernels and force/virial reduction; single bounded run, not a general benchmark",
+      "warmed_cpu_total_ms": 4.457199999999999,
+      "warmed_cuda_total_ms": 37.7212,
+      "case": "public",
+      "model_sha256": "3c2a9354e0c163286a04fcbb91214562c7d0503f4a184f155a3843b1eec0e39a",
+      "frames_sha256": "4d22858b9e7003a4c7202f0a35e12103c573fce70e4281dd5fa991a0749ae029",
+      "model": {
+        "neural_scalars": 826,
+        "model_json_bytes": 38995,
+        "types": [
+          "O",
+          "H"
+        ],
+        "sel": [
+          46,
+          92
+        ],
+        "embedding_shapes": [
+          [
+            1,
+            2
+          ],
+          [
+            2,
+            4
+          ],
+          [
+            4,
+            8
+          ]
+        ],
+        "fitting_shapes": [
+          [
+            32,
+            6
+          ],
+          [
+            6,
+            6
+          ],
+          [
+            6,
+            6
+          ],
+          [
+            6,
+            1
+          ]
+        ]
+      },
+      "mean_cpu_ms_per_evaluation": 0.3714333333333333,
+      "mean_cuda_ms_per_evaluation": 3.1434333333333337
+    },
+    {
+      "atoms": [
+        216
+      ],
+      "comparison_tolerance": "1e-9 absolute + 1e-9 relative",
+      "cpu_over_cuda_speed_ratio": 1.1548699019842217,
+      "device": "NVIDIA GeForce RTX 4090; compute 8.9; FP64; device 0",
+      "frames": 1,
+      "max_abs_energy_force_virial": [
+        3.552713678800501e-15,
+        1.8151916059659656e-18,
+        6.708500942254059e-19
+      ],
+      "repeats": 5,
+      "startup_ms": 1164.1688000000001,
+      "timing_scope": "same-model end-to-end EFV; excludes initialization, includes CPU geometry, transfers, kernels and force/virial reduction; single bounded run, not a general benchmark",
+      "warmed_cpu_total_ms": 301.92629999999997,
+      "warmed_cuda_total_ms": 261.4375,
+      "case": "medium",
+      "model_sha256": "5dced056c6df82c73474f504e182e9df7378862217687c44d19f510c44ff979a",
+      "frames_sha256": "019d84706a12a5e492f41127023ba43bc596fbb551674c2ceb9040a9971569db",
+      "model": {
+        "neural_scalars": 28258,
+        "model_json_bytes": 1083037,
+        "types": [
+          "O",
+          "H"
+        ],
+        "sel": [
+          16,
+          16
+        ],
+        "embedding_shapes": [
+          [
+            1,
+            8
+          ],
+          [
+            8,
+            16
+          ],
+          [
+            16,
+            32
+          ]
+        ],
+        "fitting_shapes": [
+          [
+            128,
+            64
+          ],
+          [
+            64,
+            64
+          ],
+          [
+            64,
+            1
+          ]
+        ]
+      },
+      "mean_cpu_ms_per_evaluation": 60.385259999999995,
+      "mean_cuda_ms_per_evaluation": 52.2875
+    }
+  ],
+  "status": "validated_bounded_gpu_subset",
+  "implementation_commit": "1f572deab644a6da2caa0f9ad703b3dd818080ee",
+  "hardware": {
+    "gpu": "NVIDIA GeForce RTX 4090",
+    "compute_capability": "8.9",
+    "device": 0,
+    "driver_version": "595.97",
+    "memory_total_mib": 24564,
+    "driver_model": "Windows WDDM",
+    "nvrtc_toolkit": "existing official CUDA 12.8",
+    "rust": "1.99.0 x86_64-pc-windows-gnu release"
+  },
+  "preflight": {
+    "other_project_compute_processes_found": false,
+    "desktop_and_game_graphics_present": true,
+    "observed_gpu_utilization_percent": [
+      46,
+      14
+    ],
+    "observed_gpu_memory_used_mib": [
+      5303,
+      5333
+    ],
+    "graphics_processes_left_untouched": true
+  },
+  "limitations": [
+    "One bounded run on a desktop GPU with background graphics/game load, not a quiet exclusive-device benchmark",
+    "CPU geometry and final force/virial reduction remain included",
+    "No GPU training or general speedup claim"
+  ],
+  "cuda_errors_observed": false,
+  "automatic_retries": 0,
+  "window_release": {
+    "status": "released",
+    "time_utc": "2026-10-14T04:50:18.0658055Z",
+    "all_validation_processes_exited": true,
+    "post_run_process_check_empty": true,
+    "further_gpu_work_planned_this_turn": false
+  }
+}
