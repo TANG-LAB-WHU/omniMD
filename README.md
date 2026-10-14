@@ -1,51 +1,96 @@
 # omniMD: Rust MLIP molecular dynamics
 
-This local `shawn_dev` starts from upstream main
-`761b2484feee132426183c9b66ff2b126d1f7c4a`. It does not inherit the old
-shawn_dev-only commit. Upstream omniMD remains alpha software under MIT.
+omniMD is alpha software under the MIT license. This development line starts
+from upstream main 761b2484feee132426183c9b66ff2b126d1f7c4a and adds a separate
+CPU MLIP workspace with one fallible, explicit-unit, float64 E/F/virial contract.
+It is an initial software delivery, not a physical model or a performance claim.
 
-The [mlmd workspace](mlmd) provides two CPU backends behind one fallible,
-unit-explicit, float64 energy/force/virial interface:
+## Available
 
-- [DeepMD C API](mlmd/deepmd): one loaded official model handle, strict type map
-  and output validation. This is FFI; double buffers do not change a model's
-  internal precision.
-- [Native Rust](mlmd/native): CPU float64 `se_e2_a` descriptor and energy fitting
-  networks, with analytic forces and strain virial. Only the documented
-  versioned model format and architecture subset are supported.
+- **DeepMD C API inference:** one official model handle, one combined
+  energy/force/virial call, explicit CPU selection, and strict type-map,
+  coordinate, cell, unit, shape, finite-value and error checks. This is FFI;
+  double input/output buffers do not change internal model precision.
+- **Native Rust inference:** CPU float64 se_e2_a, periodic neighbor images,
+  cutoff/normalization, embedding and fitting networks, analytic forces and
+  strain virial. Only the documented native-v1 architecture subset is accepted.
+- **Model conversion:** bounded DeepMD 3.1.3 .dp/safe-YAML conversion and two
+  audited frozen .pb graph profiles. Unsupported models fail explicitly.
+- **Data and prediction:** plain XYZ, a documented extxyz subset and explicit
+  DeepMD NPY sets; shared JSONL, optional E/F/virial labels, batch evaluation,
+  error metrics and model/capability queries. No units or labels are guessed.
+- **Native readout training:** frozen-hidden final linear weights (optional
+  biases), exact E/F features, rank-aware QR, explicit validation splits and
+  unchanged native-v1 model export. Full supported-network training is pending
+  final integration and is not yet included in this list.
+- **Fixed-cell minimization:** both inference backends, bounded steepest descent,
+  force plus energy-change stopping criteria, explicit failure/nonconvergence,
+  and geometry-only extxyz/JSONL exports.
+- **MD:** fixed-cell NVE velocity Verlet and upstream CSVR NVT, explicit masses,
+  seeded thermal initialization, streamed trajectories and exact RNG restart.
+  The runner uses the actual omniMD System through fallible MlipDynamics,
+  caching combined E/F/virial and rolling back failed steps.
 
-A separate JSON command-line runner drives the actual upstream `omnimd-core::System` through
-`omnimd-sim::md::MlipDynamics`. The [MD runner](mlmd/engine) implements fixed-cell
-NVE velocity Verlet and upstream CSVR NVT, seeded thermal initialization,
-cached combined model output, streamed JSONL trajectories, periodic checkpoints,
-and model-fingerprinted checkpoints with full RNG state. It rejects classical potential
-mixing and rolls back the published state on a failed integration step.
-This runner does not enable the full legacy Simulation/Propagator pipeline;
-the engine README describes the implemented bridge and remaining integration work.
+## Quickstart: no external model runtime
 
-```sh
-cargo build --locked --manifest-path mlmd/Cargo.toml --workspace
-cargo test --locked --manifest-path mlmd/Cargo.toml --workspace
-cargo run --locked --manifest-path mlmd/Cargo.toml -p omnimd-mlmd -- run request.json new-trajectory.jsonl
-```
+From the repository root with Rust/Cargo installed:
 
-These builds have no mandatory LibTorch, chemfiles, Python or DeepMD runtime
-dependency. Real C API inference requires a compatible external DeepMD runtime.
-Legacy root-workspace features remain enabled by default; the new runner selects
-the lightweight core/sim features. The old TorchPotential contract and infallible
-GlobalPotential interface are not used for MLIP execution.
+    cargo build --locked --manifest-path mlmd/Cargo.toml -p omnimd-mlmd -p omnimd-native --bins
 
-Read the [contract](mlmd/CONTRACT.md), [validation results](mlmd/VALIDATION.md),
-[roadmap](ROADMAP.md), and [third-party notices](mlmd/THIRD_PARTY_NOTICES.md).
-The [end-to-end workflow](mlmd/WORKFLOW.md) links structure conversion, prediction,
-bounded final-readout training, fixed-cell minimization and MD.
-The [data workflow](mlmd/engine/DATA.md) imports XYZ/extxyz and explicit DeepMD NPY sets,
-evaluates labeled/unlabeled frames, reports E/F/virial errors and initializes MD
-from dataset frames. Model/capability queries expose supported runtime behavior.
-The [frozen exporter](mlmd/native/FROZEN.md) accepts two audited graph profiles;
-it is not a generic .pb importer. Full native training and GPU acceleration are future milestones. Short synthetic
-and public-fixture tests establish software behavior, not physical model quality
-or a performance improvement.
+Run the checked-in synthetic fixture (a software test, not a chemistry model).
+On Linux/macOS:
 
-No private research data or old HAP tasks are included. Remote branches remain
-unchanged; publishing requires a separate review of the exact content scope.
+    cat mlmd/native/fixtures/frame.jsonl | ./mlmd/target/debug/omnimd-native-eval mlmd/native/fixtures/synthetic-v1.json
+    ./mlmd/target/debug/omnimd-mlmd capabilities
+
+On Windows PowerShell:
+
+    Get-Content mlmd/native/fixtures/frame.jsonl | .\mlmd\target\debug\omnimd-native-eval.exe mlmd/native/fixtures/synthetic-v1.json
+    .\mlmd\target\debug\omnimd-mlmd.exe capabilities
+
+The first command prints one combined E/F/virial JSON result. Native execution
+requires no Python, DeepMD, LibTorch or chemfiles. The initial build resolves the
+locked Rust dependencies; offline builds need them cached already. Windows and
+Linux builds were checked with Rust 1.99; the declared lower MSRV has not been
+independently verified.
+
+For a short MD example, copy [native-nvt.json](mlmd/engine/examples/native-nvt.json),
+set native_model to the absolute fixture path, then use:
+
+    omnimd-mlmd check request.json
+    omnimd-mlmd run request.json new-trajectory.jsonl
+
+Use the executable path above if it is not on PATH. Output names must be new.
+The example parameters only exercise software behavior. The [workflow](mlmd/WORKFLOW.md)
+provides exact requests for import, prediction/training, minimization and MD.
+Real C API inference additionally requires a trusted compatible DeepMD runtime;
+see [DeepMD setup and limits](mlmd/deepmd/README.md).
+
+## Not implemented in the new MLIP runner
+
+- GPU execution/acceleration, NPT/barostats, cell relaxation or constraints.
+- Arbitrary DeepMD architectures, hybrid se_e3 or generic .pb/.pth/pickle import.
+- Partial PBC, mixed-type/virtual atoms or automatic unit/type-map guessing.
+- Classical-potential mixing and the full legacy Simulation/Propagator pipeline.
+- Production validation, long-time stability guarantees or demonstrated speedup.
+
+The root legacy workspace remains available with its original default features;
+these do not imply equivalent support in the new MLIP runner. Full supported-network
+training is a separate ongoing integration; broader training algorithms and
+GPU training remain future work.
+
+## Documentation, verification and licensing
+
+- [Shared contract](mlmd/CONTRACT.md), [data formats](mlmd/engine/DATA.md),
+  [minimization](mlmd/engine/MINIMIZATION.md), [MD runner](mlmd/engine/README.md).
+- [Native models](mlmd/native/README.md), [conversion](mlmd/native/CONVERSION.md),
+  [frozen graph scope](mlmd/native/FROZEN.md), [readout training](mlmd/native/TRAINING.md).
+- [Validation and its limits](mlmd/VALIDATION.md), [roadmap](ROADMAP.md).
+- [MIT license](LICENSE), [third-party notices](mlmd/THIRD_PARTY_NOTICES.md).
+  DeepMD-derived topology profiles retain separate LGPL notices/licenses.
+
+The candidate contains source, small synthetic fixtures, reproducible scripts,
+compact validation summaries and licenses. External runtimes, public pretrained
+weights, generated training data, raw operational logs and private research
+inputs are excluded. No HAP research inputs or old HAP computations are used.
+No remote publication has been performed.
