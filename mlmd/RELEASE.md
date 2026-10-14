@@ -6,6 +6,59 @@ shawn_dev. Following separate user authorization, the CUDA release
 was published to the same branch with an ordinary non-force push. Its remote
 hash was verified after publication.
 
+## Local native CUDA cache follow-up
+
+The published base is a74804d8cbba86c1a2563dbbca6444059e740903 (CUDA release plus
+status-only documentation). Native commit b6f36dd was integrated unchanged as
+bdf6048. This follow-up remains local: ten native implementation/profile/test/doc
+files, the final acceptance script and compact report, and README/release/workflow
+notes. No engine/shared-contract changes, dependency additions or GPU training.
+CPU remains the default. Generated models, frames, trajectories and logs are untracked.
+
+The [final-version receipt](evidence/native-cuda-infra-final.json) includes the
+conservative coordinate-scale guard. The two cases each used five warmed
+same-frame evaluations, with identical model/frame hashes for old and new paths:
+
+| Case | Published CUDA ms/eval | Final CUDA ms/eval | Final-build CPU ms/eval | Old/new CUDA ratio |
+| --- | ---: | ---: | ---: | ---: |
+| Original 216-atom synthetic | 45.442 | 2.342 | 57.312 | 19.40 |
+| Public model, original 192-atom water lattice | 46.572 | 4.237 | 54.090 | 10.99 |
+
+The ratios in the last column compare the old and new CUDA paths, not GPU versus
+CPU. Final-build CPU uses its unchanged uncached neighbor algorithm. Its elapsed
+ratio to final CUDA was 24.47 / 12.77 for these two cases, which is not a pure
+CPU/GPU kernel comparison. This change removes repeated host neighbor searches;
+CUDA kernels are unchanged. Timings are means of one five-evaluation batch, not
+statistical benchmarks. Desktop graphics were not stopped or controlled.
+
+CUDA construction (including runtime compilation/model upload) was old/new
+915/943 ms for the synthetic case and 731/720 ms for water. Final first evaluation
+cost 102.2 / 62.8 ms, including initial candidate construction and runtime warm-up;
+those first-evaluation timings were not captured by the old checker. These are
+per-process initialization observations, not machine-cold timings.
+
+For the same 192-atom, 20-step NVE job (0.1 fs; per-step output; checkpoint at 10),
+whole-process time was 2.192 s old CUDA, 1.450 s final CUDA and 1.310 s CPU.
+Thus the whole-job old/new CUDA ratio was only 1.51, and final CUDA remained
+about 10.7% slower than CPU for this short job. These times include startup,
+loading/compilation, serialization and checkpoint fsync. The 10-step resume took
+1.249 s including its own initialization; it is not a steady-step timing.
+
+All old/new CUDA trajectory fields matched exactly. CPU/final-CUDA maximum
+E/F/virial differences were 0 / 1.44e-15 / 1.78e-14; position/velocity differences
+were 5.55e-17 / 1.39e-17. The resumed snapshots and final decoded checkpoint state
+matched continuous final CUDA exactly. Normal-scale timing reused one candidate
+build; five moving MD frames reused it, translation by 0.25 Angstrom rebuilt,
+and the subsequent 0.01 Angstrom motion reused the new list. Each matched fresh
+CPU evaluation. The focused CPU cache test also passed the large-coordinate
+fallback, cutoff-entry, threshold, cell/type/wrapping and error cases.
+
+The one acceptance window ended at 2026-10-14T07:53:21.7983377Z with no remaining
+validation process, CUDA errors or retries. This is bounded software acceptance,
+not chemical accuracy or long-time stability. Reproduction is in the
+[workflow](WORKFLOW.md#final-native-cuda-cache-acceptance); the earlier native
+report explicitly retains its pre-final-guard timing provenance.
+
 ## Published CUDA release
 
 At commit 9074817, the delta from the published CPU commit is limited to 32 files:

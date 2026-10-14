@@ -25,6 +25,11 @@ are documented under [device selection](mlmd/engine/README.md#explicit-native-cu
 The [published CUDA release scope](mlmd/RELEASE.md#published-cuda-release)
 records the code, documentation and compact validation evidence included.
 
+This local branch additionally includes a conservative native CUDA neighbor
+candidate cache, with final-version timing, MD and restart acceptance. It reduces
+host neighbor preparation; kernels and the CPU path are unchanged. This follow-up
+is **not published**. See [its scope and measurements](mlmd/RELEASE.md#local-native-cuda-cache-follow-up).
+
 ## Available in the accepted CPU release
 
 - **DeepMD C API inference:** one official model handle, one combined

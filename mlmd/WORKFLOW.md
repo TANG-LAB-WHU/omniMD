@@ -152,3 +152,51 @@ fitted synthetic teacher hit the declared 300-step limit; its exported last
 accepted frame was intentionally used for a five-step IO/integration check.
 That check does not represent equilibration or a converged physical structure.
 See [VALIDATION.md](VALIDATION.md) and the committed evidence for exact numbers.
+## Final native CUDA cache acceptance
+
+This optional inference-only follow-up is local, based on published a74804d.
+CPU stays the default; GPU training remains unimplemented. The recorded run uses
+existing original synthetic inputs and the already converted public regression
+model. It does not use research data or an equilibrated-water accuracy dataset.
+
+Preserve the baseline a74804d release CLI and CUDA checker in a separate output
+location before building this candidate. Build both versions with the same
+Rust/toolchain and release profile. The measured baseline checker adds only
+host timing instrumentation; its hash is recorded. No CUDA library, driver or
+system change is needed. Candidate build:
+
+    cargo build --release --locked --offline --manifest-path mlmd/Cargo.toml -p omnimd-mlmd -p omnimd-native --features omnimd-mlmd/native-cuda,omnimd-native/cuda --bin omnimd-mlmd --bin omnimd-native-cuda-check
+
+Prepare the existing inputs using native/tools/replay_cuda.py without --run-gpu
+and native/tools/replay_cuda_infra.py, as described in [CUDA_INFRA.md](native/CUDA_INFRA.md).
+Use the same 216-atom medium model/frame and 192-atom public-model water frame.
+Then, only in an explicitly coordinated exclusive GPU window, run once:
+
+```sh
+python mlmd/scripts/validate_cuda_infra.py \
+  --baseline-engine /saved/a74804d/omnimd-mlmd \
+  --baseline-check /saved/a74804d/omnimd-native-cuda-check \
+  --engine /current/mlmd/target/release/omnimd-mlmd \
+  --check /current/mlmd/target/release/omnimd-native-cuda-check \
+  --public-model /prepared/public-native.json \
+  --public-frames /prepared/public-water192.jsonl \
+  --medium-model /prepared/medium-model.json \
+  --medium-frames /prepared/medium-frames.jsonl \
+  --work /new/acceptance-directory --run-gpu
+```
+
+Append .exe on Windows. The script permits a directory containing the preserved
+baseline binaries but requires new report/request/output names. It records input
+and binary hashes; two five-repeat timing pairs; 20-step old-CUDA/current-CPU/
+current-CUDA MD with matching output/checkpoint cadence; exact 10-step restart;
+and a seven-frame moving/rebuild check in one persistent potential. It stops on
+first process failure/timeout with no retry or GPU reset. An owned timed-out
+process tree is stopped. Normal completion leaves no worker running.
+
+[Final receipt](evidence/native-cuda-infra-final.json) and [release measurements](RELEASE.md#local-native-cuda-cache-follow-up)
+separate CUDA construction, first evaluation, warm evaluation and complete MD.
+A large old/new CUDA warm ratio must not be relabeled GPU-over-CPU acceleration.
+The CPU algorithm is unchanged and has no candidate cache. In the recorded run,
+final CUDA's complete short MD still took longer than CPU because initialization
+is material. Changed cells, wrapping or large displacements can require rebuilds;
+independent-frame workloads need not obtain the same warm-cache benefit.
