@@ -1,5 +1,7 @@
 //! CPU float64 inference for the explicitly versioned native se_e2_a subset.
 mod autodiff;
+#[cfg(feature = "cuda")]
+pub mod cuda;
 pub mod full_gradient;
 pub mod full_training;
 mod least_squares;
