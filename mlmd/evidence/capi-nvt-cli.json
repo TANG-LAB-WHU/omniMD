@@ -1,0 +1,12 @@
+{
+  "backend": "deepmd-c-api",
+  "steps": 40,
+  "timestep_fs": 0.001,
+  "model_sha256": "fbe846eed0e503411cac336d76ac81fabfd9d0d195a03c96dd9fe00fecacca1f",
+  "identical_final_frame_and_checkpoint": true,
+  "periodic_checkpoint_verified": true,
+  "zero_initial_kinetic_rejected": true,
+  "degrees_of_freedom": 15,
+  "initial_temperature_kelvin": 300.0,
+  "max_effective_energy_drift_ev": 1.7053025658242404e-12
+}

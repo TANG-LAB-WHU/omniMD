@@ -14,16 +14,19 @@ unit-explicit, float64 energy/force/virial interface:
   networks, with analytic forces and strain virial. Only the documented
   versioned model format and architecture subset are supported.
 
-Both drive the actual upstream `omnimd-core::System` through
+A separate JSON command-line runner drives the actual upstream `omnimd-core::System` through
 `omnimd-sim::md::MlipDynamics`. The [MD runner](mlmd/engine) implements fixed-cell
-NVE velocity Verlet, cached combined model output, streamed JSONL trajectories,
-and model-fingerprinted restart checkpoints. It rejects classical potential
+NVE velocity Verlet and upstream CSVR NVT, seeded thermal initialization,
+cached combined model output, streamed JSONL trajectories, periodic checkpoints,
+and model-fingerprinted checkpoints with full RNG state. It rejects classical potential
 mixing and rolls back the published state on a failed integration step.
+This runner does not enable the full legacy Simulation/Propagator pipeline;
+the engine README describes the implemented bridge and remaining integration work.
 
 ```sh
 cargo build --locked --manifest-path mlmd/Cargo.toml --workspace
 cargo test --locked --manifest-path mlmd/Cargo.toml --workspace
-cargo run --locked --manifest-path mlmd/Cargo.toml -p omnimd-mlmd -- request.json new-trajectory.jsonl
+cargo run --locked --manifest-path mlmd/Cargo.toml -p omnimd-mlmd -- run request.json new-trajectory.jsonl
 ```
 
 These builds have no mandatory LibTorch, chemfiles, Python or DeepMD runtime

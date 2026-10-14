@@ -1,0 +1,76 @@
+{
+  "options": {
+    "native_model": "/absolute/omniMD/mlmd/native/fixtures/synthetic-v1.json"
+  },
+  "dynamics_units": "EvAngstromFsU",
+  "frame": {
+    "positions": [
+      [
+        0.2,
+        0.3,
+        0.4
+      ],
+      [
+        1.1,
+        0.5,
+        0.7
+      ],
+      [
+        0.6,
+        1.4,
+        0.9
+      ],
+      [
+        1.7,
+        1.3,
+        1.1
+      ]
+    ],
+    "species": [
+      "O",
+      "H",
+      "H",
+      "O"
+    ],
+    "cell": [
+      [
+        3.7,
+        0,
+        0
+      ],
+      [
+        1.2,
+        3.4,
+        0
+      ],
+      [
+        0.6,
+        0.5,
+        3.8
+      ]
+    ],
+    "units": "EvAngstrom"
+  },
+  "masses": [
+    15.999,
+    1.008,
+    1.008,
+    15.999
+  ],
+  "initialize_velocities": {
+    "temperature_kelvin": 300,
+    "seed": 20261014,
+    "rescale_to_temperature": true
+  },
+  "remove_center_of_mass": true,
+  "ensemble": {
+    "kind": "nvt_csvr",
+    "temperature_kelvin": 300,
+    "tau_fs": 0.1,
+    "seed": 42
+  },
+  "timestep_fs": 0.01,
+  "steps": 100,
+  "sample_every": 10,
+  "checkpoint_every": 25
+}

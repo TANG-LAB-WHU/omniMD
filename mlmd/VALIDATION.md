@@ -78,13 +78,67 @@ compares E/F/virial, performs finite differences and checks the actual MD path.
 `validate_md_smoke.py --help` documents the focused restart/native CLI check.
 Outputs require new paths and stay outside the source tree.
 
+## Thermal CLI and CSVR validation
+
+The command entry is a separate JSON runner. The implementation uses upstream
+System and the fallible sim::md::MlipDynamics adapter, with upstream Gaussian
+initialization, COM removal and CSVR. It does not enable the full legacy
+Simulation/Propagator pipeline. See [engine scope and bridge](engine/README.md).
+
+Four additional thermal tests passed (23 unique MLMD tests in total; the prior
+19 workspace tests and the targeted NVE rerun also passed). The updated CLI built
+on Windows GNU and Linux. Tests exercise reproducible initial velocities,
+mass-weighted COM removal and 3N-3 DOF, signed/independent CSVR noise, stochastic
+checkpoint continuation, and a small anisotropic harmonic oscillator.
+
+[Measured thermal statistics](evidence/thermal-statistics.json):
+independent one-step CSVR trials used DOF 1,2,3,6 with 25,000 samples each.
+Mean/analytic ratios ranged 0.9902-0.9984 and conditional-variance ratios
+0.9849-1.0128. Negative velocity rescaling was observed. The 3D unequal-frequency
+oscillator used 100,000 inexpensive synthetic steps at 0.1 fs, discarded 10,000
+and sampled every 10 steps. Kinetic mean/variance ratios were 1.0071/1.0038;
+coordinate second-moment ratios were 0.8714/0.9280/1.1349. Maximum effective-energy
+drift was 1.0032e-5 eV. These are finite-sample smoke checks with correlated
+configurations, not a general ergodicity or production-ensemble certification.
+
+Actual user CLI checks:
+
+- [Native, Windows](evidence/native-nvt-cli.json): 100 seeded NVT steps at 0.01 fs,
+  COM removed (9 DOF); 50+50 continuation produced an identical final frame.
+  Periodic checkpoint verified; ensemble change, unknown units and overwrite
+  rejected. Maximum effective-energy drift 1.6964e-13 eV.
+- [Official C API, Linux](evidence/capi-nvt-cli.json): 40 seeded NVT steps at
+  0.001 fs on the existing public regression model, COM removed (15 DOF).
+  20+20 continuation produced identical final frame **and checkpoint/RNG state**.
+  Periodic checkpoint and zero-kinetic rejection verified; effective-energy drift
+  1.7053e-12 eV. This is a short CLI integration check, not a thermalized production
+  trajectory.
+
+NVT reports thermostat heat and effective energy separately from fluctuating
+total energy. These checks do not establish GPU/MPI/NPT or legacy output-plugin
+support. The shared validation container remains available to B; the new Linux
+CLI was built into a separate target directory.
+
+## Supported DeepMD conversion
+
+The native converter commit 10ee322 is integrated. It accepts the explicitly
+documented DeepMD 3.1.3 .dp/HDF5 or safe YAML subset, with mandatory units and
+dpmodel/tensorflow geometry mode. B's
+[same-generated-model evidence](native/fixtures/deepmd-3.1.3-report.json)
+records three frames with maximum E/F/virial differences
+4.4409e-16 / 5.0307e-17 / 3.4694e-17, eight focused rejection cases and identical
+.dp/YAML conversion outputs. These generated weights are untrained; this result
+does not validate arbitrary pretrained models. See [conversion scope](native/CONVERSION.md).
+
+
 ## Limits and local provenance
 
 The C API guarantees double buffers, not all models' internal precision or
 training units. GPU requests fail. Native inference accepts only its documented
 CPU se_e2_a subset; full native training/GPU and hybrid se_e3 are unimplemented.
-Safe DeepMD conversion and same-generated-model native/C-API parity are separate
-work in progress; the public regression .pb lacks official serialization metadata.
+The supported safe-serialization converter and generated-model comparison are integrated.
+B is extending only audited frozen-graph profiles; the public regression .pb lacks
+official training serialization metadata, so generic export is not claimed.
 
 Upstream main was `761b2484feee132426183c9b66ff2b126d1f7c4a`;
 dev `186817f5a85837df5f1df28e0fd2e8b2de6ecade`

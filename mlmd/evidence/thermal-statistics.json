@@ -1,0 +1,50 @@
+{
+  "validation": "synthetic thermostat and anisotropic oscillator tests; not production model validation",
+  "test_command": "cargo test --manifest-path mlmd/Cargo.toml -p omnimd-mlmd --test thermal -- --nocapture",
+  "csvr_one_step": {
+    "seed": 1234,
+    "samples_per_dof": 25000,
+    "tau_over_dt": 1,
+    "temperature_kelvin": 300,
+    "mean_to_analytic": [
+      0.9901835254887001,
+      0.9984329342436143,
+      0.9925295635873275,
+      0.9924303010198509
+    ],
+    "variance_to_analytic": [
+      0.9850787939395966,
+      1.0127673359074187,
+      1.0064651266993856,
+      0.984863112433543
+    ],
+    "degrees_of_freedom": [
+      1,
+      2,
+      3,
+      6
+    ],
+    "negative_rescaling_observed": true
+  },
+  "oscillator": {
+    "model": "one atom, three unequal harmonic stiffnesses [1,1.7,2.3] eV/angstrom^2; no COM removal",
+    "steps": 100000,
+    "burn_in_steps": 10000,
+    "sample_every": 10,
+    "timestep_fs": 0.1,
+    "tau_fs": 0.5,
+    "temperature_kelvin": 300,
+    "initialization_seed": 17,
+    "thermostat_seed": 987,
+    "kinetic_mean_to_analytic": 1.0070565259233275,
+    "kinetic_variance_to_analytic": 1.003786534244411,
+    "position_second_moments_to_analytic": [
+      0.8714478413601517,
+      0.9280076259471356,
+      1.1349319078138427
+    ],
+    "max_effective_energy_drift_ev": 0.000010031674484711761
+  },
+  "seeded_initialization_and_mass_weighted_com_dof_passed": true,
+  "exact_checkpoint_rng_and_heat_resume_passed": true
+}

@@ -1,0 +1,19 @@
+{
+  "steps": 100,
+  "degrees_of_freedom": 9,
+  "resume_split": [
+    50,
+    50
+  ],
+  "backend": "native",
+  "platform": "Windows GNU",
+  "max_effective_energy_drift_ev": 1.6964207816272392E-13,
+  "initial_temperature_kelvin": 299.99999999999994,
+  "periodic_checkpoint_step": 25,
+  "identical_final_frame": true,
+  "rejected": [
+    "ensemble change on restart",
+    "unsupported units",
+    "existing output"
+  ]
+}

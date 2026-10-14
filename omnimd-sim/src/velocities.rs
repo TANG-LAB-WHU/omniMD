@@ -52,15 +52,38 @@ impl BoltzmannVelocities {
     }
 }
 
+impl BoltzmannVelocities {
+    fn sample(&mut self, system: &mut System) {
+        for particle in system.particles_mut() {
+            let sigma = f64::sqrt(1.0 / *particle.mass);
+            *particle.velocity = Vector3D::new(
+                sigma * self.dist.sample(&mut self.rng),
+                sigma * self.dist.sample(&mut self.rng),
+                sigma * self.dist.sample(&mut self.rng),
+            );
+        }
+    }
+
+    /// Sample unconstrained velocities, optionally remove translation and rescale.
+    /// Does not remove rotation, so it is also suitable for periodic systems.
+    /// The caller sets the correct degrees of freedom and validates finite,
+    /// positive masses/temperature before calling.
+    pub fn init_unconstrained(
+        &mut self, system: &mut System, remove_translation: bool, rescale: bool,
+    ) {
+        self.sample(system);
+        if remove_translation {
+            RemoveTranslation.control(system);
+        }
+        if rescale {
+            scale(system, self.temperature);
+        }
+    }
+}
+
 impl InitVelocities for BoltzmannVelocities {
     fn init(&mut self, system: &mut System) {
-        for particle in system.particles_mut() {
-            let m_inv = 1.0 / (*particle.mass);
-            let x = f64::sqrt(m_inv) * self.dist.sample(&mut self.rng);
-            let y = f64::sqrt(m_inv) * self.dist.sample(&mut self.rng);
-            let z = f64::sqrt(m_inv) * self.dist.sample(&mut self.rng);
-            *particle.velocity = Vector3D::new(x, y, z);
-        }
+        self.sample(system);
         RemoveTranslation.control(system);
         RemoveRotation.control(system);
         scale(system, self.temperature);

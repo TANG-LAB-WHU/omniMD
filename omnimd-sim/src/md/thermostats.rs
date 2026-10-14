@@ -172,22 +172,17 @@ impl CSVRThermostat {
     /// This functions returns two values: a single gaussian noise and the sum
     /// of n squared gaussian noises.
     fn sum_noises(&mut self, n: usize) -> (f64, f64) {
-        if n == 0 {
-            return (0.0, 0.0);
-        } else if n == 1 {
-            let rr = self.normal.sample(&mut self.rng);
-            return (rr, rr * rr);
-        }
-
+        // Bussi et al., Appendix A: R1 is independent of sum_{i=2}^N R_i^2.
+        // Gamma accepts half-integer shape directly; do not reuse R1 for odd n.
         let rr = self.normal.sample(&mut self.rng);
-        if n.is_multiple_of(2) {
-            let gamma = Gamma::new((n / 2) as f64, 1.0).expect("bad gamma distribution");
-            return (rr, 2.0 * gamma.sample(&mut self.rng));
+        let wiener = if n == 0 {
+            0.0
         } else {
-            let gamma = Gamma::new(((n - 1) / 2) as f64, 1.0).expect("bad gamma distribution");
-            let wiener = 2.0 * gamma.sample(&mut self.rng) + rr * rr;
-            return (rr, wiener);
-        }
+            Gamma::new(n as f64 / 2.0, 2.0)
+                .expect("positive chi-square degrees of freedom")
+                .sample(&mut self.rng)
+        };
+        (rr, wiener)
     }
 }
 
@@ -196,14 +191,15 @@ impl Thermostat for CSVRThermostat {
         let kinetic = system.kinetic_energy();
         let kinetic_factor = self.target_kinetic_per_dof / kinetic;
         let exp_1 = f64::exp(-1.0 / self.tau);
-        let exp_2 = (1.0 - exp_1) * kinetic_factor;
+        let exp_2 = -f64::exp_m1(-1.0 / self.tau) * kinetic_factor;
 
         let dof = system.degrees_of_freedom();
         let (gauss, wiener) = self.sum_noises(dof - 1);
 
-        let scale =
-            exp_1 + exp_2 * (gauss * gauss + wiener) + 2.0 * gauss * f64::sqrt(exp_1 * exp_2);
-        let alpha = f64::sqrt(scale);
+        // Equivalent sum-of-squares form avoids a negative radicand by cancellation.
+        let projected = f64::sqrt(exp_1) + gauss * f64::sqrt(exp_2);
+        let scale = projected * projected + exp_2 * wiener;
+        let alpha = f64::sqrt(scale).copysign(projected);
         for velocity in system.particles_mut().velocity {
             *velocity *= alpha;
         }

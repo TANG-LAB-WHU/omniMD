@@ -1,7 +1,12 @@
 //! Input conversion for the fallible MLIP dynamics implemented in omnimd-sim.
+mod thermal;
 use omnimd_core::{Matrix3, Molecule, Particle, System, UnitCell, Vector3D};
 use omnimd_ml_contract::{Error, Frame, Result};
 pub use omnimd_sim::md::MlipDynamics;
+pub use thermal::{
+    initialize_velocities, prepare_velocities, set_degrees_of_freedom, Ensemble, EnsembleState,
+    VelocityInitialization,
+};
 
 /// Convert shared-model coordinates and explicit masses/velocities to omniMD.
 /// Masses are in u and velocities in angstrom/fs. Cell rows are transposed once.
@@ -37,7 +42,7 @@ pub fn system_from_frame(frame: &Frame, masses: &[f64], velocities: &[[f64; 3]])
 use omnimd_ml_contract::Potential;
 use serde::{Deserialize, Serialize};
 
-/// Portable restart state for the supported fixed-cell NVE path.
+/// Portable restart state for the fixed-cell NVE/CSVR paths.
 /// Units are angstrom, fs, u and eV. The model file digest prevents silent swaps.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -49,6 +54,10 @@ pub struct Checkpoint {
     pub step: u64,
     pub timestep_fs: f64,
     pub model_sha256: String,
+    #[serde(default)]
+    pub remove_center_of_mass: bool,
+    #[serde(default)]
+    pub ensemble_state: Option<EnsembleState>,
 }
 
 impl Checkpoint {
@@ -56,7 +65,7 @@ impl Checkpoint {
     pub fn capture<P: Potential>(md: &MlipDynamics<P>, model_sha256: String) -> Self {
         let particles = md.system().particles();
         Self {
-            schema_version: 1,
+            schema_version: 2,
             frame: md.frame(),
             masses: particles.mass.to_vec(),
             velocities: particles
@@ -67,13 +76,18 @@ impl Checkpoint {
             step: md.system().step,
             timestep_fs: md.timestep_fs(),
             model_sha256,
+            remove_center_of_mass: matches!(
+                md.system().simulated_degrees_of_freedom,
+                omnimd_core::DegreesOfFreedom::Frozen(3)
+            ),
+            ensemble_state: None,
         }
     }
 
     /// Validate the schema/model identity and restore the real omniMD System.
     /// Initial E/F/virial are recomputed by MlipDynamics::new, not trusted from disk.
     pub fn restore(&self, model_sha256: &str, timestep_fs: f64) -> Result<System> {
-        if self.schema_version != 1 {
+        if !matches!(self.schema_version, 1 | 2) {
             return Err(Error("unsupported checkpoint version".into()));
         }
         if self.model_sha256.len() != 64
@@ -89,7 +103,17 @@ impl Checkpoint {
                 "checkpoint timestep must match the positive requested timestep".into(),
             ));
         }
+        if self.schema_version == 1 && (self.ensemble_state.is_some() || self.remove_center_of_mass)
+        {
+            return Err(Error(
+                "version 1 checkpoint cannot contain thermal state".into(),
+            ));
+        }
+        if let Some(state) = &self.ensemble_state {
+            state.validate(timestep_fs)?;
+        }
         let mut system = system_from_frame(&self.frame, &self.masses, &self.velocities)?;
+        set_degrees_of_freedom(&mut system, self.remove_center_of_mass)?;
         system.step = self.step;
         Ok(system)
     }

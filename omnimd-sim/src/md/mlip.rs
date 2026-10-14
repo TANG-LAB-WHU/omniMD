@@ -1,11 +1,12 @@
 // Copyright (C) omniMD contributors — MIT license.
 //! Fallible velocity-Verlet molecular dynamics using one combined model evaluation.
-use omnimd_core::{units, System, Vector3D};
+use super::Thermostat;
+use omnimd_core::{consts::K_BOLTZMANN, units, DegreesOfFreedom, System, Vector3D};
 use omnimd_ml_contract::{Error, Evaluation, Frame, ModelMetadata, Potential, Result, Units};
 
 /// Fixed-cell NVE dynamics driven exclusively by a model implementing Potential.
 /// Owns the real omniMD System and caches E/F/virial for its current positions.
-/// Force-field mixing, thermostats and constraints are not enabled here.
+/// Supports optional upstream velocity thermostats. Force-field mixing and constraints are not enabled.
 pub struct MlipDynamics<P: Potential> {
     system: System,
     potential: P,
@@ -32,6 +33,15 @@ fn frame(system: &System) -> Frame {
 fn validate_dynamics(system: &System) -> Result<()> {
     if system.has_interactions() {
         return Err(Error("MLIP dynamics requires no installed classical/global potentials; mixing is not implemented".into()));
+    }
+    match system.simulated_degrees_of_freedom {
+        DegreesOfFreedom::Particles | DegreesOfFreedom::Frozen(0) => {}
+        DegreesOfFreedom::Frozen(3) if system.size() > 1 => {}
+        _ => {
+            return Err(Error(
+                "MLIP supports only particle DOF, optionally minus COM translation".into(),
+            ))
+        }
     }
     for (i, p) in system.particles().iter().enumerate() {
         if !p.mass.is_finite()
@@ -80,6 +90,18 @@ impl<P: Potential> MlipDynamics<P> {
     /// Advance one full velocity-Verlet step.
     /// Numerical failure leaves the published System and cached evaluation unchanged.
     pub fn step(&mut self) -> Result<&Evaluation> {
+        let _ = self.step_impl(None)?;
+        Ok(&self.evaluation)
+    }
+
+    /// Apply an upstream velocity-only thermostat after one velocity-Verlet step.
+    /// Returns heat delivered to the system in eV. Published state is transactional;
+    /// the caller must handle rollback of any thermostat random state on error.
+    pub fn step_with_thermostat(&mut self, thermostat: &mut dyn Thermostat) -> Result<f64> {
+        self.step_impl(Some(thermostat))
+    }
+
+    fn step_impl(&mut self, thermostat: Option<&mut dyn Thermostat>) -> Result<f64> {
         let mut next = self.system.clone();
         next.step =
             next.step.checked_add(1).ok_or_else(|| Error("step counter overflow".into()))?;
@@ -103,6 +125,32 @@ impl<P: Potential> MlipDynamics<P> {
                 particles.velocity[i] += 0.5 * self.timestep * acceleration;
             }
         }
+        let mut heat = 0.0;
+        if let Some(thermostat) = thermostat {
+            let before = next.kinetic_energy();
+            if !before.is_finite() || before <= 0.0 {
+                return Err(Error(
+                    "CSVR requires positive finite kinetic energy; initialize velocities".into(),
+                ));
+            }
+            let evaluated_frame = frame(&next);
+            let masses = next.particles().mass.to_vec();
+            let dof = next.simulated_degrees_of_freedom.clone();
+            thermostat.apply(&mut next);
+            let after_frame = frame(&next);
+            if after_frame.positions != evaluated_frame.positions
+                || after_frame.cell != evaluated_frame.cell
+                || after_frame.species != evaluated_frame.species
+                || next.particles().mass != masses.as_slice()
+                || next.simulated_degrees_of_freedom != dof
+            {
+                return Err(Error("thermostat changed more than velocities".into()));
+            }
+            heat = (next.kinetic_energy() - before) / self.ev_to_internal;
+            if !heat.is_finite() {
+                return Err(Error("thermostat produced nonfinite heat".into()));
+            }
+        }
         validate_dynamics(&next)?;
         let kinetic: f64 = next
             .particles()
@@ -114,7 +162,7 @@ impl<P: Potential> MlipDynamics<P> {
         }
         self.system = next;
         self.evaluation = evaluated;
-        Ok(&self.evaluation)
+        Ok(heat)
     }
 
     /// Current system (read-only so cached model outputs cannot become stale).
@@ -144,6 +192,10 @@ impl<P: Potential> MlipDynamics<P> {
     /// Total energy in eV from the cached potential evaluation and current velocities.
     pub fn total_energy_ev(&self) -> f64 {
         self.evaluation.energy + self.kinetic_energy_ev()
+    }
+    /// Instantaneous kinetic temperature with the configured particle/COM DOF.
+    pub fn temperature_kelvin(&self) -> f64 {
+        2.0 * self.system.kinetic_energy() / (self.system.degrees_of_freedom() as f64 * K_BOLTZMANN)
     }
     /// Time increment per step, in femtoseconds.
     pub fn timestep_fs(&self) -> f64 {

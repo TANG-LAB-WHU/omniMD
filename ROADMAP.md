@@ -10,22 +10,25 @@
   energy derivatives. Unsupported architectures fail explicitly.
 - Actual omniMD System integration through fallible fixed-cell NVE dynamics,
   initial forces, cached E/F/virial and explicit internal-unit conversion.
-- Backend-selectable CLI, streamed trajectories and model-fingerprinted restart.
+- Backend-selectable run/check CLI, seeded thermal initialization, upstream CSVR
+  NVT, explicit DOF, streamed trajectories, periodic checkpoints and exact RNG restart.
 - Public-model C API/Python parity and independent integration comparison;
   synthetic native invariance/gradient checks. See mlmd/VALIDATION.md for limits.
 
-## Current model interchange work
+## Model interchange
 
-- Strict conversion of the supported official DeepMD serialized se_e2_a subset
+- Implemented strict conversion of the supported DeepMD 3.1.3 .dp/safe-YAML subset
   into native weights, with no pickle loading or architecture guessing.
-- Same-model native/C API E/F/virial comparison on generated float64 fixtures.
-- Converter results will be recorded separately from the existing public
-  regression model, which lacks the metadata needed for official serialization.
+- Passed same-model native/C API E/F/virial comparison on generated float64 fixtures.
+- Explicit dpmodel/tensorflow geometry semantics; no implicit radius rounding.
+- B is extending export to strictly audited frozen-graph profiles. This is separate
+  from accepting arbitrary .pb models or inferring absent architecture metadata.
 
 ## Next simulation milestones
 
 - Longer NVE and equal-duration timestep convergence on suitable public models.
-- Explicit ensemble support and pressure/stress conventions before NVT/NPT.
+- Fallible Simulation/Propagator and output-snapshot bridge to more upstream features.
+- Broader NVT validation; pressure/stress conventions and testing before NPT.
 - Typed trajectory import, optional classical coupling and constraints only
   after the corresponding fallible force/update contracts are implemented.
 - Reproducible benchmarks with fixed hardware, model, precision and tolerances.
