@@ -1,0 +1,128 @@
+{
+  "frames": 4,
+  "max_absolute_error": {
+    "energy": 1.1368683772161603e-13,
+    "forces": 1.5543122344752192e-15,
+    "virial": 2.4424906541753444e-15
+  },
+  "cuda_kernel_launches": 24863,
+  "atol": 1e-08,
+  "rtol": 1e-08,
+  "cpu_timing": {
+    "first_pass_seconds": 0.194486163,
+    "load_seconds": 1.565642704,
+    "scope": "host validation, packing, combined CAPI EFV, transfers, GPU attestation/synchronization and output validation; excludes process startup and JSON serialization",
+    "seconds_per_evaluation": 0.0004855472625,
+    "steady_evaluations": 80,
+    "steady_passes": 20,
+    "steady_seconds": 0.038843781,
+    "warmup_passes": 2,
+    "warmup_seconds": 0.003633622
+  },
+  "gpu_timing": {
+    "first_pass_seconds": 0.343639422,
+    "load_seconds": 2.765030132,
+    "scope": "host validation, packing, combined CAPI EFV, transfers, GPU attestation/synchronization and output validation; excludes process startup and JSON serialization",
+    "seconds_per_evaluation": 0.0040177004375,
+    "steady_evaluations": 80,
+    "steady_passes": 20,
+    "steady_seconds": 0.321416035,
+    "warmup_passes": 2,
+    "warmup_seconds": 0.032982485
+  },
+  "cuda_kernel_counted_evaluations": 92,
+  "cpu_over_gpu_speed_ratio": 0.12085203216448116,
+  "gpu_over_cpu_time_ratio": 8.27458158617463,
+  "gpu_timing_result": "slower",
+  "status": "completed",
+  "date_utc": "2026-10-14",
+  "implementation_commit": "bf6f2cfba09a4d01ad551ee036876060828e50fd",
+  "source_head_at_run": "46d913b3dbe3726843cca52e7b61d655756da7dd",
+  "runtime": {
+    "deepmd": "3.1.0",
+    "tensorflow": "2.18.0",
+    "image": "deepmodeling/deepmd-kit:3.1.0_cuda129",
+    "image_digest": "sha256:23d23b922459eb49b23f9d4977b6e453fd17feb2ee03a280c70fb7f4a6452e8c",
+    "library_sha256": "3ba79aed41971b9077785f8383817b648778c0e99df1989a11d546330cf2d7be"
+  },
+  "model": {
+    "sha256": "fbe846eed0e503411cac336d76ac81fabfd9d0d195a03c96dd9fe00fecacca1f",
+    "source": "https://github.com/deepmodeling/deepmd-kit/blob/v3.1.3/source/tests/infer/deeppot.pbtxt",
+    "type_map": [
+      "O",
+      "H"
+    ],
+    "atoms_per_frame": 6,
+    "constant_precision": "float64",
+    "cases": [
+      "nonperiodic",
+      "orthorhombic",
+      "triclinic",
+      "permuted atoms in triclinic cell"
+    ]
+  },
+  "gpu": {
+    "name": "NVIDIA GeForce RTX 4090",
+    "pci_bus_id": "0000:01:00.0",
+    "compute_capability": "8.9",
+    "worker_logical_index": 0
+  },
+  "gpu_over_cpu_elapsed_ratio": 8.27458158617463,
+  "timing_configuration": {
+    "first_pass_frames": 4,
+    "warmup_passes": 2,
+    "steady_passes": 20,
+    "steady_frames": 80,
+    "total_evaluations_per_device": 92,
+    "OMP_NUM_THREADS": 1,
+    "TF_INTRA_OP_PARALLELISM_THREADS": 1,
+    "TF_INTER_OP_PARALLELISM_THREADS": 1,
+    "DP_INTRA_OP_PARALLELISM_THREADS": 1,
+    "DP_INTER_OP_PARALLELISM_THREADS": 1,
+    "same_container_runtime_and_binary": true
+  },
+  "gpu_execution_evidence": "Each EFV issued successful direct CUDA kernels; observed CUDA contexts synchronized; count includes initial, warmup, steady passes",
+  "batch": {
+    "completed_frames": 4,
+    "matches_standalone_gpu_within_tolerance": true,
+    "max_absolute_error_vs_standalone_gpu": {
+      "energy": 0.0,
+      "forces": 1.1102230246251565e-16,
+      "virial": 2.220446049250313e-16
+    },
+    "backend": "deepmd-c-api-cuda-kernels-verified"
+  },
+  "md": {
+    "completed_steps": 2,
+    "backend": "deepmd-c-api-cuda-kernels-verified",
+    "max_absolute_energy_drift_ev": 3.637978807091713e-12
+  },
+  "validation_process_exit_codes": {
+    "gpu_eval": 0,
+    "paired_cpu_eval": 0,
+    "gpu_batch": 0,
+    "gpu_md": 0
+  },
+  "gpu_window_release": {
+    "container": "omnimd-capi-gpu-20261014",
+    "container_id": "5640c97aa5d712dcdb78e59895324b9ef30b183a8545b743eb534e86417a9e20",
+    "finished_at_utc": "2026-10-14T06:13:51.533641632Z",
+    "running": false,
+    "pid": 0,
+    "oom_killed": false,
+    "container_exit_code": 137,
+    "exit_note": "All validation commands exited 0 before stop; only idle PID1 sleep remained and was killed by docker stop timeout."
+  },
+  "no_private_hap_inputs": true,
+  "no_driver_or_system_changes": true,
+  "limitations": [
+    "Single public small float64 TF model; not arbitrary models or architecture validation",
+    "Measured GPU time includes CUPTI execution checks and context synchronization",
+    "No acceleration demonstrated: GPU is slower for this six-atom workload",
+    "No graph/stream-capture execution support; some model operations may remain on CPU"
+  ],
+  "binary_sha256": {
+    "omnimd-deepmd": "10e93b5762540e1d4393d8285108119ac3e57e42664b6154f33c65c1528ff6c2",
+    "omnimd-mlmd": "44b615f4e95cc13a26521cca6dc846427ca2b20fb93eb32f9038349c36af304b"
+  }
+}
