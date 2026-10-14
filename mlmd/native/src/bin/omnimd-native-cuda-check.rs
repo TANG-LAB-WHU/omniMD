@@ -64,8 +64,15 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
     let mut gpu = CudaPotential::new(cpu.model().clone(), 0)?;
     let startup_ms = before.elapsed().as_secs_f64() * 1000.0;
     let mut max = [0.0_f64; 3];
+    let mut first_evaluation_ms = Vec::new();
+    let mut first_profiles = Vec::new();
     for frame in &frames {
-        compare(&cpu.eval(frame)?, &gpu.eval(frame)?, &mut max)?;
+        let reference = cpu.eval(frame)?;
+        let before = Instant::now();
+        let result = gpu.eval(frame)?;
+        first_evaluation_ms.push(before.elapsed().as_secs_f64() * 1000.0);
+        first_profiles.push(gpu.last_profile());
+        compare(&reference, &result, &mut max)?;
     }
     // Above parity evaluations warm both paths; model compilation/upload excluded,
     // all per-evaluation geometry, allocations/copies/kernels/reduction included.
@@ -76,10 +83,21 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
         }
     }
     let cpu_ms = before.elapsed().as_secs_f64() * 1000.0;
+    let mut profile = [0.0_f64; 5];
     let before = Instant::now();
     for _ in 0..repeats {
         for frame in &frames {
             std::hint::black_box(gpu.eval(frame)?);
+            let p = gpu.last_profile();
+            for (sum, value) in profile.iter_mut().zip([
+                p.prepare_ms,
+                p.upload_and_allocation_ms,
+                p.kernels_and_sync_ms,
+                p.download_ms,
+                p.reduction_ms,
+            ]) {
+                *sum += value;
+            }
         }
     }
     let cuda_ms = before.elapsed().as_secs_f64() * 1000.0;
@@ -87,7 +105,7 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
         "{}",
         serde_json::to_string_pretty(
             &serde_json::json!({"device":gpu.device_info(),"frames":frames.len(),"atoms":frames.iter().map(|f|f.positions.len()).collect::<Vec<_>>(),"repeats":repeats,
-        "max_abs_energy_force_virial":max,"comparison_tolerance":"1e-9 absolute + 1e-9 relative","startup_ms":startup_ms,"warmed_cpu_total_ms":cpu_ms,"warmed_cuda_total_ms":cuda_ms,"cpu_over_cuda_speed_ratio":cpu_ms/cuda_ms,
+        "first_evaluation_ms":first_evaluation_ms,"first_profiles":first_profiles,"last_profile":gpu.last_profile(),"profile_total_ms":{"prepare":profile[0],"upload_and_allocation":profile[1],"kernels_and_sync":profile[2],"download":profile[3],"reduction":profile[4]},"max_abs_energy_force_virial":max,"comparison_tolerance":"1e-9 absolute + 1e-9 relative","startup_ms":startup_ms,"warmed_cpu_total_ms":cpu_ms,"warmed_cuda_total_ms":cuda_ms,"cpu_over_cuda_speed_ratio":cpu_ms/cuda_ms,
         "timing_scope":"same-model end-to-end EFV; excludes initialization, includes CPU geometry, transfers, kernels and force/virial reduction; single bounded run, not a general benchmark"})
         )?
     );

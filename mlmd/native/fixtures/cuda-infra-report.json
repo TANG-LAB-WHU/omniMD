@@ -1,0 +1,342 @@
+{
+  "schema": "omnimd-native-cuda-infra-evidence-v1",
+  "date_utc": "2026-10-14",
+  "baseline_commit": "a74804d8cbba86c1a2563dbbca6444059e740903",
+  "baseline_instrumentation": "Host phase timers added only; no computation changes. Baseline executable retained ignored locally.",
+  "scope": "Bounded native CPU/CUDA float64 same-model EFV and short MD; no physical accuracy, GPU training, production scaling or DeepMD speed comparison claim.",
+  "environment": {
+    "gpu": "NVIDIA GeForce RTX 4090",
+    "compute_capability": "8.9",
+    "vram_mib": 24564,
+    "driver": "595.97",
+    "mode": "Windows WDDM",
+    "nvrtc": "installed CUDA 12.8",
+    "rust": "1.99.0 stable x86_64-pc-windows-gnu release",
+    "project_gpu_window": "exclusive B; other project workers idle/CPU only",
+    "background": "ordinary desktop/game graphics remained active; initial observed GPU use 47%, 2942 MiB; no application stopped"
+  },
+  "profile_definition": "Host wall-clock, kernels include synchronization; timings are not GPU event measurements. One baseline-medium segmented profile selected the optimization.",
+  "bottleneck": {
+    "case": "medium",
+    "baseline_preparation_fraction": 0.9534010082473429,
+    "action": "0.4 Angstrom periodic-image candidate cache, with exact filtering/sorting and recomputed environments/gradients every eval"
+  },
+  "comparisons": [
+    {
+      "case": "medium",
+      "atoms": 216,
+      "model_sha256": "5dced056c6df82c73474f504e182e9df7378862217687c44d19f510c44ff979a",
+      "frames_sha256": "019d84706a12a5e492f41127023ba43bc596fbb551674c2ceb9040a9971569db",
+      "model_json_bytes": 1083037,
+      "neural_scalars": 28258,
+      "sel": [
+        16,
+        16
+      ],
+      "rcut_angstrom": 3.0,
+      "embedding_width": 32,
+      "axis_neuron": 4,
+      "baseline": {
+        "atoms": [
+          216
+        ],
+        "comparison_tolerance": "1e-9 absolute + 1e-9 relative",
+        "cpu_over_cuda_speed_ratio": 1.2402220207064607,
+        "device": "NVIDIA GeForce RTX 4090; compute 8.9; FP64; device 0",
+        "frames": 1,
+        "max_abs_energy_force_virial": [
+          3.552713678800501e-15,
+          1.8151916059659656e-18,
+          6.708500942254059e-19
+        ],
+        "profile_total_ms": {
+          "download": 0.3434,
+          "kernels_and_sync": 9.3307,
+          "prepare": 221.8383,
+          "reduction": 0.1749,
+          "upload_and_allocation": 0.9667999999999999
+        },
+        "repeats": 5,
+        "startup_ms": 1004.1205,
+        "timing_scope": "same-model end-to-end EFV; excludes initialization, includes CPU geometry, transfers, kernels and force/virial reduction; single bounded run, not a general benchmark",
+        "warmed_cpu_total_ms": 288.5761,
+        "warmed_cuda_total_ms": 232.681
+      },
+      "optimized_before_final_roundoff_guard": {
+        "atoms": [
+          216
+        ],
+        "comparison_tolerance": "1e-9 absolute + 1e-9 relative",
+        "cpu_over_cuda_speed_ratio": 23.877855519192632,
+        "device": "NVIDIA GeForce RTX 4090; compute 8.9; FP64; device 0",
+        "first_evaluation_ms": [
+          102.3523
+        ],
+        "first_profiles": [
+          {
+            "download_ms": 0.1178,
+            "kernels_and_sync_ms": 57.0207,
+            "neighbor_cache_rebuilds": 1,
+            "neighbor_cache_rebuilt": true,
+            "neighbor_candidates": 3888,
+            "prepare_ms": 44.8268,
+            "reduction_ms": 0.09079999999999999,
+            "upload_and_allocation_ms": 0.28200000000000003
+          }
+        ],
+        "frames": 1,
+        "last_profile": {
+          "download_ms": 0.0606,
+          "kernels_and_sync_ms": 2.0342,
+          "neighbor_cache_rebuilds": 1,
+          "neighbor_cache_rebuilt": false,
+          "neighbor_candidates": 3888,
+          "prepare_ms": 0.2165,
+          "reduction_ms": 0.0296,
+          "upload_and_allocation_ms": 0.4625
+        },
+        "max_abs_energy_force_virial": [
+          3.552713678800501e-15,
+          1.8151916059659656e-18,
+          6.708500942254059e-19
+        ],
+        "profile_total_ms": {
+          "download": 0.4,
+          "kernels_and_sync": 9.5945,
+          "prepare": 1.3302,
+          "reduction": 0.17470000000000002,
+          "upload_and_allocation": 0.8406
+        },
+        "repeats": 5,
+        "startup_ms": 909.9544000000001,
+        "timing_scope": "same-model end-to-end EFV; excludes initialization, includes CPU geometry, transfers, kernels and force/virial reduction; single bounded run, not a general benchmark",
+        "warmed_cpu_total_ms": 296.22389999999996,
+        "warmed_cuda_total_ms": 12.4058
+      },
+      "baseline_over_optimized_cuda_ratio": 18.755823888826196
+    },
+    {
+      "case": "public192",
+      "atoms": 192,
+      "model_sha256": "3c2a9354e0c163286a04fcbb91214562c7d0503f4a184f155a3843b1eec0e39a",
+      "frames_sha256": "15300b00c111d57d6ef68996a83e0e403c346e30b174d06639cb2c8a64345b82",
+      "model_json_bytes": 38995,
+      "neural_scalars": 826,
+      "sel": [
+        46,
+        92
+      ],
+      "rcut_angstrom": 6.0,
+      "embedding_width": 8,
+      "axis_neuron": 4,
+      "baseline": {
+        "atoms": [
+          192
+        ],
+        "comparison_tolerance": "1e-9 absolute + 1e-9 relative",
+        "cpu_over_cuda_speed_ratio": 1.162194418191588,
+        "device": "NVIDIA GeForce RTX 4090; compute 8.9; FP64; device 0",
+        "frames": 1,
+        "max_abs_energy_force_virial": [
+          0.0,
+          7.771561172376096e-16,
+          5.329070518200751e-15
+        ],
+        "profile_total_ms": {
+          "download": 0.8169000000000001,
+          "kernels_and_sync": 11.7991,
+          "prepare": 216.0715,
+          "reduction": 1.0599,
+          "upload_and_allocation": 1.3003000000000002
+        },
+        "repeats": 5,
+        "startup_ms": 765.0634,
+        "timing_scope": "same-model end-to-end EFV; excludes initialization, includes CPU geometry, transfers, kernels and force/virial reduction; single bounded run, not a general benchmark",
+        "warmed_cpu_total_ms": 269.0587,
+        "warmed_cuda_total_ms": 231.5092
+      },
+      "optimized_before_final_roundoff_guard": {
+        "atoms": [
+          192
+        ],
+        "comparison_tolerance": "1e-9 absolute + 1e-9 relative",
+        "cpu_over_cuda_speed_ratio": 12.876113406092351,
+        "device": "NVIDIA GeForce RTX 4090; compute 8.9; FP64; device 0",
+        "first_evaluation_ms": [
+          78.92649999999999
+        ],
+        "first_profiles": [
+          {
+            "download_ms": 0.2813,
+            "kernels_and_sync_ms": 12.2519,
+            "neighbor_cache_rebuilds": 1,
+            "neighbor_cache_rebuilt": true,
+            "neighbor_candidates": 19840,
+            "prepare_ms": 50.867599999999996,
+            "reduction_ms": 0.24580000000000002,
+            "upload_and_allocation_ms": 15.1707
+          }
+        ],
+        "frames": 1,
+        "last_profile": {
+          "download_ms": 0.2378,
+          "kernels_and_sync_ms": 2.1174000000000004,
+          "neighbor_cache_rebuilds": 1,
+          "neighbor_cache_rebuilt": false,
+          "neighbor_candidates": 19840,
+          "prepare_ms": 1.302,
+          "reduction_ms": 0.21350000000000002,
+          "upload_and_allocation_ms": 0.3428
+        },
+        "max_abs_energy_force_virial": [
+          0.0,
+          7.771561172376096e-16,
+          5.329070518200751e-15
+        ],
+        "profile_total_ms": {
+          "download": 1.0470000000000002,
+          "kernels_and_sync": 10.7134,
+          "prepare": 6.6632,
+          "reduction": 1.0182,
+          "upload_and_allocation": 1.3548
+        },
+        "repeats": 5,
+        "startup_ms": 727.0360999999999,
+        "timing_scope": "same-model end-to-end EFV; excludes initialization, includes CPU geometry, transfers, kernels and force/virial reduction; single bounded run, not a general benchmark",
+        "warmed_cpu_total_ms": 273.3586,
+        "warmed_cuda_total_ms": 21.2299
+      },
+      "baseline_over_optimized_cuda_ratio": 10.904865307891228
+    }
+  ],
+  "md_before_final_roundoff_guard": {
+    "snapshots": 21,
+    "steps": 20,
+    "timestep_fs": 0.1,
+    "ensemble": "NVE",
+    "temperature_kelvin": 300,
+    "seed": 20261014,
+    "max_absolute_error": {
+      "position": 5.551115123125783e-17,
+      "velocity": 1.3877787807814457e-17,
+      "energy": 0.0,
+      "force": 1.4432899320127035e-15,
+      "virial": 1.7763568394002505e-14
+    },
+    "tolerance": "1e-9 absolute + 1e-9 relative",
+    "cpu_max_energy_drift_ev": 5.474928912008181e-05,
+    "cuda_max_energy_drift_ev": 5.474928912008181e-05,
+    "max_raw_displacement_from_initial_angstrom": 0.14473670850833759,
+    "process_elapsed_ms": {
+      "cpu": 1302.5608999887481,
+      "cuda": 1357.3181999381632
+    },
+    "trajectory_sha256": {
+      "cpu": "76bc0bd593e5a6eccb22853df87ca7cc31ca3abb1d17622ddcaee2c3d5067e00",
+      "cuda": "24e370d146e362f37b09fa91271d5bfcc86e759d183b374b8c774143a737720e"
+    }
+  },
+  "final_roundoff_guard_verification": {
+    "atoms": [
+      192,
+      192,
+      192
+    ],
+    "comparison_tolerance": "1e-9 absolute + 1e-9 relative",
+    "cpu_over_cuda_speed_ratio": 11.452724215401155,
+    "device": "NVIDIA GeForce RTX 4090; compute 8.9; FP64; device 0",
+    "first_evaluation_ms": [
+      65.9397,
+      4.1361,
+      4.757
+    ],
+    "first_profiles": [
+      {
+        "download_ms": 0.3408,
+        "kernels_and_sync_ms": 11.4063,
+        "neighbor_cache_rebuilds": 1,
+        "neighbor_cache_rebuilt": true,
+        "neighbor_candidates": 19840,
+        "prepare_ms": 53.501,
+        "reduction_ms": 0.26899999999999996,
+        "upload_and_allocation_ms": 0.3495
+      },
+      {
+        "download_ms": 0.1905,
+        "kernels_and_sync_ms": 1.5276,
+        "neighbor_cache_rebuilds": 1,
+        "neighbor_cache_rebuilt": false,
+        "neighbor_candidates": 19840,
+        "prepare_ms": 1.8485,
+        "reduction_ms": 0.2537,
+        "upload_and_allocation_ms": 0.2007
+      },
+      {
+        "download_ms": 0.2964,
+        "kernels_and_sync_ms": 2.0766,
+        "neighbor_cache_rebuilds": 1,
+        "neighbor_cache_rebuilt": false,
+        "neighbor_candidates": 19840,
+        "prepare_ms": 1.8576000000000001,
+        "reduction_ms": 0.26130000000000003,
+        "upload_and_allocation_ms": 0.1996
+      }
+    ],
+    "frames": 3,
+    "last_profile": {
+      "download_ms": 0.3613,
+      "kernels_and_sync_ms": 1.7199,
+      "neighbor_cache_rebuilds": 1,
+      "neighbor_cache_rebuilt": false,
+      "neighbor_candidates": 19840,
+      "prepare_ms": 1.9322,
+      "reduction_ms": 0.24919999999999998,
+      "upload_and_allocation_ms": 0.2053
+    },
+    "max_abs_energy_force_virial": [
+      0.0,
+      1.4432899320127035e-15,
+      7.105427357601002e-15
+    ],
+    "profile_total_ms": {
+      "download": 0.857,
+      "kernels_and_sync": 6.579899999999999,
+      "prepare": 5.4762,
+      "reduction": 0.8050999999999999,
+      "upload_and_allocation": 0.5402
+    },
+    "repeats": 1,
+    "startup_ms": 819.9889000000001,
+    "timing_scope": "same-model end-to-end EFV; excludes initialization, includes CPU geometry, transfers, kernels and force/virial reduction; single bounded run, not a general benchmark",
+    "warmed_cpu_total_ms": 166.1859,
+    "warmed_cuda_total_ms": 14.5106
+  },
+  "final_guard_note": "The final coordinate/skew-cell roundoff bound expands the skin sphere conservatively and disables caching for extreme scales. Final CUDA executable checked MD snapshots 0,10,20 against fresh CPU; one cache build, all checks passed. Full 20-step MD and original timing pair predate this guard.",
+  "artifacts": {
+    "baseline_check_sha256": "085b17ac71b97acc79e824d865ba6811c8f047602623c3d1e41884121b8af554",
+    "final_check_sha256": "66564812a8ae756713b4e010896144a57fcb4da05f8ff900f0a61e5d7e35e75c",
+    "md_engine_sha256": "650b75ebb5bfb0ec98d1047afad6d757b717a1b501ffeb3b054b3b968145b845",
+    "guard_frames_sha256": "7c71a62b5d82d6b3cd295a0a5a2bdaa01120634b8b9c334dbae9b41b770a308c"
+  },
+  "validation": {
+    "cpu_default_tests": 13,
+    "cuda_feature_cpu_tests": 15,
+    "test_result": "all passed",
+    "cuda_errors": 0,
+    "retries": 0,
+    "new_dependencies": 0,
+    "engine_or_contract_changes": false
+  },
+  "public_model_source": "DeepMD v3.1.3 source/tests/infer/deeppot.pbtxt; see FROZEN.md and THIRD_PARTY_NOTICES.md; converted weights remain ignored",
+  "public_geometry": "Original 64-water molecular lattice (192 atoms), cubic 12.4 Angstrom, 3.1 Angstrom oxygen lattice, alternating z rotations; not equilibrated liquid.",
+  "limitations": [
+    "Repeated geometry timings measure warm cache reuse, not arbitrary independent frames.",
+    "Fixed cell only for reuse; any cell/species/count change or raw displacement >=0.2 Angstrom rebuilds.",
+    "Cold model initialization and first candidate build are reported separately.",
+    "Whole short MD process includes startup/serialization and was slightly slower on CUDA.",
+    "CPU default retains its original uncached neighbor implementation.",
+    "Kernels unchanged; geometry and final force/virial assembly remain CPU."
+  ],
+  "gpu_window_released_utc": "2026-10-14T07:40:02.7085468Z",
+  "process_check": "No omnimd or Python verification process remained; no further GPU runs after release."
+}

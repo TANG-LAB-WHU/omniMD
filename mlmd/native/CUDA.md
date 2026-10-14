@@ -5,13 +5,17 @@ checks on original tiny, public converted and 216-atom synthetic fixtures. The
 216-atom case was modestly faster in one end-to-end measurement; tiny cases were
 slower. See the measured results below. The CPU default remains unchanged.
 
+A subsequent host neighbor-cache optimization and same-work before/after
+measurements are documented in [CUDA_INFRA.md](CUDA_INFRA.md).
+
 ## Computation boundary
 
 Enable `cuda` explicitly. `cuda::CudaPotential` implements the existing shared
 `Potential` trait and returns energy, analytic force and row-strain virial in
 float64. This is a CPU/CUDA inference pipeline, not CUDA training:
 
-1. Rust validates native-v1 weights/frame/types and enumerates the exact CPU
+1. Rust validates native-v1 weights/frame/types and builds or conservatively
+   reuses periodic-image candidates, then filters/sorts the exact active CPU
    periodic/triclinic neighbor list. It computes normalized environment rows `R`
    and their displacement Jacobians `J`, including normalized padding.
 2. CUDA `embed` evaluates every slot's embedding value `G` and radial derivative
@@ -95,7 +99,7 @@ speedup or production scaling claim is made.
 
 ## Controlled acceptance and timing
 
-CPU-only test suite with `--features cuda` currently passes 14 tests, including
+CPU-only test suite with `--features cuda` currently passes 15 tests, including
 strict packing and all existing CPU inference/training checks. NVRTC compilation
 has succeeded for tiny original, public converted and medium synthetic models.
 Actual GPU execution was subsequently checked in the controlled run below.
