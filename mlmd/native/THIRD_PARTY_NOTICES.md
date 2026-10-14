@@ -32,7 +32,7 @@ Documentation/source behavior was checked at version v3.1.0:
 - DeePMD-kit license:
   https://github.com/deepmodeling/deepmd-kit/blob/v3.1.0/LICENSE
 
-The runtime dependencies serde and serde_json use MIT OR Apache-2.0 licenses.
+The Rust dependencies serde, serde_json, and sha2 use MIT OR Apache-2.0 licenses.
 Cargo.lock records their resolved versions and transitive dependencies; no new
 runtime dependency beyond those already selected by the shared MLMD project was
 introduced. This work claims neither a new descriptor algorithm nor a measured
@@ -88,3 +88,15 @@ The synthetic profile comes from the original fixed-seed recipe already cited.
 these modified structural files. No public trained weights or `.pb` binaries
 are committed. The corresponding source is the linked versioned public graph,
 the synthetic recipe, and the profile-building script in this directory.
+
+## Native readout training
+
+Readout feature extraction and the small column-pivoted Householder QR solver
+are independently written Rust. The training replay generates original synthetic
+teacher labels using the native evaluator; no external training labels or
+models are added. sha2 0.10.9 is reused from the existing shared engine dependency
+and its approved isolated offline cache for dataset/model provenance. Its
+transitive versions are recorded in Cargo.lock. The existing serde_json
+`float_roundtrip` feature was enabled to preserve frozen float64 parameters
+through parse/export. No new package download or global configuration change
+was performed. This is final-readout regression, not a new training algorithm.
