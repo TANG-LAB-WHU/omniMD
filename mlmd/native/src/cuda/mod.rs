@@ -1,4 +1,5 @@
 //! Optional real CUDA FP64 network/descriptor inference; CPU geometry/reduction.
+mod neighbor_cache;
 mod runtime;
 use crate::{
     neighbor::{Geometry, Neighbor},
@@ -102,6 +103,19 @@ impl PackedModel {
     }
 }
 
+/// Host wall-clock segments, including synchronization; not isolated kernel events.
+#[derive(Clone, Copy, Default, Debug, serde::Serialize)]
+pub struct CudaProfile {
+    pub prepare_ms: f64,
+    pub neighbor_cache_rebuilt: bool,
+    pub neighbor_cache_rebuilds: usize,
+    pub neighbor_candidates: usize,
+    pub upload_and_allocation_ms: f64,
+    pub kernels_and_sync_ms: f64,
+    pub download_ms: f64,
+    pub reduction_ms: f64,
+}
+
 /// Deliberately explicit backend selection. A CUDA failure returns an error and
 /// poisons this instance; use NativePotential explicitly for CPU fallback.
 pub struct CudaPotential {
@@ -110,6 +124,8 @@ pub struct CudaPotential {
     packed: PackedModel,
     runtime: Runtime,
     poisoned: bool,
+    profile: CudaProfile,
+    neighbor_cache: neighbor_cache::NeighborCache,
 }
 impl CudaPotential {
     pub fn new(model: Model, device: i32) -> Result<Self> {
@@ -127,12 +143,18 @@ impl CudaPotential {
             packed,
             runtime,
             poisoned: false,
+            profile: CudaProfile::default(),
+            neighbor_cache: neighbor_cache::NeighborCache::new(),
         })
     }
     pub fn device_info(&self) -> &str {
         &self.runtime.device_info
     }
+    pub fn last_profile(&self) -> CudaProfile {
+        self.profile
+    }
     fn evaluate(&mut self, frame: &Frame) -> Result<Evaluation> {
+        let phase = std::time::Instant::now();
         frame.validate()?;
         let types = frame.type_ids(&self.metadata)?;
         let n = types.len();
@@ -143,11 +165,17 @@ impl CudaPotential {
         }
         let d = &self.cpu.model.descriptor;
         let geometry = Geometry::new(frame, d.rcut)?;
+        self.profile.neighbor_cache_rebuilt =
+            self.neighbor_cache.update(frame, &types, d.rcut, &d.sel);
+        self.profile.neighbor_cache_rebuilds = self.neighbor_cache.rebuilds;
+        self.profile.neighbor_candidates = self.neighbor_cache.candidate_count;
         let s = self.packed.slots;
         let mut rows = Vec::with_capacity(n * s * 4);
         let mut records: Vec<(usize, Neighbor, [[f64; 3]; 4])> = Vec::new();
         for center in 0..n {
-            let groups = geometry.neighbors(frame, &types, center, &d.sel)?;
+            let groups = self
+                .neighbor_cache
+                .neighbors(frame, &types, center, &d.sel, d.rcut, &geometry)?;
             for (species, group) in groups.iter().enumerate() {
                 for slot in 0..d.sel[species] {
                     let neighbor = group.get(slot);
@@ -166,7 +194,13 @@ impl CudaPotential {
             }
         }
         let kinds: Vec<i32> = types.iter().map(|v| *v as i32).collect();
+        self.profile.prepare_ms = phase.elapsed().as_secs_f64() * 1000.0;
         let (energies, dr) = self.runtime.evaluate(&rows, &kinds, s, self.packed.width)?;
+        let [upload, kernels, download] = self.runtime.last_timing_ms;
+        self.profile.upload_and_allocation_ms = upload;
+        self.profile.kernels_and_sync_ms = kernels;
+        self.profile.download_ms = download;
+        let phase = std::time::Instant::now();
         let mut out = Evaluation {
             energy: 0.0,
             forces: vec![[0.0; 3]; n],
@@ -188,6 +222,7 @@ impl CudaPotential {
             }
         }
         out.validate(n)?;
+        self.profile.reduction_ms = phase.elapsed().as_secs_f64() * 1000.0;
         Ok(out)
     }
 }

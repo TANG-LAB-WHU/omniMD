@@ -5,6 +5,8 @@ pub(crate) struct Neighbor {
     pub atom: usize,
     pub delta: [f64; 3],
     pub distance: f64,
+    #[cfg(feature = "cuda")]
+    pub image: [i64; 3],
 }
 
 pub(crate) struct Geometry {
@@ -43,6 +45,30 @@ impl Geometry {
             None
         };
         Ok(Self { cutoff, inverse })
+    }
+
+    /// Conservative arithmetic scale for a cached image list. This includes
+    /// cancellation in unwrapped coordinates and skew-cell image translations.
+    #[cfg(feature = "cuda")]
+    pub fn cache_roundoff_scale(&self, frame: &Frame) -> f64 {
+        // An extra angstrom covers the 0.4 A skin, allowed motion and margin.
+        let delta_bound = 2.0
+            * frame
+                .positions
+                .iter()
+                .flatten()
+                .fold(0.0_f64, |m, x| m.max(x.abs()))
+            + 1.0;
+        let mut scale = 1.0 + delta_bound + self.cutoff;
+        if let (Some(inv), Some(cell)) = (self.inverse, frame.cell) {
+            for b in 0..3 {
+                let shift_bound = delta_bound * (0..3).map(|a| inv[a][b].abs()).sum::<f64>()
+                    + (self.cutoff + 1.0) * inv[0][b].hypot(inv[1][b]).hypot(inv[2][b])
+                    + 3.0;
+                scale += shift_bound * cell[b].iter().fold(0.0_f64, |m, x| m.max(x.abs()));
+            }
+        }
+        scale
     }
 
     pub fn neighbors(
@@ -117,6 +143,8 @@ impl Geometry {
                             atom,
                             delta: image,
                             distance,
+                            #[cfg(feature = "cuda")]
+                            image: [a, b, c],
                         });
                         if groups[kind].len() > sel[kind] {
                             return Err(Error(format!("neighbor capacity overflow at atom {center}, type {}: more than sel={}",

@@ -241,6 +241,7 @@ pub struct Runtime {
     functions: [Handle; 3],
     buffers: Vec<(u64, usize)>,
     pub device_info: String,
+    pub last_timing_ms: [f64; 3],
     _library: Library,
     _not_send: PhantomData<Rc<()>>,
 }
@@ -289,6 +290,7 @@ impl Runtime {
                 functions: [ptr::null_mut(); 3],
                 buffers: vec![(0, 0); 11],
                 device_info,
+                last_timing_ms: [0.0; 3],
                 _library: library,
                 _not_send: PhantomData,
             };
@@ -357,6 +359,7 @@ impl Runtime {
             let _current = Current::enter(self.api, self.context)?;
             let n = types.len();
             let q = n * slots;
+            let phase = std::time::Instant::now();
             self.upload(2, rows)?;
             self.upload(3, types)?;
             self.upload(10, &[0_i32])?;
@@ -365,6 +368,8 @@ impl Runtime {
             self.ensure(7, n * width * 4 * 8)?;
             self.ensure(8, n * 8)?;
             self.ensure(9, q * 4 * 8)?;
+            self.last_timing_ms[0] = phase.elapsed().as_secs_f64() * 1000.0;
+            let phase = std::time::Instant::now();
             let mut addresses: Vec<_> = self.buffers.iter().map(|x| x.0).collect();
             let mut atoms = n as i32;
             let pointer = |p: &mut u64| p as *mut u64 as *mut c_void;
@@ -403,12 +408,16 @@ impl Runtime {
             ];
             self.launch(2, q, &mut pull)?;
             check((self.api.sync)(), "cuCtxSynchronize")?;
+            self.last_timing_ms[1] = phase.elapsed().as_secs_f64() * 1000.0;
+            let phase = std::time::Instant::now();
             if self.download::<i32>(10, 1)?[0] != 0 {
                 return Err(Error(
                     "nonfinite CUDA network/contraction intermediate".into(),
                 ));
             }
-            Ok((self.download(8, n)?, self.download(9, q * 4)?))
+            let result = (self.download(8, n)?, self.download(9, q * 4)?);
+            self.last_timing_ms[2] = phase.elapsed().as_secs_f64() * 1000.0;
+            Ok(result)
         }
     }
     unsafe fn launch(&self, index: usize, threads: usize, args: &mut [*mut c_void]) -> Result<()> {
