@@ -1,2 +1,4 @@
 /target/
 !Cargo.lock
+/fixtures/generated-deepmd/
+/tools/__pycache__/

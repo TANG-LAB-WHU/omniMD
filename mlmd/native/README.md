@@ -41,9 +41,10 @@ empty `[workspace]` section in this crate and add `native` to the parent
 
 The complete executable example is `fixtures/synthetic-v1.json`; public Rust
 schema types are in `src/model.rs`. This is a custom intermediate format, **not
-DeepMD's serialization format**, and is not a loader for `.pb`, `.pth`, `.dp`,
-HAP, or hybrid models. An exporter must resolve architecture decisions before
-writing this representation. Every object rejects unknown fields.
+DeepMD's serialization format**, and is not a direct Rust loader for `.pb`, `.pth`, `.dp`, HAP, or hybrid models.
+`tools/convert_deepmd.py` now converts a strict DeepMD-kit 3.1.3 `.dp` / safe YAML
+subset into this representation. See [CONVERSION.md](CONVERSION.md) for the
+explicit geometry mode, units, supported schema, and complete replay command. Every object rejects unknown fields.
 
 | Field | Required meaning |
 | --- | --- |
@@ -133,9 +134,12 @@ from this implementation, not an independent DeepMD reference.
 
 For later cross-engine acceptance, evaluate the **same converted weights and
 same ordered frame** with A's DeepMD backend, then compare shared-contract JSONL
-outputs using `tools/compare_evaluations.py`. Actual pretrained DeepMD agreement
-has not yet been demonstrated. No model importer, trainer, optimizer, MD
-integrator, GPU kernel, compression table, attention, spin, type embedding,
+outputs using `tools/compare_evaluations.py`. A fixed-seed, untrained DeepMD
+3.1.3 model has now passed actual C API/native comparison on three frames; the committed conversion report records maximum
+E/F/virial errors of 4.44e-16 / 5.03e-17 / 3.47e-17. This establishes numerical
+compatibility for that fixture, not pretrained-model physical accuracy.
+No trainer, optimizer, MD integrator, GPU kernel, compression table, attention,
+spin, type embedding,
 `se_e3`, hybrid descriptor, exclusions, frame/atomic parameters, environment
 protection, or vacuum-subtraction feature is implemented. Such architectures
 must not be relabeled as this format; unknown fields and unsupported enums fail.

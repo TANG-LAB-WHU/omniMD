@@ -35,3 +35,26 @@ Cargo.lock records their resolved versions and transitive dependencies; no new
 runtime dependency beyond those already selected by the shared MLMD project was
 introduced. This work claims neither a new descriptor algorithm nor a measured
 speed advantage over DeePMD-kit.
+
+## DeepMD 3.1.3 conversion tools
+
+The independently written importer follows the documented serialization schema;
+it does not vendor or execute DeePMD source. The optional synthetic-fixture
+recipe calls an already installed DeepMD/TensorFlow runtime and uses original
+fixed-seed weights. No public pretrained weights are redistributed. DeepMD 3.1.3
+source references (LGPL-3.0-or-later):
+
+- https://github.com/deepmodeling/deepmd-kit/blob/v3.1.3/deepmd/dpmodel/utils/serialization.py
+- https://github.com/deepmodeling/deepmd-kit/blob/v3.1.3/deepmd/dpmodel/utils/network.py
+- https://github.com/deepmodeling/deepmd-kit/blob/v3.1.3/deepmd/dpmodel/descriptor/se_e2_a.py
+- https://github.com/deepmodeling/deepmd-kit/blob/v3.1.3/deepmd/dpmodel/atomic_model/base_atomic_model.py
+- https://github.com/deepmodeling/deepmd-kit/blob/v3.1.3/deepmd/dpmodel/fitting/general_fitting.py
+- https://github.com/deepmodeling/deepmd-kit/blob/v3.1.3/deepmd/tf/utils/serialization.py
+
+TensorFlow 2.19.1 uses Apache-2.0. Its protobuf schema establishes the float32
+storage of operation attributes; no TensorFlow source is copied:
+https://github.com/tensorflow/tensorflow/blob/v2.19.1/tensorflow/core/framework/attr_value.proto
+
+Optional tooling uses existing h5py (BSD-3-Clause), PyYAML (MIT), and NumPy
+(BSD-3-Clause), under their upstream distribution licenses. No package, image,
+or dependency was installed or downloaded for this conversion milestone.
