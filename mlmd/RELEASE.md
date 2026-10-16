@@ -583,3 +583,43 @@ receipt. Generated datasets, weights, checkpoints, binaries and raw logs remain
 outside Git. Work is local and unpushed; no HAP input, installation or system/driver
 change is included. Linux CUDA, large-model throughput and broader architectures
 remain unverified or unsupported as recorded in the feature matrix.
+
+## Local deterministic minibatch integration
+
+Native source `3e7091c143ffa424c935d86adbd9ecb7f1e97d5c` is integrated as
+`5be7e49ccfd8f3dbcabbf75dab47c2a262487cdb` on stable `b8ce8fa`. Optional explicit
+batch size, seed and sequential/shuffled order apply to CPU and both CUDA full
+trainers. Actual-count normalization retains short tails, clips after the batch
+sum and advances Adam once. Version 5 checkpoints validate the canonical next-batch
+sampler together with loss/config/data and execution identity. Full-batch defaults
+and old v1-v4 schemas remain unchanged. Cache toggles are runtime-only; numerical
+backend or batch-setting changes reject. No dependency, shared dataset/model
+format, physical model or supported resource limit changed.
+
+[Final release CLI acceptance](evidence/native-minibatch-integrated.json) uses the
+existing 24-frame synthetic fixture, 18 training / six validation frames, reverse
+CUDA and seven updates in batches 7,7,4,7,7,4,7. All seven saved samplers agree with
+an independent Python integer reference. The report records 43 processed frames,
+two partial batches and 43 cache hits. Restarts at steps 2, 3 and 4 are exact in
+model, Adam, sampler and remaining state after excluding only additional-step
+count and the runtime cache flag. Both cache-toggle directions pass. CPU maximum
+parameter/moment difference is 6.66e-16; exported E/F/V differences are 8.88e-16 /
+6.66e-16 / 8.88e-16, with zero reload differences. Changed batch size/seed/order,
+missing sampler and corrupt cursor all reject before output. The actual prior
+full-batch v4 step-3 checkpoint continues to its saved step-6 state exactly.
+Ten focused CPU-safe tests and the locked offline release build passed.
+
+The GPU window ended at 2026-10-16 12:58:46 UTC with no remaining omniMD process
+and no failure retries. [B's native receipt](native/fixtures/minibatch-training-report.json)
+separately records 29 default CPU tests, 42 feature-enabled CPU tests, a GPU check
+covering both executors, 31-update CLI parity and actual historical v1-v4 step-150
+to step-300 continuation. Those broader checks and benchmarks were not repeated.
+This final integration adds no speed, convergence-equivalence or accuracy claim.
+
+Outside native, changes are engine capability reporting, English README/guide/
+feature-matrix/roadmap/release scope, the short replay and a compact receipt.
+Generated datasets, models, checkpoints, binaries and raw logs stay outside Git.
+The candidate remains local and unpushed, without HAP inputs or system changes.
+Dataset streaming is identified as the next infrastructure gap only; it is not
+implemented here. The 1024-frame in-memory limit, constant learning rate, native
+architecture bounds and remaining CPU stages all persist.

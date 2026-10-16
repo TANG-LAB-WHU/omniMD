@@ -313,8 +313,9 @@ python mlmd/native/tools/replay_full_training.py --eval-exe /absolute/omnimd-nat
 Append `.exe` to executable paths on Windows. Full-network resume requests replace
 `initial_model` with `checkpoint`, name a new output directory, retain the dataset
 and fixed configuration, and specify additional steps; see the training document.
-Training checkpoints are distinct from MD checkpoints. Minibatch/distributed
-training remain future work. Optional full-network virial supervision is now
+Training checkpoints are distinct from MD checkpoints. Explicit deterministic
+minibatching is described in step 18; streaming and distributed training remain
+future work. Optional full-network virial supervision is now
 explicitly available on CPU/CUDA (step 15); readout fitting still uses E/F only.
 
 ## 6. Minimize, run MD and restart
@@ -588,7 +589,7 @@ volume/stress conversion or implicit symmetrization occurs. Inspect the separate
 E/F, virial and total normalized objectives and virial-per-atom RMSE in the report.
 Antisymmetric target components cannot be learned by this invariant energy model.
 
-Enabled virial supervision with CPU or default hyperdual writes checkpoint v3
+Full-batch virial supervision with CPU or default hyperdual writes checkpoint v3
 with the immutable
 `energy-force-row-virial-per-atom-nine-v1` loss contract and configured weight/scale.
 Resume with the same dataset, split, objective and backend into a new output
@@ -629,7 +630,7 @@ existing shape/work limits unchanged. The reverse planner additionally checks
 and does not bound total GPU memory.
 
 Run `omnimd-mlmd train-native REQUEST.json` into a new output directory. Verify
-`execution.backend="cuda_reverse_f64_v1"` and checkpoint v4. This records an
+`execution.backend="cuda_reverse_f64_v1"` and full-batch checkpoint v4. This records an
 explicit E/F or E/F/V loss contract plus executor/device/driver/compiled-PTX
 identity. Resume with the same configuration and additional steps; switching
 executors on a nonzero-step checkpoint rejects. An intentional switch requires
@@ -716,3 +717,69 @@ only requested step count and the cache flag. It retained 221,414 bytes for
 CPU/reverse E/F/V differences were 4.44e-16 / 3.89e-16 / 4.44e-16, reload zero.
 Native evidence separately covers both executors; this final short replay adds
 no performance measurement or broader architecture/data support.
+
+## 18. Select deterministic minibatches
+
+Start a new full-network optimizer using the request from step 5 (CPU) or step 13
+(explicit CUDA), adding this optional object inside `config`:
+
+```json
+"minibatch": {
+  "batch_size": 7,
+  "seed": 20261016,
+  "order": "shuffle_each_epoch"
+}
+```
+
+The example is for exercising the interface, not a physical training recommendation.
+All fields are required: batch size is 1..1024, seed is an unsigned 64-bit integer
+independent of the train/validation split seed, and order is `sequential` or
+`shuffle_each_epoch`. Absent/null preserves full-batch defaults and serialization.
+The option applies to the full neural-parameter trainer, not readout QR. On CUDA,
+both gradient executors work and the fixed-geometry cache remains optional.
+
+Use `omnimd-mlmd train-native REQUEST.json` with a new output directory. `steps`
+is additional Adam updates, not epochs. Each epoch visits every selected training
+frame once. With 18 training frames and batch size 7, sizes are 7,7,4; the tail is
+neither dropped nor filled from the next epoch. Gradients use the actual batch
+count, then clipping and one Adam update. Learning rate stays constant per update.
+Complete-partition metrics remain separate from the sampled training objective;
+validation frames never enter batches. Smaller batches do not promise full-batch
+convergence, equivalent epoch weighting or a throughput improvement.
+
+Inspect checkpoint `omnimd-native-full-checkpoint-v5` and `report.minibatch`:
+start/end sampler, processed frame count, partial-batch count and size histogram.
+Sampler state describes the next batch and includes seed/order, epoch/cursor,
+permutation and derived RNG state. Resume from that checkpoint with the same
+batch settings, data/split, loss and numerical backend, specifying additional
+updates. Missing or inconsistent sampler state and changed batch size/seed/order
+reject. Cache may toggle; its arrays rebuild, while the numerical sampler and
+optimizer state remain exact within the recorded runtime identity.
+
+Old full-batch v1-v4 checkpoints keep their original route. Do not enable
+minibatching when resuming one; initialize a new optimizer from its exported
+native model to change training semantics. The same model/shape/work bounds and
+1024-frame in-memory dataset limit apply. The optional cache still prepares the
+whole selected training pool and retains its own 64 MiB host-payload bound.
+This option introduces neither dataset streaming nor a learning-rate schedule.
+
+Read [the complete sampler/loss contract](native/MINIBATCH_TRAINING.md) for the
+actual-count formula, portable integer shuffle and canonical next-batch state.
+[Final engine acceptance](evidence/native-minibatch-integrated.json) records seven
+updates over 18 training / six validation frames: 43 processed frames, two tails,
+exact continuation at updates 2/3/4, both cache-toggle directions, independent
+sampler agreement and exact prior-v4 full-batch continuation. CPU/reverse maximum
+parameter/moment difference is 6.66e-16; E/F/V differences are 8.88e-16 / 6.66e-16 /
+8.88e-16, with zero native export/reload difference. Five changed/corrupt sampler
+requests reject before output. These are synthetic software checks.
+
+For the short replay, use the final feature-enabled engine and evaluator, reserve
+the GPU and provide the prior accepted six-step full-batch reverse E/F/V directory
+and a new output directory:
+
+```text
+python mlmd/scripts/validate_minibatch_integration.py --engine ENGINE_EXE --evaluator EVAL_EXE --baseline-work PREVIOUS_FULL_BATCH_WORK --work NEW_WORK
+```
+
+It stops on failure without retry. The native 31-update and both-executor evidence
+remain separate; this replay does not repeat their performance benchmarks.

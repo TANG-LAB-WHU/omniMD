@@ -50,7 +50,8 @@ with executable commands; pending branch work is not counted as integrated.
 - Bounded frozen-hidden final-readout E+F fitting is integrated, including explicit
   heldout IDs and rank-aware QR. It is not complete-network training.
 - Full supported tanh network E+F training is integrated: exact mixed
-  parameter-coordinate AD, full-batch Adam and deterministic checkpoints.
+  parameter-coordinate AD, default full-batch or explicit minibatch Adam and
+  deterministic checkpoints.
   Normalization/cutoff/type-map/selection/atomic offsets stay fixed; small-model
   CPU bounds and independent duplicated one-side networks are explicit. Optional
   bounded CUDA computes all neural E/F gradients and Adam; CPU inference/loss
@@ -58,10 +59,12 @@ with executable commands; pending branch work is not counted as integrated.
   binds execution identity; CPU v1 remains compatible. See [scope](mlmd/native/CUDA_FULL_TRAINING.md).
 - Optional [row-strain virial supervision](mlmd/native/VIRIAL_TRAINING.md) is
   implemented for full CPU/CUDA training, with explicit weight/per-atom scale and
-  checkpoint v3 on CPU/default hyperdual, or v4 on reverse CUDA. Legacy E/F-only
-  checkpoint schemas remain compatible.
-- Minibatching, broader activation support and scalable training
-  remain future work; no generic DeepMD training compatibility is claimed.
+  full-batch checkpoint v3 on CPU/default hyperdual, or v4 on reverse CUDA;
+  minibatching uses v5. Legacy E/F-only checkpoint schemas remain compatible.
+- Deterministic minibatching is integrated for CPU and both CUDA executors,
+  with actual-count tails and v5 sampler checkpoints. Streaming, schedules,
+  broader activation support and scalable training remain future work; no generic
+  DeepMD training compatibility is claimed.
 - CPU ensemble disagreement and explicit candidate marking are implemented with
   independent population-statistics checks. Hash-bound subset extraction is now
   implemented and verified through assessment and CPU training of preserved
@@ -105,8 +108,9 @@ with executable commands; pending branch work is not counted as integrated.
   `se_e2_r`, `se_e3`/hybrid, attention/DPA, type embeddings, spin and tensor models
   are not implemented. Two audited frozen graph profiles are not a generic
   `.pb` importer; native `.pth`/JAX/Paddle import and compression are absent.
-- Training remains full-batch with fixed normalization/atomic offsets and
-  separately documented shape/data/tape budgets. Minibatches, schedules,
+- Training supports full-batch defaults and explicit deterministic minibatches
+  with fixed normalization/atomic offsets and separately documented shape/data/
+  tape budgets. Streaming datasets, schedules,
   distributed/multi-task training, tied one-side embeddings and general DeepMD
   training-file/checkpoint compatibility remain missing. Optional virial loss
   closes one loss-function gap, without removing those execution restrictions.
@@ -165,9 +169,32 @@ GPU speedup or production-model scaling result.
 Remaining throughput work should first measure current-model CPU inference,
 geometry-input transfers and launch costs with this cache enabled. Keeping fixed
 rows/types resident on device would need its own device-memory accounting, exact
-identity and failure/restart checks before implementation. Minibatching/streaming,
+identity and failure/restart checks before implementation. Dataset streaming,
 larger accepted models and moving primal inference remain distinct later work;
 no supported limit is raised by this cache.
+
+## Delivered: deterministic minibatches and v5 sampler restart
+
+Explicit `config.minibatch` supports CPU and both CUDA executors for E/F/optional-V
+training. Actual short-batch normalization, epoch-local sequential/shuffled
+sampling and canonical next-batch state are specified in the
+[native guide](mlmd/native/MINIBATCH_TRAINING.md). Full-batch defaults and actual
+v1-v4 historical continuation remain compatible. [Final integrated evidence](mlmd/evidence/native-minibatch-integrated.json)
+covers the CLI, sampler reference, tail/mid-epoch/cache-toggle restart and CPU
+parity. This milestone changes sampling, not supported physics or dataset capacity.
+
+## Next training infrastructure gap: bounded dataset streaming
+
+Training still materializes at most 1024 frames in memory; minibatches only choose
+which of those frames contribute to each update. The next proposed infrastructure
+milestone is an indexed or sharded reader with explicit bounded memory, validated
+frame identities and dataset provenance. It must preserve epoch order, exact tails,
+held-out isolation and sampler restart while detecting changed or missing input.
+Whole-pool geometry preparation would need a separately specified bounded cache
+policy for that reader. Retain the current in-memory route as an acceptance
+reference; do not merely raise limits without resource and restart checks.
+No streaming work starts in this tranche. Constant learning rate, no distributed
+training and the existing model/per-frame bounds remain separate limitations.
 
 ## Publication gate
 

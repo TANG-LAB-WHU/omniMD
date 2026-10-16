@@ -1,6 +1,6 @@
 # DeepMD feature coverage: reference version 3.1.3
 
-Matrix revision 10, checked 2026-10-16. Previous integrated CUDA runtime:
+Matrix revision 11, checked 2026-10-16. Previous integrated CUDA runtime:
 `9b8d1847f892e32751c73d3262e0245d0efb4cdd`. This includes engine inspection/tutorial,
 native source `b6b7aa7` and C API source `1aee39c`. Implementation and real-runtime
 validation are separate. C API CPU follow-up is now verified in `ce27786`
@@ -64,11 +64,12 @@ an official `input.json` is not a native training request.
 | External label return | Hash-bound job preparation and E/F/optional-V import; exact geometry/atom/parameter identity; fill missing labels, preserve source order/v2 | [Contract and replay](engine/EXTERNAL_LABELS.md); calculator/provenance declarations unverified; no job submission or automatic training |
 | Readout training | CPU default; optional native CUDA E/F/V feature columns, CPU rank-aware QR and assessment, optional bias | Frozen hidden layers; bounded dense solve; [microcase slower on CUDA](native/fixtures/cuda-readout-report.json); separate full-network route below |
 | Full supported-network training | CPU default; optional bounded CUDA all-neural E/F and optional V gradients and Adam, tanh/linear, checkpoint/restart | CPU inference/loss seeds/geometry/reduction/assessment retained; fixed normalization/cutoff/selection/atomic offsets; independent one-side copies; [CUDA bounds](native/CUDA_FULL_TRAINING.md) |
-| CUDA gradient executor | Hyperdual default; explicit cached reverse accumulation, same shape/work bounds, 64 MiB planned device-buffer payload | [Activation and evidence](native/CUDA_REVERSE_TRAINING.md); reverse checkpoint v4, no executor switch on resume; payload excludes driver/context memory |
+| CUDA gradient executor | Hyperdual default; explicit cached reverse accumulation, same shape/work bounds, 64 MiB planned device-buffer payload | [Activation and evidence](native/CUDA_REVERSE_TRAINING.md); full-batch reverse checkpoint v4 (minibatch v5), no executor switch on resume; payload excludes driver/context memory |
 | Fixed training geometry | Explicit CUDA full-training cache, both gradient executors; default false; 64 MiB retained host payload; exact identity checks | [Contract](native/FIXED_GEOMETRY_TRAINING.md); fixed training frames only; cache may toggle on resume; excludes temporary/allocator memory, assessment and current-loss directions |
-| Virial supervision | Optional full-network CPU/CUDA loss on all nine row-strain virial entries per atom; explicit positive weight/scale; loss-bound CPU/hyperdual v3 or reverse v4 | [Contract](native/VIRIAL_TRAINING.md); E/F labels still required; readout QR remains E/F-only; no stress/volume conversion |
+| Virial supervision | Optional full-network CPU/CUDA loss on all nine row-strain virial entries per atom; explicit positive weight/scale; loss-bound full-batch CPU/hyperdual v3 or reverse v4; minibatch v5 | [Contract](native/VIRIAL_TRAINING.md); E/F labels still required; readout QR remains E/F-only; no stress/volume conversion |
 | Split/provenance | Seeded or explicit held-out IDs, dataset/source hashes, validation isolation | No trajectory-independent split guarantee from random frames |
-| Generic DeepMD training options | Missing | End-to-end GPU/minibatch/distributed/multi-task training, learning-rate schedules, generic pretrained adaptation and broader architectures |
+| Deterministic minibatches | Explicit batch size/seed/order on CPU and both CUDA executors; actual-count tail normalization; v5 next-batch sampler and exact restart | [Contract](native/MINIBATCH_TRAINING.md); full-batch default; same 1024-frame in-memory dataset limit; no convergence equivalence claim |
+| Generic DeepMD training options | Missing | Streaming/end-to-end GPU/distributed/multi-task training, learning-rate schedules, generic pretrained adaptation and broader architectures |
 | Training monitoring | JSON reports and checkpoints | No TensorBoard integration or live monitoring service |
 | Freeze/export | Native training writes native-v1 JSON, reload checked | No native export into generic official training checkpoints or `.pb` |
 | Model information | `capabilities` static and GPU-free; `model-info` loads selected model | Metadata does not prove graph architecture, training units or GPU execution |
@@ -147,6 +148,16 @@ an official `input.json` is not a native training request.
   [Native evidence](native/fixtures/fixed-geometry-training-report.json) separately
   covers both CUDA executors and bounded three-run timing medians. Cache arrays
   remain transient; fixed training frames only, unchanged numerical limits.
+
+- Native minibatch source `3e7091c` is integrated as `5be7e49` on `b8ce8fa`.
+  [Final engine acceptance](evidence/native-minibatch-integrated.json) records
+  seven reverse E/F/V updates in batches 7,7,4,7,7,4,7; exact sampler agreement
+  with an independent integer reference; mid-epoch/tail/cache-toggle restart;
+  five refusal cases; CPU parity and exact old-v4 full-batch continuation.
+  Ten CPU-safe checks and the locked offline release build passed. The
+  [native receipt](native/fixtures/minibatch-training-report.json) separately
+  covers both CUDA executors and actual v1-v4 150-to-300 continuation. No new
+  performance result, streaming, larger dataset or physical accuracy is claimed.
 
 ## Implementation order and acceptance gates
 

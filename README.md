@@ -106,8 +106,9 @@ command and executable tutorial are local follow-ups pending publication; the
   biases), exact E/F features, rank-aware QR, explicit validation splits and
   unchanged native-v1 model export.
 - **Full supported-network training:** tanh embedding/hidden networks with linear
-  outputs, exact mixed E/F parameter gradients, full-batch Adam and deterministic
-  checkpoints. All neural weights/biases/timesteps train; geometry, normalization
+  outputs, exact mixed E/F parameter gradients, default full-batch or explicit
+  minibatch Adam and deterministic checkpoints. All neural weights/biases/timesteps
+  train; geometry, normalization
   and separate atomic offsets stay fixed. CPU reference-size limits apply.
 - **Fixed-cell minimization:** both inference backends, bounded steepest descent,
   force plus energy-change stopping criteria, explicit failure/nonconvergence,
@@ -159,7 +160,7 @@ see [DeepMD setup and limits](mlmd/deepmd/README.md).
 - Arbitrary DeepMD architectures, hybrid se_e3 or generic .pb/.pth/pickle import.
 - Partial PBC, mixed-type/virtual atoms or automatic unit/type-map guessing.
 - Classical-potential mixing and the full legacy Simulation/Propagator pipeline.
-- Minibatch/end-to-end GPU training, learned normalization or generic
+- Streaming/end-to-end GPU training, learned normalization or generic
   DeepMD training compatibility; duplicated one-side embeddings are not tied.
 - Production validation, long-time stability guarantees or general speedup claims.
 
@@ -194,7 +195,8 @@ parameterized training, and launches no external calculator or automatic loop.
 Full supported-network CPU/CUDA training also accepts optional
 [virial supervision](mlmd/native/VIRIAL_TRAINING.md): all nine row-strain entries,
 explicit per-atom scale/weight and loss-bound checkpoint v3 on CPU/default
-hyperdual (v4 on reverse CUDA). E/F-only CPU-v1 and hyperdual CUDA-v2
+hyperdual (v4 on reverse CUDA) for full-batch training; explicit minibatching
+uses v5. E/F-only CPU-v1 and hyperdual CUDA-v2
 continuation remain compatible. Frozen-readout fitting remains E/F-only.
 The recorded tiny joint-loss full process was 619 ms CPU versus 1816 ms CUDA;
 that historical hyperdual measurement does not establish a training speedup.
@@ -202,7 +204,7 @@ This extension is local and unpushed.
 
 The local [cached reverse CUDA executor](mlmd/native/CUDA_REVERSE_TRAINING.md) is
 available through explicit `config.cuda_gradient="reverse"`; hyperdual remains
-the default. Reverse checkpoint v4 binds loss/executor and device/runtime/program
+the default. Full-batch reverse checkpoint v4 binds loss/executor and device/runtime/program
 identity. On B's original 466-parameter/64-atom/100-step E/F/V fixture, three fresh
 process medians were CPU 2963 ms, hyperdual 1349 ms and reverse 877 ms. The tiny
 112-parameter case remained faster on CPU (615 ms versus reverse 1573 ms). These
@@ -231,3 +233,14 @@ confirms six steps, exact 3+3 and both cache-toggle continuations, agreement wit
 the prior uncached checkpoint, CPU E/F/V differences below 4.45e-16 and zero
 reload difference. The short replay retained 221,414 bytes for 18 training frames;
 15 affected CPU-safe checks and the offline release build passed.
+
+[Deterministic minibatching](mlmd/native/MINIBATCH_TRAINING.md) is now available
+for CPU and both CUDA full-network executors through explicit
+`config.minibatch={"batch_size":7,"seed":20261016,"order":"shuffle_each_epoch"}`.
+Absent/null retains full-batch behavior. Short tail batches are retained and
+normalized by their actual frame count; `steps` counts optimizer updates.
+Checkpoint v5 stores the validated next-batch sampler and supports exact
+same-runtime mid-epoch restart. The [step-18 guide](mlmd/GETTING_STARTED.md#18-select-deterministic-minibatches)
+and [integrated receipt](mlmd/evidence/native-minibatch-integrated.json) cover
+seven updates, tail/cache-toggle continuation and legacy full-batch compatibility.
+Datasets still load into memory within 1024 frames; this is not streaming training.
