@@ -2,8 +2,11 @@
 
 Later physical-data evidence: [public nonperiodic E/F training, 2026-10-16](PHYSICAL_DATA_VALIDATION.md)
 covers exact candidate `8167a4a`: 168 training / 43 held-out frames, 1,000 CUDA
-updates and numerical CPU/GPU inference parity. Held-out force error worsened;
-the result establishes pipeline feasibility, not production accuracy.
+updates and numerical CPU/GPU inference parity. The original force error worsened.
+A [single controlled loss-weight comparison](PHYSICAL_DATA_VALIDATION.md#bounded-training-diagnosis)
+and two-update CPU/GPU optimizer check support a loss tradeoff in this small
+training setup. The new force error improved but remains large; energy results
+are mixed. The 43-frame holdout is validation used for diagnosis, not a final test.
 
 Later platform evidence: [Linux native CUDA validation, 2026-10-16](LINUX_CUDA_VALIDATION.md)
 covers exact candidate `06439f1`, including tiled GPU E/F/V training and exact

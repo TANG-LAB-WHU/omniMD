@@ -3,8 +3,10 @@
 Candidate `8167a4a3f3ff8d67f53c22f911f3ff31f053fa5d` completed one bounded
 native CUDA fit against published quantum-chemical energy/force labels on
 2026-10-16. The pipeline, export and CPU/GPU numerical comparison passed.
-**Held-out force error worsened; this model is not suitable for production.**
-No validation-based tuning or additional fitting followed this result.
+**The original fit worsened validation force error; this model is not suitable
+for production.** Its original result is retained below. A subsequent
+[bounded diagnosis](#bounded-training-diagnosis) made one controlled loss-weight
+change; all 43 held-out frames are validation, not an untouched final test.
 The [compact receipt](evidence/physical-nopbc-training.json) retains provenance,
 source hashes, exact split indices, configuration, metrics and execution evidence.
 
@@ -135,6 +137,149 @@ Every component passed `1e-8 + 1e-10*abs(CPU)`. This compares inference, not CPU
 and GPU optimizer trajectories. Export reload E/F/V differences were zero.
 No GPU error or retry occurred. Container `omnimd-physical-8167a4a` was stopped
 and the GPU window released immediately afterward.
+
+## Bounded training diagnosis
+
+The follow-up used the same compiled candidate and existing data, with one short
+CPU/GPU optimizer comparison and **one** controlled training comparison. No native
+code, labels, architecture, normalization, split or initialization changed.
+The [diagnosis receipt](evidence/physical-nopbc-diagnosis.json) records the plan
+saved before execution, actual request differences, full metrics, hashes and logs.
+
+The evidence supports a loss tradeoff in this small training setup. No inspected
+data-mapping, energy-baseline or short CPU/CUDA optimizer defect was found, so
+no implementation fix is justified by this experiment. It does not prove that
+model capacity or training duration explains all remaining error, exclude shared
+CPU/CUDA defects, or establish agreement through every one of the 1,000 updates.
+
+### Initialization, mapping and loss diagnosis
+
+All 211 frames retain the official atom order and C/H/O mapping, including H-first
+source rows. The fixed atomic baseline uses only the 168 training labels and
+initial CPU predictions. Each composition's mean training energy residual after
+the offset is below `1e-9` eV. Fixed offsets cannot change forces.
+
+Pure Python arithmetic on the 168 training geometries found no broad tanh
+saturation. Initial/original-final descriptor absolute-value P95 was
+`0.0145877 / 0.0400383`; maximum first fitting-layer preactivation was
+`0.112312 / 0.249695`, and second-layer maximum was `0.0572682 / 0.639892`.
+Neither fitting layer had activations above 0.95 in absolute value. Only 0.1166%
+of original-final embedding activations exceeded 0.95 (padding included).
+The fixed mean-zero/std-one normalization produces small fitting inputs, but
+its independent effect on training was not tested. All 531 neural parameters
+changed in both fits; fixed model metadata and baselines stayed identical.
+
+The original objective is
+`mean_frames[(dE/N/0.1)^2] + mean_frames[mean_components(dF^2)]`.
+From initialization to the original 1,000-step model, its energy/force terms were:
+
+| Partition | Initial energy / force | Original final energy / force |
+| --- | ---: | ---: |
+| Training | 60.1898 / 46.0598 | 35.1663 / 48.7387 |
+| Validation | 32.4345 / 14.6913 | 20.7890 / 16.4497 |
+
+The total objective can improve while force error worsens, even on training
+data. Force loss uses equal frame weighting; the reported force RMSE pools atom
+components. Both conventions were independently reconciled. Saved intermediate
+checkpoints do not contain an error curve, so no onset step is inferred.
+
+### Two-update CPU/CUDA state comparison
+
+Both backends started from the same initial model and used the same first two
+shuffled batches of eight training frames. CPU set `device=cpu` and removed only
+`cuda_gradient`, `cuda_loss`, `cuda_tiling` and `fixed_geometry_cache`; both used
+two updates and the original E/F weights. All other numerical settings matched.
+CPU uses reverse AD over coordinate-directional tangents; CUDA uses device loss/reverse
+derivatives and Adam. No checkpoint was resumed across backends.
+
+The preregistered per-element tolerance was
+`abs(a-b) <= 2e-10*(1+max(abs(a),abs(b)))`:
+
+| Compared array | Elements | Maximum absolute difference |
+| --- | ---: | ---: |
+| Neural parameters | 531 | 2.77556e-17 |
+| Adam first moments | 531 | 1.11022e-16 |
+| Adam second moments | 531 | 6.93889e-18 |
+
+Every value was finite. Step, sampler, partitions, data/layout hashes, initial
+model and frozen fields matched exactly. CPU v6 and CUDA v8 checkpoint schemas
+are intentionally different. This checks 16 frame visits and two updates only.
+
+### Single controlled loss-weight comparison
+
+The sole numerical configuration change was `energy_weight: 1.0 -> 0.1`.
+The rationale used the training loss decomposition: at that weight, the old
+final model scores worse than initialization (`52.2554` versus `52.0787`), so
+the old energy-for-force tradeoff is no longer rewarded. This was a hypothesis,
+not a guarantee of better force accuracy.
+
+The comparison restarted from the identical `initial.json` with a fresh optimizer
+and the identical 100-update plus 900-update continuation. E/F scales, force
+weight, batch/seed, Adam, clipping, learning-rate schedule, tile and cache settings
+remained fixed. Paths changed only to separate outputs and their checkpoints.
+Clipping remains at 10; changing the energy weight can also change when clipping
+is active. Neither clipping frequency nor per-step gradient balance was measured.
+
+| Partition / metric | Initial | Original weight 1, step 1000 | Weight 0.1, step 1000 |
+| --- | ---: | ---: | ---: |
+| Training E/atom RMSE, eV | 0.775821 | 0.593012 | 0.765865 |
+| Training total E RMSE, eV | 6.626241 | 5.099892 | 6.650750 |
+| Training force RMSE, eV/angstrom | 6.970691 | 7.170289 | 6.619143 |
+| Validation E/atom RMSE, eV | 0.569513 | 0.455950 | 0.523472 |
+| Validation total E RMSE, eV | 4.878643 | 3.947965 | 4.451817 |
+| Validation force RMSE, eV/angstrom | 3.933565 | 4.164336 | 3.707381 |
+
+Compared with initialization, controlled force RMSE improved by 5.04% on training
+and 5.75% on validation. Energy improvement was smaller than the original fit;
+training total E RMSE actually worsened by 0.37%. Each cell below is
+`E/atom RMSE (eV) / force RMSE (eV/angstrom)`; no composition was omitted:
+
+| Partition / composition | Initial | Original weight 1 | Weight 0.1 |
+| --- | ---: | ---: | ---: |
+| Training C1H4O2 | 0.741510 / 4.782089 | 0.551635 / 4.968613 | 0.698176 / 4.696897 |
+| Training C3H3O4 | 0.858108 / 7.474768 | 0.667514 / 7.710302 | 0.890345 / 7.034156 |
+| Training C4H3O1 | 0.388610 / 15.679827 | 0.410753 / 15.864367 | 0.355543 / 14.681568 |
+| Validation C1H4O2 | 0.540499 / 2.569158 | 0.402533 / 2.704303 | 0.509124 / 2.510929 |
+| Validation C3H3O4 | 0.640125 / 4.149817 | 0.521140 / 4.405649 | 0.576455 / 3.913755 |
+| Validation C4H3O1 | 0.355602 / 8.119471 | 0.484806 / 8.588005 | 0.285899 / 7.438997 |
+
+C3H3O4 training energy worsened versus initialization. Its ten-atom frames
+carry more weight in total-E squared error than seven/eight-atom frames, which
+explains why aggregate E/atom and total E move differently. The new objective
+decreased from `52.0787 -> 47.5852` on training and `17.9348 -> 15.8195` on
+validation; total objectives with different weights must not be compared directly.
+The receipt also evaluates all three models under each common objective.
+
+The controlled fit changed all 72 embedding, 432 hidden-fitting and 27 output
+parameters. Their L2 displacements from initialization were respectively
+`2.341564 / 5.805360 / 1.542246`, versus `2.790761 / 6.059254 / 1.425379` in the
+original fit. Its final model SHA256 is
+`9f8bf5036b8f168f1b944e2bd7a3b17fda4e4f2de39895e59d1db21f5806d1ea`.
+
+Independent CPU evaluation reproduced all new final metrics within `1e-10`.
+Three validation slice frames had maximum CPU/GPU E/F/V differences
+`0 / 8.88178e-16 / 4.44089e-16`; export reload differences were zero. CUDA
+execution was explicit, with no fallback, error or retry. The comparison's fit
+processes took `0.433565 + 1.402735` seconds. The diagnostic runner took
+2.859038 seconds; combined with the original runner and CPU baseline, recorded
+wall time was 7.363818 seconds, below the 1,200-second compute budget. These
+single measurements include startup/JIT/cache, synchronization and I/O; they
+are not a speedup comparison. Compilation, static analysis and documentation
+are outside that recorded model-run wall time.
+
+The container was stopped immediately after completion and the GPU window
+released. No further fit or parameter search followed. This remains one seed,
+three compositions and index-held-out **validation** used for analysis; there
+is no untouched final test. Errors remain large, especially C4H3O1 forces, and
+the controlled model is not ready for production. No wider architecture or
+chemical-transferability claim follows from this experiment.
+
+Exact requests, models, checkpoints and logs are in the existing local artifact
+root under `diagnosis-01/`. The local `run_diagnosis.py` and
+`diagnostic-static-analysis.json` retain the recipe/arithmetic; hashes are in
+the tracked receipt. A replay needs those task-local files and a fresh output
+directory with the same cached inputs and binaries. Never clear attempt markers
+or reuse attempted outputs; this diagnosis does not rerun automatically.
 
 ## Replaying the saved experiment
 
