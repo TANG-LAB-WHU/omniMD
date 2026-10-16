@@ -535,3 +535,51 @@ compact receipt. Generated data, weights, checkpoints, binaries and raw logs
 remain outside Git. This is a local unpushed candidate with no HAP input or
 system/driver changes. The next proposed optimization is bounded reuse of
 immutable frame geometry, explicitly excluding current-loss directional rows.
+
+## Local fixed training-geometry cache integration
+
+Native source `bbfecc639fc045de778344e3ebf3ec97ae07a41c` is integrated as
+`a6a841d245107fa48630f9c8d713e97063f7194c` on stable `94427ef`. Explicit
+`config.fixed_geometry_cache=true` enables eager fixed-frame geometry reuse for
+both CUDA gradient executors; default false and CPU-only rejection remain explicit.
+The 64 MiB retained host-payload cap is separate from device-buffer limits and
+excludes allocator overhead, original input data and temporary construction.
+Exact identity mismatch invalidates the pool and stops training. Current-model
+predictions, losses and directional rows are rebuilt each step; only selected
+training-frame neighbors, full periodic displacements and normalized R/J persist.
+Assessment remains uncached, with per-step GPU input uploads unchanged.
+
+The setting may toggle on resume without a schema or numerical execution-identity
+change. Cache arrays/stats are rebuilt, not checkpointed. Dataset, split, objective,
+CUDA device/driver/PTX and backend constraints still apply. No dependency or
+shared model/dataset format was changed and no supported limit was raised.
+
+[Final integrated acceptance](evidence/native-geometry-cache-integrated.json)
+uses the existing 24-frame fixture, 18 training frames, 112 neural parameters and
+six reverse E/F/V steps. Continuous and 3+3 cached training agree exactly, as do
+on-to-off continuation and off-to-on continuation from the actual prior `94427ef`
+step-3 checkpoint. Final state equals its saved step-6 state, excluding only the
+runtime flag and additional-step count. CPU/reverse maximum differences remain
+1.11e-16 parameters, 2.78e-16 Adam moments and 4.44e-16 / 3.89e-16 / 4.44e-16 E/F/V;
+reload differences are zero. Changed loss/device/executor requests still reject
+without output. The cache retains 221,414 bytes, with 108 hits for six steps and
+54 for the three-step restart. Fifteen affected CPU-safe checks and the final
+locked offline release build passed. GPU was released at 2026-10-16 12:31:39 UTC,
+with no remaining omniMD process and no device-failure retry.
+
+[Native evidence](native/fixtures/fixed-geometry-training-report.json) separately
+covers both executors' gradients/Adam/cache-toggle exactness, historical checkpoint
+compatibility and alternating fresh-process benchmarks. Three-run medians for
+466-parameter, 64-atom, eight-frame, 100-update synthetic E/F/V training are
+865.5/818.4 ms cache off/on for a cluster and 6946.3/956.9 ms for its triclinic
+periodic variant. Those include construction, initialization, updates, assessment,
+checkpoints and export/reload. This final integration did not repeat them. The
+periodic gain reflects avoided repeated CPU image enumeration, not generic GPU
+acceleration, physical accuracy or production-model scaling.
+
+Outside the native commit, this tranche updates capability reporting, the English
+README/usage/matrix/roadmap/release guides, the short acceptance script and compact
+receipt. Generated datasets, weights, checkpoints, binaries and raw logs remain
+outside Git. Work is local and unpushed; no HAP input, installation or system/driver
+change is included. Linux CUDA, large-model throughput and broader architectures
+remain unverified or unsupported as recorded in the feature matrix.

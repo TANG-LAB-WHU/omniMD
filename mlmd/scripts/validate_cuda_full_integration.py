@@ -43,9 +43,13 @@ def main():
     parser.add_argument('--fixtures', type=Path, required=True)
     parser.add_argument('--work', type=Path, required=True)
     parser.add_argument('--cuda-gradient', choices=('hyperdual','reverse'), default='hyperdual')
+    parser.add_argument('--fixed-geometry-cache', action='store_true', help='Check cached training plus both cache-toggle restart directions')
+    parser.add_argument('--legacy-uncached-work', type=Path, help='Required with cache: previous same-executor uncached six-step acceptance')
     parser.add_argument('--virial-loss', action='store_true', help='Enable weight 1, scale 0.1 eV/atom and a short CPU comparison')
     parser.add_argument('--legacy-ef-work', type=Path, help='Optional previous six-step E/F integration output for CUDA-v2 continuation check')
     args = parser.parse_args()
+    if args.fixed_geometry_cache and not args.legacy_uncached_work:
+        parser.error('--fixed-geometry-cache requires --legacy-uncached-work')
     engine, evaluator, fixtures, work = [p.resolve() for p in
         (args.engine, args.evaluator, args.fixtures, args.work)]
     trainer = engine.with_name('omnimd-native-train'+engine.suffix)
@@ -88,6 +92,11 @@ def main():
         req['config']['virial_loss']={'weight':1.0,'scale_ev_per_atom':0.1}
     else:
         req['config'].pop('virial_loss',None)
+    if args.fixed_geometry_cache:
+        assert capabilities['training']['cuda']['fixed_geometry_cache']['cpu_only'] is False
+        req['config']['fixed_geometry_cache']=True
+    else:
+        req['config'].pop('fixed_geometry_cache',None)
     write(work/'continuous.request.json',req)
     run('continuous', [engine,'train-native',work/'continuous.request.json'])
     resume = deepcopy(req)
@@ -126,6 +135,15 @@ def main():
         assert report['source_sha256'] == reports[0]['source_sha256']
         for group,change in report['parameter_changes_from_initial'].items():
             assert change['changed'] == change['parameters'] and change['delta_l2'] > 0, group
+    cache_stats=None
+    if args.fixed_geometry_cache:
+        cache_stats=[report['fixed_geometry_cache'] for report in reports]
+        for stats,steps in zip(cache_stats,(6,3)):
+            assert stats['frames']==len(a['training_indices'])
+            assert stats['hits']==steps*len(a['training_indices'])
+            assert 0<stats['retained_payload_bytes']<=stats['policy_limit_bytes']==64*1024*1024
+            assert len(stats['geometry_sha256'])==64
+        assert cache_stats[0]['geometry_sha256']==cache_stats[1]['geometry_sha256']
     assert (work/'continuous/model.json').read_bytes() == (work/'resumed/model.json').read_bytes()
     lines = (work/'frames.jsonl').read_text(encoding='utf-8')
     predictions = [json.loads(s) for s in run('export-eval',[evaluator,work/'continuous/model.json'],lines).splitlines()]
@@ -147,6 +165,7 @@ def main():
         cpu=deepcopy(req)
         cpu.update(device='cpu',output_directory='cpu-reference')
         cpu['config'].pop('cuda_gradient',None)
+        cpu['config'].pop('fixed_geometry_cache',None)
         write(work/'cpu.request.json',cpu)
         run('cpu-reference',[engine,'train-native',work/'cpu.request.json'])
         state=read(work/'cpu-reference/checkpoint.json')
@@ -182,6 +201,35 @@ def main():
         run('reject-executor',[engine,'train-native',work/'wrong-executor.request.json'],expected_error='checkpoint')
         assert not (work/'rejected-executor').exists()
         executor_change_rejected=True
+    cache_toggle_exact=None
+    historical_uncached_exact=None
+    if args.fixed_geometry_cache:
+        def numerical_state(checkpoint):
+            state=deepcopy(checkpoint)
+            state['config'].pop('steps')
+            state['config'].pop('fixed_geometry_cache',None)
+            return state
+        cache_off=deepcopy(resume)
+        cache_off['config'].pop('fixed_geometry_cache')
+        cache_off['output_directory']='resumed-cache-off'
+        write(work/'resumed-cache-off.request.json',cache_off)
+        run('resume-cache-off',[engine,'train-native',work/'resumed-cache-off.request.json'])
+        assert numerical_state(read(work/'resumed-cache-off/checkpoint.json'))==numerical_state(a)
+        assert 'fixed_geometry_cache' not in read(work/'resumed-cache-off/report.json')
+        legacy=args.legacy_uncached_work.resolve()
+        old=read(legacy/'continuous/checkpoint.json')
+        assert old['step']==6 and 'fixed_geometry_cache' not in old['config']
+        assert old['dataset_sha256']==sha(work/'dataset.jsonl')
+        assert old['execution']==a['execution']
+        assert numerical_state(old)==numerical_state(a)
+        legacy_on=deepcopy(resume)
+        legacy_on.update(checkpoint=str(legacy/'continuous/checkpoint-step-3.json'),output_directory='legacy-off-to-on')
+        write(work/'legacy-off-to-on.request.json',legacy_on)
+        run('legacy-off-to-on',[engine,'train-native',work/'legacy-off-to-on.request.json'])
+        assert numerical_state(read(work/'legacy-off-to-on/checkpoint.json'))==numerical_state(old)
+        assert read(work/'legacy-off-to-on/report.json')['fixed_geometry_cache']['hits']==3*len(a['training_indices'])
+        cache_toggle_exact=True
+        historical_uncached_exact=True
     if args.legacy_ef_work:
         legacy=args.legacy_ef_work.resolve()
         legacy_request=read(legacy/'continuous.request.json')
@@ -201,8 +249,10 @@ def main():
         'schema':'omnimd-cuda-full-training-integration-v1', 'status':'passed',
         'scope':'Six-step engine CLI integration only; original synthetic 24-frame fixture. Independent gradient and 300-step acceptance remain in B receipt. No performance or chemical-accuracy claim.',
         'started_utc':started,'completed_utc':datetime.now(timezone.utc).isoformat(),
-        'source_native_commit':'f33d332adcafcc2a360b22e9605d6da43870eaf9' if args.cuda_gradient=='reverse' else 'd12fdb5c36a4fa74a10fb14bbb489a664cae0a2c' if args.virial_loss else 'f4dbf62bb4acb97e8f7e12e62de625e08af07a05',
-        'integrated_native_commit':'f4e794a' if args.cuda_gradient=='reverse' else '7d3d472' if args.virial_loss else '02b5457',
+        'source_native_commit':'bbfecc639fc045de778344e3ebf3ec97ae07a41c' if args.fixed_geometry_cache else 'f33d332adcafcc2a360b22e9605d6da43870eaf9' if args.cuda_gradient=='reverse' else 'd12fdb5c36a4fa74a10fb14bbb489a664cae0a2c' if args.virial_loss else 'f4dbf62bb4acb97e8f7e12e62de625e08af07a05',
+        'integrated_native_commit':'a6a841d' if args.fixed_geometry_cache else 'f4e794a' if args.cuda_gradient=='reverse' else '7d3d472' if args.virial_loss else '02b5457',
+        'fixed_geometry_cache':args.fixed_geometry_cache,'cache_statistics':cache_stats,
+        'cache_toggle_both_directions_exact':cache_toggle_exact,'historical_uncached_checkpoint_exact':historical_uncached_exact,
         'cuda_gradient':args.cuda_gradient,'executor_change_rejected_without_output':executor_change_rejected,
         'virial_loss':req['config'].get('virial_loss'),'checkpoint_schema':a['schema'],
         'loss_contract':a.get('loss_contract'),'cpu_comparison':cpu_comparison,

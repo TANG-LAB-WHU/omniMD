@@ -1,6 +1,6 @@
 # DeepMD feature coverage: reference version 3.1.3
 
-Matrix revision 9, checked 2026-10-16. Previous integrated CUDA runtime:
+Matrix revision 10, checked 2026-10-16. Previous integrated CUDA runtime:
 `9b8d1847f892e32751c73d3262e0245d0efb4cdd`. This includes engine inspection/tutorial,
 native source `b6b7aa7` and C API source `1aee39c`. Implementation and real-runtime
 validation are separate. C API CPU follow-up is now verified in `ce27786`
@@ -65,6 +65,7 @@ an official `input.json` is not a native training request.
 | Readout training | CPU default; optional native CUDA E/F/V feature columns, CPU rank-aware QR and assessment, optional bias | Frozen hidden layers; bounded dense solve; [microcase slower on CUDA](native/fixtures/cuda-readout-report.json); separate full-network route below |
 | Full supported-network training | CPU default; optional bounded CUDA all-neural E/F and optional V gradients and Adam, tanh/linear, checkpoint/restart | CPU inference/loss seeds/geometry/reduction/assessment retained; fixed normalization/cutoff/selection/atomic offsets; independent one-side copies; [CUDA bounds](native/CUDA_FULL_TRAINING.md) |
 | CUDA gradient executor | Hyperdual default; explicit cached reverse accumulation, same shape/work bounds, 64 MiB planned device-buffer payload | [Activation and evidence](native/CUDA_REVERSE_TRAINING.md); reverse checkpoint v4, no executor switch on resume; payload excludes driver/context memory |
+| Fixed training geometry | Explicit CUDA full-training cache, both gradient executors; default false; 64 MiB retained host payload; exact identity checks | [Contract](native/FIXED_GEOMETRY_TRAINING.md); fixed training frames only; cache may toggle on resume; excludes temporary/allocator memory, assessment and current-loss directions |
 | Virial supervision | Optional full-network CPU/CUDA loss on all nine row-strain virial entries per atom; explicit positive weight/scale; loss-bound CPU/hyperdual v3 or reverse v4 | [Contract](native/VIRIAL_TRAINING.md); E/F labels still required; readout QR remains E/F-only; no stress/volume conversion |
 | Split/provenance | Seeded or explicit held-out IDs, dataset/source hashes, validation isolation | No trajectory-independent split guarantee from random frames |
 | Generic DeepMD training options | Missing | End-to-end GPU/minibatch/distributed/multi-task training, learning-rate schedules, generic pretrained adaptation and broader architectures |
@@ -137,6 +138,15 @@ an official `input.json` is not a native training request.
   medium CPU/hyperdual/reverse 2963/1349/877 ms; tiny CPU/reverse 615/1573 ms.
   CPU primal/loss seeds, geometry, stable reduction and assessment remain. No
   architecture/dataset bound was raised; Linux CUDA remains unverified.
+
+- Native fixed-geometry source `bbfecc6` is integrated as `a6a841d` on `94427ef`.
+  [Final cache CLI acceptance](evidence/native-geometry-cache-integrated.json)
+  records six reverse E/F/V steps, exact same-cache and both cache-toggle
+  continuation, old uncached checkpoint compatibility, CPU parity and zero reload
+  difference. Fifteen CPU-safe checks and the offline release build passed.
+  [Native evidence](native/fixtures/fixed-geometry-training-report.json) separately
+  covers both CUDA executors and bounded three-run timing medians. Cache arrays
+  remain transient; fixed training frames only, unchanged numerical limits.
 
 ## Implementation order and acceptance gates
 

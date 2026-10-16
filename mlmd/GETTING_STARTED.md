@@ -658,3 +658,61 @@ agreement within 1.12e-16 and exported E/F/V differences of 4.44e-16 / 3.89e-16 
 4.44e-16. All 112 parameters changed and reload differences were zero. Loss,
 device and executor changes rejected without output; this establishes no new
 performance result or cross-runtime exact reproducibility.
+
+## 17. Reuse fixed training geometry explicitly
+
+Use the full-training request and CUDA-enabled sibling trainer from step 13,
+with explicit `"device":"cuda:0"`. Either hyperdual or reverse gradients work;
+add inside `config`:
+
+```json
+"fixed_geometry_cache": true
+```
+
+The default is false (omitted from serialized defaults). CPU-only training rejects
+this option. Run the existing `omnimd-mlmd train-native REQUEST.json` command into
+a new output directory. Dataset/split checks and eager cache construction happen
+before CUDA context creation and optimizer updates. Only selected training frames
+are retained; inspect `report.json`'s `fixed_geometry_cache` fields for frame/slot
+count, retained payload, 64 MiB policy limit, construction time, hits and audit
+geometry digest. The cap excludes allocator overhead, the original dataset,
+current neural buffers and temporary construction buffers; it is not peak RAM.
+Over-budget or construction failure rejects rather than silently falling back.
+
+Reuse checks exact coordinate/cell bits, ordered types, units, type map, descriptor,
+cutoffs, selection and normalization. Any mismatch invalidates the pool and stops;
+recreate the trainer/cache to use changed geometry. It is not a moving-frame MD
+neighbor cache. Full periodic displacements and normalized R/J are reused, while
+current neural predictions, loss cotangents and directional rows are recomputed.
+Assessment stays uncached and gradient input rows still upload each step.
+
+Resume may enable or disable this runtime cache with the same numerical backend,
+dataset, split, objective and execution identity. Cache arrays/stats are not saved
+in checkpoints; enabled caches rebuild on restart. Existing checkpoint schemas
+remain unchanged. Exact comparisons exclude only this runtime flag and requested
+additional-step count. Do not combine a cache toggle with an executor/loss change.
+
+The [native contract and measurements](native/FIXED_GEOMETRY_TRAINING.md) record
+three alternating fresh-process runs per setting on 466-parameter, 64-atom,
+eight-frame E/F/V fixtures for 100 updates. Median off/on processes are 865.5 /
+818.4 ms for a cluster and 6946.3 / 956.9 ms for its triclinic periodic variant.
+Both retain 1,290,058 bytes for six training frames. The periodic result reflects
+avoided repeated CPU image enumeration in this bounded synthetic case. It does
+not establish production scaling, physical accuracy or general GPU acceleration.
+
+For a short integrated replay, extend the step-16 command with
+`--fixed-geometry-cache --legacy-uncached-work PREVIOUS_REVERSE_WORK`, where the
+previous directory contains the accepted uncached six-step reverse E/F/V replay
+and its step-3 checkpoint. Reserve the GPU and choose a new work directory. The
+script checks six cached steps, cached 3+3 continuation, on-to-off continuation,
+old off-to-on continuation, CPU parity and unchanged refusal contracts. It stops
+on failures without retry and does not rerun the native performance benchmarks.
+
+The [final cache integration receipt](evidence/native-geometry-cache-integrated.json)
+confirms reverse-executor six-step and 3+3 equality, on-to-off equality, and exact
+off-to-on continuation from the prior `94427ef` checkpoint. Comparisons exclude
+only requested step count and the cache flag. It retained 221,414 bytes for
+18 frames, recording 108 hits over six steps and 54 over the three resumed steps.
+CPU/reverse E/F/V differences were 4.44e-16 / 3.89e-16 / 4.44e-16, reload zero.
+Native evidence separately covers both executors; this final short replay adds
+no performance measurement or broader architecture/data support.

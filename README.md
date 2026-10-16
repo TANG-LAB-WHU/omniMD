@@ -213,3 +213,21 @@ establish production scaling or general speedup. Existing bounds remain in force
 passed six joint-loss steps, exact 3+3 checkpoint continuation, CPU E/F/V agreement
 within 4.45e-16 and zero model-reload difference. Device, loss and executor changes
 reject without training output. This short check adds no timing claim.
+
+Optional [fixed training geometry reuse](mlmd/native/FIXED_GEOMETRY_TRAINING.md)
+is enabled with `config.fixed_geometry_cache=true` and an explicit CUDA device,
+using either gradient executor. Default is false; CPU-only training rejects it.
+The eager cache retains selected training-frame neighbors, full periodic
+displacements and normalized R/J within a 64 MiB host-payload cap. Current-model
+predictions and loss directions are rebuilt every step. Identity mismatch stops
+training; cache on/off may toggle at restart without changing numerical state.
+See [the step-by-step entrypoint](mlmd/GETTING_STARTED.md#17-reuse-fixed-training-geometry-explicitly).
+Recorded three-process off/on medians are 865.5/818.4 ms for the 64-atom synthetic
+cluster and 6946.3/956.9 ms for its triclinic periodic variant. The benefit is
+workload-specific CPU geometry reuse, not a general GPU acceleration claim.
+
+[Final cache integration evidence](mlmd/evidence/native-geometry-cache-integrated.json)
+confirms six steps, exact 3+3 and both cache-toggle continuations, agreement with
+the prior uncached checkpoint, CPU E/F/V differences below 4.45e-16 and zero
+reload difference. The short replay retained 221,414 bytes for 18 training frames;
+15 affected CPU-safe checks and the offline release build passed.

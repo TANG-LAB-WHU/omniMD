@@ -137,26 +137,37 @@ integrated CLI, CPU parity, exact v4 continuation and refusal contracts; it adds
 no performance result. CPU inference/loss seeds, geometry, stable reduction,
 clipping and assessment remain. No general speedup or larger-model support follows.
 
-## Next bounded throughput work: reuse immutable training geometry
+## Delivered: bounded reuse of immutable training geometry
 
-Propose a transient, memory-bounded cache for fixed training-frame neighbors,
-image displacements, normalized environment R/J and type metadata. Key/invalidate
-it on frame coordinates, ordered types, cell, cutoff, selection and normalization.
-Preserve deterministic ordering, enforce a measured host-memory budget, and keep
-cache state out of checkpoints. Rebuild loss seeds and coordinate-directional
-rows every step: these depend on current predictions and cotangents and must not
-be treated as immutable geometry. Do not change supported physics or raise limits.
+The optional [fixed geometry cache](mlmd/native/FIXED_GEOMETRY_TRAINING.md) is
+implemented for both CUDA full-training gradient executors. It reuses selected
+training-frame neighbors, full periodic displacements and normalized R/J for CPU
+primal inference and gradient direction construction. Current-model predictions,
+loss seeds and directional rows are rebuilt every step. The default remains off;
+CPU-only requests reject. Exact identity changes invalidate the entire pool and
+stop training. Existing numerical bounds and checkpoint schemas remain unchanged;
+cache toggles are allowed on restart under the same execution identity.
 
-The existing reverse medium runs average 34.5 ms of reported geometry work over
-600 frame-gradient evaluations; the tiny replay records 73.7 ms over 5400. This
-phase also includes direction assembly, so those totals are not the amount a
-geometry cache can necessarily save. CPU prediction/seeds in the medium case
-average 226 ms and remain separate. First measure immutable construction versus
-cotangent-dependent work, then compare cache-disabled/enabled gradients, complete
-training and exact restart under the same runtime. Verify invalidation and the
-memory ceiling using tiny and existing medium fixtures. Any throughput benefit
-must be measured; this proposal is not yet implemented. Minibatching/streaming
-and moving primal inference remain distinct later work.
+The 64 MiB retained host payload cap includes identity snapshots and cache records,
+not allocator overhead, original dataset or temporary construction buffers. Eager
+construction fails as a whole over budget. Assessment remains uncached, and input
+rows still transfer each gradient call. This cache is separate from moving-frame
+MD candidate/Verlet reuse.
+
+[B's evidence](mlmd/native/fixtures/fixed-geometry-training-report.json) includes
+cache-on/off exact gradients, Adam and cross-toggle continuation for both CUDA
+executors, old-checkpoint compatibility, and three complete processes per setting.
+The 466-parameter/64-atom cluster off/on medians are 865.5/818.4 ms; the triclinic
+periodic variant is 6946.3/956.9 ms. These bounded synthetic measurements include
+cache construction and reflect avoided CPU geometry enumeration, not a general
+GPU speedup or production-model scaling result.
+
+Remaining throughput work should first measure current-model CPU inference,
+geometry-input transfers and launch costs with this cache enabled. Keeping fixed
+rows/types resident on device would need its own device-memory accounting, exact
+identity and failure/restart checks before implementation. Minibatching/streaming,
+larger accepted models and moving primal inference remain distinct later work;
+no supported limit is raised by this cache.
 
 ## Publication gate
 
