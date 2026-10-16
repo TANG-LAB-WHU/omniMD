@@ -93,6 +93,8 @@ command and executable tutorial are local follow-ups pending publication; the
 - **CPU model disagreement:** retained ensembles, absolute E/F/virial deviation and
   explicit force-window candidate flags; [stepwise usage](mlmd/engine/MODEL_DEVIATION.md)
   and independent synthetic replay. Disagreement is not calibrated uncertainty.
+  [Hash-bound subset extraction](mlmd/engine/DATASET_SELECTION.md) preserves reviewed
+  IDs and labels for assessment or externally labeled training inputs.
 - **Native readout training:** frozen-hidden final linear weights (optional
   biases), exact E/F features, rank-aware QR, explicit validation splits and
   unchanged native-v1 model export.
@@ -146,11 +148,11 @@ see [DeepMD setup and limits](mlmd/deepmd/README.md).
 ## Current limitations
 
 - NPT/barostats, cell relaxation or constraints. Optional CUDA inference is
-  available within the separate scopes above; GPU training is not implemented.
+  available within the separate scopes above; full-network GPU training is not implemented.
 - Arbitrary DeepMD architectures, hybrid se_e3 or generic .pb/.pth/pickle import.
 - Partial PBC, mixed-type/virtual atoms or automatic unit/type-map guessing.
 - Classical-potential mixing and the full legacy Simulation/Propagator pipeline.
-- Minibatch/GPU training, virial-loss training, learned normalization or generic
+- Minibatch/full-network GPU training, virial-loss training, learned normalization or generic
   DeepMD training compatibility; duplicated one-side embeddings are not tied.
 - Production validation, long-time stability guarantees or general speedup claims.
 

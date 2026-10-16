@@ -36,6 +36,7 @@ fn capabilities() -> serde_json::Value {
         },
         "cuda_validation":{"kind":"recorded fixture numerical agreement; not a probe of this host","native_evidence":["mlmd/native/fixtures/cuda-validation-report.json","mlmd/evidence/native-cuda-cli.json"],"deepmd_c_api_evidence":"mlmd/deepmd/validation/cuda-public-six-atom.json","performance":"bounded measurements only; small models were slower on both GPU paths; no general speedup claim"},
         "datasets":{"schema":dataset::SCHEMA,"import":["DeepMD standard NPY C-order float64","XYZ","bounded extxyz profile"],"explicit_sets":true,"partial_labels":true,"training":false,"automatic_split":false,"inspection":"inspect-dataset; full structural validation, streamed-byte SHA256 and E/F/V coverage; no model or GPU load"},
+        "dataset_selection":{"entry":"select-dataset","expected_source_sha256":"required","output":"new bundle: dataset.jsonl, request.json, receipt.json","order":"source order; IDs preserved, contiguous new indices","bounds":"10000 IDs; 4 MiB request; 256 MiB selected JSONL","labels":"preserved including absence; none generated"},
         "model_deviation":{"entry":"model-deviation","device":"cpu","members":"2..16","statistics":"absolute population E/atom, force vector and virial/atom deviation","selection":"explicit max-force interval; marks candidates only","runtime_scope":"native CPU tested; parameter-free C API route requires compatible external runtime"},
         "training":{"entry":"train-native","scope":["frozen-hidden final-readout E+F fit","full supported tanh network E+F Adam"],"backend":"native float64; CPU default","cuda":{"frozen_readout_features":true,"requires_sibling_trainer_cuda_feature":true,"solver":"CPU QR","assessment":"CPU","full_network":false,"performance":"recorded 3/4-atom feature microcase slower than CPU"},"full_network":true,"full_network_scope":"native-v1 tanh hidden / linear output; fixed normalization, cutoff, type-map, selection and atomic offsets; reference-size bounds","request_schemas":["omnimd-native-readout-train-v1","omnimd-native-full-train-v1"]},
         "minimization":{"method":"bounded steepest descent","fixed_cell":true,"force_and_energy_criteria":true},
@@ -127,6 +128,11 @@ pub fn dispatch(args: &[OsString]) -> Result<bool, Box<dyn Error>> {
     }
     if args.len() == 1 && args[0] == "capabilities" {
         println!("{}", serde_json::to_string_pretty(&capabilities())?);
+        return Ok(true);
+    }
+    if args.len() == 3 && args[0] == "select-dataset" {
+        let report = omnimd_mlmd::selection::select_dataset(Path::new(&args[1]), Path::new(&args[2]))?;
+        println!("Selected {} of {} frames; verify receipt.json and dataset/request hashes in the new bundle.", report.selected_frames, report.input_frames);
         return Ok(true);
     }
     if args.len() == 3 && args[0] == "inspect-dataset" {

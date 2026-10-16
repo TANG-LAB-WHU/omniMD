@@ -1,0 +1,120 @@
+{
+  "schema": "omnimd-selection-replay-v1",
+  "status": "passed",
+  "device": "cpu",
+  "scope": "Original synthetic software fixtures. No labels generated; CUDA-assisted trainer integration exercised on CPU only.",
+  "source_frames": 12,
+  "selected_frames": 6,
+  "labeled_frames": 3,
+  "training_frames": 2,
+  "validation_frames": 1,
+  "selected_ids": [
+    "deviation/1",
+    "deviation/2",
+    "deviation/3",
+    "deviation/4",
+    "deviation/10",
+    "deviation/11"
+  ],
+  "selection_mapping": [
+    {
+      "id": "deviation/1",
+      "source_index": 1,
+      "output_index": 0
+    },
+    {
+      "id": "deviation/2",
+      "source_index": 2,
+      "output_index": 1
+    },
+    {
+      "id": "deviation/3",
+      "source_index": 3,
+      "output_index": 2
+    },
+    {
+      "id": "deviation/4",
+      "source_index": 4,
+      "output_index": 3
+    },
+    {
+      "id": "deviation/10",
+      "source_index": 10,
+      "output_index": 4
+    },
+    {
+      "id": "deviation/11",
+      "source_index": 11,
+      "output_index": 5
+    }
+  ],
+  "repeated_selection_mapping": [
+    {
+      "id": "deviation/1",
+      "source_index": 0,
+      "output_index": 0
+    },
+    {
+      "id": "deviation/3",
+      "source_index": 2,
+      "output_index": 1
+    },
+    {
+      "id": "deviation/11",
+      "source_index": 5,
+      "output_index": 2
+    }
+  ],
+  "scientific_content_exactly_preserved": true,
+  "selection_order": "source order, despite reversed request IDs",
+  "source_dataset_sha256": "c34eeb420bf7d306d77a159140818118cc27a0ff122e489c8aca0251f4c00618",
+  "selected_dataset_sha256": "2759d3a3d440138b982400fbe93c2e45b300d23e92af440fe149128dbc8c778a",
+  "engine_sha256": "1fc05c5a02007989614a79b102e4d577c4d721e8345a442b2995cbdf8a9ee713",
+  "trainer_sha256": "74eaea4a345daf5771141cc4f2b3139c5f0629e7b93a1703fb7d52d5e0c5d0cf",
+  "script_sha256": "2d21c2b1631cddce008ac59e62a5f6efe6431817be091e938cfb1b7ddd9494b1",
+  "training_data_rank": 10,
+  "checks": [
+    {
+      "label": "candidates",
+      "exit_code": 0
+    },
+    {
+      "label": "Inspect selected data",
+      "exit_code": 0
+    },
+    {
+      "label": "Assess selected data",
+      "exit_code": 0
+    },
+    {
+      "label": "labeled",
+      "exit_code": 0
+    },
+    {
+      "label": "CPU train-native on labeled subset",
+      "exit_code": 0
+    },
+    {
+      "label": "Refuse missing-label training",
+      "exit_code": 1
+    },
+    {
+      "label": "Refuse changed dataset identity",
+      "exit_code": 1
+    },
+    {
+      "label": "Refuse existing bundle",
+      "exit_code": 1
+    }
+  ],
+  "source_base": "4f41f15",
+  "focused_rust_tests": {
+    "selection": 2,
+    "status": "passed"
+  },
+  "integrated_native_cpu_checks": {
+    "training_device_passed": 4,
+    "gpu_test_ignored": 1,
+    "feature_enabled_engine_check": "passed; no CUDA calls"
+  }
+}

@@ -332,3 +332,18 @@ QR, reference evaluation and assessment stay CPU; full-network GPU training
 rejects. The tiny measured case was slower on CUDA. A's integration validation
 is CPU-only and does not replace or rerun that GPU receipt. Top-level capabilities
 and guides distinguish this subset from full-network GPU training. No push.
+
+## Local dataset selection and CPU training integration
+
+Engine-only `select-dataset` adds explicit hash-bound ID selection, complete input
+validation before new output creation, bounded buffering, preserved frame/label
+values, source-order reindexing and a completion receipt with immediate ancestry.
+New files are the selection module/tests, English guide, stdlib workflow replay
+and compact [evidence](evidence/dataset-selection.json); shared/native/deepmd
+contracts and dependencies are unchanged. Focused tests and actual CLI flow pass:
+six candidate records, assessment, three existing-labeled records, two training /
+one validation, rank 10. The integrated `dc5449e` readout trainer ran on CPU.
+Four additional native device tests and a feature-enabled engine check passed
+without a GPU context; B's existing GPU receipt is retained separately. Disk
+failures can leave an incomplete new bundle; no atomic-directory guarantee or
+automatic labeling is claimed. No generated weights/data/raw logs are committed.

@@ -1,6 +1,6 @@
 # DeepMD feature coverage: reference version 3.1.3
 
-Matrix revision 3, checked 2026-10-16. Previous integrated CUDA runtime:
+Matrix revision 4, checked 2026-10-16. Previous integrated CUDA runtime:
 `9b8d1847f892e32751c73d3262e0245d0efb4cdd`. This includes engine inspection/tutorial,
 native source `b6b7aa7` and C API source `1aee39c`. Implementation and real-runtime
 validation are separate: the new C API numerical follow-up is still pending. DeepMD 3.1.3 is a pinned comparison target, not a claim about the newest
@@ -57,6 +57,7 @@ an official `input.json` is not a native training request.
 | XYZ / extxyz | Plain XYZ and strict labeled extxyz profile, explicit units/PBC | General ASE metadata and stress conversion are not inferred |
 | Dataset preflight | `inspect-dataset`: complete structural check, exact read-byte SHA256, counts, PBC and label coverage | Source hashes are declarations; model suitability and trainer limits are separate |
 | Batch E/F/V assessment | Engine retains one model and streams single-frame calls. C API standalone CLI additionally packs homogeneous multi-frame calls | New C API call layout has mock tests; real-runtime follow-up pending |
+| Dataset subset selection | Hash-bound explicit IDs; complete input validation; source-order frames, preserved IDs/labels, new contiguous indices and bundle receipt | [Scope and replay](engine/DATASET_SELECTION.md); 10000 IDs / 256 MiB subset bounds; no external labeling or automatic active learning |
 | Model disagreement | CPU `model-deviation`: 2..16 retained models, absolute population E/atom, vector F and nine-component V/atom deviations, explicit candidate interval | [Scope and replay](engine/MODEL_DEVIATION.md); native CPU verified; C API ensemble route unverified; no automatic active-learning loop |
 | Readout training | CPU default; optional native CUDA E/F/V feature columns, CPU rank-aware QR and assessment, optional bias | Frozen hidden layers; bounded dense solve; [microcase slower on CUDA](native/fixtures/cuda-readout-report.json); full-network GPU training missing |
 | Full supported-network training | CPU tanh/linear network, all neural weights/biases/timesteps, exact mixed E/F derivatives, full-batch Adam, checkpoint/restart | Fixed normalization/cutoff/selection/atomic offsets; small-model limits; duplicated one-side weights not tied |
@@ -91,6 +92,12 @@ an official `input.json` is not a native training request.
 - Native readout source `dc5449e` is integrated as `65a7192`. CUDA computes feature
   columns only; QR/reference/assessment remain CPU. B recorded GPU parity, while
   A runs CPU-safe integration checks without a GPU context.
+
+- Engine CPU model-deviation is committed as `304e818`; native-only CUDA readout
+  integration is `65a7192`, with top-level scope update `4f41f15`. The subsequent
+  hash-bound subset workflow is covered by [its receipt](evidence/dataset-selection.json),
+  including CPU `train-native` on preserved existing labels. These new checks
+  do not validate C API numerical paths or rerun GPU acceptance.
 
 ## Implementation order and acceptance gates
 

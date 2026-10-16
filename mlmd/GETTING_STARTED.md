@@ -4,7 +4,8 @@ This guide covers the MLIP workspace in `mlmd/`, tested at integrated runtime
 9b8d184 (native source b6b7aa7 and C API source 1aee39c). Read the
 [versioned feature matrix](FEATURE_MATRIX.md) before selecting a model. Native
 Rust and official DeepMD FFI are distinct inference paths. CPU is the default;
-CUDA is explicitly selected and training currently remains CPU-only.
+CUDA is explicitly selected. Training defaults to CPU; optional CUDA readout
+features keep QR/assessment on CPU, while full-network GPU training is unsupported.
 
 All commands below run from the repository root. `omnimd-mlmd` means the binary
 built in step 1, not a globally installed program. Use its full path unless you
@@ -386,7 +387,8 @@ outputs for a paired batch/MD comparison. `cuda:N` selects an entry from an
 inherited visibility mask; the dedicated worker exposes that entry as ordinal
 zero. `model-info` with CUDA loads a context/model, so use `capabilities` when no
 GPU interaction is intended. Rebuilding only the engine keeps the CPU trainer
-beside it; `train-native` does not become GPU training.
+beside it. CUDA readout feature generation additionally requires an explicit
+training request device; full-network GPU training remains unsupported.
 
 For official C API CUDA, no native-cuda feature is needed. Use a matching official
 TensorFlow `.pb` runtime and add actual absolute CUDA runtime/CUPTI paths:
@@ -458,3 +460,14 @@ CPU. Hidden weights stay frozen. Full-network CUDA requests reject before input
 or output work. The recorded 3/4-atom feature microcase was slower on CUDA,
 including 21.37 ms feature time versus 5.15 ms CPU and separate 195.88 ms CUDA
 initialization. There is no full-network GPU training or speedup guarantee.
+
+## 11. Extract reviewed candidates for reuse
+
+Follow [dataset selection](engine/DATASET_SELECTION.md): take the completed
+model-deviation dataset hash and reviewed IDs, create a strict selection request,
+and run `select-dataset REQUEST.json NEW_DIRECTORY`. The new bundle retains
+frame IDs and label values, gives them contiguous local indices, and records
+source/output hashes and index mapping. Inspect it before assessment or fitting.
+The linked replay takes six candidates through assessment and uses three already-
+labeled records for CPU readout fitting; it refuses missing-label training.
+External labeling remains a separate step for unlabeled candidates.

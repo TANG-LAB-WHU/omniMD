@@ -83,6 +83,8 @@ reference-error mode is provided.
 A frame is a candidate exactly when
 `min_ev_per_angstrom <= max_force_deviation < max_ev_per_angstrom`.
 No automatic labeling, export, training or energy-zero alignment occurs.
+For reviewed IDs, [select-dataset](DATASET_SELECTION.md) explicitly extracts an
+unchanged subset bound to the completed dataset SHA256.
 Disagreement is not calibrated uncertainty or proof of physical accuracy.
 
 To examine a reviewed candidate with existing MD/minimization commands, refer to

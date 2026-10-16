@@ -48,7 +48,8 @@ This is the options object within the existing request. Omit device or use cpu
 for the ordinary CPU path. Legacy {"Cuda":0} device spelling is also accepted.
 A native CUDA request without the build feature fails explicitly before a worker
 or CUDA runtime is started. CUDA failures are errors; CPU fallback is an explicit
-new request, not an automatic retry. The train-native command remains CPU-only.
+new request, not an automatic retry. The train-native command defaults to CPU; its optional CUDA readout features
+require a CUDA-enabled sibling trainer and explicit request device.
 
 Both inference backends share the fresh-process selector: cuda:N selects index
 N from an inherited CUDA_VISIBLE_DEVICES list, or system CUDA index N when no
@@ -65,7 +66,7 @@ sets. The 216-atom case measured 60.385 ms CPU versus 52.288 ms CUDA (1.155x), w
 two small cases were about 8.4x slower. Timings include CPU geometry, transfers,
 kernels and final reduction, exclude initialization, and were affected by desktop
 graphics load. This is inference only: CPU PBC/neighbor geometry and final E/F/V
-reduction remain; there is no native CUDA training or general speedup claim.
+reduction remain; full-network CUDA training remains unsupported, with no general speedup claim.
 
 The unified CLI passed an eight-step native CUDA NVE comparison with CPU on the
 original four-atom triclinic tanh fixture, plus continuation from step four.
@@ -88,7 +89,7 @@ runtime-based measurement is separate from the native benchmark above.
 
 The static capabilities command lists both paths, their evidence and runtime
 requirements without loading a model or probing GPU availability on this host.
-GPU training is not implemented. These CUDA changes are published on shawn_dev
+Full-network GPU training is not implemented. These inference changes are published on shawn_dev
 as 907481708ae5f3df4228a9fb5d5b1110c39f5e23.
 
 ## Dataset workflows
@@ -218,7 +219,7 @@ the CSVR wrapper advances its RNG only after a successful dynamics step.
 
 MPI, NPT/barostats, constraints, classical force-field mixing and legacy
 trajectory plugins are not enabled by this CLI. Explicit CUDA inference and the
-CPU `train-native` wrapper are available within their documented scopes.
+`train-native` wrapper (CPU default; optional CUDA readout features) are available within their documented scopes.
 
 For executable setup, model integration, dataset inspection and a complete CPU
 tutorial, see [GETTING_STARTED.md](../GETTING_STARTED.md). The
@@ -241,3 +242,19 @@ engine evaluation cannot supply its parameters and returns an error. Engine
 `batch-eval` retains one model and calls one frame at a time. The
 [standalone guide](../deepmd/BACKEND_GUIDE.md) describes its additive request fields;
 new C API real-runtime numerical validation is pending.
+
+## Ensemble comparison and explicit subset extraction
+
+[model-deviation](MODEL_DEVIATION.md) retains 2..16 models on CPU and streams
+absolute population E/F/virial deviations with optional candidate marking.
+[select-dataset](DATASET_SELECTION.md) takes explicit IDs and an expected source
+SHA256, validates the entire input, then creates a new shared-format subset and
+receipt. It preserves scientific values and missing labels, with source-order
+IDs and explicit old/new indices. The executable replay connects these commands
+to inspection, assessment and CPU readout training without generating labels.
+
+Local source `dc5449e` additionally supplies explicit CUDA frozen-readout E/F/V
+features through the sibling trainer. QR and assessment remain CPU; full-network
+CUDA training rejects and the recorded microcase was slower than CPU. See
+[training-device rules](../native/TRAINING.md). Engine compilation alone does not
+prove its sibling trainer was built with CUDA support.

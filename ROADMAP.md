@@ -56,8 +56,9 @@ with executable commands; pending branch work is not counted as integrated.
 - Minibatching, broader activation support, virial loss and scalable training
   remain future work; no generic DeepMD training compatibility is claimed.
 - CPU ensemble disagreement and explicit candidate marking are implemented with
-  independent population-statistics checks. Reproducible subset extraction and
-  external labeling integration remain the next data-workflow gap.
+  independent population-statistics checks. Hash-bound subset extraction is now
+  implemented and verified through assessment and CPU training of preserved
+  existing labels. External labeling integration remains a separate future gap.
 - Broader sampling and active learning with explicit formats.
 - DeepMD C API CUDA device propagation and kernel/synchronization checks are
   published with actual public-model E/F/virial agreement, GPU batch
