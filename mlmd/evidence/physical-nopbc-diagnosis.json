@@ -1,0 +1,1513 @@
+{
+  "schema": "omnimd-physical-training-diagnosis-v1",
+  "status": "completed_single_controlled_comparison",
+  "completed_utc": "2026-10-16T17:10:15.304229+00:00",
+  "compiled_candidate_commit": "8167a4a3f3ff8d67f53c22f911f3ff31f053fa5d",
+  "original_evidence_commit": "fd19b9f492d32fe597599ebcfe7e1e0e5fea3710",
+  "scope": "One two-update CPU/GPU state comparison and one 100+900-step training comparison. No source implementation edits or additional labels; original poor result retained. Native FP64 model only.",
+  "validation": "The fixed 43 held-out frames are validation used for analysis and decisions; there is no untouched final test. Same168training/43validation and same211frames as original receipt.",
+  "prior_evidence": "physical-nopbc-training.json",
+  "pre_registered_plan": {
+    "created_utc": "2026-10-16T17:09:47.821991+00:00",
+    "candidate_commit": "8167a4a3f3ff8d67f53c22f911f3ff31f053fa5d",
+    "dataset_sha256": "779a5cc59b5f01224709cc1f2f95672ea07a7bdeebe9fdb9d8ba8129fdd196ed",
+    "initial_model_sha256": "8109e3432377d7b69f31ca2771fccf65dc403148ef5acb561425bca3522034a1",
+    "prior_compute_seconds": 4.5047800579959585,
+    "combined_compute_budget_seconds": 1200,
+    "parity": {
+      "steps": 2,
+      "arrays": [
+        "531 parameters",
+        "531 first moments",
+        "531 second moments"
+      ],
+      "tolerance": "abs(a-b) <= 2e-10*(1+max(abs(a),abs(b)))",
+      "cpu_differences": {
+        "device": "cpu",
+        "removed": [
+          "cuda_gradient",
+          "cuda_loss",
+          "cuda_tiling",
+          "fixed_geometry_cache"
+        ]
+      }
+    },
+    "controlled_change": {
+      "energy_weight": {
+        "before": 1.0,
+        "after": 0.1
+      }
+    },
+    "rationale": "Train E term falls 60.1898 to 35.1663 while F term rises 46.0598 to 48.7387. Downweight E tenfold to test objective tradeoff; no promised improvement.",
+    "control": "Same initial model, all 211 data rows, fixed 168/43 split, sampler seed, batch8, Adam and LR. Same 100+900 checkpoint continuation, total1000updates. Exactly one comparison; no new labels or architecture change.",
+    "failure_policy": "Stop first GPU/error/nonfinite/parity failure and retain logs. No retry. No implementation edits.",
+    "validation_scope": "The existing 43 holdout frames are validation, used for diagnosis/decisions, not untouched final test."
+  },
+  "actual_request_changes": {
+    "weight-100": {
+      "config_diff": {
+        "energy_weight": {
+          "before": 1.0,
+          "after": 0.1
+        }
+      },
+      "path_fields": {
+        "initial_model": {
+          "before": "initial.json",
+          "after": "/work/initial.json"
+        },
+        "dataset": {
+          "before": "dataset.jsonl",
+          "after": "/work/dataset.jsonl"
+        },
+        "output_directory": {
+          "before": "fit-100",
+          "after": "/work/diagnosis-01/weight-100"
+        }
+      }
+    },
+    "weight-900": {
+      "config_diff": {
+        "energy_weight": {
+          "before": 1.0,
+          "after": 0.1
+        }
+      },
+      "path_fields": {
+        "checkpoint": {
+          "before": "fit-100/checkpoint.json",
+          "after": "/work/diagnosis-01/weight-100/checkpoint.json"
+        },
+        "dataset": {
+          "before": "dataset.jsonl",
+          "after": "/work/dataset.jsonl"
+        },
+        "output_directory": {
+          "before": "fit-1000",
+          "after": "/work/diagnosis-01/weight-900"
+        }
+      }
+    }
+  },
+  "controlled_config": {
+    "split": {
+      "mode": "explicit",
+      "validation_ids": [
+        "C1H4O2/set.000/1250",
+        "C1H4O2/set.000/1263",
+        "C1H4O2/set.000/1277",
+        "C1H4O2/set.000/1290",
+        "C1H4O2/set.000/1304",
+        "C1H4O2/set.000/1317",
+        "C1H4O2/set.000/1331",
+        "C1H4O2/set.000/1344",
+        "C1H4O2/set.000/1358",
+        "C1H4O2/set.000/1371",
+        "C1H4O2/set.000/1385",
+        "C1H4O2/set.000/1398",
+        "C1H4O2/set.000/1412",
+        "C1H4O2/set.000/1425",
+        "C1H4O2/set.000/1439",
+        "C1H4O2/set.000/1452",
+        "C1H4O2/set.000/1466",
+        "C1H4O2/set.000/1479",
+        "C1H4O2/set.000/1493",
+        "C1H4O2/set.000/1506",
+        "C1H4O2/set.000/1520",
+        "C1H4O2/set.000/1533",
+        "C1H4O2/set.000/1547",
+        "C1H4O2/set.000/1561",
+        "C3H3O4/set.000/388",
+        "C3H3O4/set.000/394",
+        "C3H3O4/set.000/400",
+        "C3H3O4/set.000/407",
+        "C3H3O4/set.000/413",
+        "C3H3O4/set.000/420",
+        "C3H3O4/set.000/426",
+        "C3H3O4/set.000/432",
+        "C3H3O4/set.000/439",
+        "C3H3O4/set.000/445",
+        "C3H3O4/set.000/452",
+        "C3H3O4/set.000/458",
+        "C3H3O4/set.000/464",
+        "C3H3O4/set.000/471",
+        "C3H3O4/set.000/477",
+        "C3H3O4/set.000/484",
+        "C4H3O1/set.000/12",
+        "C4H3O1/set.000/13",
+        "C4H3O1/set.000/14"
+      ]
+    },
+    "steps": 100,
+    "energy_weight": 0.1,
+    "force_weight": 1.0,
+    "energy_scale_ev_per_atom": 0.1,
+    "force_scale_ev_per_angstrom": 1.0,
+    "learning_rate": 0.001,
+    "learning_rate_schedule": {
+      "kind": "exponential",
+      "decay_steps": 250,
+      "decay_rate": 0.5
+    },
+    "beta1": 0.9,
+    "beta2": 0.999,
+    "epsilon": 1e-08,
+    "gradient_clip_norm": 10.0,
+    "checkpoint_every": 100,
+    "cuda_gradient": "reverse",
+    "cuda_loss": "gpu",
+    "cuda_tiling": {
+      "max_frames": 8,
+      "max_atoms": 80
+    },
+    "fixed_geometry_cache": true,
+    "minibatch": {
+      "batch_size": 8,
+      "seed": 20261016,
+      "order": "shuffle_each_epoch"
+    }
+  },
+  "checks": {
+    "frozen_model_metadata_equal": true,
+    "unchanged_type_map": [
+      "C",
+      "H",
+      "O"
+    ],
+    "unchanged_atomic_energy_bias_ev": [
+      -1029.3460205372046,
+      -14.575719399331478,
+      -2047.1684064867834
+    ],
+    "training_only_baseline_mean_residual": {
+      "C1H4O2": {
+        "frames": 96,
+        "mean_energy_residual_ev": -4.642212540299321e-13
+      },
+      "C3H3O4": {
+        "frames": 64,
+        "mean_energy_residual_ev": 7.958078640513122e-13
+      },
+      "C4H3O1": {
+        "frames": 8,
+        "mean_energy_residual_ev": 4.547473508864641e-13
+      }
+    },
+    "independent_cpu_final_metric_absolute_tolerance": 1e-10,
+    "source_type_mapping": "All211frames verified against pinned official arrays during original preparation and read-only diagnosis; atom order and C/H/O mapping retained."
+  },
+  "loss_formula": "L=wE*mean_frames[(dE/N/0.1)^2]+mean_frames[mean_components(dF^2)]; F scale1, Fweight1. Reported forceRMSE pools components; loss uses equal frame weighting.",
+  "metrics": {
+    "initial": {
+      "train": {
+        "frames": 168,
+        "atoms": 1376,
+        "energy_rmse_ev": 6.6262410978704,
+        "energy_per_atom_rmse_ev": 0.7758208337290332,
+        "force_component_rmse_ev_per_angstrom": 6.97069113695925,
+        "frame_weighted_force_rmse_ev_per_angstrom": 6.786733396326604,
+        "by_composition": {
+          "C1H4O2": {
+            "frames": 96,
+            "atoms": 672,
+            "energy_rmse_ev": 5.190572342361573,
+            "energy_per_atom_rmse_ev": 0.7415103346230818,
+            "force_component_rmse_ev_per_angstrom": 4.782089276365381,
+            "frame_weighted_force_rmse_ev_per_angstrom": 4.78208927636538
+          },
+          "C3H3O4": {
+            "frames": 64,
+            "atoms": 640,
+            "energy_rmse_ev": 8.581075556700325,
+            "energy_per_atom_rmse_ev": 0.8581075556700325,
+            "force_component_rmse_ev_per_angstrom": 7.4747680114351835,
+            "frame_weighted_force_rmse_ev_per_angstrom": 7.474768011435183
+          },
+          "C4H3O1": {
+            "frames": 8,
+            "atoms": 64,
+            "energy_rmse_ev": 3.108880225318474,
+            "energy_per_atom_rmse_ev": 0.3886100281648093,
+            "force_component_rmse_ev_per_angstrom": 15.679826698193098,
+            "frame_weighted_force_rmse_ev_per_angstrom": 15.6798266981931
+          }
+        }
+      },
+      "validation": {
+        "frames": 43,
+        "atoms": 352,
+        "energy_rmse_ev": 4.8786431270146275,
+        "energy_per_atom_rmse_ev": 0.5695132504427439,
+        "force_component_rmse_ev_per_angstrom": 3.9335647931428355,
+        "frame_weighted_force_rmse_ev_per_angstrom": 3.8329259467156076,
+        "by_composition": {
+          "C1H4O2": {
+            "frames": 24,
+            "atoms": 168,
+            "energy_rmse_ev": 3.783492295129423,
+            "energy_per_atom_rmse_ev": 0.5404988993042033,
+            "force_component_rmse_ev_per_angstrom": 2.5691581330266553,
+            "frame_weighted_force_rmse_ev_per_angstrom": 2.569158133026655
+          },
+          "C3H3O4": {
+            "frames": 16,
+            "atoms": 160,
+            "energy_rmse_ev": 6.4012464335253085,
+            "energy_per_atom_rmse_ev": 0.6401246433525308,
+            "force_component_rmse_ev_per_angstrom": 4.149816600759878,
+            "frame_weighted_force_rmse_ev_per_angstrom": 4.149816600759878
+          },
+          "C4H3O1": {
+            "frames": 3,
+            "atoms": 24,
+            "energy_rmse_ev": 2.844819709235641,
+            "energy_per_atom_rmse_ev": 0.35560246365445514,
+            "force_component_rmse_ev_per_angstrom": 8.11947057059433,
+            "frame_weighted_force_rmse_ev_per_angstrom": 8.11947057059433
+          }
+        }
+      }
+    },
+    "original_weight_1_step1000": {
+      "train": {
+        "frames": 168,
+        "atoms": 1376,
+        "energy_rmse_ev": 5.0998919037136785,
+        "energy_per_atom_rmse_ev": 0.5930120622841162,
+        "force_component_rmse_ev_per_angstrom": 7.170288762987166,
+        "frame_weighted_force_rmse_ev_per_angstrom": 6.981313700974684,
+        "by_composition": {
+          "C1H4O2": {
+            "frames": 96,
+            "atoms": 672,
+            "energy_rmse_ev": 3.8614441327423092,
+            "energy_per_atom_rmse_ev": 0.5516348761060441,
+            "force_component_rmse_ev_per_angstrom": 4.968613464790779,
+            "frame_weighted_force_rmse_ev_per_angstrom": 4.968613464790779
+          },
+          "C3H3O4": {
+            "frames": 64,
+            "atoms": 640,
+            "energy_rmse_ev": 6.675139129687971,
+            "energy_per_atom_rmse_ev": 0.6675139129687971,
+            "force_component_rmse_ev_per_angstrom": 7.710301522422042,
+            "frame_weighted_force_rmse_ev_per_angstrom": 7.710301522422043
+          },
+          "C4H3O1": {
+            "frames": 8,
+            "atoms": 64,
+            "energy_rmse_ev": 3.286027591460381,
+            "energy_per_atom_rmse_ev": 0.4107534489325476,
+            "force_component_rmse_ev_per_angstrom": 15.864366584784959,
+            "frame_weighted_force_rmse_ev_per_angstrom": 15.864366584784959
+          }
+        }
+      },
+      "validation": {
+        "frames": 43,
+        "atoms": 352,
+        "energy_rmse_ev": 3.9479652456618326,
+        "energy_per_atom_rmse_ev": 0.4559499814624389,
+        "force_component_rmse_ev_per_angstrom": 4.164336329946852,
+        "frame_weighted_force_rmse_ev_per_angstrom": 4.055818323971394,
+        "by_composition": {
+          "C1H4O2": {
+            "frames": 24,
+            "atoms": 168,
+            "energy_rmse_ev": 2.817731170784167,
+            "energy_per_atom_rmse_ev": 0.40253302439773814,
+            "force_component_rmse_ev_per_angstrom": 2.7043032207267403,
+            "frame_weighted_force_rmse_ev_per_angstrom": 2.7043032207267403
+          },
+          "C3H3O4": {
+            "frames": 16,
+            "atoms": 160,
+            "energy_rmse_ev": 5.211398292928286,
+            "energy_per_atom_rmse_ev": 0.5211398292928285,
+            "force_component_rmse_ev_per_angstrom": 4.4056486709534886,
+            "frame_weighted_force_rmse_ev_per_angstrom": 4.4056486709534886
+          },
+          "C4H3O1": {
+            "frames": 3,
+            "atoms": 24,
+            "energy_rmse_ev": 3.8784491093316373,
+            "energy_per_atom_rmse_ev": 0.48480613866645467,
+            "force_component_rmse_ev_per_angstrom": 8.588005059237977,
+            "frame_weighted_force_rmse_ev_per_angstrom": 8.588005059237977
+          }
+        }
+      }
+    },
+    "controlled_weight_0_1_step1000": {
+      "train": {
+        "frames": 168,
+        "atoms": 1376,
+        "energy_rmse_ev": 6.650750236652679,
+        "energy_per_atom_rmse_ev": 0.7658646328784418,
+        "force_component_rmse_ev_per_angstrom": 6.619143283714867,
+        "frame_weighted_force_rmse_ev_per_angstrom": 6.4590774364205865,
+        "by_composition": {
+          "C1H4O2": {
+            "frames": 96,
+            "atoms": 672,
+            "energy_rmse_ev": 4.887232554533164,
+            "energy_per_atom_rmse_ev": 0.6981760792190235,
+            "force_component_rmse_ev_per_angstrom": 4.696896986954653,
+            "frame_weighted_force_rmse_ev_per_angstrom": 4.696896986954653
+          },
+          "C3H3O4": {
+            "frames": 64,
+            "atoms": 640,
+            "energy_rmse_ev": 8.903449258307317,
+            "energy_per_atom_rmse_ev": 0.8903449258307317,
+            "force_component_rmse_ev_per_angstrom": 7.034155846949268,
+            "frame_weighted_force_rmse_ev_per_angstrom": 7.034155846949267
+          },
+          "C4H3O1": {
+            "frames": 8,
+            "atoms": 64,
+            "energy_rmse_ev": 2.84434154945554,
+            "energy_per_atom_rmse_ev": 0.3555426936819425,
+            "force_component_rmse_ev_per_angstrom": 14.681567505450477,
+            "frame_weighted_force_rmse_ev_per_angstrom": 14.681567505450477
+          }
+        }
+      },
+      "validation": {
+        "frames": 43,
+        "atoms": 352,
+        "energy_rmse_ev": 4.4518168031984535,
+        "energy_per_atom_rmse_ev": 0.5234724123407499,
+        "force_component_rmse_ev_per_angstrom": 3.707380778151901,
+        "frame_weighted_force_rmse_ev_per_angstrom": 3.6165316758660593,
+        "by_composition": {
+          "C1H4O2": {
+            "frames": 24,
+            "atoms": 168,
+            "energy_rmse_ev": 3.5638687001803757,
+            "energy_per_atom_rmse_ev": 0.509124100025768,
+            "force_component_rmse_ev_per_angstrom": 2.5109285573501214,
+            "frame_weighted_force_rmse_ev_per_angstrom": 2.5109285573501214
+          },
+          "C3H3O4": {
+            "frames": 16,
+            "atoms": 160,
+            "energy_rmse_ev": 5.76455394946472,
+            "energy_per_atom_rmse_ev": 0.576455394946472,
+            "force_component_rmse_ev_per_angstrom": 3.913754794831533,
+            "frame_weighted_force_rmse_ev_per_angstrom": 3.9137547948315325
+          },
+          "C4H3O1": {
+            "frames": 3,
+            "atoms": 24,
+            "energy_rmse_ev": 2.2871943544939173,
+            "energy_per_atom_rmse_ev": 0.28589929431173966,
+            "force_component_rmse_ev_per_angstrom": 7.438997239804763,
+            "frame_weighted_force_rmse_ev_per_angstrom": 7.438997239804764
+          }
+        }
+      }
+    }
+  },
+  "common_objective_decomposition": {
+    "initial": {
+      "train": {
+        "energy_term_weight_1": 60.18979660480121,
+        "force_term": 46.059750192814846,
+        "objective_weight_1": 106.24954679761606,
+        "objective_weight_0_1": 52.078729853294966
+      },
+      "validation": {
+        "energy_term_weight_1": 32.43453424298595,
+        "force_term": 14.691321313005737,
+        "objective_weight_1": 47.125855555991684,
+        "objective_weight_0_1": 17.93477473730433
+      }
+    },
+    "original_weight_1_step1000": {
+      "train": {
+        "energy_term_weight_1": 35.16633060144604,
+        "force_term": 48.73874099141683,
+        "objective_weight_1": 83.90507159286287,
+        "objective_weight_0_1": 52.25537405156144
+      },
+      "validation": {
+        "energy_term_weight_1": 20.789038559559838,
+        "force_term": 16.449662277062128,
+        "objective_weight_1": 37.238700836621966,
+        "objective_weight_0_1": 18.52856613301811
+      }
+    },
+    "controlled_weight_0_1_step1000": {
+      "train": {
+        "energy_term_weight_1": 58.654863589403035,
+        "force_term": 41.719681329677535,
+        "objective_weight_1": 100.37454491908056,
+        "objective_weight_0_1": 47.58516768861784
+      },
+      "validation": {
+        "energy_term_weight_1": 27.402336648184413,
+        "force_term": 13.079301362542568,
+        "objective_weight_1": 40.48163801072698,
+        "objective_weight_0_1": 15.81953502736101
+      }
+    }
+  },
+  "optimizer_parity": {
+    "exact_fields": [
+      "step",
+      "dataset_sha256",
+      "parameter_layout_sha256",
+      "training_indices",
+      "validation_indices",
+      "sampler",
+      "initial_model",
+      "loss_contract",
+      "frozen_model"
+    ],
+    "cpu_schema": "omnimd-native-full-checkpoint-v6",
+    "gpu_schema": "omnimd-native-full-checkpoint-v8",
+    "tolerance": "abs(a-b) <= 2e-10 * (1 + max(abs(a), abs(b)))",
+    "arrays": {
+      "parameters": {
+        "length": 531,
+        "max_abs_error": 2.7755575615628914e-17,
+        "max_normalized_error": 2.3701174128128303e-17
+      },
+      "first_moment": {
+        "length": 531,
+        "max_abs_error": 1.1102230246251565e-16,
+        "max_normalized_error": 1.0208866345259803e-16
+      },
+      "second_moment": {
+        "length": 531,
+        "max_abs_error": 6.938893903907228e-18,
+        "max_normalized_error": 6.824385549797242e-18
+      }
+    },
+    "sampler_summary": {
+      "algorithm": "omnimd-epoch-splitmix64-v1",
+      "seed": 20261016,
+      "order_mode": "shuffle_each_epoch",
+      "epoch": 0,
+      "cursor": 16,
+      "rng_state": 8469942939000120702,
+      "full_order_sha256_canonical_json": "4c44ce7be7f473dea6562fa6297f4bb8a4e2525bcc6d261bd420af5c3e119241",
+      "first_16_frame_indices": [
+        168,
+        136,
+        17,
+        177,
+        162,
+        42,
+        6,
+        65,
+        149,
+        205,
+        66,
+        4,
+        127,
+        2,
+        72,
+        140
+      ]
+    }
+  },
+  "report_summaries": {
+    "parity-cpu": {
+      "algorithm": "deterministic minibatch Adam; global-update exponential staircase learning rate; last iterate export",
+      "dataset_sha256": "779a5cc59b5f01224709cc1f2f95672ea07a7bdeebe9fdb9d8ba8129fdd196ed",
+      "derivative_method": "reverse AD over differentiable coordinate-directional tangents; exact mixed parameter-coordinate derivatives",
+      "execution": {
+        "backend": "cpu_reference_v1"
+      },
+      "final_training": {
+        "energy_per_atom_rmse_ev": 0.7757868203806539,
+        "energy_rmse_ev": 6.626128590831494,
+        "force_component_rmse_ev_per_angstrom": 6.970719352903293,
+        "frames": 168,
+        "normalized_ef_objective": 106.24470652571073,
+        "normalized_total_objective": 106.24470652571073,
+        "virial_component_rmse_ev": null
+      },
+      "final_validation": {
+        "energy_per_atom_rmse_ev": 0.568020429010011,
+        "energy_rmse_ev": 4.856189840347202,
+        "force_component_rmse_ev_per_angstrom": 3.9336247157426376,
+        "frames": 43,
+        "normalized_ef_objective": 46.95654871657867,
+        "normalized_total_objective": 46.95654871657867,
+        "virial_component_rmse_ev": null
+      },
+      "initial_model_sha256": "8109e3432377d7b69f31ca2771fccf65dc403148ef5acb561425bca3522034a1",
+      "initial_training": {
+        "energy_per_atom_rmse_ev": 0.775820833729033,
+        "energy_rmse_ev": 6.626241097870401,
+        "force_component_rmse_ev_per_angstrom": 6.97069113695925,
+        "frames": 168,
+        "normalized_ef_objective": 106.24954679761603,
+        "normalized_total_objective": 106.24954679761603,
+        "virial_component_rmse_ev": null
+      },
+      "initial_validation": {
+        "energy_per_atom_rmse_ev": 0.5695132504427439,
+        "energy_rmse_ev": 4.878643127014627,
+        "force_component_rmse_ev_per_angstrom": 3.9335647931428355,
+        "frames": 43,
+        "normalized_ef_objective": 47.125855555991684,
+        "normalized_total_objective": 47.125855555991684,
+        "virial_component_rmse_ev": null
+      },
+      "learning_rate": {
+        "base_rate": 0.001,
+        "contract": "omnimd-optimizer-update-learning-rate-v1",
+        "first_rate": 0.001,
+        "first_update": 1,
+        "last_rate": 0.001,
+        "last_update": 2,
+        "schedule": {
+          "decay_rate": 0.5,
+          "decay_steps": 250,
+          "kind": "exponential"
+        }
+      },
+      "native_v1_reload_max_abs_energy_force_virial": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "output_model_sha256": "9c4e20b47abb0ff0e1d5ec6e426696e50538ca69142834dc7f314b5a7af4e913",
+      "parameter_changes_from_initial": {
+        "embedding": {
+          "changed": 72,
+          "delta_l2": 0.01295836547703817,
+          "parameters": 72
+        },
+        "fitting_hidden": {
+          "changed": 432,
+          "delta_l2": 0.02762875203217271,
+          "parameters": 432
+        },
+        "fitting_output": {
+          "changed": 27,
+          "delta_l2": 0.00738129996512062,
+          "parameters": 27
+        }
+      },
+      "parameter_layout_sha256": "27d64a223cd6b8032897684650d4a07e2b4feeadf8b1df670a59a34970af3e92",
+      "parameters": 531,
+      "startup_timing": {
+        "before_first_update_ms": 36.685622,
+        "before_trainer_ms": 31.46592,
+        "dataset_open_ms": 5.67423,
+        "state_preparation_ms": 5.9988790000000005
+      },
+      "step_end": 2,
+      "step_start": 0,
+      "timing": {
+        "adam_ms": 0.031743999999999994,
+        "assessment_ms": 9.735411,
+        "gradient_ms": 3.443385,
+        "initialization_ms": 0.43354800000000004,
+        "startup_ms": 5.219702
+      },
+      "training_frames_summary": {
+        "count": 168,
+        "sha256_canonical_json": "a13d1009f799f5bd78bdd43d23fb1f811d96a61afc6b627f000e2a95faca9a30"
+      },
+      "validation_frames_summary": {
+        "count": 43,
+        "sha256_canonical_json": "0b26dacf45360f79a4d2c71acedcc499e3bef0502819d568c641415cb51e654a"
+      },
+      "source_sha256_summary": {
+        "count": 21,
+        "sha256_canonical_json": "c25385fd8cac3bd5beec12b29bd52bb15e7b7f8a5bcef893ffc8f58514f3d4b1"
+      }
+    },
+    "parity-cuda": {
+      "algorithm": "deterministic minibatch Adam; global-update exponential staircase learning rate; last iterate export",
+      "cuda_gradient_profile": {
+        "device_prediction_frames": 16,
+        "download_ms": 0.39856199999999997,
+        "frames": 16,
+        "geometry_ms": 0.045221000000000004,
+        "kernel_launches": 20,
+        "kernels_and_sync_ms": 3.130204,
+        "max_atoms_per_frame": 10,
+        "max_atoms_per_launch": 68,
+        "max_frames_per_launch": 8,
+        "peak_device_buffer_bytes": 1360816,
+        "peak_host_tile_payload_bytes": 451344,
+        "prediction_and_seeds_ms": 0.0,
+        "reduction_ms": 0.024794,
+        "synchronizations": 2,
+        "tiles": 2,
+        "upload_ms": 1.289311
+      },
+      "cuda_tiling": {
+        "device_at_capacity": {
+          "atoms": 80,
+          "cache_bytes": 931840,
+          "descriptor_adjoint_bytes": 20480,
+          "peak_device_buffer_bytes": 1597072,
+          "policy_limit_bytes": 67108864,
+          "slot_gradient_bytes": 61440
+        },
+        "device_loss": {
+          "estimated_extra_terms_per_atom": 3444,
+          "extra_device_bytes": 160664,
+          "extra_host_reserved_bytes": 158208
+        },
+        "effective_max_atoms": 80,
+        "estimated_scalar_terms_at_capacity": 17607360,
+        "host_tile_payload_at_capacity_bytes": 569904,
+        "host_tile_payload_policy_limit_bytes": 33554432,
+        "maximum_center_terms": 408,
+        "requested": {
+          "max_atoms": 80,
+          "max_frames": 8
+        },
+        "scalar_work_policy_limit": 50000000
+      },
+      "dataset_sha256": "779a5cc59b5f01224709cc1f2f95672ea07a7bdeebe9fdb9d8ba8129fdd196ed",
+      "derivative_method": "CUDA primal forward cache, E/F/V prediction and detached loss seeds; cached directional propagation and mixed reverse derivatives",
+      "execution": {
+        "backend": "cuda_tiled_device_loss_f64_v1",
+        "device_info": "NVIDIA GeForce RTX 4090; compute 8.9; FP64; device 0",
+        "driver_version": 13040,
+        "program_sha256": "06b2cf6e2306626e8169555bee27498cd72edccd597fd4e596c956043347fc5c",
+        "visible_device": 0
+      },
+      "final_training": {
+        "energy_per_atom_rmse_ev": 0.7757868203806539,
+        "energy_rmse_ev": 6.626128590831494,
+        "force_component_rmse_ev_per_angstrom": 6.970719352903293,
+        "frames": 168,
+        "normalized_ef_objective": 106.24470652571073,
+        "normalized_total_objective": 106.24470652571073,
+        "virial_component_rmse_ev": null
+      },
+      "final_validation": {
+        "energy_per_atom_rmse_ev": 0.568020429010011,
+        "energy_rmse_ev": 4.856189840347202,
+        "force_component_rmse_ev_per_angstrom": 3.9336247157426376,
+        "frames": 43,
+        "normalized_ef_objective": 46.95654871657867,
+        "normalized_total_objective": 46.95654871657867,
+        "virial_component_rmse_ev": null
+      },
+      "fixed_geometry_cache": {
+        "build_ms": 2.511705,
+        "frames": 168,
+        "geometry_sha256": "69574f43ee1b123c8d52f83d66d149b17d953fe0112db19da78ab42c8105acb1",
+        "hits": 16,
+        "padded_slots": 16512,
+        "policy_limit_bytes": 67108864,
+        "retained_payload_bytes": 3500387
+      },
+      "initial_model_sha256": "8109e3432377d7b69f31ca2771fccf65dc403148ef5acb561425bca3522034a1",
+      "initial_training": {
+        "energy_per_atom_rmse_ev": 0.775820833729033,
+        "energy_rmse_ev": 6.626241097870401,
+        "force_component_rmse_ev_per_angstrom": 6.97069113695925,
+        "frames": 168,
+        "normalized_ef_objective": 106.24954679761603,
+        "normalized_total_objective": 106.24954679761603,
+        "virial_component_rmse_ev": null
+      },
+      "initial_validation": {
+        "energy_per_atom_rmse_ev": 0.5695132504427439,
+        "energy_rmse_ev": 4.878643127014627,
+        "force_component_rmse_ev_per_angstrom": 3.9335647931428355,
+        "frames": 43,
+        "normalized_ef_objective": 47.125855555991684,
+        "normalized_total_objective": 47.125855555991684,
+        "virial_component_rmse_ev": null
+      },
+      "learning_rate": {
+        "base_rate": 0.001,
+        "contract": "omnimd-optimizer-update-learning-rate-v1",
+        "first_rate": 0.001,
+        "first_update": 1,
+        "last_rate": 0.001,
+        "last_update": 2,
+        "schedule": {
+          "decay_rate": 0.5,
+          "decay_steps": 250,
+          "kind": "exponential"
+        }
+      },
+      "native_v1_reload_max_abs_energy_force_virial": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "output_model_sha256": "28f32aed13c449c965b5ab0e27dbddc98206b58efe2a89f56ecfafc91b7507cd",
+      "parameter_changes_from_initial": {
+        "embedding": {
+          "changed": 72,
+          "delta_l2": 0.012958365477038169,
+          "parameters": 72
+        },
+        "fitting_hidden": {
+          "changed": 432,
+          "delta_l2": 0.027628752032172705,
+          "parameters": 432
+        },
+        "fitting_output": {
+          "changed": 27,
+          "delta_l2": 0.00738129996512062,
+          "parameters": 27
+        }
+      },
+      "parameter_layout_sha256": "27d64a223cd6b8032897684650d4a07e2b4feeadf8b1df670a59a34970af3e92",
+      "parameters": 531,
+      "startup_timing": {
+        "before_first_update_ms": 253.631925,
+        "before_trainer_ms": 31.883543,
+        "dataset_open_ms": 5.361346999999999,
+        "state_preparation_ms": 6.310389
+      },
+      "step_end": 2,
+      "step_start": 0,
+      "timing": {
+        "adam_ms": 0.47613700000000003,
+        "assessment_ms": 10.681159000000001,
+        "gradient_ms": 4.934608,
+        "initialization_ms": 216.548889,
+        "startup_ms": 221.748382
+      },
+      "training_frames_summary": {
+        "count": 168,
+        "sha256_canonical_json": "a13d1009f799f5bd78bdd43d23fb1f811d96a61afc6b627f000e2a95faca9a30"
+      },
+      "validation_frames_summary": {
+        "count": 43,
+        "sha256_canonical_json": "0b26dacf45360f79a4d2c71acedcc499e3bef0502819d568c641415cb51e654a"
+      },
+      "source_sha256_summary": {
+        "count": 21,
+        "sha256_canonical_json": "c25385fd8cac3bd5beec12b29bd52bb15e7b7f8a5bcef893ffc8f58514f3d4b1"
+      }
+    },
+    "weight-100": {
+      "algorithm": "deterministic minibatch Adam; global-update exponential staircase learning rate; last iterate export",
+      "cuda_gradient_profile": {
+        "device_prediction_frames": 800,
+        "download_ms": 11.301388000000005,
+        "frames": 800,
+        "geometry_ms": 1.944717,
+        "kernel_launches": 1000,
+        "kernels_and_sync_ms": 42.65847700000002,
+        "max_atoms_per_frame": 10,
+        "max_atoms_per_launch": 77,
+        "max_frames_per_launch": 8,
+        "peak_device_buffer_bytes": 1538008,
+        "peak_host_tile_payload_bytes": 489576,
+        "prediction_and_seeds_ms": 0.0,
+        "reduction_ms": 1.2344259999999996,
+        "synchronizations": 100,
+        "tiles": 100,
+        "upload_ms": 25.782501000000003
+      },
+      "cuda_tiling": {
+        "device_at_capacity": {
+          "atoms": 80,
+          "cache_bytes": 931840,
+          "descriptor_adjoint_bytes": 20480,
+          "peak_device_buffer_bytes": 1597072,
+          "policy_limit_bytes": 67108864,
+          "slot_gradient_bytes": 61440
+        },
+        "device_loss": {
+          "estimated_extra_terms_per_atom": 3444,
+          "extra_device_bytes": 160664,
+          "extra_host_reserved_bytes": 158208
+        },
+        "effective_max_atoms": 80,
+        "estimated_scalar_terms_at_capacity": 17607360,
+        "host_tile_payload_at_capacity_bytes": 569904,
+        "host_tile_payload_policy_limit_bytes": 33554432,
+        "maximum_center_terms": 408,
+        "requested": {
+          "max_atoms": 80,
+          "max_frames": 8
+        },
+        "scalar_work_policy_limit": 50000000
+      },
+      "dataset_sha256": "779a5cc59b5f01224709cc1f2f95672ea07a7bdeebe9fdb9d8ba8129fdd196ed",
+      "derivative_method": "CUDA primal forward cache, E/F/V prediction and detached loss seeds; cached directional propagation and mixed reverse derivatives",
+      "execution": {
+        "backend": "cuda_tiled_device_loss_f64_v1",
+        "device_info": "NVIDIA GeForce RTX 4090; compute 8.9; FP64; device 0",
+        "driver_version": 13040,
+        "program_sha256": "06b2cf6e2306626e8169555bee27498cd72edccd597fd4e596c956043347fc5c",
+        "visible_device": 0
+      },
+      "final_training": {
+        "energy_per_atom_rmse_ev": 0.774649020767903,
+        "energy_rmse_ev": 6.621237078581399,
+        "force_component_rmse_ev_per_angstrom": 6.9609266168382025,
+        "frames": 168,
+        "normalized_ef_objective": 51.93730018790108,
+        "normalized_total_objective": 51.93730018790108,
+        "virial_component_rmse_ev": null
+      },
+      "final_validation": {
+        "energy_per_atom_rmse_ev": 0.5627778684081846,
+        "energy_rmse_ev": 4.79575678215323,
+        "force_component_rmse_ev_per_angstrom": 3.9252123569093085,
+        "frames": 43,
+        "normalized_ef_objective": 17.791547098903497,
+        "normalized_total_objective": 17.791547098903497,
+        "virial_component_rmse_ev": null
+      },
+      "fixed_geometry_cache": {
+        "build_ms": 2.314567,
+        "frames": 168,
+        "geometry_sha256": "69574f43ee1b123c8d52f83d66d149b17d953fe0112db19da78ab42c8105acb1",
+        "hits": 800,
+        "padded_slots": 16512,
+        "policy_limit_bytes": 67108864,
+        "retained_payload_bytes": 3500387
+      },
+      "initial_model_sha256": "8109e3432377d7b69f31ca2771fccf65dc403148ef5acb561425bca3522034a1",
+      "initial_training": {
+        "energy_per_atom_rmse_ev": 0.775820833729033,
+        "energy_rmse_ev": 6.626241097870401,
+        "force_component_rmse_ev_per_angstrom": 6.97069113695925,
+        "frames": 168,
+        "normalized_ef_objective": 52.07872985329497,
+        "normalized_total_objective": 52.07872985329497,
+        "virial_component_rmse_ev": null
+      },
+      "initial_validation": {
+        "energy_per_atom_rmse_ev": 0.5695132504427439,
+        "energy_rmse_ev": 4.878643127014627,
+        "force_component_rmse_ev_per_angstrom": 3.9335647931428355,
+        "frames": 43,
+        "normalized_ef_objective": 17.93477473730433,
+        "normalized_total_objective": 17.93477473730433,
+        "virial_component_rmse_ev": null
+      },
+      "learning_rate": {
+        "base_rate": 0.001,
+        "contract": "omnimd-optimizer-update-learning-rate-v1",
+        "first_rate": 0.001,
+        "first_update": 1,
+        "last_rate": 0.001,
+        "last_update": 100,
+        "schedule": {
+          "decay_rate": 0.5,
+          "decay_steps": 250,
+          "kind": "exponential"
+        }
+      },
+      "native_v1_reload_max_abs_energy_force_virial": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "output_model_sha256": "9b0f162c8c4fb726a90de139eb1d1ee2fc3709453dd989315e1fe99f8ad4324f",
+      "parameter_changes_from_initial": {
+        "embedding": {
+          "changed": 72,
+          "delta_l2": 0.4330183868065733,
+          "parameters": 72
+        },
+        "fitting_hidden": {
+          "changed": 432,
+          "delta_l2": 0.8851949080492226,
+          "parameters": 432
+        },
+        "fitting_output": {
+          "changed": 27,
+          "delta_l2": 0.21628409293748196,
+          "parameters": 27
+        }
+      },
+      "parameter_layout_sha256": "27d64a223cd6b8032897684650d4a07e2b4feeadf8b1df670a59a34970af3e92",
+      "parameters": 531,
+      "startup_timing": {
+        "before_first_update_ms": 195.74615899999998,
+        "before_trainer_ms": 34.496607999999995,
+        "dataset_open_ms": 6.114387,
+        "state_preparation_ms": 6.0358149999999995
+      },
+      "step_end": 100,
+      "step_start": 0,
+      "timing": {
+        "adam_ms": 21.74601500000001,
+        "assessment_ms": 10.723091,
+        "gradient_ms": 85.00399000000002,
+        "initialization_ms": 155.924528,
+        "startup_ms": 161.249551
+      },
+      "training_frames_summary": {
+        "count": 168,
+        "sha256_canonical_json": "a13d1009f799f5bd78bdd43d23fb1f811d96a61afc6b627f000e2a95faca9a30"
+      },
+      "validation_frames_summary": {
+        "count": 43,
+        "sha256_canonical_json": "0b26dacf45360f79a4d2c71acedcc499e3bef0502819d568c641415cb51e654a"
+      },
+      "source_sha256_summary": {
+        "count": 21,
+        "sha256_canonical_json": "c25385fd8cac3bd5beec12b29bd52bb15e7b7f8a5bcef893ffc8f58514f3d4b1"
+      }
+    },
+    "weight-900": {
+      "algorithm": "deterministic minibatch Adam; global-update exponential staircase learning rate; last iterate export",
+      "cuda_gradient_profile": {
+        "device_prediction_frames": 7200,
+        "download_ms": 101.70264599999986,
+        "frames": 7200,
+        "geometry_ms": 16.72322699999997,
+        "kernel_launches": 9000,
+        "kernels_and_sync_ms": 352.463297,
+        "max_atoms_per_frame": 10,
+        "max_atoms_per_launch": 77,
+        "max_frames_per_launch": 8,
+        "peak_device_buffer_bytes": 1538008,
+        "peak_host_tile_payload_bytes": 489576,
+        "prediction_and_seeds_ms": 0.0,
+        "reduction_ms": 10.860563000000017,
+        "synchronizations": 900,
+        "tiles": 900,
+        "upload_ms": 213.73391300000023
+      },
+      "cuda_tiling": {
+        "device_at_capacity": {
+          "atoms": 80,
+          "cache_bytes": 931840,
+          "descriptor_adjoint_bytes": 20480,
+          "peak_device_buffer_bytes": 1597072,
+          "policy_limit_bytes": 67108864,
+          "slot_gradient_bytes": 61440
+        },
+        "device_loss": {
+          "estimated_extra_terms_per_atom": 3444,
+          "extra_device_bytes": 160664,
+          "extra_host_reserved_bytes": 158208
+        },
+        "effective_max_atoms": 80,
+        "estimated_scalar_terms_at_capacity": 17607360,
+        "host_tile_payload_at_capacity_bytes": 569904,
+        "host_tile_payload_policy_limit_bytes": 33554432,
+        "maximum_center_terms": 408,
+        "requested": {
+          "max_atoms": 80,
+          "max_frames": 8
+        },
+        "scalar_work_policy_limit": 50000000
+      },
+      "dataset_sha256": "779a5cc59b5f01224709cc1f2f95672ea07a7bdeebe9fdb9d8ba8129fdd196ed",
+      "derivative_method": "CUDA primal forward cache, E/F/V prediction and detached loss seeds; cached directional propagation and mixed reverse derivatives",
+      "execution": {
+        "backend": "cuda_tiled_device_loss_f64_v1",
+        "device_info": "NVIDIA GeForce RTX 4090; compute 8.9; FP64; device 0",
+        "driver_version": 13040,
+        "program_sha256": "06b2cf6e2306626e8169555bee27498cd72edccd597fd4e596c956043347fc5c",
+        "visible_device": 0
+      },
+      "final_training": {
+        "energy_per_atom_rmse_ev": 0.7658646328784415,
+        "energy_rmse_ev": 6.65075023665268,
+        "force_component_rmse_ev_per_angstrom": 6.619143283714867,
+        "frames": 168,
+        "normalized_ef_objective": 47.58516768861788,
+        "normalized_total_objective": 47.58516768861788,
+        "virial_component_rmse_ev": null
+      },
+      "final_validation": {
+        "energy_per_atom_rmse_ev": 0.5234724123407499,
+        "energy_rmse_ev": 4.451816803198453,
+        "force_component_rmse_ev_per_angstrom": 3.7073807781519013,
+        "frames": 43,
+        "normalized_ef_objective": 15.819535027361008,
+        "normalized_total_objective": 15.819535027361008,
+        "virial_component_rmse_ev": null
+      },
+      "fixed_geometry_cache": {
+        "build_ms": 2.117032,
+        "frames": 168,
+        "geometry_sha256": "69574f43ee1b123c8d52f83d66d149b17d953fe0112db19da78ab42c8105acb1",
+        "hits": 7200,
+        "padded_slots": 16512,
+        "policy_limit_bytes": 67108864,
+        "retained_payload_bytes": 3500387
+      },
+      "initial_training": {
+        "energy_per_atom_rmse_ev": 0.774649020767903,
+        "energy_rmse_ev": 6.621237078581399,
+        "force_component_rmse_ev_per_angstrom": 6.9609266168382025,
+        "frames": 168,
+        "normalized_ef_objective": 51.93730018790108,
+        "normalized_total_objective": 51.93730018790108,
+        "virial_component_rmse_ev": null
+      },
+      "initial_validation": {
+        "energy_per_atom_rmse_ev": 0.5627778684081846,
+        "energy_rmse_ev": 4.79575678215323,
+        "force_component_rmse_ev_per_angstrom": 3.9252123569093085,
+        "frames": 43,
+        "normalized_ef_objective": 17.791547098903497,
+        "normalized_total_objective": 17.791547098903497,
+        "virial_component_rmse_ev": null
+      },
+      "learning_rate": {
+        "base_rate": 0.001,
+        "contract": "omnimd-optimizer-update-learning-rate-v1",
+        "first_rate": 0.001,
+        "first_update": 101,
+        "last_rate": 0.000125,
+        "last_update": 1000,
+        "schedule": {
+          "decay_rate": 0.5,
+          "decay_steps": 250,
+          "kind": "exponential"
+        }
+      },
+      "native_v1_reload_max_abs_energy_force_virial": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "output_model_sha256": "9f8bf5036b8f168f1b944e2bd7a3b17fda4e4f2de39895e59d1db21f5806d1ea",
+      "parameter_changes_from_initial": {
+        "embedding": {
+          "changed": 72,
+          "delta_l2": 2.341564336418947,
+          "parameters": 72
+        },
+        "fitting_hidden": {
+          "changed": 432,
+          "delta_l2": 5.805359882190085,
+          "parameters": 432
+        },
+        "fitting_output": {
+          "changed": 27,
+          "delta_l2": 1.542245628346469,
+          "parameters": 27
+        }
+      },
+      "parameter_layout_sha256": "27d64a223cd6b8032897684650d4a07e2b4feeadf8b1df670a59a34970af3e92",
+      "parameters": 531,
+      "startup_timing": {
+        "before_first_update_ms": 168.96748399999998,
+        "before_trainer_ms": 27.958368,
+        "dataset_open_ms": 4.8369420000000005,
+        "state_preparation_ms": 2.183807
+      },
+      "step_end": 1000,
+      "step_start": 100,
+      "timing": {
+        "adam_ms": 185.201305,
+        "assessment_ms": 11.197134,
+        "gradient_ms": 713.1172800000003,
+        "initialization_ms": 135.47287899999998,
+        "startup_ms": 141.00911599999998
+      },
+      "training_frames_summary": {
+        "count": 168,
+        "sha256_canonical_json": "a13d1009f799f5bd78bdd43d23fb1f811d96a61afc6b627f000e2a95faca9a30"
+      },
+      "validation_frames_summary": {
+        "count": 43,
+        "sha256_canonical_json": "0b26dacf45360f79a4d2c71acedcc499e3bef0502819d568c641415cb51e654a"
+      },
+      "source_sha256_summary": {
+        "count": 21,
+        "sha256_canonical_json": "c25385fd8cac3bd5beec12b29bd52bb15e7b7f8a5bcef893ffc8f58514f3d4b1"
+      }
+    }
+  },
+  "trained_three_frame_cpu_gpu_max_abs": {
+    "energy": 0.0,
+    "forces": 8.881784197001252e-16,
+    "virial": 4.440892098500626e-16
+  },
+  "inference_tolerance": "abs(GPU-CPU)<=1e-8+1e-10*abs(CPU)",
+  "activation_diagnosis": {
+    "scope": "Read-only pure-Python activation arithmetic on saved initial/final models and the 168 selected training geometries. No native executable, GPU, Docker, training, parameter change or validation-driven tuning. This file records an already completed analysis.",
+    "input_sha256": {
+      "initial.json": "8109e3432377d7b69f31ca2771fccf65dc403148ef5acb561425bca3522034a1",
+      "fit-1000/model.json": "a43a55f9a1ea455ede44f0f854fbb6fe08e9b046c1625b1b0d912c7de6009206",
+      "dataset.jsonl": "779a5cc59b5f01224709cc1f2f95672ea07a7bdeebe9fdb9d8ba8129fdd196ed",
+      "split.json": "8c898bbc2f6048a6c54eed495450576ae242371abea875362c786a86c8b25e06",
+      "physical-acceptance.json": "047e4994eb08a59aad0e59c1731e76d4dce7382f5397375367699b38ffd144d3",
+      "preparation.json": "3b48af4a68af5af012a31cf068394b325b6ac5df776724d0d5fded8aafd0a53a",
+      "train-100.request.json": "93ffcba17538d74f713106de5ceef48af51b944e4ed6a904729843780ef9031a"
+    },
+    "source_git_blob_sha1": {
+      "mlmd/native/src/lib.rs": "bf971f80c58f01f536aaa4ddc97085e8de5961b3",
+      "mlmd/native/src/full_gradient.rs": "1da9362e7f52e4b1d54b524577d33bf96a872996",
+      "mlmd/native/src/autodiff.rs": "515c0657d1cab00f0dd96678c1112cd5f0ee1cd6",
+      "mlmd/native/src/full_training.rs": "987bddb2dae75bafdcff1283a4fa7f28c7dc7e76",
+      "mlmd/native/src/minibatch.rs": "b3cf3d90e6faefec1097fdd83fbc6e5eabb912c1",
+      "mlmd/native/src/full_loss.rs": "5b13935ba53231e4a3b4102eb29672bef34f972a",
+      "mlmd/native/tests/cuda_reverse_training.rs": "28773edfb418171a832f57177c043b9515b02fd5",
+      "mlmd/native/tests/cuda_full_training.rs": "90d97c327c70b18ccfba0e05127c3d7d9fe2ae54"
+    },
+    "method": {
+      "selected_frames": 168,
+      "selected_atoms": 1376,
+      "partition": "Only IDs in split.json train_ids; original dataset ordering retained.",
+      "geometry": "Nonperiodic only. For each central atom, enumerate other atoms with r<6 by neighbor species, sort by (r,row), and pad each species list to sel=[4,4,4]. Actual radius range excludes padding.",
+      "radial_switch": "q=1 for r<1; otherwise t=(r-1)/(6-1), z=1-t, q=z^3*(1+3*t+6*t^2). s=q/r; raw R=[s,s*dx/r,s*dy/r,s*dz/r]. Padding raw R is zero.",
+      "normalization": "R[a]=(raw_R[a]-mean[a])/std[a]; saved models both use fixed mean0,std1.",
+      "descriptor": "For each row G=pair_embedding(R[0]); B[m,a]+=G[m]*R[a]/12; D[m,k]=sum_a B[m,a]*B[k,a] for m=0..3 and k=0..1, flattened m then k.",
+      "network": "z[j]=bias[j]+sum_i input[i]*weights[i][j]; tanh hidden/embedding, linear final. Reject any residual other than none or non-null timestep. Pool preactivation z across all training atoms and species, separately by embedding/fitting layer index.",
+      "statistics": "Sort abs(values). p50 uses index floor((n-1)/2), p95 uses index floor(0.95*(n-1)); no interpolation. Saturation fractions use strict abs(tanh(z))>threshold. Minimum derivative is min(1-tanh(z)^2). Padded embedding activations are included.",
+      "interpretation": "No broad tanh saturation detected. Small descriptor/fitting inputs imply mostly near-linear fitting responses, not saturation. This arithmetic diagnostic is not an independent native EFV correctness test.",
+      "loss_formula": "Energy component=(energy_per_atom_RMSE/0.1)^2. Force component=frame_weighted_force_RMSE^2 because sF=1 and wE=wF=1. Use frame-weighted force RMSE, not pooled component RMSE, to match the trainer's arithmetic mean across frames."
+    },
+    "results": {
+      "initial": {
+        "training_frames": 168,
+        "radial_environment": {
+          "count": 16512,
+          "abs_max": 1.7393819848921912,
+          "abs_p50": 0.0007427741818350499,
+          "abs_p95": 0.8715899785765441
+        },
+        "descriptor": {
+          "count": 11008,
+          "abs_max": 0.07138422464360863,
+          "abs_p50": 0.0009236402873334305,
+          "abs_p95": 0.014587665586685832
+        },
+        "min_actual_neighbor_distance": 0.5749168432729175,
+        "max_actual_neighbor_distance": 5.9840352059139805,
+        "preactivation": {
+          "embedding/0": {
+            "count": 66048,
+            "abs_max": 1.893098838286199,
+            "abs_p50": 0.00010652009680343723,
+            "abs_p95": 0.5256827026976898,
+            "fraction_abs_activation_gt_0_95": 3.0281007751937984e-05,
+            "fraction_abs_activation_gt_0_99": 0,
+            "minimum_tanh_derivative": 0.08674696309013774,
+            "above_0_95_count": 2,
+            "above_0_99_count": 0
+          },
+          "fitting/0": {
+            "count": 11008,
+            "abs_max": 0.112312278311099,
+            "abs_p50": 0.0012809718996956946,
+            "abs_p95": 0.014628471736418382,
+            "fraction_abs_activation_gt_0_95": 0,
+            "fraction_abs_activation_gt_0_99": 0,
+            "minimum_tanh_derivative": 0.9874912750002928,
+            "above_0_95_count": 0,
+            "above_0_99_count": 0
+          },
+          "fitting/1": {
+            "count": 11008,
+            "abs_max": 0.057268182382909975,
+            "abs_p50": 0.0009284591093199692,
+            "abs_p95": 0.00787152167242132,
+            "fraction_abs_activation_gt_0_95": 0,
+            "fraction_abs_activation_gt_0_99": 0,
+            "minimum_tanh_derivative": 0.9967275126957349,
+            "above_0_95_count": 0,
+            "above_0_99_count": 0
+          }
+        },
+        "neural_weights": {
+          "count": 444,
+          "abs_max": 1.0883744081111288,
+          "abs_p50": 0.31196607430303114,
+          "abs_p95": 0.6008904150933629
+        },
+        "neural_bias": {
+          "count": 87,
+          "abs_max": 0,
+          "abs_p50": 0,
+          "abs_p95": 0
+        }
+      },
+      "final": {
+        "training_frames": 168,
+        "radial_environment": {
+          "count": 16512,
+          "abs_max": 1.7393819848921912,
+          "abs_p50": 0.0007427741818350499,
+          "abs_p95": 0.8715899785765441
+        },
+        "descriptor": {
+          "count": 11008,
+          "abs_max": 0.08900704284715785,
+          "abs_p50": 0.009503313863186274,
+          "abs_p95": 0.04003829920764043
+        },
+        "min_actual_neighbor_distance": 0.5749168432729175,
+        "max_actual_neighbor_distance": 5.9840352059139805,
+        "preactivation": {
+          "embedding/0": {
+            "count": 66048,
+            "abs_max": 3.0546068162166966,
+            "abs_p50": 0.34873384016169895,
+            "abs_p95": 1.0748714703557078,
+            "fraction_abs_activation_gt_0_95": 0.0011658187984496123,
+            "fraction_abs_activation_gt_0_99": 0.00012112403100775194,
+            "minimum_tanh_derivative": 0.00884981313080524,
+            "above_0_95_count": 77,
+            "above_0_99_count": 8
+          },
+          "fitting/0": {
+            "count": 11008,
+            "abs_max": 0.24969461352832925,
+            "abs_p50": 0.022108386658155975,
+            "abs_p95": 0.07880725297082727,
+            "fraction_abs_activation_gt_0_95": 0,
+            "fraction_abs_activation_gt_0_99": 0,
+            "minimum_tanh_derivative": 0.9401553934319338,
+            "above_0_95_count": 0,
+            "above_0_99_count": 0
+          },
+          "fitting/1": {
+            "count": 11008,
+            "abs_max": 0.6398915227500631,
+            "abs_p50": 0.05965057158359813,
+            "abs_p95": 0.23557354703657032,
+            "fraction_abs_activation_gt_0_95": 0,
+            "fraction_abs_activation_gt_0_99": 0,
+            "minimum_tanh_derivative": 0.680971942843334,
+            "above_0_95_count": 0,
+            "above_0_99_count": 0
+          }
+        },
+        "neural_weights": {
+          "count": 444,
+          "abs_max": 1.5117659012785016,
+          "abs_p50": 0.41173626993854645,
+          "abs_p95": 0.9571363828214396
+        },
+        "neural_bias": {
+          "count": 87,
+          "abs_max": 0.4705210610255494,
+          "abs_p50": 0.027995322662263317,
+          "abs_p95": 0.4426421040607687
+        }
+      },
+      "loss_components": {
+        "initial": {
+          "train": {
+            "energy_loss": 60.18979660480121,
+            "force_loss": 46.059750192814846,
+            "sum": 106.24954679761606
+          },
+          "validation": {
+            "energy_loss": 32.43453424298595,
+            "force_loss": 14.691321313005737,
+            "sum": 47.125855555991684
+          }
+        },
+        "final": {
+          "train": {
+            "energy_loss": 35.16633060144604,
+            "force_loss": 48.73874099141683,
+            "sum": 83.90507159286287
+          },
+          "validation": {
+            "energy_loss": 20.789038559559838,
+            "force_loss": 16.449662277062128,
+            "sum": 37.238700836621966
+          }
+        }
+      }
+    },
+    "cpu_two_update_feasibility": {
+      "bounds": {
+        "parameters": 531,
+        "parameter_limit": 10000,
+        "slots": 12,
+        "slot_limit": 128,
+        "maximum_atoms": 10,
+        "atom_limit": 64,
+        "memory_dataset_frames": 211,
+        "memory_frame_limit": 1024
+      },
+      "tape_node_policy_per_frame": 2000000,
+      "conservative_node_estimate": 37553,
+      "estimate_formula": "2+531+10*(12*(8+48+160)+192+912+6)",
+      "estimate_basis": "Upper-bound primitive operation counts: dmul<=4,dadd<=2,dscale<=4,dtanh<=6,dual_constant<=2; 531 leaves once per fresh frame Tape; empty/zero fast paths can reduce this.",
+      "request": "Fresh same initial model/dataset and exact split/minibatch/loss/Adam/schedule. Both steps=2,new output directories. CPU device=cpu and remove config cuda_gradient,cuda_loss,cuda_tiling,fixed_geometry_cache. Preserve checkpoint_every=100; final step2 checkpoint is forced. CPU schema v6,GPU schema v8 expected.",
+      "comparison": "Check finite lengths531, step2, exact hashes/partitions/sampler/frozen fields; all neural parameters and both moments: abs(delta)<=2e-10*(1+max(abs(CPU),abs(GPU))). Report actual maximum errors separately. This is a recommended diagnostic gate, not a measured result.",
+      "scope": "No two-update comparison was executed by this analysis."
+    }
+  },
+  "commands": [
+    {
+      "label": "parity-cpu",
+      "command": [
+        "/work/target/release/omnimd-mlmd",
+        "train-native",
+        "/work/diagnosis-01/parity-cpu.request.json"
+      ],
+      "cpu_only": true,
+      "status": "passed",
+      "started_utc": "2026-10-16T17:10:12.445223+00:00",
+      "exit_code": 0,
+      "seconds": 0.20902115300123114
+    },
+    {
+      "label": "parity-cuda",
+      "command": [
+        "/work/target/release/omnimd-mlmd",
+        "train-native",
+        "/work/diagnosis-01/parity-cuda.request.json"
+      ],
+      "cpu_only": false,
+      "status": "passed",
+      "started_utc": "2026-10-16T17:10:12.663895+00:00",
+      "exit_code": 0,
+      "seconds": 0.455632520999643
+    },
+    {
+      "label": "weight-100",
+      "command": [
+        "/work/target/release/omnimd-mlmd",
+        "train-native",
+        "/work/diagnosis-01/weight-100.request.json"
+      ],
+      "cpu_only": false,
+      "status": "passed",
+      "started_utc": "2026-10-16T17:10:13.139318+00:00",
+      "exit_code": 0,
+      "seconds": 0.43356525800118106
+    },
+    {
+      "label": "weight-900",
+      "command": [
+        "/work/target/release/omnimd-mlmd",
+        "train-native",
+        "/work/diagnosis-01/weight-900.request.json"
+      ],
+      "cpu_only": false,
+      "status": "passed",
+      "started_utc": "2026-10-16T17:10:13.582802+00:00",
+      "exit_code": 0,
+      "seconds": 1.4027346469993063
+    },
+    {
+      "label": "weight-cpu-all",
+      "command": [
+        "/work/target/release/omnimd-native-eval",
+        "/work/diagnosis-01/weight-900/model.json"
+      ],
+      "cpu_only": true,
+      "status": "passed",
+      "started_utc": "2026-10-16T17:10:15.015481+00:00",
+      "exit_code": 0,
+      "seconds": 0.038536595999175915
+    },
+    {
+      "label": "weight-slice-cpu",
+      "command": [
+        "/work/target/release/omnimd-native-eval",
+        "/work/diagnosis-01/weight-900/model.json"
+      ],
+      "cpu_only": true,
+      "status": "passed",
+      "started_utc": "2026-10-16T17:10:15.076598+00:00",
+      "exit_code": 0,
+      "seconds": 0.022915045999980066
+    },
+    {
+      "label": "weight-slice-cuda",
+      "command": [
+        "/work/target/release/omnimd-native-cuda-eval",
+        "/work/diagnosis-01/weight-900/model.json"
+      ],
+      "cpu_only": false,
+      "status": "passed",
+      "started_utc": "2026-10-16T17:10:15.109292+00:00",
+      "exit_code": 0,
+      "seconds": 0.183691660000477
+    }
+  ],
+  "timing": {
+    "diagnostic_runner_wall_seconds": 2.8590379190027306,
+    "prior_model_runner_including_baseline_seconds": 4.5047800579959585,
+    "combined_recorded_runner_wall_seconds": 7.363817976998689,
+    "limit_seconds": 1200,
+    "excluded": "Container lifecycle, source compilation, static analysis, documentation. Single observations including startup/JIT/cache, sync, transfers and I/O; not throughput/speedup measurements."
+  },
+  "gpu_errors": [],
+  "gpu_retries": 0,
+  "container": {
+    "name": "omnimd-physical-8167a4a",
+    "stop_exit_code": 0,
+    "gpu_window": "released immediately after completion"
+  },
+  "conclusion": "Evidence supports loss weighting within this narrow model/training setup as the observed regression cause. No inspected mapping/baseline or two-update CPU/CUDA optimizer defect was found; no code fix is justified. This does not exclude shared implementations defects, prove all1000updates agree, or establish architecture capacity/physical readiness.",
+  "remaining_limitations": [
+    "E/atom and force RMSE remain large.",
+    "Total-energy training RMSE worsens slightly under controlled run even though E/atom improves slightly.",
+    "Training C3H3O4 E/atom worsens; every group is retained.",
+    "Validation is only index-held-out within three composition groups; no trajectory-independent or final-test claim.",
+    "Normalization and architecture were deliberately unchanged, so their independent effect is unmeasured.",
+    "No virial labels; virial only checked for CPU/GPU parity."
+  ],
+  "local_artifact_root": "C:\\Users\\Shawn\\Documents\\Codex\\2026-10-13\\task-4\\physical-run-8167a4a",
+  "sha256": {
+    "run_diagnosis.py": "5fabc24465423ef0c862bfbfd3f37f783d686689e815ab94141fcd8a05c830c7",
+    "package_diagnosis.py": "3666b700908587bd9e2ad340f5b1230ba25a797c19369898b539a9148683abb6",
+    "diagnostic-static-analysis.json": "f18367997ffc592c268b0d8d19dba44fb145230d1019795c23868ac97c42044f",
+    "diagnosis-01/result.json": "bf3a0b1c766db44a053043c6962f595216acdc778975ae28f7a4955445555884",
+    "diagnosis-01/execution/commands.json": "3a4c9a08069ef3293792769f0429f00c05105f3c7d0fc84886fb73bcd0ae5e59",
+    "diagnosis-01/execution/parity-cpu.attempt.json": "c3612e32c1cf5bab555e1cfc05d61fbbd086a555a0dbd477ffe864cf8f3cd2a4",
+    "diagnosis-01/execution/parity-cpu.stderr": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "diagnosis-01/execution/parity-cpu.stdout": "fc63bb827b3992ec66b67ee78fb28981b41c47194647b09a426d4d7b2b5c2931",
+    "diagnosis-01/execution/parity-cuda.attempt.json": "04acb284772139999f58d3d3e5025ed097cc17eb5acd032047a67dc0128c1e67",
+    "diagnosis-01/execution/parity-cuda.stderr": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "diagnosis-01/execution/parity-cuda.stdout": "0ed5a6a64b5546ca6a9b98898a51cd88fef65c6f1ec294390f2db35e7586ebbc",
+    "diagnosis-01/execution/weight-100.attempt.json": "5a8e525a534701a3ae4a362dfc721ac1f35a04cae9331d80a3b68bfa69bf72e1",
+    "diagnosis-01/execution/weight-100.stderr": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "diagnosis-01/execution/weight-100.stdout": "350fa5b7fb25c067d8532dde4406da16503b82348fe7d792293f2bf33b8d50cd",
+    "diagnosis-01/execution/weight-900.attempt.json": "cc273e9c5ce661fd046a6e2b9b9ad25a06252b5f1df5a1e26baa8aa1def14dcf",
+    "diagnosis-01/execution/weight-900.stderr": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "diagnosis-01/execution/weight-900.stdout": "e7724b117605770f2e75d071dc4ea1ad26048875a4161da3f936500b44624b05",
+    "diagnosis-01/execution/weight-cpu-all.attempt.json": "475c4cf425e33de00e14e1aa2dbd8becd8ddc46b4769888c13878a4af68458e3",
+    "diagnosis-01/execution/weight-cpu-all.stderr": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "diagnosis-01/execution/weight-cpu-all.stdout": "8a592393fd589c60700964432a574b6b6202e2759671254a5f14b494a22d9e0e",
+    "diagnosis-01/execution/weight-slice-cpu.attempt.json": "a8ba14a0b44cdf35997c282524afb561eafc8f77ada1aadd6328f5092a5e3b69",
+    "diagnosis-01/execution/weight-slice-cpu.stderr": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "diagnosis-01/execution/weight-slice-cpu.stdout": "8b52637b143106f18993948bafff87949c358985099620c0cd16d6833b56ef24",
+    "diagnosis-01/execution/weight-slice-cuda.attempt.json": "9f31616ca6d852e453fa6872b832b573f1288eb25d8e6db85df17de931aedf42",
+    "diagnosis-01/execution/weight-slice-cuda.stderr": "26245f3341cd08ad03223a54d47e99897d888d879e31a77536bfc68fb51037a8",
+    "diagnosis-01/execution/weight-slice-cuda.stdout": "33e8f57952a3ea75b65b0aec106f8d99275c03b3f55d07fe95ac578561af5d36",
+    "diagnosis-01/optimizer-parity.json": "c8bd99c1a58c059f8afbcaa53470b1a020b87148ee2ee099e46cc6f91df0c372",
+    "diagnosis-01/parity-cpu/checkpoint-step-2.json": "5b0eb8d26544c328a14315aef1600cca6139f6b62cccc058f19c99dee4da4077",
+    "diagnosis-01/parity-cpu/checkpoint.json": "5b0eb8d26544c328a14315aef1600cca6139f6b62cccc058f19c99dee4da4077",
+    "diagnosis-01/parity-cpu/model.json": "9c4e20b47abb0ff0e1d5ec6e426696e50538ca69142834dc7f314b5a7af4e913",
+    "diagnosis-01/parity-cpu/report.json": "f21d356844a472a7c2f620e105320a47e4c3a958098def9eec7668f6d7a69770",
+    "diagnosis-01/parity-cpu.request.json": "ba92699172708af4059ccc0e3ca0c8cbb55c65804978b9ace107e8e95ce357e2",
+    "diagnosis-01/parity-cuda/checkpoint-step-2.json": "1361943733a2c2292c2f3959ccd84239e97dc017fa838b4c587fe231b04336f5",
+    "diagnosis-01/parity-cuda/checkpoint.json": "1361943733a2c2292c2f3959ccd84239e97dc017fa838b4c587fe231b04336f5",
+    "diagnosis-01/parity-cuda/model.json": "28f32aed13c449c965b5ab0e27dbddc98206b58efe2a89f56ecfafc91b7507cd",
+    "diagnosis-01/parity-cuda/report.json": "9741a501ea46cfa56e81c6c6530d1e62da484cd4d8d416bef4b0e534b836a99a",
+    "diagnosis-01/parity-cuda.request.json": "d8b671bf7f801817d0595f34e4c4f3731d9726ca48141ca52df920c2a641aa15",
+    "diagnosis-01/plan.json": "d59c65650178ac98c44b6fee56ee63d5970271187750211dcb891030d6cc3375",
+    "diagnosis-01/weight-100/checkpoint-step-100.json": "c0849261657a313cf52f17ebb562def2cd7fae870068f142afc5a7a15b5e015e",
+    "diagnosis-01/weight-100/checkpoint.json": "c0849261657a313cf52f17ebb562def2cd7fae870068f142afc5a7a15b5e015e",
+    "diagnosis-01/weight-100/model.json": "9b0f162c8c4fb726a90de139eb1d1ee2fc3709453dd989315e1fe99f8ad4324f",
+    "diagnosis-01/weight-100/report.json": "f91f5987e8c5b0ca0729196b5c96c95723ff7629b41a1356c476ba6b8948a926",
+    "diagnosis-01/weight-100.request.json": "a5b483b113c4c8c26aece8a691ffbe1c89c5bb155d43cca3f1a80a72a71b21f7",
+    "diagnosis-01/weight-900/checkpoint-step-1000.json": "0980d0a62eb452446d1a4ec5b37f9c3c24f07cb44fae75be87e23ef703f48767",
+    "diagnosis-01/weight-900/checkpoint-step-200.json": "6ad9d4f69dcb8b38259211ac315008942922ae6f569e7352d83dd6b2c4e5792e",
+    "diagnosis-01/weight-900/checkpoint-step-300.json": "cbeaee03a237e8ff0975624bdabd8bf364c34f5cbfb4c724487e0c2ffce19302",
+    "diagnosis-01/weight-900/checkpoint-step-400.json": "18a88c2316a1f77baf259def12ca772da0563411b7787ced50c2b305bd9584a3",
+    "diagnosis-01/weight-900/checkpoint-step-500.json": "d6004100126afa31b403024325c4a51c34097de368381f6189d3584886081999",
+    "diagnosis-01/weight-900/checkpoint-step-600.json": "00565c5c51480983ac0f27972f05d1522dc25834967ef2b63839ebd723c5eda1",
+    "diagnosis-01/weight-900/checkpoint-step-700.json": "7f9316fad35d53ccf723723ac1d15a4f7b4fd2b9f863d9f7148fabac7107996f",
+    "diagnosis-01/weight-900/checkpoint-step-800.json": "fed9f36b1826dbd07da4c48e5e5e325024451706cb679012d5888e307cdd84b7",
+    "diagnosis-01/weight-900/checkpoint-step-900.json": "5fc9b11c9a031e02d617976db8f44be67b4da3d8b8c44f1c3848d0d4adc752b6",
+    "diagnosis-01/weight-900/checkpoint.json": "0980d0a62eb452446d1a4ec5b37f9c3c24f07cb44fae75be87e23ef703f48767",
+    "diagnosis-01/weight-900/model.json": "9f8bf5036b8f168f1b944e2bd7a3b17fda4e4f2de39895e59d1db21f5806d1ea",
+    "diagnosis-01/weight-900/report.json": "526b1ad1079abd8a4102a6aed041fc73e6ad1dab95fdec47613ca79e20678e8c",
+    "diagnosis-01/weight-900.request.json": "6515c01ae5c695d5862a7573cc2f22e7fea78fc33182aff7dd86474b2ae95c7e"
+  }
+}
