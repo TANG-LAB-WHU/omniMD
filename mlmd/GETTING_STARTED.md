@@ -749,7 +749,7 @@ validation frames never enter batches. Smaller batches do not promise full-batch
 convergence, equivalent epoch weighting or a throughput improvement.
 
 Inspect checkpoint `omnimd-native-full-checkpoint-v5` (v6 with an explicit
-learning-rate schedule) and `report.minibatch`:
+learning-rate schedule, v7 with CUDA tiling) and `report.minibatch`:
 start/end sampler, processed frame count, partial-batch count and size histogram.
 Sampler state describes the next batch and includes seed/order, epoch/cursor,
 permutation and derived RNG state. Resume from that checkpoint with the same
@@ -832,7 +832,7 @@ an atomic snapshot against concurrent mutation; immutable input is required, and
 Linux/macOS execution is not validated here. Failure invalidates the reader and
 stops the invocation; earlier completed checkpoints remain available.
 
-Storage mode is runtime-only: v5/v6 checkpoints do not embed the index or change
+Storage mode is runtime-only: v5/v6/v7 checkpoints do not embed the index or change
 schema when storage mode changes. Resume may switch memory/indexed with the identical raw input, numerical
 backend, split, objective and sampler settings, provided the input satisfies the
 destination mode's bounds. Even whitespace changes alter dataset identity. The
@@ -944,7 +944,8 @@ their existing meanings. This is a native formula, not inferred DeepMD defaults.
 
 Use `{"kind":"constant"}` for an explicit constant schedule. Omit the field or
 set it to null to retain historical constant behavior and v1-v5 serialization.
-Every explicit schedule, including constant, uses checkpoint v6. Resume requires
+Every explicit schedule, including constant, uses checkpoint v6 unless CUDA
+tiling selects v7 (step 22). Resume requires
 exact base rate, schedule presence/kind/interval/rate, together with existing
 loss/data/backend/sampler identity. Runtime storage/cache choices retain their
 previous compatibility rules. Changing or adding a schedule requires starting a
@@ -976,3 +977,73 @@ python mlmd/scripts/validate_learning_rate_integration.py --engine ENGINE_EXE --
 The baseline is the accepted `indexed-startup-integrated-01` directory, including
 `fresh` outputs. The short replay explicitly selects CPU, hides CUDA devices and
 uses a new output directory. It runs no GPU or performance benchmark.
+
+## 22. Batch frames in bounded CUDA tiles
+
+Use the CUDA-enabled sibling trainer and an explicit `"device":"cuda:0"`.
+In the full-network request's `config`, add:
+
+```json
+{
+  "cuda_gradient": "reverse",
+  "cuda_tiling": {"max_frames": 16, "max_atoms": 512}
+}
+```
+
+Run `omnimd-mlmd train-native REQUEST.json` into a new output directory. Tiling
+requires reverse CUDA; CPU or hyperdual requests reject. Omit or set `cuda_tiling`
+to null to retain historical framewise behavior. Both full-batch and minibatch
+training work; indexed access still requires minibatching. These capacities group
+GPU execution, not optimizer samples. Each original batch retains its true frame
+count, short tail, sampler order, schedule and single Adam update.
+
+Frames are packed in order, never mixed geometrically or split. A tile uploads
+packed inputs, launches four reverse-gradient kernels, synchronizes and downloads
+atomic derivatives. Stable host reduction retains atom-within-frame then original
+frame order, without tile subtotals. CPU prediction/loss seeds, geometry, reduction,
+clipping, metrics and serialization remain. A failed tile prevents the entire
+batch's Adam/sampler commit and stops training; prior checkpoints remain usable.
+
+Requested limits are 1..32 frames and 1..1024 aggregate atoms per tile. The planner
+may lower effective atom capacity to fit the 50-million-term work policy, 64 MiB
+explicit device buffers and 32 MiB host tile payload. A single frame that cannot
+fit rejects before CUDA; no partial frame or silent data truncation is allowed.
+These payload limits exclude context/module/local memory, CPU workspaces, allocator,
+index/cache/model/report overhead; they are not total VRAM/RSS limits. Supported
+architecture remains at most 2048 parameters, width 32, 64 neighbor slots and
+**64 atoms per frame**. See [the full policy](native/TILED_TRAINING.md).
+
+Tiling selects checkpoint `omnimd-native-full-checkpoint-v7`, including when a
+schedule is present, and executor `cuda_tiled_reverse_f64_v1`. Tile capacities
+are immutable along with existing data/model/loss/sampler/schedule/runtime identity.
+Storage and geometry-cache flags may change on resume. To change capacities or
+switch to framewise execution, start a new optimizer explicitly from the exported
+model. Same-runtime exact restart does not imply cross-platform/driver equality.
+
+Inspect `report.cuda_tiling` for requested/effective capacities and planned budgets.
+`cuda_gradient_profile` reports frames, tiles, four gradient kernels per tile,
+synchronizations, maximum actual occupancy and observed explicit buffer payloads.
+Launch counts exclude Adam. Phase timings and external whole-process timing have
+different boundaries; do not treat payload counters as process memory.
+
+[Final engine acceptance](evidence/native-tiled-integrated.json) uses the existing
+24-frame fixture with 3/4 atoms per frame, seven scheduled updates and minibatches
+7,7,4,7,7,4,7. Requested capacities are three frames / 16 atoms; actual occupancy
+reaches three frames / 11 atoms. The 43 processed frames use 19 tiles and 76
+gradient kernels, versus 172 kernels framewise. Model/Adam/sampler and all four
+partition metrics match framewise exactly after excluding executor metadata;
+exported model bytes match. Step-2 resume switches indexed to memory and cache on
+to off, with exact final state except additional steps/cache flag. Reload E/F/V
+differences are zero. CPU tiling, changed capacity and framewise resume reject.
+
+For this short replay only, reserve the GPU and supply the accepted
+`learning-rate-integrated-01` directory with its existing synthetic inputs:
+
+```text
+python mlmd/scripts/validate_tiled_integration.py --engine ENGINE_EXE --baseline-work PREVIOUS_LEARNING_RATE_WORK --work NEW_WORK
+```
+
+It stops on failure without retry. B's larger boundary/gradient tests and
+three-repeat performance comparisons remain separate and are not repeated here.
+The documented whole-process synthetic ratios do not establish physical accuracy,
+production scaling or speed relative to DeepMD.

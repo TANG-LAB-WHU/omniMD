@@ -777,3 +777,59 @@ The remaining main larger-GPU workload gap is a memory-bounded batched reverse
 training executor with representative scaling evidence. Current parameter/width/
 atom limits and host stages remain. The roadmap distinguishes those known
 constraints from unmeasured throughput bottlenecks; no next feature was started.
+
+## Local tiled CUDA training integration
+
+Native source `cce7f8c447b22824593ad3b4df333d63932e44bc` is integrated as
+`0937cb97733d4a5bb5987389636e9ccd893fbe7b` on stable
+`6bb52955315304b1a35842e6065afc7219388805`. Optional `config.cuda_tiling` batches
+independent frames into four reverse-gradient kernels per tile. Frame reduction
+order, true optimizer-batch denominators, learning-rate/Adam boundaries and failure
+atomicity are retained. Explicit reverse CUDA is required. v7 binds capacities
+and `cuda_tiled_reverse_f64_v1`; absent/null preserves historical framewise v1-v6.
+The tiled program is distinct; the framewise program identity remains unchanged.
+
+No architecture bound is raised. At most 32 frames/1024 aggregate atoms per tile
+are requested; effective capacity is reduced by the 50-million-term work policy,
+64 MiB explicit device-buffer and 32 MiB host-tile budgets. Single frames remain
+at most 64 atoms; widths at most 32 and parameters at most 2048. Payload exclusions
+include context/module/local-memory, CPU workspace and other process overhead.
+
+[Final engine acceptance](evidence/native-tiled-integrated.json) uses existing
+24-frame original synthetic input (3/4 atoms), 18/6 split, seven scheduled updates
+and minibatches 7,7,4,7,7,4,7. Three-frame/16-atom capacity packs up to three frames/
+11 atoms. The 43 gradient frames use 19 tiles, 76 gradient kernels and 19 syncs,
+compared with 172 kernels/43 syncs framewise. Numerical checkpoint content and all
+four partition metrics match exactly after excluding executor metadata; model
+bytes match. Step-2 v7 continuation switches indexed to memory and cache on to off,
+reproducing final state except additional-step/cache fields. Reload differences
+are zero. CPU tiling, changed capacities and framewise resume reject before output.
+Four host-only guards/routing checks and the locked offline release build pass.
+
+The initial harness incorrectly expected 12 atoms per tile for mixed 3/4-atom
+frames. Both GPU training commands had completed successfully. The assertion was
+corrected to use fixture bounds; completed requests/results were matched and
+reused, with only the previously unrun continuation executed. There was no CUDA
+failure or GPU retry. The GPU window ended at 2026-10-16 15:00:29 UTC with no
+remaining omniMD process.
+
+[B's separate receipt](native/fixtures/tiled-training-report.json) records 40 CPU,
+56 feature-enabled host-only and three GPU tests, including raw-gradient/Adam
+parity, failure atomicity and a 32-frame/1024-atom aggregate boundary. Three
+alternating 128-update whole-process synthetic medians are 1071.17->550.51 ms
+for 112 parameters/3-4 atoms and 4483.70->3567.77 ms for 466 parameters/32-64 atoms.
+A did not repeat those benchmarks or broad permutations. No physical accuracy,
+production scaling, new architecture or speed relative to DeepMD is claimed.
+
+Publication scope is the 21 native source-commit files, engine static capability
+metadata, root README/ROADMAP, guide/matrix/release notes, one short final engine
+replay and its compact receipt. No dependency/shared model or dataset interface
+changes. Generated weights/data/checkpoints/binaries/raw logs stay outside Git;
+no HAP inputs or system changes. Candidate remains local and unpushed.
+
+The next meaningful measured cost is current-model CPU prediction/loss seeds:
+about 57% of the retained medium tiled gradient sample. GPU tile prediction/seeds
+with reusable intermediates is the next proposed implementation target, subject
+to independent derivative/restart/resource and whole-process checks. Existing
+architecture limits and constrained tile occupancy remain separate gaps. No new
+feature starts before reporting this candidate.

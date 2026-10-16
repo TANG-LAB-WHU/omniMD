@@ -236,36 +236,54 @@ work. No further feature is started as part of this candidate.
 Optional explicit constant/exponential staircase schedules apply to the supported
 full CPU/CUDA trainers. The globally completed update count determines the next
 rate; no epoch inference or mutable scheduler state is added. Explicit schedules
-use v6 with immutable base/schedule identity, while absent/null preserve legacy
+use v6 (v7 with tiling) with immutable base/schedule identity, while absent/null preserve legacy
 constant behavior and v1-v5. [Final engine evidence](mlmd/evidence/native-learning-rate-integrated.json)
 records exact decay-boundary continuation and historical-checkpoint compatibility.
 Model/atom/workspace limits, CUDA kernels and PTX remain unchanged.
 
-## Main scaling gap: batched GPU training with bounded memory
+## Delivered: bounded multi-frame reverse CUDA execution
 
-The current GPU full trainer admits at most 2048 neural parameters, width 32,
-64 neighbor slots and 64 atoms/frame. Reverse gradients retain per-slot parameter
-buffers within a 64 MiB planned device payload. Training processes frames
-individually; current-model inference/loss seeds, geometry, stable reduction and
-assessment remain CPU work. These are known architecture/resource constraints.
-Their relative throughput costs on larger real workloads have not been measured;
-existing small synthetic timings cannot rank every bottleneck.
+Explicit `cuda_tiling` packs independent frames into actual GPU tiles with four
+reverse kernels each. Original per-frame gradient reduction order, optimizer
+batch normalization, schedules and Adam boundaries remain. v7 binds the tiled
+executor and capacities; storage/cache may switch on restart. The
+[final engine receipt](mlmd/evidence/native-tiled-integrated.json) records exact
+framewise state/metrics, storage/cache-switch continuation and refusal checks.
 
-The next substantial milestone should be a memory-bounded, batched reverse GPU
-trainer, validated on a declared larger workload using public or authorized data.
-It should tile intermediate/gradient storage and perform useful multi-frame GPU
-work without simply raising hard caps. Resource accounting must scale explicitly
-with atoms, neighbors, parameters and batch size, and fail before unsafe allocation.
-Profiling should determine which CPU primal/loss or transfer/reduction stages
-must move to the device; no general speedup is assumed in advance.
+This milestone batches the existing supported models; it does not expand them.
+Requested capacities up to 32 frames/1024 aggregate atoms are reduced by checked
+work and payload budgets. Limits remain 64 atoms per frame, 2048 parameters,
+width 32 and 64 neighbor slots. Explicit device buffers are capped at 64 MiB and
+host tile payload at 32 MiB, with documented exclusions from total memory.
 
-Acceptance should include larger supported shapes beyond today's bounds, E/F/V
-and gradient/Adam agreement on tractable reference samples, preserved deterministic
-sampling/scheduling/restart, measured peak memory and transfer volume, and repeated
-whole-training throughput against a matching CPU reference. Warmup, compilation,
-IO/checkpoints and kernel time must be distinguished. Public-data training quality
-needs its own held-out assessment. No such larger-workload implementation or new
-benchmark starts in this integration tranche.
+[Separate native evidence](mlmd/native/fixtures/tiled-training-report.json)
+records three alternating 128-update whole-process comparisons. Synthetic tiny
+and medium medians decrease 1071->551 ms and 4484->3568 ms. These results do not
+establish physical accuracy, larger-architecture support or universal speedup.
+
+## Next main bottleneck: CPU prediction and loss preparation
+
+The saved medium tiled profile spends 1016.09 ms in current-model CPU prediction
+and detached loss seeds, out of 1781.06 ms in that run's complete gradient phase
+(about 57%). This is a measured post-tiling sample, not a new A benchmark or a
+median-stage decomposition. Reduction is about 32.54 ms. Transfer/kernel/sync
+costs remain meaningful; the 50-million-term budget reduces requested 512-atom
+capacity to 144, with at most four frames/128 atoms actually packed and 1763 tiles
+for 3840 frames. Architecture and workspace constraints still limit larger work.
+
+The next substantial implementation target should remove repeated CPU neural
+E/F/V prediction from the training hot path by producing predictions and loss
+seeds for a tile on the GPU and reusing appropriate intermediates for gradients.
+Geometry and integrity checks must retain their semantics. This needs independent
+E/F/V, mixed-gradient and Adam comparisons, unchanged loss/sampler/schedule
+semantics, exact same-runtime restart and measured memory/whole-process benefit.
+Profile the result to determine the remaining transfer or occupancy bottleneck;
+do not raise work or architecture limits without a revised validated resource plan.
+
+The cache-off resume is a different-duration invocation and cannot by itself
+quantify cache speedup. Large physical models, broader architectures and external
+training quality remain unverified. No further feature or benchmark starts in
+this integration tranche.
 
 ## Publication gate
 

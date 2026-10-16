@@ -276,10 +276,23 @@ for cumulative timing fields and the short CPU replay.
 neural-parameter training through optional `config.learning_rate_schedule`:
 explicit constant or exponential staircase, indexed by globally completed Adam
 updates. Absent/null retains constant behavior and historical checkpoint schemas;
-an explicit schedule uses v6 and must remain identical on resume. The
+an explicit schedule uses v6 (v7 with tiling) and must remain identical on resume. The
 [step-21 guide](mlmd/GETTING_STARTED.md#21-select-an-optimizer-update-learning-rate-schedule)
 and [final CPU engine receipt](mlmd/evidence/native-learning-rate-integrated.json)
 cover boundary continuation, legacy v5 and refusal behavior. No model/atom limit
-or CUDA kernel changes accompany this addition. The remaining main scaling gap
-is a memory-bounded GPU trainer processing real multi-frame batches and larger
-supported models; see the [roadmap](ROADMAP.md#main-scaling-gap-batched-gpu-training-with-bounded-memory).
+or CUDA kernel changes accompany this addition. Bounded multi-frame execution is now available below; larger model support and
+CPU prediction/loss preparation remain gaps described in the
+[roadmap](ROADMAP.md#next-main-bottleneck-cpu-prediction-and-loss-preparation).
+
+[Bounded multi-frame CUDA training](mlmd/native/TILED_TRAINING.md) is enabled with
+explicit reverse CUDA and `config.cuda_tiling={"max_frames":16,"max_atoms":512}`.
+Each tile executes four gradient kernels, preserving per-frame reduction order,
+optimizer batches, schedules and one Adam update per batch. Tile capacities bind
+v7 restart identity; absent/null retains framewise execution and v1-v6. Limits
+are 32 frames / 1024 aggregate atoms per tile, subject to work/payload planning;
+64 atoms per frame, 2048 neural parameters and width 32 remain unchanged.
+[Step 22](mlmd/GETTING_STARTED.md#22-batch-frames-in-bounded-cuda-tiles) explains
+payload limits and diagnostics. [Final engine acceptance](mlmd/evidence/native-tiled-integrated.json)
+records exact framewise equality and storage/cache-switch restart. Separate
+synthetic whole-process medians improved 1071->551 and 4484->3568 ms; these are
+bounded measurements, not physical-model or universal acceleration claims.

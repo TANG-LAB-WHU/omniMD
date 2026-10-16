@@ -1,6 +1,6 @@
 # DeepMD feature coverage: reference version 3.1.3
 
-Matrix revision 14, checked 2026-10-16. Previous integrated CUDA runtime:
+Matrix revision 15, checked 2026-10-16. Previous integrated CUDA runtime:
 `9b8d1847f892e32751c73d3262e0245d0efb4cdd`. This includes engine inspection/tutorial,
 native source `b6b7aa7` and C API source `1aee39c`. Implementation and real-runtime
 validation are separate. C API CPU follow-up is now verified in `ce27786`
@@ -8,9 +8,10 @@ validation are separate. C API CPU follow-up is now verified in `ce27786`
 release. Recorded C API CPU tests use 3.1.3; recorded C API CUDA tests use 3.1.0.
 The native model format version, DeepMD package version, C API version and frozen
 graph version are different identifiers.
-Current local learning-rate source `63ea457` is integrated as `7fdb1e2` on `e0decf3`.
-Its final engine acceptance is CPU-only; separate native schedule CUDA evidence
-is linked below. CUDA kernels/PTX are unchanged by this schedule.
+Current tiled source `cce7f8c` is integrated as `0937cb9` on `6bb5295`.
+Its final engine acceptance includes a short real GPU framewise/tiled comparison
+and v7 restart. The tiled program has a distinct identity; historical framewise
+kernel identity remains unchanged.
 
 **omniMD does not implement all DeepMD features.** Native means arithmetic in
 this Rust/CUDA implementation. Delegated means the official external runtime
@@ -67,14 +68,15 @@ an official `input.json` is not a native training request.
 | External label return | Hash-bound job preparation and E/F/optional-V import; exact geometry/atom/parameter identity; fill missing labels, preserve source order/v2 | [Contract and replay](engine/EXTERNAL_LABELS.md); calculator/provenance declarations unverified; no job submission or automatic training |
 | Readout training | CPU default; optional native CUDA E/F/V feature columns, CPU rank-aware QR and assessment, optional bias | Frozen hidden layers; bounded dense solve; [microcase slower on CUDA](native/fixtures/cuda-readout-report.json); separate full-network route below |
 | Full supported-network training | CPU default; optional bounded CUDA all-neural E/F and optional V gradients and Adam, tanh/linear, checkpoint/restart | CPU inference/loss seeds/geometry/reduction/assessment retained; fixed normalization/cutoff/selection/atomic offsets; independent one-side copies; [CUDA bounds](native/CUDA_FULL_TRAINING.md) |
-| CUDA gradient executor | Hyperdual default; explicit cached reverse accumulation, same shape/work bounds, 64 MiB planned device-buffer payload | [Activation and evidence](native/CUDA_REVERSE_TRAINING.md); full-batch reverse checkpoint v4 (minibatch v5, explicit schedule v6), no executor switch on resume; payload excludes driver/context memory |
+| CUDA gradient executor | Hyperdual default; explicit cached reverse accumulation, same shape/work bounds, 64 MiB planned device-buffer payload | [Activation and evidence](native/CUDA_REVERSE_TRAINING.md); full-batch reverse checkpoint v4 (minibatch v5, explicit schedule v6, tiling v7), no executor switch on resume; payload excludes driver/context memory |
+| Multi-frame CUDA reverse | Explicit `cuda_tiling`; four gradient kernels per packed tile, original batch normalization/reduction/Adam boundaries; v7 executor identity | [Contract](native/TILED_TRAINING.md); up to 32 frames/1024 total atoms subject to work/payload planning; 64 atoms/frame and architecture bounds unchanged; CPU prediction/seeds/geometry remain |
 | Fixed training geometry | Explicit CUDA full-training cache, both gradient executors; default false; 64 MiB retained host payload; exact identity checks | [Contract](native/FIXED_GEOMETRY_TRAINING.md); fixed training frames only; cache may toggle on resume; excludes temporary/allocator memory, assessment and current-loss directions |
-| Virial supervision | Optional full-network CPU/CUDA loss on all nine row-strain virial entries per atom; explicit positive weight/scale; loss-bound full-batch CPU/hyperdual v3 or reverse v4; minibatch v5; explicit schedule v6 | [Contract](native/VIRIAL_TRAINING.md); E/F labels still required; readout QR remains E/F-only; no stress/volume conversion |
+| Virial supervision | Optional full-network CPU/CUDA loss on all nine row-strain virial entries per atom; explicit positive weight/scale; loss-bound full-batch CPU/hyperdual v3 or reverse v4; minibatch v5; explicit schedule v6; tiling v7 | [Contract](native/VIRIAL_TRAINING.md); E/F labels still required; readout QR remains E/F-only; no stress/volume conversion |
 | Split/provenance | Seeded or explicit held-out IDs, dataset/source hashes, validation isolation | No trajectory-independent split guarantee from random frames |
-| Deterministic minibatches | Explicit batch size/seed/order on CPU and both CUDA executors; actual-count tail normalization; v5/v6 next-batch sampler and exact restart | [Contract](native/MINIBATCH_TRAINING.md); full-batch default; memory 1024 frames, explicit indexed access has separate bounds; no convergence equivalence claim |
+| Deterministic minibatches | Explicit batch size/seed/order on CPU and both CUDA executors; actual-count tail normalization; v5/v6/v7 next-batch sampler and exact restart | [Contract](native/MINIBATCH_TRAINING.md); full-batch default; memory 1024 frames, explicit indexed access has separate bounds; no convergence equivalence claim |
 | Indexed training input | Explicit indexed v1 JSONL with minibatches; framewise read, offset/ID/line SHA index, whole-file checks before publication; runtime storage-mode switching | [Bounds and evidence](native/INDEXED_TRAINING.md); max 100000 frames/16 GiB input, 256 KiB record, 64 MiB index payload; metadata/sampler O(N), 64 atoms unchanged; maximum ceiling not benchmarked |
 | Startup validation | One complete validation inside the trainer; reuse returned layout and omit duplicate CLI preflight; two frame passes removed per invocation | [CPU acceptance](evidence/native-indexed-startup-integrated.json); constructor/public validation, per-read hashes and publication whole-file checks retained; overlapping timing fields are diagnostic |
-| Learning-rate schedules | Explicit constant or exponential staircase by globally completed optimizer updates; CPU and both CUDA full trainers; immutable v6 checkpoint identity | [Contract](native/LEARNING_RATE.md); absent/null retains constant/v1-v5; no warmup, continuous/adaptive decay, rate floor or scheduled loss weights |
+| Learning-rate schedules | Explicit constant or exponential staircase by globally completed optimizer updates; CPU and both CUDA full trainers; immutable v6 identity (v7 with tiling) | [Contract](native/LEARNING_RATE.md); absent/null retains constant/v1-v5; no warmup, continuous/adaptive decay, rate floor or scheduled loss weights |
 | Generic DeepMD training options | Missing | Sharded/end-to-end GPU/distributed/multi-task training, generic pretrained adaptation and broader architectures |
 | Training monitoring | JSON reports and checkpoints | No TensorBoard integration or live monitoring service |
 | Freeze/export | Native training writes native-v1 JSON, reload checked | No native export into generic official training checkpoints or `.pb` |
@@ -197,6 +199,16 @@ an official `input.json` is not a native training request.
   maximum parameter/moment differences from CPU are 9.44e-16 and 8.88e-16.
   These broad runs were not repeated by A; no speed, physics or size-limit change.
 
+- Native tiled source `cce7f8c` is integrated as `0937cb9` on `6bb5295`.
+  [Final engine acceptance](evidence/native-tiled-integrated.json) records seven
+  scheduled updates: exact same-model framewise state/metrics, 43 frames in 19
+  tiles, 76 rather than 172 gradient kernels, and exact step-2 v7 continuation
+  with storage/cache switching. Three refusal cases, four host-only checks and
+  the offline build pass. Reload differences are zero. B's separate
+  [receipt](native/fixtures/tiled-training-report.json) covers gradients, failure
+  atomicity, capacity boundaries and three-repeat synthetic timings; those broad
+  checks and benchmarks were not rerun by A. No architecture limit is raised.
+
 ## Implementation order and acceptance gates
 
 1. Engine preflight and reproducible executable workflow: delivered in this
@@ -215,11 +227,10 @@ an official `input.json` is not a native training request.
 No percentage of complete DeepMD parity is claimed. Update the pinned baseline,
 source version and evidence links together when the implemented scope changes.
 
-The main larger-GPU workload gap is the bounded per-frame training executor:
-2048 parameters, width 32 and 64 atoms/frame, with private slot-gradient storage
-and CPU primal/loss, geometry and reduction stages. Indexed data capacity and
-learning-rate schedules do not relax these bounds. A batched, tiled reverse
-trainer with explicit workspace accounting and representative whole-process
-validation is the next substantial scaling milestone; it is not implemented here.
-Which remaining CPU/transfer stage dominates larger workloads still requires
-measurement. See [the roadmap](../ROADMAP.md#main-scaling-gap-batched-gpu-training-with-bounded-memory).
+Bounded multi-frame gradient execution is now implemented. The next measured
+cost is CPU current-model prediction/loss preparation: B's retained medium tiled
+sample spends about 1016 of 1781 ms gradient time there (57%). Its work budget also
+limits occupancy to at most four frames/128 actual atoms. Larger architecture
+support remains separate: 2048 parameters, width 32 and 64 atoms/frame are still
+hard bounds. See [the roadmap](../ROADMAP.md#next-main-bottleneck-cpu-prediction-and-loss-preparation)
+for the proposed next substantial milestone and validation gates; it is not started.
