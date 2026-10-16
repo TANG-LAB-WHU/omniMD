@@ -1,5 +1,6 @@
 //! Optional real CUDA FP64 network/descriptor inference; CPU geometry/reduction.
 mod full;
+pub use crate::fixed_geometry::FixedGeometryStats;
 pub use full::{
     full_work_estimate, reverse_resources, validate_full_model, CudaFullTrainer,
     FullGradientProfile, FullWorkEstimate,

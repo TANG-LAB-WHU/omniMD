@@ -122,3 +122,5 @@ python mlmd/native/tools/replay_cuda_reverse.py --eval-exe EVAL --train-exe TRAI
 Raw generated data, model weights and logs stay under ignored
 `fixtures/generated-deepmd/`. Only code, tiny existing synthetic fixtures,
 licenses and compact replay summaries are tracked. No HAP data was accessed.
+
+The next opt-in infrastructure step is the [fixed training-frame geometry cache](FIXED_GEOMETRY_TRAINING.md), shared by both CUDA gradient executors.

@@ -37,6 +37,8 @@ def main():
     parser.add_argument('--eval-exe',type=Path,required=True)
     parser.add_argument('--train-exe',type=Path,required=True)
     parser.add_argument('--output-dir',type=Path,required=True)
+    parser.add_argument('--compare-geometry-cache',action='store_true',help='Compare reverse cache off/on, with bitwise state equality')
+    parser.add_argument('--periodic',action='store_true',help='Use a fixed triclinic cell for the separated pairs')
     args=parser.parse_args(); evaluator=args.eval_exe.resolve(); trainer=args.train_exe.resolve()
     output=args.output_dir.resolve();output.mkdir(parents=True,exist_ok=False)
     root=Path(__file__).resolve().parents[1];initial=medium_model(root);teacher=deepcopy(initial)
@@ -47,7 +49,7 @@ def main():
         positions=[]
         for i in range(64):
             positions.append([(i//2)*8.+(i%2)*(1.1+.04*math.sin(k+i)),(i%2)*.2,.1])
-        frames.append({'positions':positions,'species':['O' if i%2==0 else 'H' for i in range(64)],'cell':None,'units':'EvAngstrom'})
+        frames.append({'positions':positions,'species':['O' if i%2==0 else 'H' for i in range(64)],'cell':[[264.,0.,0.],[.3,8.,0.],[.1,.2,8.]] if args.periodic else None,'units':'EvAngstrom'})
     lines=''.join(json.dumps(f)+'\n' for f in frames)
     labels=[json.loads(s) for s in run([evaluator,output/'teacher.json'],input=lines).splitlines()]
     header={'schema':'omnimd-dataset-jsonl-v1','type_map':['O','H'],'units':'EvAngstrom','virial_convention':'MinusDEpsilonRow','source':'original synthetic separated-pair teacher; no physical accuracy claim','selected_sets':[]}
@@ -60,12 +62,14 @@ def main():
             'energy_scale_ev_per_atom':.1,'force_scale_ev_per_angstrom':.1,'learning_rate':.005,
             'beta1':.9,'beta2':.999,'epsilon':1e-8,'gradient_clip_norm':10.,'checkpoint_every':50}
     rows=[];states={}
+    backends=['reverse','reverse-cached'] if args.compare_geometry_cache else ['cpu','hyperdual','reverse']
     # Rotate execution order to reduce systematic warm-up/order bias.
     for repeat in range(3):
-        order=['cpu','hyperdual','reverse'];order=order[repeat:]+order[:repeat]
+        turn=repeat%len(backends);order=backends[turn:]+backends[:turn]
         for backend in order:
             name=f'{backend}-{repeat}';cfg=deepcopy(config)
-            if backend=='reverse':cfg['cuda_gradient']='reverse'
+            if backend.startswith('reverse'):cfg['cuda_gradient']='reverse'
+            if backend=='reverse-cached':cfg['fixed_geometry_cache']=True
             request={'schema':'omnimd-native-full-train-v1','device':'cpu' if backend=='cpu' else 'cuda:0',
                      'initial_model':'initial.json','dataset':'dataset.jsonl','output_directory':name,'config':cfg}
             write(output/(name+'.json'),request);start=time.perf_counter();run([trainer,output/(name+'.json')]);wall=(time.perf_counter()-start)*1000
@@ -74,15 +78,20 @@ def main():
                 assert state==states[backend],f'nonrepeatable {backend} checkpoint'
             states[backend]=state
             rows.append({'backend':backend,'repeat':repeat,'complete_training_process_ms':wall,'timing':report['timing'],
-                         'gradient_profile':report.get('cuda_gradient_profile'),'final_training':report['final_training'],'final_validation':report['final_validation']})
+                         'gradient_profile':report.get('cuda_gradient_profile'),'fixed_geometry_cache':report.get('fixed_geometry_cache'),'final_training':report['final_training'],'final_validation':report['final_validation']})
     errors={}
-    for backend in ('hyperdual','reverse'):
-        errors[backend]=max(abs(a-b) for a,b in zip(values(states['cpu']['model']),values(states[backend]['model'])))
+    baseline=backends[0]
+    for backend in backends[1:]:
+        errors[backend]=max(abs(a-b) for a,b in zip(values(states[baseline]['model']),values(states[backend]['model'])))
         assert errors[backend]<1e-8
+    if args.compare_geometry_cache:
+        strip=lambda s: {**s,'config':{k:v for k,v in s['config'].items() if k!='fixed_geometry_cache'}}
+        assert strip(states['reverse'])==strip(states['reverse-cached'])
     receipt={'scope':'bounded synthetic 466-parameter 64-atom E/F/V training; not a production scaling benchmark',
+             'periodic':args.periodic,'cache_comparison_bitwise_equal':True if args.compare_geometry_cache else None,
              'frames':8,'train_frames':6,'validation_frames':2,'steps':100,'parameters':466,'runs':rows,
              'median_complete_process_ms':{b:statistics.median(r['complete_training_process_ms'] for r in rows if r['backend']==b) for b in states},
-             'three_repeats_checkpoint_exact':True,'parameter_max_abs_vs_cpu':errors,
+             'three_repeats_checkpoint_exact':True,'parameter_baseline':baseline,'parameter_max_abs_vs_baseline':errors,
              'timing_scope':'complete fresh training subprocess, including input, driver/NVRTC initialization, all updates, assessment, two intermediate and final checkpoints and model reload verification; excludes fixture generation',
              'sha256':{n:digest(output/n) for n in ('dataset.jsonl','initial.json','teacher.json')},
              'executable_sha256':{'eval':digest(evaluator),'train':digest(trainer)}}
