@@ -107,7 +107,7 @@ fn compare(a: &Evaluation, b: &Evaluation, maximum: &mut [f64; 3], tolerance: f6
     }
 }
 #[test]
-fn explicit_devices_are_strict_and_full_gpu_is_rejected() {
+fn explicit_devices_are_strict_and_feature_gated() {
     for (text, expected) in [
         ("cpu", TrainingDevice::Cpu),
         ("cuda:0", TrainingDevice::Cuda { visible_device: 0 }),
@@ -137,11 +137,16 @@ fn explicit_devices_are_strict_and_full_gpu_is_rejected() {
     assert!(TrainingDevice::Cuda { visible_device: -1 }
         .validate_readout()
         .is_err());
+    #[cfg(feature = "cuda")]
+    assert!(TrainingDevice::Cuda { visible_device: 0 }
+        .validate_full()
+        .is_ok());
+    #[cfg(not(feature = "cuda"))]
     assert!(TrainingDevice::Cuda { visible_device: 0 }
         .validate_full()
         .unwrap_err()
         .0
-        .contains("cpu only"));
+        .contains("--features cuda"));
     #[cfg(not(feature = "cuda"))]
     assert!(TrainingDevice::Cuda { visible_device: 0 }
         .validate_readout()
@@ -227,6 +232,7 @@ fn record_design_overflow(
     assert!(error.0.contains("four million entries"), "{error}");
 }
 
+#[cfg(not(feature = "cuda"))]
 #[test]
 fn full_cuda_cli_rejects_before_dataset_io_and_output_creation() {
     let suffix = format!(
@@ -251,7 +257,7 @@ fn full_cuda_cli_rejects_before_dataset_io_and_output_creation() {
         .output()
         .unwrap();
     assert!(!output.status.success());
-    assert!(String::from_utf8_lossy(&output.stderr).contains("cpu only"));
+    assert!(String::from_utf8_lossy(&output.stderr).contains("--features cuda"));
     assert!(output.stdout.is_empty());
     assert!(!root.join("must-not-exist").exists());
     std::fs::remove_file(path).unwrap();

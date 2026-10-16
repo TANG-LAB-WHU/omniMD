@@ -63,8 +63,16 @@ impl TrainingDevice {
         Ok(())
     }
     pub fn validate_full(self) -> Result<()> {
-        if self != Self::Cpu {
-            return Err(Error("full-network training supports device cpu only; CUDA supports frozen-readout features only".into()));
+        if let Self::Cuda { visible_device } = self {
+            if visible_device < 0 {
+                return Err(Error(
+                    "CUDA visible device index must be nonnegative".into(),
+                ));
+            }
+            #[cfg(not(feature = "cuda"))]
+            return Err(Error(
+                "CUDA full training requires a build with --features cuda; no CPU fallback".into(),
+            ));
         }
         Ok(())
     }

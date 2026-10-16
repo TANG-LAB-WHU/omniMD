@@ -1,4 +1,6 @@
 //! Optional real CUDA FP64 network/descriptor inference; CPU geometry/reduction.
+mod full;
+pub use full::{full_work_estimate, validate_full_model, CudaFullTrainer, FullWorkEstimate};
 mod neighbor_cache;
 mod readout;
 pub use readout::CudaReadoutBasis;

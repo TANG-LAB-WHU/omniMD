@@ -1,13 +1,45 @@
 //! Bounded deterministic full-batch Adam for the supported tanh networks.
 use crate::{
     full_gradient::{frame_gradient, NetworkLocation, ParameterLayout},
-    training::{metrics, partition, FrameIdentity, Metrics, Split, TrainConfig},
+    training::{metrics, partition, FrameIdentity, Metrics, Split, TrainConfig, TrainingDevice},
     training_data::{validate_labels, Dataset, DatasetHeader},
     Model,
 };
 use omnimd_ml_contract::{Error, Result};
 use serde::{Deserialize, Serialize};
-use std::collections::{BTreeMap, HashSet};
+use std::{
+    collections::{BTreeMap, HashSet},
+    time::Instant,
+};
+
+/// CPU v1 checkpoints remain byte-schema compatible (this default is omitted).
+/// CUDA v2 records the compiled program and reported device/driver identity.
+/// The backend version also covers host loss/reduction/update semantics; bump it
+/// when those numerical semantics change. PTX hashing alone does not cover them.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "backend", rename_all = "snake_case", deny_unknown_fields)]
+pub enum FullExecution {
+    #[default]
+    CpuReferenceV1,
+    CudaHyperdualF64V1 {
+        visible_device: i32,
+        device_info: String,
+        driver_version: i32,
+        program_sha256: String,
+    },
+}
+impl FullExecution {
+    fn is_cpu(&self) -> bool {
+        matches!(self, Self::CpuReferenceV1)
+    }
+}
+#[derive(Default, Serialize)]
+pub struct FullTiming {
+    pub initialization_ms: f64,
+    pub gradient_ms: f64,
+    pub adam_ms: f64,
+    pub assessment_ms: f64,
+}
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -39,7 +71,7 @@ impl FullConfig {
             rank_rtol: 1e-12,
         }
     }
-    fn validate(&self) -> Result<()> {
+    pub(crate) fn validate(&self) -> Result<()> {
         self.loss().validate()?;
         if self.steps == 0
             || self.steps > 100_000
@@ -67,6 +99,8 @@ impl FullConfig {
 #[serde(deny_unknown_fields)]
 pub struct Checkpoint {
     pub schema: String,
+    #[serde(default, skip_serializing_if = "FullExecution::is_cpu")]
+    pub execution: FullExecution,
     pub initial_model: Model,
     pub model: Model,
     pub config: FullConfig,
@@ -89,6 +123,9 @@ pub struct FullReport {
     pub scope: String,
     pub algorithm: String,
     pub derivative_method: String,
+    pub execution: FullExecution,
+    pub execution_scope: String,
+    pub timing: FullTiming,
     pub config: FullConfig,
     pub step_start: u64,
     pub step_end: u64,
@@ -145,6 +182,7 @@ impl Checkpoint {
         let p = layout.parameters.len();
         Ok(Self {
             schema: "omnimd-native-full-checkpoint-v1".into(),
+            execution: FullExecution::CpuReferenceV1,
             initial_model: model.clone(),
             model: model.clone(),
             config: config.clone(),
@@ -157,13 +195,61 @@ impl Checkpoint {
             validation_indices,
         })
     }
+    /// Validates all host inputs and resume mode before creating a CUDA context.
+    pub fn validate_for_device(
+        &self,
+        dataset: &Dataset,
+        config: &FullConfig,
+        device: TrainingDevice,
+    ) -> Result<()> {
+        device.validate_full()?;
+        self.validate(dataset, config)?;
+        if self
+            .step
+            .checked_add(config.steps)
+            .is_none_or(|end| end > 1_000_000_000)
+        {
+            return Err(Error("full trainer global step exceeds limit".into()));
+        }
+        if self.step > 0 {
+            let compatible = match (&self.execution, device) {
+                (FullExecution::CpuReferenceV1, TrainingDevice::Cpu) => true,
+                (
+                    FullExecution::CudaHyperdualF64V1 { visible_device, .. },
+                    TrainingDevice::Cuda {
+                        visible_device: requested,
+                    },
+                ) => *visible_device == requested,
+                _ => false,
+            };
+            if !compatible {
+                return Err(Error("checkpoint training backend/device changed; resume rejected (initialize explicitly from model for a new optimizer)".into()));
+            }
+        }
+        #[cfg(feature = "cuda")]
+        if matches!(device, TrainingDevice::Cuda { .. }) {
+            let atoms = dataset
+                .frames
+                .iter()
+                .map(|f| f.frame.positions.len())
+                .max()
+                .unwrap_or(0);
+            crate::cuda::full_work_estimate(&self.model, atoms)?;
+        }
+        Ok(())
+    }
     fn validate(&self, dataset: &Dataset, config: &FullConfig) -> Result<ParameterLayout> {
         config.validate()?;
         self.config.validate()?;
         validate_dataset(&self.model, dataset)?;
         let layout = ParameterLayout::new(&self.model)?;
         let initial_layout = ParameterLayout::new(&self.initial_model)?;
-        if self.schema != "omnimd-native-full-checkpoint-v1"
+        let schema = if self.execution.is_cpu() {
+            "omnimd-native-full-checkpoint-v1"
+        } else {
+            "omnimd-native-full-checkpoint-v2"
+        };
+        if self.schema != schema
             || self.config.restart_key() != config.restart_key()
             || self.dataset_sha256 != dataset.dataset_sha256
             || self.parameter_layout_sha256 != layout.sha256()
@@ -207,25 +293,66 @@ impl Checkpoint {
 /// Full-batch updates in stable dataset order. Callback receives complete last-iterate
 /// model and matching Adam moments/step; its errors stop training and propagate.
 pub fn train_full(
+    state: Checkpoint,
+    dataset: &Dataset,
+    config: &FullConfig,
+    save: impl FnMut(&Checkpoint) -> Result<()>,
+) -> Result<FullOutcome> {
+    train_full_with_device(state, dataset, config, TrainingDevice::Cpu, save)
+}
+
+pub fn train_full_with_device(
     mut state: Checkpoint,
     dataset: &Dataset,
     config: &FullConfig,
+    device: TrainingDevice,
     mut save: impl FnMut(&Checkpoint) -> Result<()>,
 ) -> Result<FullOutcome> {
+    let initialization = Instant::now();
+    state.validate_for_device(dataset, config, device)?;
     let layout = state.validate(dataset, config)?;
+    #[cfg(feature = "cuda")]
+    let mut cuda = if let TrainingDevice::Cuda { visible_device } = device {
+        let gpu = crate::cuda::CudaFullTrainer::restore(&state, visible_device)?;
+        state.execution = gpu.execution().clone();
+        state.schema = "omnimd-native-full-checkpoint-v2".into();
+        Some(gpu)
+    } else {
+        None
+    };
+    let mut timing = FullTiming {
+        initialization_ms: initialization.elapsed().as_secs_f64() * 1000.0,
+        ..FullTiming::default()
+    };
     let start = state.step;
     let end = start
         .checked_add(config.steps)
         .filter(|s| *s <= 1_000_000_000)
         .ok_or_else(|| Error("full trainer global step exceeds limit".into()))?;
     let loss = config.loss();
+    let assessment = Instant::now();
     let initial_training = metrics(&state.model, dataset, &state.training_indices, &loss)?;
     let initial_validation = metrics(&state.model, dataset, &state.validation_indices, &loss)?;
+    timing.assessment_ms += assessment.elapsed().as_secs_f64() * 1000.0;
     state.config = config.clone();
     let mut values = layout.values(&state.model);
     while state.step < end {
+        let phase = Instant::now();
         let mut gradient = vec![0.0; values.len()];
         for &i in &state.training_indices {
+            #[cfg(feature = "cuda")]
+            let (_, frame) = match &mut cuda {
+                Some(gpu) => {
+                    gpu.frame_gradient(&dataset.frames[i], &loss, state.training_indices.len())?
+                }
+                None => frame_gradient(
+                    &state.model,
+                    &dataset.frames[i],
+                    &loss,
+                    state.training_indices.len(),
+                )?,
+            };
+            #[cfg(not(feature = "cuda"))]
             let (_, frame) = frame_gradient(
                 &state.model,
                 &dataset.frames[i],
@@ -248,16 +375,33 @@ pub fn train_full(
                 }
             }
         }
+        timing.gradient_ms += phase.elapsed().as_secs_f64() * 1000.0;
+        let phase = Instant::now();
         let step = state.step + 1;
-        let c1 = 1.0 - config.beta1.powf(step as f64);
-        let c2 = 1.0 - config.beta2.powf(step as f64);
-        for i in 0..values.len() {
-            state.first_moment[i] =
-                config.beta1 * state.first_moment[i] + (1.0 - config.beta1) * gradient[i];
-            state.second_moment[i] = config.beta2 * state.second_moment[i]
-                + (1.0 - config.beta2) * gradient[i] * gradient[i];
-            values[i] -= config.learning_rate * (state.first_moment[i] / c1)
-                / ((state.second_moment[i] / c2).sqrt() + config.epsilon);
+        #[cfg(feature = "cuda")]
+        let cuda_updated = if let Some(gpu) = &mut cuda {
+            gpu.adam_step(&gradient, config)?;
+            values = layout.values(gpu.model());
+            let (first, second) = gpu.moments();
+            state.first_moment = first.to_vec();
+            state.second_moment = second.to_vec();
+            true
+        } else {
+            false
+        };
+        #[cfg(not(feature = "cuda"))]
+        let cuda_updated = false;
+        if !cuda_updated {
+            let c1 = 1.0 - config.beta1.powf(step as f64);
+            let c2 = 1.0 - config.beta2.powf(step as f64);
+            for i in 0..values.len() {
+                state.first_moment[i] =
+                    config.beta1 * state.first_moment[i] + (1.0 - config.beta1) * gradient[i];
+                state.second_moment[i] = config.beta2 * state.second_moment[i]
+                    + (1.0 - config.beta2) * gradient[i] * gradient[i];
+                values[i] -= config.learning_rate * (state.first_moment[i] / c1)
+                    / ((state.second_moment[i] / c2).sqrt() + config.epsilon);
+            }
         }
         if state
             .first_moment
@@ -271,6 +415,7 @@ pub fn train_full(
         }
         layout.apply(&mut state.model, &values)?;
         state.step = step;
+        timing.adam_ms += phase.elapsed().as_secs_f64() * 1000.0;
         if step % config.checkpoint_every == 0 || step == end {
             save(&state)?;
         }
@@ -300,16 +445,29 @@ pub fn train_full(
         index: dataset.frames[*i].index,
         id: dataset.frames[*i].id.clone(),
     };
+    let phase = Instant::now();
+    let final_training = metrics(&state.model, dataset, &state.training_indices, &loss)?;
+    let final_validation = metrics(&state.model, dataset, &state.validation_indices, &loss)?;
+    timing.assessment_ms += phase.elapsed().as_secs_f64() * 1000.0;
+    let derivative_method = if state.execution.is_cpu() {
+        "reverse AD over differentiable coordinate-directional tangents; exact mixed parameter-coordinate derivatives"
+    } else {
+        "CUDA forward parameter/coordinate hyperduals; exact mixed derivatives, no finite differences"
+    };
+    let execution_scope = if state.execution.is_cpu() {
+        "CPU float64 reference"
+    } else {
+        "CUDA all-neural-parameter mixed derivatives and Adam; CPU inference/loss cotangents, geometry, stable atom/frame reduction, clipping and assessment"
+    };
     let report=FullReport {
         scope:"all embedding/fitting weights, biases and timesteps; fixed normalization, geometry settings and atom_energy_bias".into(),
         algorithm:"deterministic full-batch Adam; constant learning rate; last iterate export".into(),
-        derivative_method:"reverse AD over differentiable coordinate-directional tangents; exact mixed parameter-coordinate derivatives".into(),
+        derivative_method:derivative_method.into(), execution:state.execution.clone(), execution_scope:execution_scope.into(), timing,
         config:config.clone(),step_start:start,step_end:end,parameters:values.len(),parameter_layout_sha256:layout.sha256(),
         dataset_header:dataset.header.clone(),dataset_sha256:dataset.dataset_sha256.clone(),source_sha256:dataset.source_sha256.clone(),
         training_frames:state.training_indices.iter().map(identity).collect(),validation_frames:state.validation_indices.iter().map(identity).collect(),
         parameter_changes_from_initial:changes,initial_training,initial_validation,
-        final_training:metrics(&state.model,dataset,&state.training_indices,&loss)?,
-        final_validation:metrics(&state.model,dataset,&state.validation_indices,&loss)?,
+        final_training, final_validation,
     };
     Ok(FullOutcome {
         checkpoint: state,

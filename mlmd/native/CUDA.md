@@ -15,7 +15,8 @@ Enable `cuda` explicitly. `cuda::CudaPotential` implements the existing shared
 `Potential` trait and returns energy, analytic force and row-strain virial in
 float64. The inference pipeline is below; the separate bounded
 [readout trainer](TRAINING.md#explicit-cpu-or-cuda-features) reuses it to generate
-analytic feature columns for CPU QR. Full-network GPU training is unsupported:
+analytic feature columns for CPU QR. The separate [full trainer](CUDA_FULL_TRAINING.md)
+uses bounded CUDA mixed derivatives and Adam. Inference remains:
 
 1. Rust validates native-v1 weights/frame/types and builds or conservatively
    reuses periodic-image candidates, then filters/sorts the exact active CPU
@@ -104,7 +105,8 @@ speedup or production scaling claim is made.
 
 ## Controlled acceptance and timing
 
-CPU-only test suite with `--features cuda` currently passes 15 tests, including
+At the initial inference milestone, the CPU-only suite with `--features cuda`
+passed 15 tests, including
 strict packing and all existing CPU inference/training checks. NVRTC compilation
 has succeeded for tiny original, public converted and medium synthetic models.
 Actual GPU execution was subsequently checked in the controlled run below.

@@ -86,7 +86,8 @@ enter a feature column. Native-v1 validation requires a final linear layer with
 no residual or timestep. CPU still prepares geometry and reduces forces/virial,
 predicts the initial model, solves the weighted QR update and independently
 assesses the exported model. This is **GPU-assisted frozen-readout training**;
-it does not implement CUDA gradients or Adam for the full supported network.
+the separate [full-network mode](CUDA_FULL_TRAINING.md) implements bounded CUDA
+mixed derivatives and Adam.
 
 The CUDA architecture bounds in [CUDA.md](CUDA.md) also apply, including only
 tanh/linear activations and at most 2048 atoms per frame. Dataset shapes, labels,
@@ -94,8 +95,8 @@ type map, split, dense design bound, model architecture and atom bound are
 checked before creating the GPU context. Geometry/neighbor errors remain
 fallible during feature evaluation. Any CUDA upload/evaluation error aborts the
 fit and poisons that private basis; no partial trained model is published.
-Unsupported CUDA full-network requests fail before dataset/checkpoint IO or
-output creation. The original CPU Adam checkpoint schema is unchanged.
+Full-network requests follow their own tighter CUDA bounds and backend-specific
+checkpoint rules. The original CPU Adam checkpoint schema is unchanged.
 
 The direct QR solve has no iterative optimizer state or resume checkpoint. Run
 it again from the same initial model, dataset, split and configuration; a saved
@@ -132,9 +133,10 @@ commands, hashes, ranks, metrics and exact execution scope.
 
 This tiny 3/4-atom case was **slower on CUDA**: feature extraction took 21.37 ms
 versus CPU 5.15 ms; CUDA initialization was another 195.88 ms. This is an
-implementation/parity check, not a speed or chemical-accuracy claim. Full GPU
-training, feature checkpointing, virial-loss optimization and representative
-large-system training performance remain unimplemented or unvalidated.
+implementation/parity check, not a speed or chemical-accuracy claim. Feature
+checkpointing, virial-loss optimization and representative large-system
+training performance remain unimplemented or unvalidated. Bounded all-neural-
+parameter CUDA training is documented separately.
 
 ## Exact features and objective
 

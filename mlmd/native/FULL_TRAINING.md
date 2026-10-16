@@ -6,9 +6,10 @@ biases and present timesteps jointly against energy and force labels using
 CPU float64 Rust. It preserves the existing readout request and inference model
 formats. The engine's `train-native REQUEST.json` wrapper can forward either
 request unchanged to this executable. The optional request field `device`
-defaults to `"cpu"`; any CUDA value is explicitly rejected before dataset or
-checkpoint IO. GPU support is limited to the separate frozen-readout mode, and
-this CPU Adam checkpoint/resume format remains unchanged.
+defaults to `"cpu"`; a CUDA-enabled build also accepts explicit `"cuda:N"` for
+bounded all-neural-parameter GPU gradients and Adam. See
+[CUDA full training](CUDA_FULL_TRAINING.md) for its CPU/GPU boundary, tighter
+resource limits and v2 checkpoint identity. CPU v1 checkpoints remain compatible.
 
 ## Supported scope
 
@@ -27,7 +28,7 @@ atomic offsets. Final fitting biases do train. Inference remains the existing
 shared `Potential` E/F/virial implementation, including normalized padding,
 quintic switching, full periodic-image enumeration and strict neighbor overflow.
 
-Current bounds: at most 10000 neural scalar parameters, 128 total neighbor
+Current CPU bounds: at most 10000 neural scalar parameters, 128 total neighbor
 slots, 64 atoms per frame, 1024 frames, and two million AD nodes per frame.
 The tape bound can reject a model below the other limits. Existing dataset
 limits of 128 MiB/file and 16 MiB/record still apply. This is a bounded reference
@@ -38,6 +39,7 @@ trainer, not a claim of production scaling. No new dependency was introduced.
 ```json
 {
   "schema": "omnimd-native-full-train-v1",
+  "device": "cpu",
   "initial_model": "initial.json",
   "dataset": "dataset.jsonl",
   "output_directory": "trained",
@@ -127,7 +129,7 @@ and set `config.steps` to the number of **additional** updates. Exactly one of
 `initial_model` or `checkpoint` is required. All other configuration fields,
 including checkpoint interval and split specification, must match exactly.
 
-Checkpoint schema `omnimd-native-full-checkpoint-v1` stores the last model,
+CPU checkpoint schema `omnimd-native-full-checkpoint-v1` stores the last model,
 original anchor model, first/second moments, global step, configuration,
 dataset SHA, parameter-layout SHA and split indices. Restart checks both model
 schemas, shapes, finite moments/nonnegative second moments, split, exact dataset

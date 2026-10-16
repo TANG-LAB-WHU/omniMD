@@ -42,7 +42,13 @@ def main():
     parser.add_argument('--eval-exe', type=Path, required=True)
     parser.add_argument('--train-exe', type=Path, required=True)
     parser.add_argument('--output-dir', type=Path, required=True)
+    parser.add_argument('--device', default='cpu', help='cpu or explicit cuda:N; CUDA requires an authorized GPU window')
+    parser.add_argument('--compare-cpu', action='store_true', help='Compare CUDA result with a separate CPU reference fit')
     args = parser.parse_args()
+    if args.device != 'cpu' and not (args.device.startswith('cuda:') and args.device[5:].isascii() and args.device[5:].isdecimal()):
+        raise ValueError('device must be cpu or cuda:N')
+    if args.compare_cpu and args.device == 'cpu':
+        raise ValueError('--compare-cpu requires a CUDA device')
     root = Path(__file__).resolve().parents[1]
     output = args.output_dir.resolve()
     evaluator, trainer = args.eval_exe.resolve(), args.train_exe.resolve()
@@ -81,7 +87,7 @@ def main():
     records.append({'kind':'completed','frames':len(frames),'source_sha256':
                     {'teacher.json':digest(output/'teacher.json'),'replay_full_training.py':digest(__file__)}})
     (output/'dataset.jsonl').write_text(''.join(json.dumps(r,allow_nan=False)+'\n' for r in records),encoding='utf-8')
-    request = {'schema':'omnimd-native-full-train-v1','initial_model':'initial.json',
+    request = {'schema':'omnimd-native-full-train-v1','device':args.device,'initial_model':'initial.json',
         'dataset':'dataset.jsonl','output_directory':'continuous','config':{
             'split':{'mode':'seeded','seed':20261015,'validation_fraction':.25},'steps':300,
             'energy_weight':1.,'force_weight':1.,'energy_scale_ev_per_atom':.1,'force_scale_ev_per_angstrom':.1,
@@ -98,8 +104,8 @@ def main():
     a = json.loads((output/'continuous/checkpoint.json').read_text())
     b = json.loads((output/'resumed/checkpoint.json').read_text())
     for key in ('model','initial_model','first_moment','second_moment','step','training_indices',
-                'validation_indices','dataset_sha256','parameter_layout_sha256'):
-        if a[key] != b[key]:
+                'validation_indices','dataset_sha256','parameter_layout_sha256','schema','execution'):
+        if a.get(key) != b.get(key):
             raise AssertionError(f'serialized resume changed {key}')
     report = json.loads((output/'continuous/report.json').read_text())
     for split in ('training','validation'):
@@ -117,7 +123,33 @@ def main():
         errors['energy'] = max(errors['energy'],abs(ref['energy']-actual['energy']))
         for field in ('forces','virial'):
             errors[field] = max(errors[field],max(abs(a-b) for r,s in zip(ref[field],actual[field]) for a,b in zip(r,s)))
+    comparison = None
+    if args.compare_cpu:
+        reference = deepcopy(request)
+        reference.update(device='cpu', output_directory='cpu-reference')
+        write(output/'cpu-reference.request.json', reference)
+        run([trainer,output/'cpu-reference.request.json'])
+        cpu_report = json.loads((output/'cpu-reference/report.json').read_text())
+        cpu_state = json.loads((output/'cpu-reference/checkpoint.json').read_text())
+        def values(model):
+            return [v for net in [n for row in model['descriptor']['embedding'] for n in row] + model['fitting']
+                    for layer in net['layers'] for vector in [*layer['weights'],layer['bias'],layer['timestep'] or []] for v in vector]
+        parameter_difference = max(abs(x-y) for x,y in zip(values(a['model']),values(cpu_state['model'])))
+        moment_difference = max(abs(x-y) for key in ('first_moment','second_moment') for x,y in zip(a[key],cpu_state[key]))
+        cpu_predictions = [json.loads(s) for s in run([evaluator,output/'cpu-reference/model.json'],input=lines).splitlines()]
+        difference = [0.,0.,0.]
+        for cpu,gpu in zip(cpu_predictions,predictions):
+            difference[0] = max(difference[0],abs(cpu['energy']-gpu['energy']))
+            for index,field in enumerate(('forces','virial'),1):
+                difference[index] = max(difference[index],max(abs(x-y) for r,s in zip(cpu[field],gpu[field]) for x,y in zip(r,s)))
+        if max([parameter_difference,moment_difference,*difference]) > 1e-8:
+            raise AssertionError('CPU/CUDA full-training trajectory parity exceeded 1e-8')
+        comparison = {'parameter_max_abs':parameter_difference,'moment_max_abs':moment_difference,'prediction_efv_max_abs':difference,
+                      'cpu_timing':cpu_report['timing'],'cuda_timing':report['timing'],
+                      'cpu_final_training':cpu_report['final_training'],'cpu_final_validation':cpu_report['final_validation']}
     receipt = {'scope':'full supported tanh network; original synthetic teacher; no physical accuracy claim',
+        'device':args.device,'execution':report['execution'],'execution_scope':report['execution_scope'],'timing':report['timing'],
+        'cpu_comparison':comparison,'checkpoint_schema':a['schema'],
         'data_seed':20261014,'split_seed':20261015,'frames':len(frames),'train_frames':len(report['training_frames']),
         'validation_frames':len(report['validation_frames']),'parameters':parameters,'steps':300,
         'initial_training':report['initial_training'],'final_training':report['final_training'],
