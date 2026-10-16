@@ -480,7 +480,7 @@ impl CudaFullTrainer {
             config.beta2,
             1.0 - config.beta1.powf(step as f64),
             1.0 - config.beta2.powf(step as f64),
-            config.learning_rate,
+            config.learning_rate_at(self.step)?,
             config.epsilon,
         )?;
         if first.iter().any(|x| !x.is_finite()) || second.iter().any(|x| !x.is_finite() || *x < 0.0)

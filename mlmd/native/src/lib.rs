@@ -7,6 +7,7 @@ mod fixed_geometry;
 pub mod full_gradient;
 mod full_loss;
 pub mod full_training;
+mod learning_rate;
 mod least_squares;
 pub mod minibatch;
 mod model;

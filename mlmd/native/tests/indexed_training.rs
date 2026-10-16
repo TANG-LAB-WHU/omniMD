@@ -85,6 +85,7 @@ fn config(steps: u64) -> FullConfig {
         energy_scale_ev_per_atom: 0.1,
         force_scale_ev_per_angstrom: 0.1,
         learning_rate: 0.005,
+        learning_rate_schedule: None,
         beta1: 0.9,
         beta2: 0.999,
         epsilon: 1e-8,
@@ -387,5 +388,88 @@ fn indexed_cuda_cache_and_storage_resume_are_exact() {
             train_full_with_device(snapshots[1].clone(), &memory, &r, device, |_| Ok(())).unwrap();
         assert_eq!(state(&a.checkpoint), state(&resumed.checkpoint));
         assert_eq!(b.report.fixed_geometry_cache.unwrap().hits, 12);
+    }
+}
+
+#[test]
+fn scheduled_minibatch_indexed_boundaries_and_storage_restart_are_exact() {
+    use omnimd_native::full_training::LearningRateSchedule;
+    let tmp = Temp::new();
+    let path = tmp.0.join("scheduled.jsonl");
+    let (m, d) = data(6);
+    write_data(&path, &d);
+    let memory = Dataset::load(&path).unwrap();
+    let indexed = IndexedDataset::open(&path).unwrap();
+    let mut c = config(7);
+    c.learning_rate_schedule = Some(LearningRateSchedule::Exponential {
+        decay_steps: 2,
+        decay_rate: 0.5,
+    });
+    let mut checkpoints = Vec::new();
+    let all = train_full(
+        Checkpoint::start(&m, &indexed, &c).unwrap(),
+        &indexed,
+        &c,
+        |s| {
+            checkpoints.push(
+                serde_json::from_slice::<Checkpoint>(&serde_json::to_vec(s).unwrap()).unwrap(),
+            );
+            Ok(())
+        },
+    )
+    .unwrap();
+    let memory_all = train_full(
+        Checkpoint::start(&m, &memory, &c).unwrap(),
+        &memory,
+        &c,
+        |_| Ok(()),
+    )
+    .unwrap();
+    assert_eq!(state(&all.checkpoint), state(&memory_all.checkpoint));
+    assert_eq!(all.report.minibatch.as_ref().unwrap().partial_batches, 2);
+    assert_eq!(all.report.learning_rate.first_rate, 0.005);
+    assert_eq!(all.report.learning_rate.last_rate, 0.000625);
+    for split in [1, 2, 3, 4, 6] {
+        let mut resume = c.clone();
+        resume.steps = 7 - split;
+        let source: &dyn DatasetAccess = if split % 2 == 0 { &memory } else { &indexed };
+        let out = train_full(
+            checkpoints[split as usize - 1].clone(),
+            source,
+            &resume,
+            |_| Ok(()),
+        )
+        .unwrap();
+        assert_eq!(state(&all.checkpoint), state(&out.checkpoint));
+        assert_eq!(out.report.learning_rate.first_update, split + 1);
+        assert_eq!(
+            out.report.learning_rate.first_rate,
+            [0.005, 0.005, 0.0025, 0.0025, 0.00125, 0.00125, 0.000625][split as usize]
+        );
+        assert_eq!(
+            serde_json::to_value(&out.report.final_training).unwrap(),
+            serde_json::to_value(&all.report.final_training).unwrap()
+        );
+        assert_eq!(
+            serde_json::to_value(&out.report.final_validation).unwrap(),
+            serde_json::to_value(&all.report.final_validation).unwrap()
+        );
+    }
+    // v6 still validates sampler identity and all frozen restart fields.
+    for case in 0..5 {
+        let mut checkpoint = checkpoints[2].clone();
+        let mut resume = c.clone();
+        resume.steps = 4;
+        match case {
+            0 => checkpoint.sampler.as_mut().unwrap().cursor += 1,
+            1 => resume.learning_rate_schedule = None,
+            2 => resume.learning_rate_schedule = Some(LearningRateSchedule::Constant {}),
+            3 => resume.learning_rate *= 2.0,
+            _ => checkpoint.schema = "omnimd-native-full-checkpoint-v5".into(),
+        }
+        assert!(train_full(checkpoint, &indexed, &resume, |_| panic!(
+            "invalid checkpoint published"
+        ))
+        .is_err());
     }
 }

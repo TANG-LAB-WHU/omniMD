@@ -14,6 +14,7 @@ use std::{
 };
 
 pub use crate::full_loss::{FullMetrics, VirialLoss};
+pub use crate::learning_rate::{LearningRateReport, LearningRateSchedule};
 pub use crate::minibatch::{BatchOrder, MiniBatchConfig, MiniBatchReport, SamplerState};
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -34,7 +35,8 @@ const VIRIAL_LOSS_CONTRACT: &str = "energy-force-row-virial-per-atom-nine-v1";
 /// Backend identity and checkpoint loss_contract together cover host numerical
 /// semantics. New virial semantics require v3; historical E/F semantics and
 /// v1/v2 serialization stay unchanged. Opt-in reverse execution uses v4;
-/// explicit minibatch sampling uses v5 on every backend.
+/// explicit minibatch sampling uses v5 on every backend; an explicit learning-rate
+/// schedule uses v6 on every backend. Absent schedules preserve older schemas.
 /// PTX hashing alone does not cover host loss semantics.
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "backend", rename_all = "snake_case", deny_unknown_fields)]
@@ -94,7 +96,10 @@ pub struct FullConfig {
     pub virial_loss: Option<VirialLoss>,
     pub energy_scale_ev_per_atom: f64,
     pub force_scale_ev_per_angstrom: f64,
+    /// Initial rate; absent/null schedule preserves historical constant behavior.
     pub learning_rate: f64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub learning_rate_schedule: Option<LearningRateSchedule>,
     pub beta1: f64,
     pub beta2: f64,
     pub epsilon: f64,
@@ -102,6 +107,24 @@ pub struct FullConfig {
     pub checkpoint_every: u64,
 }
 impl FullConfig {
+    /// Rate for the next update after completed_updates globally committed updates.
+    pub fn learning_rate_at(&self, completed_updates: u64) -> Result<f64> {
+        self.learning_rate_schedule
+            .as_ref()
+            .unwrap_or(&LearningRateSchedule::Constant {})
+            .rate(self.learning_rate, completed_updates)
+    }
+    fn validate_learning_rate_range(&self, start: u64) -> Result<()> {
+        let end = start
+            .checked_add(self.steps)
+            .filter(|end| self.steps > 0 && *end <= crate::learning_rate::MAX_UPDATES)
+            .ok_or_else(|| Error("full trainer global step exceeds limit".into()))?;
+        // All supported schedules are nonincreasing. Check the entire requested
+        // interval via its endpoints before any CUDA context/update/publication.
+        self.learning_rate_at(start)?;
+        self.learning_rate_at(end - 1)?;
+        Ok(())
+    }
     /// Legacy E/F component; pass virial_loss separately to the extended gradient API.
     pub fn loss(&self) -> TrainConfig {
         TrainConfig {
@@ -134,6 +157,7 @@ impl FullConfig {
                 "invalid full trainer Adam configuration (steps must be 1..100000)".into(),
             ));
         }
+        self.learning_rate_at(0)?;
         Ok(())
     }
     fn restart_key(&self) -> serde_json::Value {
@@ -184,6 +208,7 @@ pub struct FullReport {
     pub execution: FullExecution,
     pub execution_scope: String,
     pub timing: FullTiming,
+    pub learning_rate: LearningRateReport,
     #[cfg(feature = "cuda")]
     #[serde(skip_serializing_if = "Option::is_none")]
     pub cuda_gradient_profile: Option<crate::cuda::FullGradientProfile>,
@@ -213,7 +238,9 @@ pub struct FullOutcome {
 }
 
 fn checkpoint_schema(execution: &FullExecution, config: &FullConfig) -> &'static str {
-    if config.minibatch.is_some() {
+    if config.learning_rate_schedule.is_some() {
+        "omnimd-native-full-checkpoint-v6"
+    } else if config.minibatch.is_some() {
         "omnimd-native-full-checkpoint-v5"
     } else if config.cuda_gradient == CudaGradient::Reverse {
         "omnimd-native-full-checkpoint-v4"
@@ -228,7 +255,10 @@ fn checkpoint_schema(execution: &FullExecution, config: &FullConfig) -> &'static
 fn loss_contract(config: &FullConfig) -> Option<&'static str> {
     if config.virial_loss.is_some() {
         Some(VIRIAL_LOSS_CONTRACT)
-    } else if config.cuda_gradient == CudaGradient::Reverse || config.minibatch.is_some() {
+    } else if config.cuda_gradient == CudaGradient::Reverse
+        || config.minibatch.is_some()
+        || config.learning_rate_schedule.is_some()
+    {
         Some("energy-force-per-atom-v1")
     } else {
         None
@@ -323,6 +353,7 @@ fn validate_dataset(
 impl Checkpoint {
     pub fn start(model: &Model, dataset: &dyn DatasetAccess, config: &FullConfig) -> Result<Self> {
         config.validate()?;
+        config.validate_learning_rate_range(0)?;
         if dataset.indexed() && config.minibatch.is_none() {
             return Err(Error(
                 "indexed dataset requires explicit minibatch configuration".into(),
@@ -394,13 +425,7 @@ impl Checkpoint {
         if config.fixed_geometry_cache {
             crate::fixed_geometry::estimate(&self.model, dataset, &self.training_indices)?;
         }
-        if self
-            .step
-            .checked_add(config.steps)
-            .is_none_or(|end| end > 1_000_000_000)
-        {
-            return Err(Error("full trainer global step exceeds limit".into()));
-        }
+        config.validate_learning_rate_range(self.step)?;
         if self.step > 0 {
             let compatible = match (&self.execution, device) {
                 (FullExecution::CpuReferenceV1, TrainingDevice::Cpu) => true,
@@ -655,6 +680,7 @@ pub fn train_full_with_device(
         }
         timing.gradient_ms += phase.elapsed().as_secs_f64() * 1000.0;
         let phase = Instant::now();
+        let learning_rate = config.learning_rate_at(state.step)?;
         let step = state.step + 1;
         #[cfg(feature = "cuda")]
         let cuda_updated = if let Some(gpu) = &mut cuda {
@@ -677,7 +703,7 @@ pub fn train_full_with_device(
                     config.beta1 * state.first_moment[i] + (1.0 - config.beta1) * gradient[i];
                 state.second_moment[i] = config.beta2 * state.second_moment[i]
                     + (1.0 - config.beta2) * gradient[i] * gradient[i];
-                values[i] -= config.learning_rate * (state.first_moment[i] / c1)
+                values[i] -= learning_rate * (state.first_moment[i] / c1)
                     / ((state.second_moment[i] / c2).sqrt() + config.epsilon);
             }
         }
@@ -762,14 +788,30 @@ pub fn train_full_with_device(
     };
     #[cfg(feature = "cuda")]
     let fixed_geometry_cache = cuda.as_ref().and_then(|gpu| gpu.fixed_geometry_stats());
-    let algorithm = if minibatch.is_some() {
-        "deterministic minibatch Adam; constant learning rate per completed update; last iterate export"
-    } else {
-        "deterministic full-batch Adam; constant learning rate; last iterate export"
+    let algorithm = match (minibatch.is_some(), config.learning_rate_schedule.as_ref()) {
+        (true, Some(LearningRateSchedule::Exponential { .. })) =>
+            "deterministic minibatch Adam; global-update exponential staircase learning rate; last iterate export",
+        (false, Some(LearningRateSchedule::Exponential { .. })) =>
+            "deterministic full-batch Adam; global-update exponential staircase learning rate; last iterate export",
+        (true, _) => "deterministic minibatch Adam; constant learning rate per completed update; last iterate export",
+        (false, _) => "deterministic full-batch Adam; constant learning rate; last iterate export",
+    };
+    let learning_rate = LearningRateReport {
+        contract: "omnimd-optimizer-update-learning-rate-v1",
+        schedule: config
+            .learning_rate_schedule
+            .clone()
+            .unwrap_or(LearningRateSchedule::Constant {}),
+        base_rate: config.learning_rate,
+        first_update: start + 1,
+        last_update: end,
+        first_rate: config.learning_rate_at(start)?,
+        last_rate: config.learning_rate_at(end - 1)?,
     };
     dataset.verify()?;
     let report=FullReport {
         dataset_access:dataset.access_report(),
+        learning_rate,
         minibatch,
         scope:"all embedding/fitting weights, biases and timesteps; fixed normalization, geometry settings and atom_energy_bias".into(),
         algorithm:algorithm.into(),

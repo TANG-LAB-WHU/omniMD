@@ -216,3 +216,12 @@ replay are original MIT code using existing Rust standard-library, serde and
 sha2 facilities. No external dataset engine or source was copied and no dependency
 was added. The 2051-frame acceptance input repeats original synthetic geometries
 and adds JSON whitespace for an explicit file-size boundary check.
+
+## Optimizer-update learning-rate scheduling
+
+The explicit constant/exponential schedule, v6 identity, boundary tests and replay
+are independently written MIT code using standard integer division and Rust
+float64 arithmetic. No DeepMD scheduler, external optimizer or training source
+was copied, and no dependency was added. The original synthetic fixture and
+existing Adam reference remain applicable. No equivalence to DeepMD default
+formulas or configuration semantics is claimed.

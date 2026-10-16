@@ -34,6 +34,7 @@ fn config(steps: u64) -> FullConfig {
         energy_scale_ev_per_atom: 0.1,
         force_scale_ev_per_angstrom: 0.1,
         learning_rate: 0.005,
+        learning_rate_schedule: None,
         beta1: 0.9,
         beta2: 0.999,
         epsilon: 1e-8,
