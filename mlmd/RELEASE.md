@@ -728,3 +728,52 @@ changes occur. Generated datasets, models, checkpoints, binaries and raw logs
 remain outside Git. This candidate is local and unpushed, contains no HAP material,
 and makes no system changes. No further feature starts before the consolidated
 capability/gap report.
+
+## Local learning-rate schedule integration
+
+Native source `63ea457d7084d17dbd2db25e4c7ee42ca46740d5` is integrated as
+`7fdb1e24709d79e949be9bc30ae8b410d9cf65ac` on stable
+`e0decf3f8e64c8bad10f79323fa036511f2088fa`. Optional full-training constant or
+exponential staircase schedules use globally completed optimizer updates:
+`lr(k)=base*decay_rate^floor(k/decay_steps)`. Explicit schedules select v6 and
+bind the base/schedule immutably. Absent/null retains constant behavior and
+historical v1-v5 identities. The same host f64 scalar feeds CPU/CUDA Adam;
+CUDA kernel/PTX sources, device/resource limits and shared model/data contracts
+are unchanged. Readout QR does not accept the schedule.
+
+[Final short CPU engine acceptance](evidence/native-learning-rate-integrated.json)
+checks static capability reporting and five successful training paths on the
+existing 24-frame synthetic input: scheduled seven-update indexed minibatch,
+step-2 and step-3 continuation around the first decay, explicit constant, and
+null-schedule resume of an actual historical v5 checkpoint. Rates for updates
+1..7 are 0.005, 0.005, 0.0025, 0.0025, 0.00125, 0.00125, 0.000625. Both v6
+continuations exactly reproduce every checkpoint field except the requested
+additional-step count, exported model bytes and final train/validation metrics.
+Constant matches old v5 except intentional schedule/schema identity; all four
+metrics match. Null preserves exact legacy state. Reload E/F/V differences are
+zero. Rate above one and changed/removed resume schedules reject before output.
+Three engine CPU routing tests and the locked offline release build passed.
+No GPU ran during final integration and no performance benchmark was repeated.
+
+[B's separate native receipt](native/fixtures/learning-rate-report.json) records
+40 default CPU tests, 54 feature-enabled CPU tests with nine GPU tests ignored,
+plus actual CLI acceptance for CPU and both CUDA executors. It covers broader
+fullbatch/minibatch/indexed/cache and restart permutations; maximum final
+parameter/moment differences from CPU are 9.44e-16 for hyperdual and 8.88e-16
+for reverse. Both compiled PTX hashes remained unchanged; GPU was released at
+2026-10-16 14:10:49 UTC. These are bounded synthetic correctness results, without
+DeepMD-default equivalence, convergence, physical accuracy or speed claims.
+
+Publication scope for this tranche is the 20 native files in the source commit,
+engine static capability metadata, root README/ROADMAP, MLMD guide/matrix/release
+notes, the short engine replay and compact receipt. Native additions cover the
+schedule implementation, checkpoint/report/Adam scalar integration, focused
+regressions, documentation/provenance and synthetic summary evidence. No new
+dependency or shared interface was introduced. Generated inputs, models,
+checkpoints, binaries and raw logs stay outside Git. Candidate remains local
+and unpushed; no HAP data or system changes.
+
+The remaining main larger-GPU workload gap is a memory-bounded batched reverse
+training executor with representative scaling evidence. Current parameter/width/
+atom limits and host stages remain. The roadmap distinguishes those known
+constraints from unmeasured throughput bottlenecks; no next feature was started.

@@ -239,7 +239,8 @@ for CPU and both CUDA full-network executors through explicit
 `config.minibatch={"batch_size":7,"seed":20261016,"order":"shuffle_each_epoch"}`.
 Absent/null retains full-batch behavior. Short tail batches are retained and
 normalized by their actual frame count; `steps` counts optimizer updates.
-Checkpoint v5 stores the validated next-batch sampler and supports exact
+Without an explicit learning-rate schedule, checkpoint v5 stores the validated
+next-batch sampler and supports exact
 same-runtime mid-epoch restart. The [step-18 guide](mlmd/GETTING_STARTED.md#18-select-deterministic-minibatches)
 and [integrated receipt](mlmd/evidence/native-minibatch-integrated.json) cover
 seven updates, tail/cache-toggle continuation and legacy full-batch compatibility.
@@ -270,3 +271,15 @@ records fresh and historical-checkpoint continuation, default-memory equality,
 contents/model bytes/metrics and zero reload difference. This tranche adds no GPU
 runtime validation or capacity change. See [step 20](mlmd/GETTING_STARTED.md#20-interpret-startup-validation-and-io-counters)
 for cumulative timing fields and the short CPU replay.
+
+[Learning-rate schedules](mlmd/native/LEARNING_RATE.md) are available for full
+neural-parameter training through optional `config.learning_rate_schedule`:
+explicit constant or exponential staircase, indexed by globally completed Adam
+updates. Absent/null retains constant behavior and historical checkpoint schemas;
+an explicit schedule uses v6 and must remain identical on resume. The
+[step-21 guide](mlmd/GETTING_STARTED.md#21-select-an-optimizer-update-learning-rate-schedule)
+and [final CPU engine receipt](mlmd/evidence/native-learning-rate-integrated.json)
+cover boundary continuation, legacy v5 and refusal behavior. No model/atom limit
+or CUDA kernel changes accompany this addition. The remaining main scaling gap
+is a memory-bounded GPU trainer processing real multi-frame batches and larger
+supported models; see the [roadmap](ROADMAP.md#main-scaling-gap-batched-gpu-training-with-bounded-memory).

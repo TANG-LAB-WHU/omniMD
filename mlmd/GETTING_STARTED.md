@@ -742,12 +742,14 @@ Use `omnimd-mlmd train-native REQUEST.json` with a new output directory. `steps`
 is additional Adam updates, not epochs. Each epoch visits every selected training
 frame once. With 18 training frames and batch size 7, sizes are 7,7,4; the tail is
 neither dropped nor filled from the next epoch. Gradients use the actual batch
-count, then clipping and one Adam update. Learning rate stays constant per update.
+count, then clipping and one Adam update. Learning rate is constant by default;
+step 21 adds an explicit update-indexed schedule.
 Complete-partition metrics remain separate from the sampled training objective;
 validation frames never enter batches. Smaller batches do not promise full-batch
 convergence, equivalent epoch weighting or a throughput improvement.
 
-Inspect checkpoint `omnimd-native-full-checkpoint-v5` and `report.minibatch`:
+Inspect checkpoint `omnimd-native-full-checkpoint-v5` (v6 with an explicit
+learning-rate schedule) and `report.minibatch`:
 start/end sampler, processed frame count, partial-batch count and size histogram.
 Sampler state describes the next batch and includes seed/order, epoch/cursor,
 permutation and derived RNG state. Resume from that checkpoint with the same
@@ -762,7 +764,7 @@ native model to change training semantics. The same model/shape/work bounds and
 default 1024-frame in-memory dataset limit apply; step 19 provides explicit indexed
 access with separate limits. The optional cache still prepares the
 whole selected training pool and retains its own 64 MiB host-payload bound.
-Minibatch selection alone changes neither storage mode nor the constant learning rate.
+Minibatch selection alone changes neither storage mode nor learning-rate policy.
 
 Read [the complete sampler/loss contract](native/MINIBATCH_TRAINING.md) for the
 actual-count formula, portable integer shuffle and canonical next-batch state.
@@ -830,8 +832,8 @@ an atomic snapshot against concurrent mutation; immutable input is required, and
 Linux/macOS execution is not validated here. Failure invalidates the reader and
 stops the invocation; earlier completed checkpoints remain available.
 
-Storage mode is runtime-only: v5 checkpoints do not embed the index or change
-schema. Resume may switch memory/indexed with the identical raw input, numerical
+Storage mode is runtime-only: v5/v6 checkpoints do not embed the index or change
+schema when storage mode changes. Resume may switch memory/indexed with the identical raw input, numerical
 backend, split, objective and sampler settings, provided the input satisfies the
 destination mode's bounds. Even whitespace changes alter dataset identity. The
 optional CUDA geometry cache can toggle at the same time, but still prepares the
@@ -910,3 +912,67 @@ This replay explicitly selects CPU and hides CUDA devices. It runs no GPU or
 performance benchmark. The [separate native comparison](native/INDEXED_TRAINING.md#startup-validation-consolidation)
 uses three alternating repeats with warm filesystem cache on 2051 deliberately
 whitespace-padded frames; its timings cannot establish production throughput.
+
+## 21. Select an optimizer-update learning-rate schedule
+
+Start from the full-network request used above. Keep the positive finite base
+`config.learning_rate` and optionally add `learning_rate_schedule` inside `config`:
+
+```json
+{
+  "learning_rate": 0.005,
+  "learning_rate_schedule": {
+    "kind": "exponential",
+    "decay_steps": 2,
+    "decay_rate": 0.5
+  }
+}
+```
+
+Run `omnimd-mlmd train-native REQUEST.json` into a new output directory. The
+engine forwards the request to its sibling native trainer. CPU is the default;
+the same host float64 rate feeds either CUDA Adam executor when explicitly
+selected. Readout QR does not accept an iterative learning-rate schedule.
+
+For `k` globally completed optimizer updates, the next rate is
+`learning_rate * decay_rate^floor(k/decay_steps)`. The example uses
+0.005, 0.005, 0.0025, 0.0025, 0.00125, 0.00125, 0.000625 for updates 1..7.
+Update 3 first uses the lower rate. `k` counts successful optimizer updates,
+including short minibatches; it is neither frame nor epoch count and does not
+reset on resume. Additional requested `steps` and Adam bias correction retain
+their existing meanings. This is a native formula, not inferred DeepMD defaults.
+
+Use `{"kind":"constant"}` for an explicit constant schedule. Omit the field or
+set it to null to retain historical constant behavior and v1-v5 serialization.
+Every explicit schedule, including constant, uses checkpoint v6. Resume requires
+exact base rate, schedule presence/kind/interval/rate, together with existing
+loss/data/backend/sampler identity. Runtime storage/cache choices retain their
+previous compatibility rules. Changing or adding a schedule requires starting a
+new optimizer from exported `model.json`; do not rewrite an old checkpoint.
+
+`decay_steps` is an integer in 1..1000000000; finite `decay_rate` is in (0,1].
+The complete requested used-rate interval must stay positive and finite in f64;
+underflow to zero rejects before CUDA or output, with no automatic floor. Unknown
+kinds or fields reject. There is no warmup, continuous/cosine/plateau scheduling,
+scheduled loss weight, convergence guarantee or cross-platform bitwise guarantee.
+
+Inspect `report.learning_rate` for the contract, effective schedule, base rate,
+one-based first/last updates and first/last used rates in that invocation. A
+resume from step 2 starts with update 3 and its decayed rate. No unbounded trace
+or independent mutable scheduler state is stored.
+
+[Final engine acceptance](evidence/native-learning-rate-integrated.json) uses the
+existing 24-frame CPU fixture: seven indexed minibatch updates, exact continuation
+at steps 2 and 3, identical exported model bytes/final metrics, and zero reload
+E/F/V differences. Explicit constant matches historical v5 numerical state and
+all four metrics; null resumes actual old v5 exactly. Invalid rate and changed/
+removed resume schedules reject before output. Three CPU routing tests and the
+offline release build pass. B's broader CPU/CUDA acceptance remains separate.
+
+```text
+python mlmd/scripts/validate_learning_rate_integration.py --engine ENGINE_EXE --baseline-work PREVIOUS_INDEXED_STARTUP_WORK --work NEW_WORK
+```
+
+The baseline is the accepted `indexed-startup-integrated-01` directory, including
+`fresh` outputs. The short replay explicitly selects CPU, hides CUDA devices and
+uses a new output directory. It runs no GPU or performance benchmark.

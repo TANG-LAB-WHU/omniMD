@@ -199,8 +199,8 @@ CPU/CUDA state/metrics, old-memory continuation and both access/cache directions
 The separate 2051-frame, 128.19-MiB input is deliberately whitespace padded. Its
 12.83-MiB Windows peak working set and 319722-byte index are boundary-test evidence,
 not representative physical throughput or a universal RAM bound. The full indexed
-ceiling and other-platform execution remain unvalidated. Constant learning rate,
-no sharding/distributed training and unchanged per-frame model limits remain.
+ceiling and other-platform execution remain unvalidated. Sharding/distributed
+training and unchanged per-frame model limits remain open.
 
 ## Delivered: consolidate confirmed duplicate startup validation
 
@@ -227,9 +227,45 @@ IO result is not a physical-training, cold-disk or general GPU throughput claim.
 Remaining costs include the initial strict scan, constructor validation on fresh
 runs, trainer validation, full initial/final assessments, reload verification and
 O(file bytes) publication hashes. Metadata/sampler/checkpoints remain O(N).
-Sharding/prefetch, learning-rate schedules, broader architectures, larger models,
+Sharding/prefetch, broader architectures, larger models,
 distributed execution and other-platform acceptance remain separate substantial
 work. No further feature is started as part of this candidate.
+
+## Delivered: optimizer-update learning-rate schedules
+
+Optional explicit constant/exponential staircase schedules apply to the supported
+full CPU/CUDA trainers. The globally completed update count determines the next
+rate; no epoch inference or mutable scheduler state is added. Explicit schedules
+use v6 with immutable base/schedule identity, while absent/null preserve legacy
+constant behavior and v1-v5. [Final engine evidence](mlmd/evidence/native-learning-rate-integrated.json)
+records exact decay-boundary continuation and historical-checkpoint compatibility.
+Model/atom/workspace limits, CUDA kernels and PTX remain unchanged.
+
+## Main scaling gap: batched GPU training with bounded memory
+
+The current GPU full trainer admits at most 2048 neural parameters, width 32,
+64 neighbor slots and 64 atoms/frame. Reverse gradients retain per-slot parameter
+buffers within a 64 MiB planned device payload. Training processes frames
+individually; current-model inference/loss seeds, geometry, stable reduction and
+assessment remain CPU work. These are known architecture/resource constraints.
+Their relative throughput costs on larger real workloads have not been measured;
+existing small synthetic timings cannot rank every bottleneck.
+
+The next substantial milestone should be a memory-bounded, batched reverse GPU
+trainer, validated on a declared larger workload using public or authorized data.
+It should tile intermediate/gradient storage and perform useful multi-frame GPU
+work without simply raising hard caps. Resource accounting must scale explicitly
+with atoms, neighbors, parameters and batch size, and fail before unsafe allocation.
+Profiling should determine which CPU primal/loss or transfer/reduction stages
+must move to the device; no general speedup is assumed in advance.
+
+Acceptance should include larger supported shapes beyond today's bounds, E/F/V
+and gradient/Adam agreement on tractable reference samples, preserved deterministic
+sampling/scheduling/restart, measured peak memory and transfer volume, and repeated
+whole-training throughput against a matching CPU reference. Warmup, compilation,
+IO/checkpoints and kernel time must be distinguished. Public-data training quality
+needs its own held-out assessment. No such larger-workload implementation or new
+benchmark starts in this integration tranche.
 
 ## Publication gate
 
