@@ -117,6 +117,14 @@ verifies historical v7 and opt-in v8. Synthetic whole-process medians regressed
 605->756 ms for 112 parameters and improved 3506->3061 ms for 466 parameters;
 keep this option explicit. These measurements do not establish general speed.
 
+The unchanged `06439f1` engine and sibling trainer also passed the recorded
+[Linux native CUDA check](../LINUX_CUDA_VALIDATION.md): Ubuntu 22.04.5/WSL2
+x86_64, RTX 4090, driver 617.42/NVRTC 12.9.86, one inference fixture and 24-frame
+tiled v7/v8 training with exact same-runtime v8 continuation. C API execution,
+other Linux configurations and cross-platform checkpoint restore were outside
+that check. Use [step 24](../GETTING_STARTED.md#24-use-the-recorded-linux-native-cuda-configuration)
+for the exact environment and limits; no performance advantage is established.
+
 ## Dataset workflows
 
 See [DATA.md](DATA.md) for explicit DeepMD NPY import, batch predictions and

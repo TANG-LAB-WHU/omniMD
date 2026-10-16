@@ -190,8 +190,11 @@ not a whole-training speedup, scaling benchmark or physical-accuracy claim.
 [The committed report](fixtures/cuda-full-training-report.json) contains commands,
 hashes, scopes, metrics, timings and runtime identity. Generated datasets,
 weights, checkpoints, executables and raw logs remain ignored. No dependency or
-runtime installation was performed. Linux CUDA execution, external driver fault
-injection and representative physical training validation remain unverified.
+runtime installation was performed. Linux was outside this earlier acceptance;
+[later Linux evidence](../LINUX_CUDA_VALIDATION.md) covers a small tiled v7/v8
+E/F/V comparison and same-runtime v8 continuation. It does not repeat this full
+matrix. External driver fault injection and representative physical training
+validation remain unverified.
 
 For immutable selected training frames, [fixed geometry caching](FIXED_GEOMETRY_TRAINING.md) reuses exact neighbor/R/J preparation while rebuilding current predictions and loss directions. It is disabled by default.
 

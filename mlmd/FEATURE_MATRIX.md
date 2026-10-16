@@ -1,6 +1,6 @@
 # DeepMD feature coverage: reference version 3.1.3
 
-Matrix revision 16, checked 2026-10-16. Previous integrated CUDA runtime:
+Matrix revision 17, checked 2026-10-16. Previous integrated CUDA runtime:
 `9b8d1847f892e32751c73d3262e0245d0efb4cdd`. This includes engine inspection/tutorial,
 native source `b6b7aa7` and C API source `1aee39c`. Implementation and real-runtime
 validation are separate. C API CPU follow-up is now verified in `ce27786`
@@ -11,7 +11,10 @@ graph version are different identifiers.
 Current GPU-loss source `36ee5cf` is integrated as `230279d` on `f6030da`.
 Final engine acceptance verifies historical v7 equality, tolerant opt-in v8
 comparison and exact same-backend v8 restart. Default CPU-loss PTX is preserved;
-the GPU-loss program has a separate identity.
+the GPU-loss program has a separate identity. Candidate `06439f1` subsequently
+passed [bounded Linux native CUDA acceptance](LINUX_CUDA_VALIDATION.md), recorded
+in evidence commit `1dc936c`. This adds platform evidence without implementation
+changes; the C API runtime matrix remains separate.
 
 **omniMD does not implement all DeepMD features.** Native means arithmetic in
 this Rust/CUDA implementation. Delegated means the official external runtime
@@ -47,6 +50,7 @@ is insufficient evidence of compatibility.
 | Model compression / tabulation | Missing | Runtime-dependent, unverified compressed models | [Official compression](https://docs.deepmodeling.com/projects/deepmd/en/v3.1.3/freeze/compress.html) is external |
 | CUDA inference | Partial: NN/descriptor/pullback kernels; CPU geometry and final force/virial reduction | Partial: official TF kernels observed through CUPTI, synchronized per evaluation | [Native](native/CUDA.md), [C API](deepmd/CUDA_VALIDATION.md); no automatic fallback |
 | CUDA cache / profiling | Conservative CPU candidate cache, cooperative per-atom fitting, retained host/device buffers and type uploads, segmented timing | Runtime manages its internal memory/work | [Final integrated evidence](evidence/native-cuda-integrated-fit.json): warmed and whole-MD improvements reported separately, limited to measured cases |
+| Linux native CUDA runtime | Validated on Ubuntu 22.04.5 x86_64 under WSL2, RTX 4090, driver 617.42/NVRTC 12.9.86; one FP64 inference fixture and 24-frame tiled v7/v8 training with exact same-runtime v8 resume | Not part of this native acceptance | [Environment and receipt](LINUX_CUDA_VALIDATION.md); other Linux configurations, cross-platform restore and production models unverified; no performance advantage established |
 | CUDA graphs, multi-GPU, MPI/domain decomposition | Missing | Graph/stream capture rejected; no distributed adapter | Single selected device per fresh worker |
 
 ## Data, training and workflows
@@ -124,7 +128,9 @@ an official `input.json` is not a native training request.
   independent CPU-gradient parity, all 112 parameters trained, 300-step learning
   and exact 150+150 continuation. The 64-atom 3.46x ratio is a warmed gradient
   stage measurement; tiny whole training is slower. [B receipt](native/fixtures/cuda-full-training-report.json).
-  Linux CUDA and physical training accuracy remain unverified. The final integrated
+  This earlier result does not cover Linux CUDA or physical training accuracy;
+  [later Linux evidence](LINUX_CUDA_VALIDATION.md) covers the bounded tiled path.
+  The final integrated
   [engine CLI receipt](evidence/native-cuda-full-integrated.json) records six steps,
   exact 3+3 model/moment continuation, all 112 parameters changed, zero reload
   E/F/V difference and rejected backend switching. Seven CPU-safe affected
@@ -147,7 +153,8 @@ an official `input.json` is not a native training request.
   all-parameter derivatives, 300-step learning and rotated fresh-process timings:
   medium CPU/hyperdual/reverse 2963/1349/877 ms; tiny CPU/reverse 615/1573 ms.
   CPU primal/loss seeds, geometry, stable reduction and assessment remain. No
-  architecture/dataset bound was raised; Linux CUDA remains unverified.
+  architecture/dataset bound was raised. Linux was outside this earlier check;
+  see the subsequent [tiled Linux acceptance](LINUX_CUDA_VALIDATION.md).
 
 - Native fixed-geometry source `bbfecc6` is integrated as `a6a841d` on `94427ef`.
   [Final cache CLI acceptance](evidence/native-geometry-cache-integrated.json)
@@ -220,6 +227,16 @@ an official `input.json` is not a native training request.
   dimer and 1024-atom aggregate capacity. B's three-repeat synthetic medians show
   tiny regression and medium improvement; broad tests/benchmarks were not rerun.
 
+- Linux evidence commit `1dc936c` validates the unchanged `06439f1` runtime on
+  Ubuntu 22.04.5/WSL2 x86_64 with RTX 4090, driver 617.42 and NVRTC 12.9.86.
+  [Receipt](evidence/native-linux-cuda.json): inference E/F/V errors
+  0/4.44e-16/4.44e-16; 24-frame v8/v7 parameter/moment difference 5.83e-16;
+  step-2 to step-7 v8 continuation exact, including exported model bytes.
+  The v7 reference still uses CUDA gradients/Adam. Small single-process v8/v7
+  times were 1.034/0.806 seconds, not a speed benchmark. No GPU fallback/error/
+  retry; no source fix or new installation. This documentation integration
+  does not rerun tests or broaden model/resource limits.
+
 ## Implementation order and acceptance gates
 
 1. Engine preflight and reproducible executable workflow: delivered in this
@@ -244,6 +261,7 @@ clipping, assessment and export. Ten kernels per GPU-loss tile, transfers,
 compilation/startup and constrained occupancy still cost time; the tiny benchmark
 regressed. Limits remain 2048 parameters, width 32, 64 atoms/frame and bounded
 tile work/payloads. Larger physical workloads, generic DeepMD architectures,
-Linux CUDA and distributed/CPU-free training remain unsupported or unvalidated.
+Linux configurations beyond the recorded WSL2/container case and distributed/
+CPU-free training remain unsupported or unvalidated.
 See [the roadmap](../ROADMAP.md#remaining-end-to-end-and-model-limits); no next
 feature is started by this candidate.

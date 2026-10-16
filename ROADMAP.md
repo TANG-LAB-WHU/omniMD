@@ -118,7 +118,9 @@ with executable commands; pending branch work is not counted as integrated.
 - Engine parameterized models are CPU C API only; native parameterized training,
   CUDA engine parameter propagation, parameterized minimization/ensembles and
   shared atomic/tensor outputs remain unsupported. New C API GPU batch/parameter
-  acceptance and Linux native CUDA execution remain unverified.
+  acceptance remains unverified. Native CUDA now has bounded
+  [Linux x86_64/WSL2 acceptance](mlmd/LINUX_CUDA_VALIDATION.md); other Linux
+  configurations and cross-platform checkpoint restore remain unverified.
 - NPT, constraints, domain decomposition, broader classical coupling and external
   MD ecosystem adapters remain separate simulation gaps. Physical accuracy and
   production stability have not been established by the software fixtures.
@@ -292,9 +294,12 @@ Data validation, geometry/scales, gradient reduction/clipping, assessment and
 export remain CPU work. Indexed metadata/samplers/checkpoints are O(frame count),
 and publication hashes remain O(file bytes). No sharding, prefetch/distributed
 execution, generic DeepMD architecture support, learned normalization/offsets,
-tied one-side embeddings, Linux CUDA acceptance or production chemical validation
-is added. The 64 MiB device/32 MiB tile budgets are explicit payloads, not total
-VRAM or process memory limits.
+tied one-side embeddings or production chemical validation is added. The
+[Linux acceptance](mlmd/LINUX_CUDA_VALIDATION.md) covers only the recorded
+Ubuntu x86_64/WSL2 container, RTX 4090 and small synthetic inference/training
+cases; it does not cover other Linux configurations or cross-platform restart.
+The 64 MiB device/32 MiB tile budgets are explicit payloads, not total VRAM or
+process memory limits.
 
 Whole-process startup, transfers and ten-kernel tile execution are now material
 costs alongside assessment and constrained occupancy. Any later throughput work

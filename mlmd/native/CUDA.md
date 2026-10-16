@@ -70,8 +70,11 @@ Linux uses `libcuda.so.1` and `CUDA_PATH/lib64/libnvrtc.so`, defaulting to
 `OMNIMD_NVRTC_LIBRARY` path can name a different installed official NVRTC library.
 No dependency or driver is automatically installed. Rust builds can run on a
 machine without CUDA; using the CUDA backend requires compatible installed
-NVIDIA driver/NVRTC and a supported GPU. Windows x64 is the development target;
-Linux dynamic-loading code has not yet been runtime-verified.
+NVIDIA driver/NVRTC and a supported GPU. Windows x64 is the development target.
+[Linux dynamic loading and execution](../LINUX_CUDA_VALIDATION.md) passed on
+Ubuntu 22.04.5 x86_64 under WSL2, RTX 4090, driver 617.42/NVRTC 12.9.86 in the
+recorded official container. This validates the documented inference fixture and
+small tiled training/resume case, not other Linux configurations or architectures.
 
 Compile kernels without making driver calls or using a GPU:
 

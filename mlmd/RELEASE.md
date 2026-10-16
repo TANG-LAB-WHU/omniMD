@@ -6,6 +6,11 @@ shawn_dev. Following separate user authorization, the CUDA release
 was published to the same branch with an ordinary non-force push. Its remote
 hash was verified after publication.
 
+Entries below record successive milestones. Earlier statements that Linux native
+CUDA had not been validated describe those milestones; the later
+[Linux platform acceptance](#local-linux-native-cuda-acceptance) records the exact
+WSL2/container scope now tested. It does not expand C API or general Linux claims.
+
 ## Local native CUDA cache follow-up
 
 The published base is a74804d8cbba86c1a2563dbbca6444059e740903 (CUDA release plus
@@ -886,3 +891,34 @@ geometry/reduction/assessment, O(N) index/sampler state and publication hashes.
 Payload budgets are not total-memory caps. Broader models, large physical training,
 Linux CUDA, distributed execution, generic DeepMD training and production chemical
 validation remain unsupported or unverified. No next feature was started.
+
+## Local Linux native CUDA acceptance
+
+Evidence commit `1dc936caa3ec643b3a86d93f4d1bd4f8a2c688a9`, directly based on
+`06439f1cf91306b4d19c570e20abaeb7e140adf6`, is integrated unchanged. It adds
+[platform documentation](LINUX_CUDA_VALIDATION.md), a
+[compact receipt](evidence/native-linux-cuda.json), exact executed replay helpers,
+requests, a source manifest and an original 24-frame synthetic fixture. This
+follow-up updates the entry guides, feature matrix and platform boundaries.
+No Rust/CUDA implementation, dependency, model format or checkpoint rule changes.
+The candidate remains local; nothing was pushed.
+
+The tested runtime was Ubuntu 22.04.5 x86_64 under WSL2 in the cached official
+DeepMD 3.1.0 CUDA 12.9 image, with RTX 4090, driver 617.42 and NVRTC 12.9.86.
+Release compilation passed after correcting an initial read-only Cargo cache
+mount; no source fix, download or installation was needed. Native FP64 inference
+matched CPU E/F/V within 0/4.44e-16/4.44e-16. The 24-frame tiled v8/v7 training
+comparison differed by at most 5.83e-16 in parameters/Adam moments. Newly created
+Linux v8 step-2 to step-7 continuation matched model bytes and final state/metrics
+exactly, excluding only the deliberately changed step-count/cache fields.
+No GPU fallback, fault or retry occurred. Containers were stopped and the GPU
+released. Integration checked evidence hashes and documentation without rebuilding
+or rerunning GPU tests.
+
+Single-process v8/v7 observations were 1.034/0.806 seconds; the small v8 case was
+slower. These include startup/JIT, IO and assessment and are not a speed benchmark.
+Other Linux configurations, cross-platform checkpoint restore, C API behavior,
+large physical training and production accuracy were outside this acceptance.
+CPU geometry/reduction/assessment and existing architecture/payload bounds remain.
+No generated trained weights, checkpoints, executables, raw logs or HAP material
+are included; the only dataset added is the small original replay fixture.

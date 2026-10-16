@@ -6,7 +6,10 @@ This guide covers the MLIP workspace in `mlmd/`, tested at integrated runtime
 Rust and official DeepMD FFI are distinct inference paths. CPU is the default;
 CUDA is explicitly selected. Training defaults to CPU; optional CUDA readout
 features keep QR/assessment on CPU. Bounded full-network CUDA gradients and Adam
-retain CPU inference, geometry, reduction and assessment; see step 13.
+retain CPU geometry, reduction and assessment; see step 13. Prediction/loss seeds
+remain CPU by default, with an explicit tiled GPU option in step 23. The later
+`06439f1` candidate passed the bounded Linux native CUDA check in step 24; its
+runtime and fixture scope do not generalize to other Linux configurations.
 
 All commands below run from the repository root. `omnimd-mlmd` means the binary
 built in step 1, not a globally installed program. Use its full path unless you
@@ -527,8 +530,9 @@ B's original synthetic 300-step replay and exact 150+150 continuation are record
 in [its evidence](native/fixtures/cuda-full-training-report.json). Small fits were
 slower on CUDA. The separate 3.46x result covers a warmed 64-atom full-gradient
 stage, excluding initialization, Adam and checkpoint IO; it is not an end-to-end
-training speedup. Linux CUDA, large-model scaling and chemical accuracy remain
-unverified. Use an authorized GPU window for any replay.
+training speedup. Linux CUDA was outside that earlier acceptance; step 24 records
+a later bounded tiled Linux check. Large-model scaling and chemical accuracy
+remain unverified. Use an authorized GPU window for any replay.
 
 The final integrated [CLI receipt](evidence/native-cuda-full-integrated.json)
 checks six steps and exact 3+3 continuation through `train-native`, zero export
@@ -829,8 +833,10 @@ whole file must still match its original SHA256. This costs O(file bytes) per
 verification; frequent checkpoints can increase IO substantially. Windows retains
 a handle denying write/delete sharing. Other platforms' portable checks are not
 an atomic snapshot against concurrent mutation; immutable input is required, and
-Linux/macOS execution is not validated here. Failure invalidates the reader and
-stops the invocation; earlier completed checkpoints remain available.
+the later Linux check in step 24 covers a small indexed-to-memory training
+continuation, not platform mutation-race acceptance. macOS remains unvalidated.
+Failure invalidates the reader and stops the invocation; earlier completed
+checkpoints remain available.
 
 Storage mode is runtime-only: v5/v6/v7/v8 checkpoints do not embed the index or change
 schema when storage mode changes. Resume may switch memory/indexed with the identical raw input, numerical
@@ -1124,3 +1130,43 @@ python mlmd/scripts/validate_device_loss_integration.py --engine ENGINE_EXE --ba
 
 The script stops on first failure without retry. It performs only the final
 engine comparison/restart checks; native derivative/capacity tests remain separate.
+
+## 24. Use the recorded Linux native CUDA configuration
+
+Candidate `06439f1cf91306b4d19c570e20abaeb7e140adf6` passed a locked offline
+release build and native FP64 CUDA execution on Ubuntu 22.04.5 x86_64 under WSL2,
+using the cached official `deepmodeling/deepmd-kit:3.1.0_cuda129` container,
+RTX 4090, NVIDIA driver 617.42 and NVRTC 12.9.86. No portability fix, dependency
+installation or runtime implementation change was needed. See the pinned image,
+toolchain, read-only mounts and sequential replay commands in
+[Linux CUDA validation](LINUX_CUDA_VALIDATION.md).
+
+Inside that tested container, `OMNIMD_NVRTC_LIBRARY` was explicitly set to
+`/opt/deepmd-kit/lib/libnvrtc.so.12`; the driver was the injected
+`/usr/lib/x86_64-linux-gnu/libcuda.so.1`. These are environment-specific paths.
+Native execution uses CUDA Driver/NVRTC libraries; running inside a DeepMD image
+does not turn this check into official DeepMD C API acceptance.
+
+The [receipt](evidence/native-linux-cuda.json) records:
+
+- One four-atom inference fixture: maximum CPU/CUDA E/F/virial differences
+  0/4.44e-16/4.44e-16.
+- 24 synthetic frames, 18/6 split, tiled E/F/V training, minibatches and learning-rate
+  decay: v8 GPU loss versus v7 CPU loss parameter/Adam difference at most 5.83e-16.
+  The v7 reference also uses CUDA reverse gradients and Adam.
+- A newly generated Linux v8 step-2 checkpoint resumed to step 7 exactly,
+  including exported model bytes and final metrics, while switching indexed
+  storage to memory and disabling the geometry cache. This is same-runtime
+  continuation, not Windows-to-Linux checkpoint compatibility.
+
+There was no GPU fallback, fault or retry; validation containers were stopped
+and the GPU released. The small single-process v8/v7 observations were
+1.034/0.806 seconds including startup/JIT, IO, assessment and checkpoint writes.
+They are not a speed benchmark; v8 was slower in this sample.
+
+The bounded replay package contains original synthetic data and hash-bound
+requests. Keep its exact bytes and use a fresh output directory with an authorized
+GPU window; stop at the first failed GPU stage. This evidence does not validate
+other Linux distributions, bare-metal configurations, ARM64, different drivers,
+production potentials, long MD or the full Windows/CPU test matrix. Existing
+architecture/resource bounds and CPU defaults remain unchanged.

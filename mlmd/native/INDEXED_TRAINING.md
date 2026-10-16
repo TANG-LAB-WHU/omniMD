@@ -129,7 +129,10 @@ A run retains the opened file handle. On Windows it denies write/delete sharing,
 so an incompatible writer, truncation or path replacement fails at the OS boundary.
 On other platforms, path replacement leaves the run bound to the original opened
 file; a new invocation opens the current path and must match the checkpoint hash.
-Linux/macOS execution was not exercised in this tranche.
+Linux/macOS execution was not exercised in this tranche. The later
+[Linux CUDA check](../LINUX_CUDA_VALIDATION.md) verifies a small indexed-to-memory
+training continuation under WSL2; it does not establish platform mutation-race
+coverage. macOS execution remains unvalidated.
 
 Length and modification time from the retained handle are checked around reads.
 They are only early checks: per-frame SHA256 catches same-size mutations even

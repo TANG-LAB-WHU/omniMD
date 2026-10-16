@@ -27,6 +27,13 @@ are documented under [device selection](mlmd/engine/README.md#explicit-native-cu
 The [published CUDA release scope](mlmd/RELEASE.md#published-cuda-release)
 records the code, documentation and compact validation evidence included.
 
+The local candidate `06439f1` also passed [Linux native CUDA acceptance](mlmd/LINUX_CUDA_VALIDATION.md):
+Ubuntu 22.04.5 x86_64 under WSL2, the official cached DeepMD CUDA image, RTX 4090,
+driver 617.42 and NVRTC 12.9.86. This covers one FP64 inference fixture, 24-frame
+tiled E/F/V training and exact same-runtime v8 continuation. The small v8 run
+was slower than v7; no speed or broader-platform claim follows. C API execution
+and cross-platform checkpoint restore were outside this acceptance.
+
 This local branch additionally includes a conservative native CUDA neighbor
 candidate cache, with final-version timing, MD and restart acceptance. It reduces
 host neighbor preparation; kernels and the CPU path are unchanged. This follow-up

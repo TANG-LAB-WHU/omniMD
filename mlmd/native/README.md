@@ -102,7 +102,8 @@ omnimd-native-cuda-eval mlmd/native/fixtures/full-tanh-v1.json < mlmd/native/fix
 commands execute on visible device 0; use them only when GPU use is authorized.
 On Windows `CUDA_PATH` points to the installed official toolkit, or set the
 process-local `OMNIMD_NVRTC_LIBRARY` to its absolute NVRTC library path. See
-[CUDA.md](CUDA.md) for exact library names and Linux runtime limitations. A CUDA
+[CUDA.md](CUDA.md) for exact library names and the bounded
+[Linux x86_64/WSL2 acceptance](../LINUX_CUDA_VALIDATION.md). A CUDA
 failure is an error and poisons the instance; CPU fallback is an explicit new
 CPU request. Small systems may be faster on CPU.
 
