@@ -1,5 +1,9 @@
 # Validation record: 2026-10-14
 
+Later platform evidence: [Linux native CUDA validation, 2026-10-16](LINUX_CUDA_VALIDATION.md)
+covers exact candidate `06439f1`, including tiled GPU E/F/V training and exact
+same-runtime checkpoint resume. The sections below retain their dated scope.
+
 ## Builds and targeted tests
 
 - Isolated official Rust 1.99.0: Windows GNU workspace build and 19 tests passed

@@ -1,0 +1,76 @@
+{
+  "candidate_commit": "06439f1cf91306b4d19c570e20abaeb7e140adf6",
+  "scope": "Small original synthetic E/F/V Linux CUDA candidate comparison; no production accuracy or speed claim",
+  "build_provenance": "Root build orchestration must establish exact candidate provenance; the helper records binary SHA-256 values, not inferred commit identity.",
+  "inputs": {
+    "initial.json": {
+      "source": "mlmd/native/fixtures/full-tanh-v1.json; normalize to CRLF for recorded byte identity",
+      "bytes": 9318,
+      "sha256": "407278c6eab122e6dfee2511b3c3fb4c033f58c04819a580ffc0810df3ce7b9a"
+    },
+    "dataset.jsonl": {
+      "source": "Bundled original synthetic dataset; mlmd/native/tools/replay_full_training.py data-generation flow using the native CPU teacher; historical provenance retained in dataset records",
+      "bytes": 22124,
+      "sha256": "5669b8e833b0a409e08b328dc3cf9ef9dfebb52d32f8b8495a75d9342b07902a"
+    }
+  },
+  "request_template": {
+    "source": "Existing tiled-training validation request; all exact requests are included in this replay package",
+    "sha256": "8d664f7f0410d54eda7648d8d64cecbdd4558fc4f66952a05c6bd4979e44371d"
+  },
+  "requests": {
+    "linux-v7.request.json": {
+      "sha256": "fd618b8e19d775ef18e7afc2f44deaf75910699e1900d0659b4ab1605b2c0594",
+      "output_directory": "linux-v7"
+    },
+    "linux-v8.request.json": {
+      "sha256": "a03e70e46e2f8074e3ded863859007b66f4ae6f2c1f6900749f43f2b8edf6e11",
+      "output_directory": "linux-v8"
+    },
+    "linux-v8-resume.request.json": {
+      "sha256": "1264361f1aa1a2e4c9af4d42ee883955d0b4a83965023c51c78ca53b7c7101ba",
+      "output_directory": "linux-v8-resume"
+    }
+  },
+  "fixture": {
+    "frames": 24,
+    "training_frames": 18,
+    "validation_frames": 6,
+    "atoms_per_frame": [
+      3,
+      4
+    ],
+    "periodic_frames": 12,
+    "labels": [
+      "energy",
+      "forces",
+      "virial"
+    ]
+  },
+  "expected_profiles": {
+    "linux-v7": {
+      "frames": 43,
+      "tiles": 19,
+      "kernel_launches": 76,
+      "synchronizations": 19,
+      "device_prediction_frames": 0
+    },
+    "linux-v8": {
+      "frames": 43,
+      "tiles": 19,
+      "kernel_launches": 190,
+      "synchronizations": 19,
+      "device_prediction_frames": 43
+    },
+    "linux-v8-resume": {
+      "frames": 29,
+      "tiles": 13,
+      "kernel_launches": 130,
+      "synchronizations": 13,
+      "device_prediction_frames": 29
+    }
+  },
+  "parameter_moment_and_metric_absolute_tolerance": 3e-12,
+  "cpu_export_efv_absolute_tolerance": 3e-12,
+  "resume": "Exact state after removing only config.steps and config.fixed_geometry_cache; exact model bytes and final partition metrics; checkpoint execution identity remains included."
+}

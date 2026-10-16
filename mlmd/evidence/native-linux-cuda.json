@@ -1,0 +1,349 @@
+{
+  "schema": "omnimd-linux-native-cuda-validation-v1",
+  "status": "passed",
+  "completed_utc": "2026-10-16T15:58:04.149331+00:00",
+  "candidate_commit": "06439f1cf91306b4d19c570e20abaeb7e140adf6",
+  "source": {
+    "isolated_checkout": true,
+    "read_only_container_mount": "/src",
+    "source_modifications_before_build_or_run": false,
+    "integration_worktree_modified": false,
+    "native_portability_fix_required": false
+  },
+  "runtime": {
+    "image": "deepmodeling/deepmd-kit:3.1.0_cuda129",
+    "image_id": "sha256:23d23b922459eb49b23f9d4977b6e453fd17feb2ee03a280c70fb7f4a6452e8c",
+    "container": "omnimd-native-linux-06439f1-v2",
+    "container_id": "582ee3ee08f4c90682845d1af26ec456ec153c71f7687b2104b94d098fab3362",
+    "network": "none",
+    "new_downloads_or_installs": false,
+    "docker_engine": "28.0.4 linux",
+    "os": "Ubuntu 22.04.5 LTS",
+    "kernel": "5.15.167.4-microsoft-standard-WSL2",
+    "architecture": "x86_64",
+    "gpu": "NVIDIA GeForce RTX 4090",
+    "gpu_memory_mib": 24564,
+    "compute_capability": "8.9",
+    "nvidia_driver": "617.42",
+    "cuda_driver_api_version": 13040,
+    "nvrtc": "12.9.86",
+    "nvrtc_version_api": [
+      12,
+      9
+    ],
+    "nvrtc_path": "/opt/deepmd-kit/lib/libnvrtc.so.12",
+    "nvrtc_real_library": "/opt/deepmd-kit/targets/x86_64-linux/lib/libnvrtc.so.12.9.86",
+    "driver_library": "/usr/lib/x86_64-linux-gnu/libcuda.so.1",
+    "python": "3.12.11",
+    "rustc": "1.99.0 (b940084d7 2026-09-28)",
+    "cargo": "1.99.0 (5f94df478 2026-08-27)",
+    "linker": "conda-forge GCC 13.3.0-2",
+    "environment": {
+      "OMNIMD_NVRTC_LIBRARY": "/opt/deepmd-kit/lib/libnvrtc.so.12",
+      "LD_LIBRARY_PATH": "/opt/deepmd-kit/lib",
+      "CUDA_VISIBLE_DEVICES": "0",
+      "OMP_NUM_THREADS": "1"
+    },
+    "host_settings_or_driver_modified": false,
+    "gpu_errors": 0,
+    "gpu_retries": 0,
+    "container_stopped_after_validation": true,
+    "gpu_window_released": true
+  },
+  "build": {
+    "status": "passed",
+    "profile": "release",
+    "offline": true,
+    "locked": true,
+    "manifest": "mlmd/Cargo.toml",
+    "packages": [
+      "omnimd-native",
+      "omnimd-mlmd"
+    ],
+    "features": [
+      "omnimd-native/cuda",
+      "omnimd-mlmd/native-cuda"
+    ],
+    "targets": "--bins",
+    "build_seconds_reported_by_cargo": 40.8,
+    "setup_issue": "Initial offline build could not find cached serde because the registry symlink mount target was absent. Corrected read-only cache mount; no source fix or download. Initial container stopped.",
+    "binary_sha256": {
+      "engine": "912adee9b7ab94351ed977aff0da50f84f6026ec2b3254e2865af60aaefceaf0",
+      "trainer": "77f61ed99f352ff7fdbd44c6a087ebb9f9fdd24d168002fa857206091bda907c",
+      "cpu_evaluator": "55d342406fba05b5f65c0503f381e56abbe2565ce09b2b697ccebfce09e062ed"
+    }
+  },
+  "nvrtc_compile_only": {
+    "compile_only": true,
+    "gpu_executed": false,
+    "ptx_bytes": 47649,
+    "target": "compute_75",
+    "process_seconds": 0.3196418299994548
+  },
+  "one_frame_inference": {
+    "status": "passed",
+    "candidate": "06439f1cf91306b4d19c570e20abaeb7e140adf6",
+    "model_sha256": "407278c6eab122e6dfee2511b3c3fb4c033f58c04819a580ffc0810df3ce7b9a",
+    "frames_sha256": "568897abe27293679de4458f4c707319dbbb2d0e43d595de88139453da416f5c",
+    "frames": 1,
+    "atoms": 4,
+    "max_absolute_error": {
+      "energy": 0.0,
+      "forces": 4.440892098500626e-16,
+      "virial": 4.440892098500626e-16
+    },
+    "tolerance": "1e-9 + 1e-9*abs(CPU) per component",
+    "device": "NVIDIA GeForce RTX 4090; compute 8.9; FP64; device 0",
+    "gpu_evaluations": 1,
+    "gpu_execution_evidence": "Explicit native CUDA evaluator completed its three driver kernels and context synchronization; no CPU fallback exists in this executable.",
+    "process_seconds": {
+      "cpu": 0.022680269001284614,
+      "cuda": 1.6091592890006723
+    },
+    "timing_scope": "One cold process per backend; includes startup/JIT, IO and evaluation; no steady-state speed comparison.",
+    "binary_sha256": {
+      "omnimd-native-eval": "55d342406fba05b5f65c0503f381e56abbe2565ce09b2b697ccebfce09e062ed",
+      "omnimd-native-cuda-eval": "3363a2621fca7acd5e47fe424aedbc56e6345354dc795a211856ecbefdc3b549"
+    }
+  },
+  "training": {
+    "scope": "Small original synthetic E/F/V Linux CUDA candidate comparison; no production accuracy or speed claim",
+    "fixture": {
+      "frames": 24,
+      "training_frames": 18,
+      "validation_frames": 6,
+      "atoms_per_frame": [
+        3,
+        4
+      ],
+      "periodic_frames": 12,
+      "labels": [
+        "energy",
+        "forces",
+        "virial"
+      ]
+    },
+    "reference": "CPU prediction/seeds + CUDA reverse derivatives and Adam; current Linux candidate",
+    "gpu_scope": "CUDA tiled E/F/V prediction, detached loss cotangents, cached mixed derivatives and Adam; CPU geometry, normalization scalars, stable atom/frame reduction, clipping and assessment",
+    "parameter_moment_max_abs": 5.828670879282072e-16,
+    "metric_max_abs": {
+      "initial_training": 0.0,
+      "final_training": 6.938893903907228e-17,
+      "initial_validation": 0.0,
+      "final_validation": 2.7755575615628914e-17
+    },
+    "comparison_absolute_tolerance": 3e-12,
+    "cpu_export_efv_max_abs": {
+      "linux-v8_vs_linux-v7": {
+        "energy": 4.440892098500626e-16,
+        "forces": 4.440892098500626e-16,
+        "virial": 5.551115123125783e-16
+      },
+      "linux-v8-resume_vs_linux-v8": {
+        "energy": 0.0,
+        "forces": 0.0,
+        "virial": 0.0
+      }
+    },
+    "resume_sampler_model_moments_step_execution_exact": true,
+    "resume_model_bytes_and_final_metrics_exact": true,
+    "resume_comparison_excludes_only": [
+      "config.steps",
+      "config.fixed_geometry_cache"
+    ],
+    "resume_update": 3,
+    "resume_learning_rate": 0.0025,
+    "commands": [
+      {
+        "label": "linux-v7",
+        "exit_code": 0,
+        "duration_seconds": 0.8059955979988445,
+        "cpu_only": false
+      },
+      {
+        "label": "linux-v8",
+        "exit_code": 0,
+        "duration_seconds": 1.0341414499998791,
+        "cpu_only": false
+      },
+      {
+        "label": "linux-v8-resume",
+        "exit_code": 0,
+        "duration_seconds": 0.31590650100042694,
+        "cpu_only": false
+      },
+      {
+        "label": "linux-v7-cpu-export",
+        "exit_code": 0,
+        "duration_seconds": 0.022163322999404045,
+        "cpu_only": true
+      },
+      {
+        "label": "linux-v8-cpu-export",
+        "exit_code": 0,
+        "duration_seconds": 0.021011298002122203,
+        "cpu_only": true
+      },
+      {
+        "label": "linux-v8-resume-cpu-export",
+        "exit_code": 0,
+        "duration_seconds": 0.02315449500019895,
+        "cpu_only": true
+      }
+    ],
+    "runs": {
+      "linux-v7": {
+        "schema": "omnimd-native-full-checkpoint-v7",
+        "execution": {
+          "backend": "cuda_tiled_reverse_f64_v1",
+          "visible_device": 0,
+          "device_info": "NVIDIA GeForce RTX 4090; compute 8.9; FP64; device 0",
+          "driver_version": 13040,
+          "program_sha256": "9189386d5d05f08b13893839ffd6e7b922083644c8c2af8f6bd01b2950932336"
+        },
+        "profile": {
+          "device_prediction_frames": 0,
+          "download_ms": 1.421858,
+          "frames": 43,
+          "geometry_ms": 0.099478,
+          "kernel_launches": 76,
+          "kernels_and_sync_ms": 1.619669,
+          "max_atoms_per_launch": 11,
+          "max_frames_per_launch": 3,
+          "peak_device_buffer_bytes": 109832,
+          "peak_host_tile_payload_bytes": 28432,
+          "prediction_and_seeds_ms": 0.9195150000000001,
+          "reduction_ms": 0.015652,
+          "synchronizations": 19,
+          "tiles": 19,
+          "upload_ms": 3.055213
+        },
+        "learning_rate": {
+          "base_rate": 0.005,
+          "contract": "omnimd-optimizer-update-learning-rate-v1",
+          "first_rate": 0.005,
+          "first_update": 1,
+          "last_rate": 0.000625,
+          "last_update": 7,
+          "schedule": {
+            "decay_rate": 0.5,
+            "decay_steps": 2,
+            "kind": "exponential"
+          }
+        },
+        "model_sha256": "6d5756713fcaf3d6c78e5b2c13d0cdb8d8252efb327ef4532153ae393ff53e55",
+        "checkpoint_sha256": "349df4febf22e36a196c3bfaf05376d977dd8c0e4710b2265f1403dda079a304"
+      },
+      "linux-v8": {
+        "schema": "omnimd-native-full-checkpoint-v8",
+        "execution": {
+          "backend": "cuda_tiled_device_loss_f64_v1",
+          "visible_device": 0,
+          "device_info": "NVIDIA GeForce RTX 4090; compute 8.9; FP64; device 0",
+          "driver_version": 13040,
+          "program_sha256": "ede31398ede1e0213deb9fa3762d6fd0cef11206ad3a909d196e89afecd4d120"
+        },
+        "profile": {
+          "device_prediction_frames": 43,
+          "download_ms": 1.31596,
+          "frames": 43,
+          "geometry_ms": 0.13963499999999998,
+          "kernel_launches": 190,
+          "kernels_and_sync_ms": 2.499069,
+          "max_atoms_per_launch": 11,
+          "max_frames_per_launch": 3,
+          "peak_device_buffer_bytes": 138276,
+          "peak_host_tile_payload_bytes": 52720,
+          "prediction_and_seeds_ms": 0.0,
+          "reduction_ms": 0.012942,
+          "synchronizations": 19,
+          "tiles": 19,
+          "upload_ms": 7.244250999999999
+        },
+        "learning_rate": {
+          "base_rate": 0.005,
+          "contract": "omnimd-optimizer-update-learning-rate-v1",
+          "first_rate": 0.005,
+          "first_update": 1,
+          "last_rate": 0.000625,
+          "last_update": 7,
+          "schedule": {
+            "decay_rate": 0.5,
+            "decay_steps": 2,
+            "kind": "exponential"
+          }
+        },
+        "model_sha256": "cfe3158658193b33abddefbd87c8afbbf908c79cd371c1ee27170114a8488da5",
+        "checkpoint_sha256": "8ca9a24ad35592ea4fcf47306d7ccfb1272e5ba958b95aeebf0a40896d89c0b5"
+      },
+      "linux-v8-resume": {
+        "schema": "omnimd-native-full-checkpoint-v8",
+        "execution": {
+          "backend": "cuda_tiled_device_loss_f64_v1",
+          "visible_device": 0,
+          "device_info": "NVIDIA GeForce RTX 4090; compute 8.9; FP64; device 0",
+          "driver_version": 13040,
+          "program_sha256": "ede31398ede1e0213deb9fa3762d6fd0cef11206ad3a909d196e89afecd4d120"
+        },
+        "profile": {
+          "device_prediction_frames": 29,
+          "download_ms": 1.039852,
+          "frames": 29,
+          "geometry_ms": 0.524225,
+          "kernel_launches": 130,
+          "kernels_and_sync_ms": 1.8228019999999998,
+          "max_atoms_per_launch": 11,
+          "max_frames_per_launch": 3,
+          "peak_device_buffer_bytes": 138276,
+          "peak_host_tile_payload_bytes": 52720,
+          "prediction_and_seeds_ms": 0.0,
+          "reduction_ms": 0.008018,
+          "synchronizations": 13,
+          "tiles": 13,
+          "upload_ms": 3.6915869999999997
+        },
+        "learning_rate": {
+          "base_rate": 0.005,
+          "contract": "omnimd-optimizer-update-learning-rate-v1",
+          "first_rate": 0.0025,
+          "first_update": 3,
+          "last_rate": 0.000625,
+          "last_update": 7,
+          "schedule": {
+            "decay_rate": 0.5,
+            "decay_steps": 2,
+            "kind": "exponential"
+          }
+        },
+        "model_sha256": "cfe3158658193b33abddefbd87c8afbbf908c79cd371c1ee27170114a8488da5",
+        "checkpoint_sha256": "5a52605a006ea6b9e7fd38ae1ef0cf8317b6c72a741d09e741f7a03b2314220e"
+      }
+    },
+    "timing_scope": "One process per case, including startup/JIT, I/O, assessment and checkpoints. Gradient profile kernel counts exclude Adam; kernels_and_sync_ms includes synchronization. No separate load/warmup/steady-state measurements."
+  },
+  "replay": {
+    "directory": "mlmd/validation/linux-cuda-06439f1",
+    "initial_model_sha256": "407278c6eab122e6dfee2511b3c3fb4c033f58c04819a580ffc0810df3ce7b9a",
+    "initial_model_line_endings": "CRLF; normalize the repository fixture before hashing",
+    "executed_training_helper_sha256": "3205f0657d68f4d985ed9a3df39a09e67369bf7c9c936b77055aad7448f9500d",
+    "executed_manifest_sha256": "07155f1d9fef20fd5302a3afd0e674f39486741c81b987edc07f97e810526dc3",
+    "packaged_manifest_note": "Only informational source paths changed to portable descriptions; requests, data and executed helpers are byte-identical.",
+    "files_sha256": {
+      "dataset.jsonl": "5669b8e833b0a409e08b328dc3cf9ef9dfebb52d32f8b8495a75d9342b07902a",
+      "linux-v7.request.json": "fd618b8e19d775ef18e7afc2f44deaf75910699e1900d0659b4ab1605b2c0594",
+      "linux-v8.request.json": "a03e70e46e2f8074e3ded863859007b66f4ae6f2c1f6900749f43f2b8edf6e11",
+      "linux-v8-resume.request.json": "1264361f1aa1a2e4c9af4d42ee883955d0b4a83965023c51c78ca53b7c7101ba",
+      "run_linux_validation.py": "3205f0657d68f4d985ed9a3df39a09e67369bf7c9c936b77055aad7448f9500d",
+      "probe.py": "c980cfef7fb9d32ca5370ea34345db4a729b95420482f02c988409082263db0a",
+      "source-manifest.json": "e9862db38ec49289464216f1a6d10fc3e39f48c77cd8566627fa846fdd2d5888"
+    }
+  },
+  "limits": [
+    "Linux x86_64 under WSL2 on one RTX 4090 only; no ARM64 or other-driver acceptance.",
+    "Original synthetic se_e2_a tanh fixture, FP64, 24 frames of 3/4 atoms; no chemical-accuracy claim.",
+    "The v7 training reference also uses CUDA for reverse derivatives and Adam; it is not CPU-only training.",
+    "Exact resume is from a newly generated Linux checkpoint with matching device/driver/program identity; not cross-platform checkpoint acceptance.",
+    "Small v8 case was slower than v7; one sample with desktop/background GPU activity is not a benchmark.",
+    "No full Windows test matrix, CPU-only rebuild, C API replay, long MD run or general DeepMD training was repeated."
+  ]
+}

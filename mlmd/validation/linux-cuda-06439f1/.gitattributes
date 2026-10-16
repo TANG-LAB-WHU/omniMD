@@ -1,0 +1,6 @@
+# Preserve the exact executed scripts, fixture and request hashes on every checkout.
+# The frozen dataset's CRLF bytes are part of its SHA-256 identity.
+dataset.jsonl -text whitespace=blank-at-eol,blank-at-eof,space-before-tab,cr-at-eol
+*.request.json -text
+*.py -text
+source-manifest.json -text
