@@ -1,0 +1,706 @@
+{
+  "schema": "omnimd-native-cuda-reverse-evidence-v1",
+  "date": "2026-10-16",
+  "platform": "Windows x86_64 GNU Rust; CUDA 12.8; RTX 4090",
+  "scope": "opt-in cached FP64 reverse over forward; no raised model/work limits; synthetic checks only",
+  "tests": {
+    "cpu_default_passed": 22,
+    "cuda_feature_cpu_passed": 30,
+    "reverse_gpu_passed": 2,
+    "hyperdual_gpu_regression_passed": 1
+  },
+  "gradient_and_restart": {
+    "changed_program_rejected": true,
+    "execution": {
+      "backend": "cuda_reverse_f64_v1",
+      "device_info": "NVIDIA GeForce RTX 4090; compute 8.9; FP64; device 0",
+      "driver_version": 13040,
+      "program_sha256": "382ea3a3eee82218b9ec2d975822a0a0c995d2968b0a158cf2bdbfc852859844",
+      "visible_device": 0
+    },
+    "hyperdual_execution": {
+      "backend": "cuda_hyperdual_f64_v1",
+      "device_info": "NVIDIA GeForce RTX 4090; compute 8.9; FP64; device 0",
+      "driver_version": 13040,
+      "program_sha256": "36793f1f392c7c3a8a13bb6f9dde7b26d810d4e2600cc5cf4c4cb124107f91b9",
+      "visible_device": 0
+    },
+    "nonfinite_update_preserves_host_snapshot_and_poisons": true,
+    "resume_2_plus_3_exact": true,
+    "reverse_cpu_gradient_max_abs": 7.105427357601002e-15,
+    "reverse_hyperdual_gradient_max_abs": 3.552713678800501e-15,
+    "two_step_moments_max_abs": 1.6940658945086007e-21,
+    "two_step_parameters_max_abs": 1.3877787807814457e-17
+  },
+  "phase_profiles": {
+    "growth_shrink_verified": true,
+    "profile_cases": [
+      {
+        "atoms": 4,
+        "case": "tiny",
+        "cpu_single_frame_ms": 0.1759,
+        "cross_gpu_max_abs": 2.220446049250313e-16,
+        "parameters": 112,
+        "resources": {
+          "atoms": 4,
+          "cache_bytes": 22848,
+          "descriptor_adjoint_bytes": 512,
+          "peak_device_buffer_bytes": 42796,
+          "policy_limit_bytes": 67108864,
+          "slot_gradient_bytes": 7168
+        },
+        "timings": [
+          {
+            "executor": "hyperdual",
+            "five_frames_wall_ms": 1.428,
+            "kernels": [
+              {
+                "local_bytes_per_thread": 192,
+                "name": "full_gradient",
+                "registers_per_thread": 158,
+                "static_shared_bytes": 0
+              },
+              {
+                "local_bytes_per_thread": 0,
+                "name": "full_adam",
+                "registers_per_thread": 35,
+                "static_shared_bytes": 0
+              }
+            ],
+            "profile": {
+              "download_ms": 0.20789999999999997,
+              "frames": 5,
+              "geometry_ms": 0.0386,
+              "kernels_and_sync_ms": 0.764,
+              "prediction_and_seeds_ms": 0.18930000000000002,
+              "reduction_ms": 0.004499999999999999,
+              "upload_ms": 0.2103
+            }
+          },
+          {
+            "executor": "reverse",
+            "five_frames_wall_ms": 1.0352000000000001,
+            "kernels": [
+              {
+                "local_bytes_per_thread": 0,
+                "name": "reverse_embed",
+                "registers_per_thread": 40,
+                "static_shared_bytes": 0
+              },
+              {
+                "local_bytes_per_thread": 0,
+                "name": "full_adam",
+                "registers_per_thread": 35,
+                "static_shared_bytes": 0
+              },
+              {
+                "local_bytes_per_thread": 96,
+                "name": "reverse_fit",
+                "registers_per_thread": 80,
+                "static_shared_bytes": 0
+              },
+              {
+                "local_bytes_per_thread": 96,
+                "name": "reverse_embedding_backward",
+                "registers_per_thread": 56,
+                "static_shared_bytes": 0
+              },
+              {
+                "local_bytes_per_thread": 0,
+                "name": "reverse_reduce",
+                "registers_per_thread": 38,
+                "static_shared_bytes": 0
+              }
+            ],
+            "profile": {
+              "download_ms": 0.24680000000000002,
+              "frames": 5,
+              "geometry_ms": 0.031299999999999994,
+              "kernels_and_sync_ms": 0.3058,
+              "prediction_and_seeds_ms": 0.22869999999999996,
+              "reduction_ms": 0.0043,
+              "upload_ms": 0.20740000000000003
+            }
+          }
+        ]
+      },
+      {
+        "atoms": 64,
+        "case": "medium",
+        "cpu_single_frame_ms": 8.7712,
+        "cross_gpu_max_abs": 5.551115123125783e-17,
+        "parameters": 466,
+        "resources": {
+          "atoms": 64,
+          "cache_bytes": 974848,
+          "descriptor_adjoint_bytes": 16384,
+          "peak_device_buffer_bytes": 1608324,
+          "policy_limit_bytes": 67108864,
+          "slot_gradient_bytes": 294912
+        },
+        "timings": [
+          {
+            "executor": "hyperdual",
+            "five_frames_wall_ms": 9.2389,
+            "kernels": [
+              {
+                "local_bytes_per_thread": 512,
+                "name": "full_gradient",
+                "registers_per_thread": 238,
+                "static_shared_bytes": 0
+              },
+              {
+                "local_bytes_per_thread": 0,
+                "name": "full_adam",
+                "registers_per_thread": 35,
+                "static_shared_bytes": 0
+              }
+            ],
+            "profile": {
+              "download_ms": 0.3674,
+              "frames": 5,
+              "geometry_ms": 0.3119,
+              "kernels_and_sync_ms": 5.8447,
+              "prediction_and_seeds_ms": 1.9162,
+              "reduction_ms": 0.05750000000000001,
+              "upload_ms": 0.7255
+            }
+          },
+          {
+            "executor": "reverse",
+            "five_frames_wall_ms": 4.2446,
+            "kernels": [
+              {
+                "local_bytes_per_thread": 0,
+                "name": "reverse_embed",
+                "registers_per_thread": 40,
+                "static_shared_bytes": 0
+              },
+              {
+                "local_bytes_per_thread": 0,
+                "name": "full_adam",
+                "registers_per_thread": 35,
+                "static_shared_bytes": 0
+              },
+              {
+                "local_bytes_per_thread": 256,
+                "name": "reverse_fit",
+                "registers_per_thread": 128,
+                "static_shared_bytes": 0
+              },
+              {
+                "local_bytes_per_thread": 256,
+                "name": "reverse_embedding_backward",
+                "registers_per_thread": 56,
+                "static_shared_bytes": 0
+              },
+              {
+                "local_bytes_per_thread": 0,
+                "name": "reverse_reduce",
+                "registers_per_thread": 38,
+                "static_shared_bytes": 0
+              }
+            ],
+            "profile": {
+              "download_ms": 0.3067,
+              "frames": 5,
+              "geometry_ms": 0.4074,
+              "kernels_and_sync_ms": 0.7114,
+              "prediction_and_seeds_ms": 2.5654999999999997,
+              "reduction_ms": 0.051199999999999996,
+              "upload_ms": 0.19210000000000002
+            }
+          }
+        ]
+      }
+    ]
+  },
+  "hyperdual_regression": {
+    "axis2_gradient_max_abs": 8.881784197001252e-16,
+    "cpu_v1_gpu_v2_checkpoint_guard": true,
+    "execution": {
+      "backend": "cuda_hyperdual_f64_v1",
+      "device_info": "NVIDIA GeForce RTX 4090; compute 8.9; FP64; device 0",
+      "driver_version": 13040,
+      "program_sha256": "36793f1f392c7c3a8a13bb6f9dde7b26d810d4e2600cc5cf4c4cb124107f91b9",
+      "visible_device": 0
+    },
+    "gradient_max_abs_vs_cpu_reverse_ad": 7.105427357601002e-15,
+    "gradient_max_abs_vs_finite_difference": 7.542334046206634e-08,
+    "kernel_resources": [
+      {
+        "local_bytes_per_thread": 6144,
+        "name": "full_gradient",
+        "registers_per_thread": 72,
+        "static_shared_bytes": 0
+      },
+      {
+        "local_bytes_per_thread": 0,
+        "name": "full_adam",
+        "registers_per_thread": 35,
+        "static_shared_bytes": 0
+      }
+    ],
+    "nonfinite_update_preserves_host_snapshot_and_poisons": true,
+    "parameters": 112,
+    "same_device_serialized_resume_exact": true,
+    "scope": "CUDA all neural parameter E/F mixed derivatives and Adam; CPU loss, geometry, reduction and assessment",
+    "two_step_moment_max_abs": 1.6940658945086007e-21,
+    "two_step_parameter_max_abs": 9.020562075079397e-17,
+    "width32_gradient_max_abs": 7.105427357601002e-15
+  },
+  "tiny_cli": {
+    "scope": "full supported tanh network; original synthetic teacher; no physical accuracy claim",
+    "device": "cuda:0",
+    "cuda_gradient": "reverse",
+    "cuda_gradient_profile": {
+      "download_ms": 199.26640000000035,
+      "frames": 5400,
+      "geometry_ms": 73.7111999999999,
+      "kernels_and_sync_ms": 338.1175999999984,
+      "prediction_and_seeds_ms": 160.17799999999977,
+      "reduction_ms": 2.331499999999957,
+      "upload_ms": 267.2754999999991
+    },
+    "execution": {
+      "backend": "cuda_reverse_f64_v1",
+      "device_info": "NVIDIA GeForce RTX 4090; compute 8.9; FP64; device 0",
+      "driver_version": 13040,
+      "program_sha256": "382ea3a3eee82218b9ec2d975822a0a0c995d2968b0a158cf2bdbfc852859844",
+      "visible_device": 0
+    },
+    "execution_scope": "CUDA all-neural-parameter mixed derivatives and Adam; CPU inference/loss cotangents, geometry, stable atom/frame reduction, clipping and assessment",
+    "timing": {
+      "adam_ms": 30.65289999999998,
+      "assessment_ms": 1.3067,
+      "gradient_ms": 1048.8563000000004,
+      "initialization_ms": 349.3581
+    },
+    "cpu_comparison": {
+      "parameter_max_abs": 1.2212453270876722e-15,
+      "moment_max_abs": 3.148523108897905e-15,
+      "prediction_efv_max_abs": [
+        4.440892098500626e-16,
+        2.3869795029440866e-15,
+        2.220446049250313e-15
+      ],
+      "cpu_timing": {
+        "adam_ms": 1.7168000000000028,
+        "assessment_ms": 1.3047,
+        "gradient_ms": 578.7809,
+        "initialization_ms": 0.304
+      },
+      "cuda_timing": {
+        "adam_ms": 30.65289999999998,
+        "assessment_ms": 1.3067,
+        "gradient_ms": 1048.8563000000004,
+        "initialization_ms": 349.3581
+      },
+      "cpu_complete_training_process_ms": 614.765600010287,
+      "cuda_complete_training_process_ms": 1573.1848999857903,
+      "cpu_final_training": {
+        "energy_per_atom_rmse_ev": 0.00023985222935138644,
+        "energy_rmse_ev": 0.0008082343402260522,
+        "force_component_rmse_ev_per_angstrom": 0.0021926515913863395,
+        "frames": 18,
+        "normalized_ef_objective": 0.0004987751071894062,
+        "normalized_total_objective": 0.0005363274380064353,
+        "normalized_virial_objective": 3.755233081702914e-05,
+        "virial_component_rmse_ev": 0.0021468580218177388,
+        "virial_per_atom_component_rmse_ev": 0.0006127995660656848
+      },
+      "cpu_final_validation": {
+        "energy_per_atom_rmse_ev": 0.00042301178705179054,
+        "energy_rmse_ev": 0.0016919756548351389,
+        "force_component_rmse_ev_per_angstrom": 0.0064481401027403976,
+        "frames": 6,
+        "normalized_ef_objective": 0.004014326331674135,
+        "normalized_total_objective": 0.004687722750540854,
+        "normalized_virial_objective": 0.0006733964188667199,
+        "virial_component_rmse_ev": 0.010363751611761214,
+        "virial_per_atom_component_rmse_ev": 0.0025949882829537398
+      }
+    },
+    "checkpoint_schema": "omnimd-native-full-checkpoint-v4",
+    "loss_contract": "energy-force-row-virial-per-atom-nine-v1",
+    "virial_loss": {
+      "weight": 1.0,
+      "scale_ev_per_atom": 0.1
+    },
+    "complete_training_process_ms": 1573.1848999857903,
+    "process_timing_scope": "one training subprocess: input IO, initialization, all updates, initial/final assessment, checkpoints, model serialization/reload verification and export; excludes label generation, replay and separate evaluation subprocesses",
+    "data_seed": 20261014,
+    "split_seed": 20261015,
+    "frames": 24,
+    "train_frames": 18,
+    "validation_frames": 6,
+    "parameters": 112,
+    "steps": 300,
+    "initial_training": {
+      "energy_per_atom_rmse_ev": 0.07572476790753267,
+      "energy_rmse_ev": 0.29282298278796637,
+      "force_component_rmse_ev_per_angstrom": 0.2841021659652936,
+      "frames": 18,
+      "normalized_ef_objective": 8.830361483640697,
+      "normalized_total_objective": 9.43353925991739,
+      "normalized_virial_objective": 0.6031777762766932,
+      "virial_component_rmse_ev": 0.2890119185893984,
+      "virial_per_atom_component_rmse_ev": 0.07766452061763422
+    },
+    "final_training": {
+      "energy_per_atom_rmse_ev": 0.0002398522293514007,
+      "energy_rmse_ev": 0.0008082343402261277,
+      "force_component_rmse_ev_per_angstrom": 0.002192651591386352,
+      "frames": 18,
+      "normalized_ef_objective": 0.0004987751071894126,
+      "normalized_total_objective": 0.000536327438006441,
+      "normalized_virial_objective": 3.755233081702831e-05,
+      "virial_component_rmse_ev": 0.0021468580218177084,
+      "virial_per_atom_component_rmse_ev": 0.0006127995660656778
+    },
+    "initial_validation": {
+      "energy_per_atom_rmse_ev": 0.06033371156403555,
+      "energy_rmse_ev": 0.23612446270426193,
+      "force_component_rmse_ev_per_angstrom": 0.3178073922785384,
+      "frames": 6,
+      "normalized_ef_objective": 10.140334936324335,
+      "normalized_total_objective": 11.186986717484478,
+      "normalized_virial_objective": 1.0466517811601437,
+      "virial_component_rmse_ev": 0.4072473794946535,
+      "virial_per_atom_component_rmse_ev": 0.1023060008582167
+    },
+    "final_validation": {
+      "energy_per_atom_rmse_ev": 0.00042301178705174766,
+      "energy_rmse_ev": 0.001691975654834967,
+      "force_component_rmse_ev_per_angstrom": 0.00644814010274029,
+      "frames": 6,
+      "normalized_ef_objective": 0.004014326331674003,
+      "normalized_total_objective": 0.004687722750540693,
+      "normalized_virial_objective": 0.0006733964188666899,
+      "virial_component_rmse_ev": 0.010363751611760978,
+      "virial_per_atom_component_rmse_ev": 0.002594988282953683
+    },
+    "parameter_changes_from_initial": {
+      "embedding": {
+        "changed": 56,
+        "delta_l2": 0.4185682432917408,
+        "parameters": 56
+      },
+      "fitting_hidden": {
+        "changed": 48,
+        "delta_l2": 0.2493324815448298,
+        "parameters": 48
+      },
+      "fitting_output": {
+        "changed": 8,
+        "delta_l2": 0.0819521245945396,
+        "parameters": 8
+      }
+    },
+    "resume_150_plus_150_equals_continuous_300": true,
+    "exported_model_max_abs_error_to_teacher": {
+      "energy": 0.003980802994986377,
+      "forces": 0.03627603652319111,
+      "virial": 0.05421540458376306
+    },
+    "native_v1_reload_max_abs_energy_force_virial": [
+      0.0,
+      0.0,
+      0.0
+    ],
+    "sha256": {
+      "dataset.jsonl": "a98a246db745e0a273f59cca75ac38359f84a5dfb09937bc84acb1fd9230fe24",
+      "initial.json": "407278c6eab122e6dfee2511b3c3fb4c033f58c04819a580ffc0810df3ce7b9a",
+      "teacher.json": "1113e4f1d49c77756703a0b6f3362615699a6d9bd0686cddbc1c103066fa0bc8",
+      "model.json": "555a3dca2b23507e5cab793db5bba71ad441995b76fb9f02bb27504d755f0cfc",
+      "report.json": "751200c163ef658e2ea4bf4c91096425e44a0a7fb3aaa1240bc8e48d3e95329b",
+      "checkpoint.json": "8977d9ca885fe492eaba196cebc657a4b73b64e6df4427ea9b64cad9e8b4892d",
+      "eval_executable": "2bcc4c4ce6947862aa06a65ee19c6ee0d9d5076279e991bd82be54ec6f9e58a4",
+      "train_executable": "51ed1fc69bce3a532cf8a59f2d690f9aa68fd79dc7711c79f839d574fd93b01a"
+    }
+  },
+  "medium_cli": {
+    "scope": "bounded synthetic 466-parameter 64-atom E/F/V training; not a production scaling benchmark",
+    "frames": 8,
+    "train_frames": 6,
+    "validation_frames": 2,
+    "steps": 100,
+    "parameters": 466,
+    "runs": [
+      {
+        "backend": "cpu",
+        "repeat": 0,
+        "complete_training_process_ms": 2917.1949999872595,
+        "timing": {
+          "adam_ms": 1.4955000000000005,
+          "assessment_ms": 6.5137,
+          "gradient_ms": 2850.5690000000004,
+          "initialization_ms": 0.5643999999999999
+        },
+        "gradient_profile": null
+      },
+      {
+        "backend": "hyperdual",
+        "repeat": 0,
+        "complete_training_process_ms": 1364.4755000132136,
+        "timing": {
+          "adam_ms": 12.9722,
+          "assessment_ms": 6.0598,
+          "gradient_ms": 1052.4549,
+          "initialization_ms": 224.5543
+        },
+        "gradient_profile": {
+          "download_ms": 44.003899999999994,
+          "frames": 600,
+          "geometry_ms": 36.378800000000005,
+          "kernels_and_sync_ms": 689.2459000000003,
+          "prediction_and_seeds_ms": 234.31470000000004,
+          "reduction_ms": 6.424100000000003,
+          "upload_ms": 39.51349999999997
+        }
+      },
+      {
+        "backend": "reverse",
+        "repeat": 0,
+        "complete_training_process_ms": 872.9973000008613,
+        "timing": {
+          "adam_ms": 12.443399999999997,
+          "assessment_ms": 5.9579,
+          "gradient_ms": 425.13530000000014,
+          "initialization_ms": 365.6679
+        },
+        "gradient_profile": {
+          "download_ms": 39.32819999999996,
+          "frames": 600,
+          "geometry_ms": 34.704600000000006,
+          "kernels_and_sync_ms": 82.81289999999996,
+          "prediction_and_seeds_ms": 224.83029999999985,
+          "reduction_ms": 5.707400000000002,
+          "upload_ms": 35.85349999999998
+        }
+      },
+      {
+        "backend": "hyperdual",
+        "repeat": 1,
+        "complete_training_process_ms": 1346.229000017047,
+        "timing": {
+          "adam_ms": 13.645700000000003,
+          "assessment_ms": 6.0291999999999994,
+          "gradient_ms": 1040.7201000000002,
+          "initialization_ms": 217.22469999999998
+        },
+        "gradient_profile": {
+          "download_ms": 44.28159999999999,
+          "frames": 600,
+          "geometry_ms": 35.51410000000002,
+          "kernels_and_sync_ms": 680.9897000000004,
+          "prediction_and_seeds_ms": 232.87739999999997,
+          "reduction_ms": 6.345500000000003,
+          "upload_ms": 38.1266
+        }
+      },
+      {
+        "backend": "reverse",
+        "repeat": 1,
+        "complete_training_process_ms": 876.8478000129107,
+        "timing": {
+          "adam_ms": 11.671499999999995,
+          "assessment_ms": 5.911,
+          "gradient_ms": 428.98809999999986,
+          "initialization_ms": 361.9078
+        },
+        "gradient_profile": {
+          "download_ms": 39.438199999999945,
+          "frames": 600,
+          "geometry_ms": 34.2047,
+          "kernels_and_sync_ms": 82.98209999999987,
+          "prediction_and_seeds_ms": 226.40989999999988,
+          "reduction_ms": 5.7935000000000025,
+          "upload_ms": 38.539399999999986
+        }
+      },
+      {
+        "backend": "cpu",
+        "repeat": 1,
+        "complete_training_process_ms": 2971.692000020994,
+        "timing": {
+          "adam_ms": 1.548,
+          "assessment_ms": 6.4754000000000005,
+          "gradient_ms": 2918.168799999999,
+          "initialization_ms": 0.7026
+        },
+        "gradient_profile": null
+      },
+      {
+        "backend": "reverse",
+        "repeat": 2,
+        "complete_training_process_ms": 897.1851000096649,
+        "timing": {
+          "adam_ms": 14.440300000000002,
+          "assessment_ms": 6.497999999999999,
+          "gradient_ms": 440.434,
+          "initialization_ms": 367.081
+        },
+        "gradient_profile": {
+          "download_ms": 39.48679999999999,
+          "frames": 600,
+          "geometry_ms": 34.592099999999974,
+          "kernels_and_sync_ms": 90.09909999999992,
+          "prediction_and_seeds_ms": 226.7155999999999,
+          "reduction_ms": 6.190700000000008,
+          "upload_ms": 41.40259999999996
+        }
+      },
+      {
+        "backend": "cpu",
+        "repeat": 2,
+        "complete_training_process_ms": 2963.355699990643,
+        "timing": {
+          "adam_ms": 1.5292,
+          "assessment_ms": 6.787800000000001,
+          "gradient_ms": 2908.9485,
+          "initialization_ms": 0.7333
+        },
+        "gradient_profile": null
+      },
+      {
+        "backend": "hyperdual",
+        "repeat": 2,
+        "complete_training_process_ms": 1348.53629997815,
+        "timing": {
+          "adam_ms": 14.514100000000003,
+          "assessment_ms": 5.9103,
+          "gradient_ms": 1035.4567999999997,
+          "initialization_ms": 223.5382
+        },
+        "gradient_profile": {
+          "download_ms": 41.292599999999965,
+          "frames": 600,
+          "geometry_ms": 35.5823,
+          "kernels_and_sync_ms": 681.5401999999998,
+          "prediction_and_seeds_ms": 231.16519999999988,
+          "reduction_ms": 5.895800000000003,
+          "upload_ms": 37.79010000000002
+        }
+      }
+    ],
+    "median_complete_process_ms": {
+      "cpu": 2963.355699990643,
+      "hyperdual": 1348.53629997815,
+      "reverse": 876.8478000129107
+    },
+    "three_repeats_checkpoint_exact": true,
+    "parameter_max_abs_vs_cpu": {
+      "hyperdual": 4.440892098500626e-16,
+      "reverse": 4.440892098500626e-16
+    },
+    "timing_scope": "complete fresh training subprocess, including input, driver/NVRTC initialization, all updates, assessment, two intermediate and final checkpoints and model reload verification; excludes fixture generation",
+    "sha256": {
+      "dataset.jsonl": "ce053fce91326a9da202ed504b0b01bd4d2690cce3b1305d2ae3793fe41ae65b",
+      "initial.json": "a1946cf0d5480c572a82678fd1af13cd3b75dbde0ac25b1b93039c8cc352b443",
+      "teacher.json": "81d96e632e81131cddd37025dc148dc67fe37d8d1e0db042b8db3ce224de15b7"
+    },
+    "executable_sha256": {
+      "eval": "2bcc4c4ce6947862aa06a65ee19c6ee0d9d5076279e991bd82be54ec6f9e58a4",
+      "train": "51ed1fc69bce3a532cf8a59f2d690f9aa68fd79dc7711c79f839d574fd93b01a"
+    },
+    "final_metrics_by_backend": {
+      "cpu": {
+        "final_training": {
+          "energy_per_atom_rmse_ev": 3.725734431776422e-05,
+          "energy_rmse_ev": 0.00238447003633691,
+          "force_component_rmse_ev_per_angstrom": 1.7107579899989316e-05,
+          "frames": 6,
+          "normalized_ef_objective": 1.6807789956469562e-07,
+          "normalized_total_objective": 1.6876428610460512e-07,
+          "normalized_virial_objective": 6.863865399095003e-10,
+          "virial_component_rmse_ev": 0.00016767347039616358,
+          "virial_per_atom_component_rmse_ev": 2.619897974940056e-06
+        },
+        "final_validation": {
+          "energy_per_atom_rmse_ev": 3.7253757827477885e-05,
+          "energy_rmse_ev": 0.0023842405009585847,
+          "force_component_rmse_ev_per_angstrom": 1.7218184055111128e-05,
+          "frames": 2,
+          "normalized_ef_objective": 1.684308334424053e-07,
+          "normalized_total_objective": 1.6916449382286935e-07,
+          "normalized_virial_objective": 7.336603804640562e-10,
+          "virial_component_rmse_ev": 0.00017335146144122277,
+          "virial_per_atom_component_rmse_ev": 2.708616585019106e-06
+        }
+      },
+      "hyperdual": {
+        "final_training": {
+          "energy_per_atom_rmse_ev": 3.725734431775959e-05,
+          "energy_rmse_ev": 0.002384470036336614,
+          "force_component_rmse_ev_per_angstrom": 1.710757989998927e-05,
+          "frames": 6,
+          "normalized_ef_objective": 1.6807789956466097e-07,
+          "normalized_total_objective": 1.687642861045705e-07,
+          "normalized_virial_objective": 6.863865399095255e-10,
+          "virial_component_rmse_ev": 0.00016767347039616664,
+          "virial_per_atom_component_rmse_ev": 2.619897974940104e-06
+        },
+        "final_validation": {
+          "energy_per_atom_rmse_ev": 3.7253757827477885e-05,
+          "energy_rmse_ev": 0.0023842405009585847,
+          "force_component_rmse_ev_per_angstrom": 1.7218184055111054e-05,
+          "frames": 2,
+          "normalized_ef_objective": 1.6843083344240503e-07,
+          "normalized_total_objective": 1.691644938228691e-07,
+          "normalized_virial_objective": 7.336603804640603e-10,
+          "virial_component_rmse_ev": 0.00017335146144122323,
+          "virial_per_atom_component_rmse_ev": 2.708616585019113e-06
+        }
+      },
+      "reverse": {
+        "final_training": {
+          "energy_per_atom_rmse_ev": 3.725734431774109e-05,
+          "energy_rmse_ev": 0.00238447003633543,
+          "force_component_rmse_ev_per_angstrom": 1.7107579899989228e-05,
+          "frames": 6,
+          "normalized_ef_objective": 1.6807789956452298e-07,
+          "normalized_total_objective": 1.6876428610443243e-07,
+          "normalized_virial_objective": 6.863865399094458e-10,
+          "virial_component_rmse_ev": 0.00016767347039615686,
+          "virial_per_atom_component_rmse_ev": 2.619897974939951e-06
+        },
+        "final_validation": {
+          "energy_per_atom_rmse_ev": 3.725375782746401e-05,
+          "energy_rmse_ev": 0.0023842405009576965,
+          "force_component_rmse_ev_per_angstrom": 1.7218184055111013e-05,
+          "frames": 2,
+          "normalized_ef_objective": 1.684308334423015e-07,
+          "normalized_total_objective": 1.6916449382276546e-07,
+          "normalized_virial_objective": 7.336603804639566e-10,
+          "virial_component_rmse_ev": 0.00017335146144121103,
+          "virial_per_atom_component_rmse_ev": 2.7086165850189224e-06
+        }
+      }
+    }
+  },
+  "limitations": [
+    "CPU inference, loss seeds, PBC geometry and reductions remain",
+    "Buffers retain high-water atom capacity; total GPU memory is not measured",
+    "Small-case CPU remains faster",
+    "No new DeepMD architecture, HAP, production scaling or generalization claim"
+  ],
+  "gpu_window_released_utc": "2026-10-16T11:59:03Z",
+  "commands": [
+    "cargo test --locked --offline --manifest-path mlmd/native/Cargo.toml --no-default-features",
+    "cargo test --locked --offline --manifest-path mlmd/native/Cargo.toml --features cuda",
+    "cargo test --release --locked --offline --manifest-path mlmd/native/Cargo.toml --features cuda --test cuda_reverse_training -- --ignored --nocapture --test-threads=1",
+    "cargo test --release --locked --offline --manifest-path mlmd/native/Cargo.toml --features cuda --test cuda_full_training all_parameter_mixed_gradients_adam_and_exact_resume -- --ignored --nocapture --test-threads=1",
+    "python mlmd/native/tools/replay_full_training.py --eval-exe EVAL --train-exe TRAIN --output-dir NEW_DIR --device cuda:0 --cuda-gradient reverse --compare-cpu --virial-weight 1",
+    "python mlmd/native/tools/replay_cuda_reverse.py --eval-exe EVAL --train-exe TRAIN --output-dir ANOTHER_NEW_DIR"
+  ],
+  "source_sha256": {
+    "src/cuda/reverse.rs": "4b78521d942d9938f38e7e1f042c54a555dfe7c92b54fe7f211a83e5a8a97bf3",
+    "src/cuda/reverse_kernels.cu": "5cae9392f6ea6f9ce4da99bdada89ccc5009c800c768e31102a9065a7730211b",
+    "src/cuda/full.rs": "7fa1ecb12346b73d478fe461fdb5fd9f19f8d5940f163cf9d9009a7276a302f2",
+    "src/cuda/runtime.rs": "b076bf32fcb8cb625214b850a089dd7bfa3d68cd69598f5067bae843ad4ddeda",
+    "src/full_training.rs": "ec262c92cbba468da26429cf17ff2c356332ad1ac3036136aff2beaf7e849b15",
+    "tests/cuda_reverse_training.rs": "fce6f3e4b1222b892bfa613a410c294094a559dffad1de8d645f179299677605",
+    "tools/replay_cuda_reverse.py": "ef8dbe45f916e7e2fac0e3478988f464a3fbaf0dd5bfa067e3f237c3c3b35c53"
+  }
+}

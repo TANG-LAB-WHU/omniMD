@@ -7,6 +7,10 @@ gradients and Adam updates computed in CUDA
 float64. The default remains `"cpu"`. This is distinct from the frozen-readout
 feature/CPU-QR mode, and is not an end-to-end GPU training system.
 
+The default hyperdual gradient executor described below is retained as a numerical
+reference. An opt-in [cached reverse executor](CUDA_REVERSE_TRAINING.md) removes
+per-parameter network forward replay under the same supported bounds.
+
 ## Computation and bounds
 
 | Work | Execution |

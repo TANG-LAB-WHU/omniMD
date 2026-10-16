@@ -14,19 +14,38 @@ use std::{
 };
 
 pub use crate::full_loss::{FullMetrics, VirialLoss};
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum CudaGradient {
+    #[default]
+    Hyperdual,
+    Reverse,
+}
+impl CudaGradient {
+    fn is_default(&self) -> bool {
+        *self == Self::Hyperdual
+    }
+}
 const VIRIAL_LOSS_CONTRACT: &str = "energy-force-row-virial-per-atom-nine-v1";
 
 /// CPU v1 checkpoints remain byte-schema compatible (this default is omitted).
 /// CUDA v2 records the compiled program and reported device/driver identity.
 /// Backend identity and checkpoint loss_contract together cover host numerical
 /// semantics. New virial semantics require v3; historical E/F semantics and
-/// v1/v2 serialization stay unchanged. PTX hashing alone does not cover them.
+/// v1/v2 serialization stay unchanged. Opt-in reverse execution uses v4.
+/// PTX hashing alone does not cover host loss semantics.
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "backend", rename_all = "snake_case", deny_unknown_fields)]
 pub enum FullExecution {
     #[default]
     CpuReferenceV1,
     CudaHyperdualF64V1 {
+        visible_device: i32,
+        device_info: String,
+        driver_version: i32,
+        program_sha256: String,
+    },
+    CudaReverseF64V1 {
         visible_device: i32,
         device_info: String,
         driver_version: i32,
@@ -49,6 +68,8 @@ pub struct FullTiming {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct FullConfig {
+    #[serde(default, skip_serializing_if = "CudaGradient::is_default")]
+    pub cuda_gradient: CudaGradient,
     pub split: Split,
     /// Additional updates in this invocation, including after restart.
     pub steps: u64,
@@ -137,6 +158,9 @@ pub struct FullReport {
     pub execution: FullExecution,
     pub execution_scope: String,
     pub timing: FullTiming,
+    #[cfg(feature = "cuda")]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub cuda_gradient_profile: Option<crate::cuda::FullGradientProfile>,
     pub config: FullConfig,
     pub step_start: u64,
     pub step_end: u64,
@@ -160,12 +184,23 @@ pub struct FullOutcome {
 }
 
 fn checkpoint_schema(execution: &FullExecution, config: &FullConfig) -> &'static str {
-    if config.virial_loss.is_some() {
+    if config.cuda_gradient == CudaGradient::Reverse {
+        "omnimd-native-full-checkpoint-v4"
+    } else if config.virial_loss.is_some() {
         "omnimd-native-full-checkpoint-v3"
     } else if execution.is_cpu() {
         "omnimd-native-full-checkpoint-v1"
     } else {
         "omnimd-native-full-checkpoint-v2"
+    }
+}
+fn loss_contract(config: &FullConfig) -> Option<&'static str> {
+    if config.virial_loss.is_some() {
+        Some(VIRIAL_LOSS_CONTRACT)
+    } else if config.cuda_gradient == CudaGradient::Reverse {
+        Some("energy-force-per-atom-v1")
+    } else {
+        None
     }
 }
 fn validate_virial_scales(
@@ -221,10 +256,7 @@ impl Checkpoint {
         let p = layout.parameters.len();
         Ok(Self {
             schema: checkpoint_schema(&FullExecution::CpuReferenceV1, config).into(),
-            loss_contract: config
-                .virial_loss
-                .as_ref()
-                .map(|_| VIRIAL_LOSS_CONTRACT.into()),
+            loss_contract: loss_contract(config).map(str::to_owned),
             execution: FullExecution::CpuReferenceV1,
             initial_model: model.clone(),
             model: model.clone(),
@@ -246,6 +278,11 @@ impl Checkpoint {
         device: TrainingDevice,
     ) -> Result<()> {
         device.validate_full()?;
+        if config.cuda_gradient == CudaGradient::Reverse && device == TrainingDevice::Cpu {
+            return Err(Error(
+                "cuda_gradient reverse requires an explicit CUDA device; no CPU fallback".into(),
+            ));
+        }
         self.validate(dataset, config)?;
         if self
             .step
@@ -262,7 +299,15 @@ impl Checkpoint {
                     TrainingDevice::Cuda {
                         visible_device: requested,
                     },
-                ) => *visible_device == requested,
+                ) => {
+                    config.cuda_gradient == CudaGradient::Hyperdual && *visible_device == requested
+                }
+                (
+                    FullExecution::CudaReverseF64V1 { visible_device, .. },
+                    TrainingDevice::Cuda {
+                        visible_device: requested,
+                    },
+                ) => config.cuda_gradient == CudaGradient::Reverse && *visible_device == requested,
                 _ => false,
             };
             if !compatible {
@@ -278,6 +323,9 @@ impl Checkpoint {
                 .max()
                 .unwrap_or(0);
             crate::cuda::full_work_estimate(&self.model, atoms)?;
+            if config.cuda_gradient == CudaGradient::Reverse {
+                crate::cuda::reverse_resources(&self.model, atoms)?;
+            }
         }
         Ok(())
     }
@@ -288,11 +336,7 @@ impl Checkpoint {
         let layout = ParameterLayout::new(&self.model)?;
         let initial_layout = ParameterLayout::new(&self.initial_model)?;
         let schema = checkpoint_schema(&self.execution, &self.config);
-        let contract = self
-            .config
-            .virial_loss
-            .as_ref()
-            .map(|_| VIRIAL_LOSS_CONTRACT);
+        let contract = loss_contract(&self.config);
         if self.schema != schema
             || self.loss_contract.as_deref() != contract
             || self.config.restart_key() != config.restart_key()
@@ -370,6 +414,10 @@ pub fn train_full_with_device(
     } else {
         None
     };
+    #[cfg(feature = "cuda")]
+    let mut cuda_gradient_profile = cuda
+        .as_ref()
+        .map(|_| crate::cuda::FullGradientProfile::default());
     let mut timing = FullTiming {
         initialization_ms: initialization.elapsed().as_secs_f64() * 1000.0,
         ..FullTiming::default()
@@ -426,6 +474,10 @@ pub fn train_full_with_device(
                 config.virial_loss.as_ref(),
                 state.training_indices.len(),
             )?;
+            #[cfg(feature = "cuda")]
+            if let (Some(gpu), Some(profile)) = (&cuda, &mut cuda_gradient_profile) {
+                profile.add(gpu.last_profile());
+            }
             for (g, f) in gradient.iter_mut().zip(frame) {
                 *g += f;
             }
@@ -528,7 +580,9 @@ pub fn train_full_with_device(
         config.virial_loss.as_ref(),
     )?;
     timing.assessment_ms += phase.elapsed().as_secs_f64() * 1000.0;
-    let derivative_method = if state.execution.is_cpu() {
+    let derivative_method = if config.cuda_gradient == CudaGradient::Reverse {
+        "CUDA cached forward duals with explicit reverse accumulation; exact mixed derivatives, no per-parameter forward replay"
+    } else if state.execution.is_cpu() {
         "reverse AD over differentiable coordinate-directional tangents; exact mixed parameter-coordinate derivatives"
     } else {
         "CUDA forward parameter/coordinate hyperduals; exact mixed derivatives, no finite differences"
@@ -542,6 +596,7 @@ pub fn train_full_with_device(
         scope:"all embedding/fitting weights, biases and timesteps; fixed normalization, geometry settings and atom_energy_bias".into(),
         algorithm:"deterministic full-batch Adam; constant learning rate; last iterate export".into(),
         loss_contract:state.loss_contract.clone().unwrap_or_else(|| "energy-force-per-atom-v1".into()),
+        #[cfg(feature="cuda")] cuda_gradient_profile,
         derivative_method:derivative_method.into(), execution:state.execution.clone(), execution_scope:execution_scope.into(), timing,
         config:config.clone(),step_start:start,step_end:end,parameters:values.len(),parameter_layout_sha256:layout.sha256(),
         dataset_header:dataset.header.clone(),dataset_sha256:dataset.dataset_sha256.clone(),source_sha256:dataset.source_sha256.clone(),
