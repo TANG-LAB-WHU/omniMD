@@ -6,6 +6,7 @@ use crate::{
     Activation, Model, NativePotential, Residual,
 };
 use omnimd_ml_contract::{Error, Evaluation, Frame, ModelMetadata, Potential, Result, Units};
+pub use runtime::KernelResources;
 use runtime::Runtime;
 
 pub struct PackedModel {
@@ -31,19 +32,28 @@ impl PackedModel {
         let mut weights = Vec::new();
         let mut mw = 1;
         let mut ml = 1;
+        let mut embedding_mw = 1;
+        let mut fitting_mw = 1;
         for (net_index, net) in nets.iter().enumerate() {
             if net.layers.len() > 8 {
                 return Err(Error(
                     "CUDA subset supports at most 8 layers per network".into(),
                 ));
             }
-            ml = ml.max(net.layers.len());
+            if net_index >= nt * nt {
+                ml = ml.max(net.layers.len());
+            }
             metadata[net_index] = metadata.len() as i32;
             metadata.push(net.layers.len() as i32);
             for layer in &net.layers {
                 let ni = layer.weights.len();
                 let no = layer.bias.len();
                 mw = mw.max(ni).max(no);
+                if net_index < nt * nt {
+                    embedding_mw = embedding_mw.max(ni).max(no);
+                } else {
+                    fitting_mw = fitting_mw.max(ni).max(no);
+                }
                 if mw > 128 {
                     return Err(Error("CUDA subset supports network widths<=128".into()));
                 }
@@ -87,7 +97,7 @@ impl PackedModel {
             .enumerate()
             .flat_map(|(i, n)| std::iter::repeat(i as i32).take(*n))
             .collect();
-        let source=format!("#define NT {nt}\n#define NSLOTS {slots}\n#define EW {width}\n#define AXIS {}\n#define MW {mw}\n#define ML {ml}\n{}",d.axis_neuron,include_str!("kernels.cu"));
+        let source=format!("#define NT {nt}\n#define NSLOTS {slots}\n#define EW {width}\n#define AXIS {}\n#define MW {fitting_mw}\n#define EMW {embedding_mw}\n#define ML {ml}\n{}",d.axis_neuron,include_str!("kernels.cu"));
         Ok(Self {
             source,
             metadata,
@@ -114,6 +124,10 @@ pub struct CudaProfile {
     pub kernels_and_sync_ms: f64,
     pub download_ms: f64,
     pub reduction_ms: f64,
+    pub type_uploads: usize,
+    pub upload_bytes: usize,
+    pub row_capacity: usize,
+    pub record_capacity: usize,
 }
 
 /// Deliberately explicit backend selection. A CUDA failure returns an error and
@@ -126,6 +140,8 @@ pub struct CudaPotential {
     poisoned: bool,
     profile: CudaProfile,
     neighbor_cache: neighbor_cache::NeighborCache,
+    rows: Vec<f64>,
+    records: Vec<(usize, Neighbor, [[f64; 3]; 4])>,
 }
 impl CudaPotential {
     pub fn new(model: Model, device: i32) -> Result<Self> {
@@ -145,10 +161,15 @@ impl CudaPotential {
             poisoned: false,
             profile: CudaProfile::default(),
             neighbor_cache: neighbor_cache::NeighborCache::new(),
+            rows: Vec::new(),
+            records: Vec::new(),
         })
     }
     pub fn device_info(&self) -> &str {
         &self.runtime.device_info
+    }
+    pub fn kernel_resources(&self) -> &[KernelResources] {
+        &self.runtime.kernel_resources
     }
     pub fn last_profile(&self) -> CudaProfile {
         self.profile
@@ -170,8 +191,9 @@ impl CudaPotential {
         self.profile.neighbor_cache_rebuilds = self.neighbor_cache.rebuilds;
         self.profile.neighbor_candidates = self.neighbor_cache.candidate_count;
         let s = self.packed.slots;
-        let mut rows = Vec::with_capacity(n * s * 4);
-        let mut records: Vec<(usize, Neighbor, [[f64; 3]; 4])> = Vec::new();
+        self.rows.clear();
+        self.rows.reserve(n * s * 4);
+        self.records.clear();
         for center in 0..n {
             let groups = self
                 .neighbor_cache
@@ -185,17 +207,23 @@ impl CudaPotential {
                         d.rcut_smth,
                         d.rcut,
                     );
-                    let q = rows.len() / 4;
-                    rows.extend(r);
+                    let q = self.rows.len() / 4;
+                    self.rows.extend(r);
                     if let Some(neighbor) = neighbor {
-                        records.push((q, neighbor.clone(), jac));
+                        self.records.push((q, neighbor.clone(), jac));
                     }
                 }
             }
         }
-        let kinds: Vec<i32> = types.iter().map(|v| *v as i32).collect();
+        self.profile.row_capacity = self.rows.capacity();
+        self.profile.record_capacity = self.records.capacity();
         self.profile.prepare_ms = phase.elapsed().as_secs_f64() * 1000.0;
-        let (energies, dr) = self.runtime.evaluate(&rows, &kinds, s, self.packed.width)?;
+        self.runtime
+            .evaluate(&self.rows, &types, s, self.packed.width)?;
+        self.profile.type_uploads = self.runtime.type_uploads;
+        self.profile.upload_bytes = self.runtime.last_upload_bytes;
+        let energies = &self.runtime.energies;
+        let dr = &self.runtime.gradients;
         let [upload, kernels, download] = self.runtime.last_timing_ms;
         self.profile.upload_and_allocation_ms = upload;
         self.profile.kernels_and_sync_ms = kernels;
@@ -210,7 +238,7 @@ impl CudaPotential {
         for (i, energy) in energies.iter().enumerate() {
             out.energy += energy + self.cpu.model.atom_energy_bias[types[i] as usize];
         }
-        for (q, neighbor, jac) in records {
+        for (q, neighbor, jac) in &self.records {
             let center = q / s;
             for c in 0..3 {
                 let grad = (0..4).map(|a| dr[q * 4 + a] * jac[a][c]).sum::<f64>();

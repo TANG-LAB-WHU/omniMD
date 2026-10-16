@@ -147,3 +147,14 @@ candidate reuse is an established method, not a new descriptor or algorithm.
 The 192-atom geometry is original synthetic data; its optional public model
 weights retain the separate DeepMD source provenance above and remain ignored.
 No additional dependency, toolkit component or driver was installed.
+
+## Cooperative CUDA fitting and persistent host workspace
+
+The block-per-atom fitting kernel, separate scratch bounds, workspace reuse,
+resource diagnostics and boundary/lifecycle fixture recipe are independently
+written MIT code. No external kernel or NVIDIA header is copied. The existing
+DeepMD 3.1.3 descriptor/network sources above were consulted for the unchanged
+contraction, residual and timestep semantics. NVIDIA's programming guide and
+Driver API function-attribute documentation were consulted for shared-memory
+barriers and resource reporting. No additional dependencies or runtime
+components were installed; existing third-party runtime license terms remain.

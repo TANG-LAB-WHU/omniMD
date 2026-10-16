@@ -208,6 +208,7 @@ api! {
     module_load:unsafe extern "system" fn(*mut Handle,*const c_void)->i32=>"cuModuleLoadData",
     module_unload:unsafe extern "system" fn(Handle)->i32=>"cuModuleUnload",
     function:unsafe extern "system" fn(*mut Handle,Handle,*const c_char)->i32=>"cuModuleGetFunction",
+    attribute:unsafe extern "system" fn(*mut i32,i32,Handle)->i32=>"cuFuncGetAttribute",
     alloc:unsafe extern "system" fn(*mut u64,usize)->i32=>"cuMemAlloc_v2",
     free:unsafe extern "system" fn(u64)->i32=>"cuMemFree_v2",
     h2d:unsafe extern "system" fn(u64,*const c_void,usize)->i32=>"cuMemcpyHtoD_v2",
@@ -234,6 +235,13 @@ impl Drop for Current {
         }
     }
 }
+#[derive(Debug, serde::Serialize)]
+pub struct KernelResources {
+    pub name: String,
+    pub registers_per_thread: i32,
+    pub static_shared_bytes: i32,
+    pub local_bytes_per_thread: i32,
+}
 pub struct Runtime {
     api: Api,
     context: Handle,
@@ -241,7 +249,13 @@ pub struct Runtime {
     functions: [Handle; 3],
     buffers: Vec<(u64, usize)>,
     pub device_info: String,
+    pub kernel_resources: Vec<KernelResources>,
     pub last_timing_ms: [f64; 3],
+    pub type_uploads: usize,
+    pub last_upload_bytes: usize,
+    cached_types: Vec<i32>,
+    pub energies: Vec<f64>,
+    pub gradients: Vec<f64>,
     _library: Library,
     _not_send: PhantomData<Rc<()>>,
 }
@@ -290,7 +304,13 @@ impl Runtime {
                 functions: [ptr::null_mut(); 3],
                 buffers: vec![(0, 0); 11],
                 device_info,
+                kernel_resources: Vec::new(),
                 last_timing_ms: [0.0; 3],
+                type_uploads: 0,
+                last_upload_bytes: 0,
+                cached_types: Vec::new(),
+                energies: Vec::new(),
+                gradients: Vec::new(),
                 _library: library,
                 _not_send: PhantomData,
             };
@@ -304,6 +324,21 @@ impl Runtime {
                     (api.function)(&mut rt.functions[i], rt.module, name.as_ptr()),
                     "cuModuleGetFunction",
                 )?;
+            }
+            for (i, name) in ["embed", "fit", "pullback"].iter().enumerate() {
+                let mut values = [0; 3];
+                for (value, attribute) in values.iter_mut().zip([4, 1, 3]) {
+                    check(
+                        (api.attribute)(value, attribute, rt.functions[i]),
+                        "cuFuncGetAttribute",
+                    )?;
+                }
+                rt.kernel_resources.push(KernelResources {
+                    name: (*name).into(),
+                    registers_per_thread: values[0],
+                    static_shared_bytes: values[1],
+                    local_bytes_per_thread: values[2],
+                });
             }
             drop(restore);
             Ok(rt)
@@ -324,29 +359,28 @@ impl Runtime {
         }
     }
     pub fn upload<T: Copy>(&mut self, index: usize, data: &[T]) -> Result<()> {
+        let _current = unsafe { Current::enter(self.api, self.context)? };
+        self.upload_current(index, data)
+    }
+    fn upload_current<T: Copy>(&mut self, index: usize, data: &[T]) -> Result<()> {
+        let bytes = std::mem::size_of_val(data);
+        let pointer = self.ensure(index, bytes)?;
         unsafe {
-            let _current = Current::enter(self.api, self.context)?;
-            let bytes = std::mem::size_of_val(data);
-            let pointer = self.ensure(index, bytes)?;
             check(
                 (self.api.h2d)(pointer, data.as_ptr() as *const c_void, bytes),
                 "cuMemcpyHtoD_v2",
             )
         }
     }
-    fn download<T: Copy + Default>(&self, index: usize, count: usize) -> Result<Vec<T>> {
-        unsafe {
-            let mut output = vec![T::default(); count];
-            check(
-                (self.api.d2h)(
-                    output.as_mut_ptr() as *mut c_void,
-                    self.buffers[index].0,
-                    std::mem::size_of_val(output.as_slice()),
-                ),
-                "cuMemcpyDtoH_v2",
-            )?;
-            Ok(output)
-        }
+    unsafe fn download_into<T: Copy>(api: Api, pointer: u64, output: &mut [T]) -> Result<()> {
+        check(
+            (api.d2h)(
+                output.as_mut_ptr() as *mut c_void,
+                pointer,
+                std::mem::size_of_val(output),
+            ),
+            "cuMemcpyDtoH_v2",
+        )
     }
     pub fn evaluate(
         &mut self,
@@ -354,15 +388,22 @@ impl Runtime {
         types: &[i32],
         slots: usize,
         width: usize,
-    ) -> Result<(Vec<f64>, Vec<f64>)> {
+    ) -> Result<()> {
         unsafe {
             let _current = Current::enter(self.api, self.context)?;
             let n = types.len();
             let q = n * slots;
             let phase = std::time::Instant::now();
-            self.upload(2, rows)?;
-            self.upload(3, types)?;
-            self.upload(10, &[0_i32])?;
+            self.upload_current(2, rows)?;
+            self.last_upload_bytes = std::mem::size_of_val(rows) + 4;
+            if self.cached_types != types {
+                self.upload_current(3, types)?;
+                self.cached_types.clear();
+                self.cached_types.extend_from_slice(types);
+                self.type_uploads += 1;
+                self.last_upload_bytes += std::mem::size_of_val(types);
+            }
+            self.upload_current(10, &[0_i32])?;
             self.ensure(5, q * width * 8)?;
             self.ensure(6, q * width * 8)?;
             self.ensure(7, n * width * 4 * 8)?;
@@ -370,10 +411,10 @@ impl Runtime {
             self.ensure(9, q * 4 * 8)?;
             self.last_timing_ms[0] = phase.elapsed().as_secs_f64() * 1000.0;
             let phase = std::time::Instant::now();
-            let mut addresses: Vec<_> = self.buffers.iter().map(|x| x.0).collect();
+            let mut addresses: [u64; 11] = std::array::from_fn(|i| self.buffers[i].0);
             let mut atoms = n as i32;
             let pointer = |p: &mut u64| p as *mut u64 as *mut c_void;
-            let mut embed = vec![
+            let mut embed = [
                 pointer(&mut addresses[0]),
                 pointer(&mut addresses[1]),
                 pointer(&mut addresses[2]),
@@ -385,7 +426,7 @@ impl Runtime {
                 pointer(&mut addresses[10]),
             ];
             self.launch(0, q, &mut embed)?;
-            let mut fit = vec![
+            let mut fit = [
                 pointer(&mut addresses[0]),
                 pointer(&mut addresses[1]),
                 pointer(&mut addresses[2]),
@@ -397,7 +438,7 @@ impl Runtime {
                 pointer(&mut addresses[10]),
             ];
             self.launch(1, n, &mut fit)?;
-            let mut pull = vec![
+            let mut pull = [
                 pointer(&mut addresses[2]),
                 &mut atoms as *mut i32 as *mut c_void,
                 pointer(&mut addresses[5]),
@@ -410,24 +451,33 @@ impl Runtime {
             check((self.api.sync)(), "cuCtxSynchronize")?;
             self.last_timing_ms[1] = phase.elapsed().as_secs_f64() * 1000.0;
             let phase = std::time::Instant::now();
-            if self.download::<i32>(10, 1)?[0] != 0 {
+            let mut status = [0_i32];
+            Self::download_into(self.api, self.buffers[10].0, &mut status)?;
+            if status[0] != 0 {
                 return Err(Error(
                     "nonfinite CUDA network/contraction intermediate".into(),
                 ));
             }
-            let result = (self.download(8, n)?, self.download(9, q * 4)?);
+            self.energies.resize(n, 0.0);
+            self.gradients.resize(q * 4, 0.0);
+            Self::download_into(self.api, self.buffers[8].0, &mut self.energies)?;
+            Self::download_into(self.api, self.buffers[9].0, &mut self.gradients)?;
             self.last_timing_ms[2] = phase.elapsed().as_secs_f64() * 1000.0;
-            Ok(result)
+            Ok(())
         }
     }
     unsafe fn launch(&self, index: usize, threads: usize, args: &mut [*mut c_void]) -> Result<()> {
         check(
             (self.api.launch)(
                 self.functions[index],
-                threads.div_ceil(64) as u32,
+                if index == 1 {
+                    threads as u32
+                } else {
+                    threads.div_ceil(64) as u32
+                },
                 1,
                 1,
-                64,
+                if index == 1 { 128 } else { 64 },
                 1,
                 1,
                 0,

@@ -1,41 +1,171 @@
-# Native CPU se_e2_a inference
+# Native Rust se_e2_a: CPU/CUDA inference and bounded training
 
-`omnimd-native` implements `omnimd_ml_contract::Potential` with float64 Rust
-arithmetic. It evaluates energy, analytic forces, and strain-gradient virial in
-one call. Dependencies are the existing shared contract, serde, serde_json, and the
-shared project's sha2 for training provenance hashes. No DeepMD runtime, BLAS, Python, GPU, or training is used by inference.
+`omnimd-native` implements the shared `omnimd_ml_contract::Potential` interface
+with float64 energy, analytic forces and strain-gradient virial in one call.
+CPU is the default and needs no DeepMD, Python, BLAS or CUDA runtime. Optional
+CUDA inference dynamically uses an existing official NVIDIA Driver/NVRTC
+installation. The crate is already a member of the `mlmd` Cargo workspace.
 
-## Run
+This is a progressively implemented subset, not all DeepMD functionality:
 
-From the repository root, with Rust and its platform linker available:
+| Operation | Native CPU | Native CUDA |
+| --- | --- | --- |
+| Native-v1 se_e2_a scalar-energy inference, E/F/virial | Implemented | Implemented within [CUDA bounds](CUDA.md) |
+| tanh/linear, explicit residuals and timesteps | Implemented | Implemented |
+| sigmoid/softplus inference | Implemented | Rejected |
+| Final-readout E/F fitting | Implemented, bounded | Not implemented |
+| Full supported tanh-network E/F training and Adam restart | Implemented, bounded | Not implemented |
+| Arbitrary DeepMD models, attention/spin/hybrid/compression, GPU training | Not implemented | Not implemented |
+
+Conversion supports a pinned DeepMD 3.1.3 interchange subset and two audited
+frozen graph profiles. Unsupported formats/architectures fail explicitly.
+See [conversion](CONVERSION.md), [frozen export](FROZEN.md),
+[training scope](FULL_TRAINING.md) and [remaining training work](TRAINING_NEXT.md).
+The latest measured GPU implementation is described in [CUDA_FIT.md](CUDA_FIT.md).
+
+## Step 1: Build the CPU baseline
+
+Run from the repository root with Rust and its platform linker available:
 
 ```sh
-cargo test --locked --manifest-path mlmd/native/Cargo.toml
-cargo run --locked --release --manifest-path mlmd/native/Cargo.toml \
-  --bin omnimd-native-eval -- mlmd/native/fixtures/synthetic-v1.json \
-  < mlmd/native/fixtures/frame.jsonl
+cargo build --release --locked --manifest-path mlmd/native/Cargo.toml --bins
+cargo test --locked --manifest-path mlmd/native/Cargo.toml --no-default-features
 ```
 
-PowerShell input can be piped with `Get-Content mlmd/native/fixtures/frame.jsonl`.
-The CLI reads one shared-contract `Frame` per nonblank input line and writes one
-`Evaluation` JSON line. A failed frame produces a diagnostic on stderr and a
-nonzero exit code, with no partial result for that frame. Earlier successful
-frames remain in the output stream. Positions/cell use angstrom; energy/virial
-use eV; force uses eV/angstrom. Cell rows are lattice vectors. `null` cell means
-nonperiodic; a supplied cell is periodic in all three directions.
+Add `--offline` when the existing dependency cache is complete. No package or
+CUDA driver is automatically installed. Executables normally appear under
+`mlmd/target/release`; `CARGO_TARGET_DIR` overrides that location. Commands below
+assume that directory is on PATH. Append `.exe` on Windows.
+
+## Step 2: Select or convert a model
+
+For a software smoke test, use `mlmd/native/fixtures/full-tanh-v1.json`. Its
+original synthetic weights are not a physical production potential.
+For an already supported DeepMD model, choose exactly one applicable converter:
+
+```sh
+# Existing h5py/PyYAML is required by the interchange converter.
+python mlmd/native/tools/convert_deepmd.py model.dp native.json \
+  --units EvAngstrom --geometry tensorflow
+
+# Existing TensorFlow/protobuf/NumPy is required for GraphDef decoding only.
+python mlmd/native/tools/export_frozen.py model.pb native.json --units EvAngstrom
+```
+
+Use `--geometry dpmodel` only when that is the intended source geometry;
+TensorFlow environment cutoff attributes have distinct float32 storage semantics.
+Do not choose geometry mode to minimize an observed error. Output must be new.
+The exporter does not execute the supplied graph. Read the linked exact profile
+limits before conversion; `.pth` or an arbitrary `.pb` cannot be renamed to JSON.
+
+## Step 3: Supply shared-contract frames and evaluate on CPU
+
+Each nonblank input line is one `Frame`, not a labeled dataset record:
+
+```json
+{"positions":[[0,0,0],[0.9572,0,0],[-0.239,0.927,0]],"species":["O","H","H"],"cell":null,"units":"EvAngstrom"}
+```
+
+Species must exist in the model's ordered `type_map`; no atomic-number or mass
+inference occurs. Coordinates/cell use angstrom. Cell rows are lattice vectors;
+`null` is nonperiodic, while a supplied cell is periodic in all three directions.
+
+```sh
+omnimd-native-eval mlmd/native/fixtures/full-tanh-v1.json \
+  < mlmd/native/fixtures/frame.jsonl > predictions.jsonl
+```
+
+PowerShell equivalent:
+
+```powershell
+Get-Content mlmd/native/fixtures/frame.jsonl | omnimd-native-eval.exe mlmd/native/fixtures/full-tanh-v1.json
+```
+
+Each output contains energy (eV), forces (eV/angstrom), virial (eV) and units.
+Virial is the negative row-strain energy derivative, not stress. A failed frame
+returns a diagnostic and nonzero status without publishing that frame's partial
+result; earlier successful lines remain in the output.
+
+## Step 4: Enable CUDA explicitly
+
+```sh
+cargo build --release --locked --manifest-path mlmd/native/Cargo.toml --features cuda --bins
+omnimd-native-cuda-check --compile-only mlmd/native/fixtures/full-tanh-v1.json
+omnimd-native-cuda-check mlmd/native/fixtures/full-tanh-v1.json mlmd/native/fixtures/frame.jsonl 3
+omnimd-native-cuda-eval mlmd/native/fixtures/full-tanh-v1.json < mlmd/native/fixtures/frame.jsonl
+```
+
+`--compile-only` invokes installed NVRTC without GPU execution. The other two
+commands execute on visible device 0; use them only when GPU use is authorized.
+On Windows `CUDA_PATH` points to the installed official toolkit, or set the
+process-local `OMNIMD_NVRTC_LIBRARY` to its absolute NVRTC library path. See
+[CUDA.md](CUDA.md) for exact library names and Linux runtime limitations. A CUDA
+failure is an error and poisons the instance; CPU fallback is an explicit new
+CPU request. Small systems may be faster on CPU.
+
+Keep one potential alive across frames to reuse model weights, host/device
+workspace and conservative neighbor candidates. Each frame still recomputes
+its E/F/virial. JSONL streaming is sequential; no batched GPU API is claimed.
+
+## Step 5: Connect to Rust or the shared MD engine
 
 ```rust
 use omnimd_ml_contract::Potential;
 use omnimd_native::NativePotential;
 
-let mut potential = NativePotential::load("model.json")?;
+let mut potential = NativePotential::load("native.json")?;
 let evaluation = potential.eval(&frame)?;
+
+// With the cuda Cargo feature and explicitly selected visible device 0:
+let mut gpu = omnimd_native::cuda::CudaPotential::new(potential.model().clone(), 0)?;
+let gpu_evaluation = gpu.eval(&frame)?;
 ```
 
-Line B owns only `mlmd/native/**`, so this crate currently declares its own
-workspace and depends on `../contract`. For workspace integration, remove the
-empty `[workspace]` section in this crate and add `native` to the parent
-`mlmd/Cargo.toml` members. No shared interface changes are required.
+The caller handles fallible results; do not assume Send/Sync. `last_profile()`
+and `kernel_resources()` provide optional diagnostics without changing the
+shared trait. Reuse the same ordered model type map at every boundary.
+
+```sh
+cargo build --release --locked --manifest-path mlmd/Cargo.toml \
+  -p omnimd-mlmd --features native-cuda --bin omnimd-mlmd
+omnimd-mlmd check request.json
+omnimd-mlmd run request.json new-trajectory.jsonl
+```
+
+Copy `mlmd/engine/examples/native-nvt.json` to a new request. Set
+`options.native_model` to the **absolute** path of your supported model,
+`options.device` to `"cpu"` or explicit `"cuda:0"`, and review the frame, masses,
+velocity initialization, timestep, ensemble and step count. For the software
+smoke model, use `full-tanh-v1.json`. Existing outputs are not overwritten.
+The engine handles isolated device selection, unit conversion and integration;
+this crate supplies one combined E/F/virial evaluation. See
+[engine usage and restart](../engine/README.md), [data import](../engine/DATA.md)
+and [minimization](../engine/MINIMIZATION.md). No shared-interface changes are
+required for the CUDA improvements.
+
+## Step 6: Train the supported CPU subset and reload
+
+Import/prepare the exact `omnimd-dataset-jsonl-v1` schema through the engine data
+workflow. Native trainers require every selected frame to have E and F labels;
+missing labels are errors. Optional virial labels are assessment only. Preserve
+ordered types/units and choose explicit validation IDs or a recorded seed.
+
+Create a request using [TRAINING.md](TRAINING.md) for frozen-hidden readout
+regression or [FULL_TRAINING.md](FULL_TRAINING.md) for all supported tanh-network
+parameters. Both require an initialized native model and a new output directory:
+
+```sh
+omnimd-native-train train.request.json
+# Optional engine forwarding, with the trainer executable beside the engine:
+omnimd-mlmd train-native train.request.json
+omnimd-native-eval /absolute/trained/model.json < held-out-frames.jsonl
+```
+
+Training writes provenance, split IDs and metrics; the full-network mode also
+supports documented deterministic checkpoint/resume. Check held-out results
+before MD. GPU inference can consume a trained native model only if it meets
+CUDA's architecture/size bounds. These trainers do not implement GPU training,
+automatic normalization/offset fitting or generic DeepMD training parity.
 
 ## Model format v1
 
@@ -141,15 +271,16 @@ outputs using `tools/compare_evaluations.py`. A fixed-seed, untrained DeepMD
 3.1.3 model has now passed actual C API/native comparison on three frames; the committed conversion report records maximum
 E/F/virial errors of 4.44e-16 / 5.03e-17 / 3.47e-17. This establishes numerical
 compatibility for that fixture, not pretrained-model physical accuracy.
-Native training modes are documented below. This crate has no MD integrator,
-GPU training kernel, compression table, attention,
-spin, type embedding,
-`se_e3`, hybrid descriptor, exclusions, frame/atomic parameters, environment
-protection, or vacuum-subtraction feature is implemented. Such architectures
+Native training modes are documented below. This crate has no MD integrator;
+MD is provided by the shared engine. GPU training kernels, compression tables,
+attention, spin, type embedding, `se_e3`, hybrid descriptors, exclusions,
+frame/atomic parameters, environment protection and vacuum subtraction are not
+implemented. Such architectures
 must not be relabeled as this format; unknown fields and unsupported enums fail.
 
-This first implementation rebuilds direct neighbor lists and temporary network
-buffers each evaluation. Neighbor enumeration is quadratic in atom count before
+The default CPU implementation rebuilds direct neighbor lists and temporary
+network buffers each evaluation. CUDA inference reuses conservative candidate
+lists and host/device workspaces as documented in CUDA_INFRA.md and CUDA_FIT.md. Neighbor enumeration is quadratic in atom count before
 image expansion; no production scaling or speedup claim is made. Explicit
 resource limits are 256 types, 65536 total neighbor slots, 128 layers per network,
 65536 outputs per layer, and 2,000,000 candidate images per central atom. Image

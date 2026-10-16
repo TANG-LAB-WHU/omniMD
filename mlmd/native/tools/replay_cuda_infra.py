@@ -41,6 +41,10 @@ def compare_md(cpu, cuda):
     records = [[json.loads(s) for s in p.read_text().splitlines()] for p in (cpu, cuda)]
     for run in records:
         assert run[-1]['kind'] == 'completed' and run[-1]['final_step'] == 20
+    headers = [run[0] for run in records]
+    for field in ('model_sha256', 'timestep_fs', 'initialize_velocities', 'remove_center_of_mass', 'masses_u'):
+        assert headers[0][field] == headers[1][field], field
+    initialization = headers[0]['initialize_velocities']
     a, b = [[r for r in run if r['kind'] == 'frame'] for run in records]
     assert len(a) == len(b) == 21
     getters = {'position': lambda r: r['frame']['positions'], 'velocity': lambda r: r['velocities'],
@@ -58,8 +62,8 @@ def compare_md(cpu, cuda):
                 assert abs(p-q) <= 1e-9 + 1e-9*abs(p), (field, p, q)
                 maximum = max(maximum, abs(p-q))
         errors[field] = maximum
-    return {'snapshots': 21, 'steps': 20, 'timestep_fs': .1, 'ensemble': 'NVE',
-            'temperature_kelvin': 300, 'seed': 20261014,
+    return {'snapshots': 21, 'steps': 20, 'timestep_fs': headers[0]['timestep_fs'], 'ensemble': 'NVE',
+            'temperature_kelvin': initialization['temperature_kelvin'], 'seed': initialization['seed'],
             'max_absolute_error': errors, 'tolerance': '1e-9 absolute + 1e-9 relative',
             'cpu_max_energy_drift_ev': records[0][-1]['max_absolute_energy_drift_ev'],
             'cuda_max_energy_drift_ev': records[1][-1]['max_absolute_energy_drift_ev']}
