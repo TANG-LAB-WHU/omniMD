@@ -19,8 +19,9 @@ CPU remains the default at every system size. The six-atom C API sample measured
 kernel verification and synchronization included. Separately, the native
 216-atom sample measured a CPU/GPU time ratio of 1.155, while its small cases were
 about 8.4 times slower on GPU. These bounded measurements have different scopes;
-they do not establish general acceleration or long-time stability. **GPU training
-is not implemented**; native training remains CPU-only. Runtime/subset requirements
+they do not establish general acceleration or long-time stability. Full-network GPU training is not implemented. The local follow-up adds optional
+CUDA E/F/virial feature generation for frozen readout fitting, with CPU QR and
+assessment; its tiny case was slower than CPU. Runtime/subset requirements
 are documented under [device selection](mlmd/engine/README.md#explicit-native-cuda-inference).
 The [published CUDA release scope](mlmd/RELEASE.md#published-cuda-release)
 records the code, documentation and compact validation evidence included.
@@ -42,6 +43,12 @@ parity and exact restart. New C API paths have passing FFI/CLI tests; their new
 real-runtime numerical validation is **pending**. Use the
 [standalone C API guide](mlmd/deepmd/BACKEND_GUIDE.md) for those options; shared
 engine MD remains parameter-free. This integrated follow-up is **not published**.
+
+The local native source `dc5449e` is integrated as `65a7192`: explicit CUDA-assisted
+frozen-readout features, CPU QR and CPU assessment. [Its receipt](mlmd/native/fixtures/cuda-readout-report.json)
+records same-model parity; the 3/4-atom case took 21.37 ms for CUDA features versus
+5.15 ms CPU, plus 195.88 ms CUDA initialization. Full-network GPU derivatives/Adam
+remain unsupported. CPU remains the default; see [training devices](mlmd/native/TRAINING.md).
 
 ## Stepwise setup and current feature coverage
 

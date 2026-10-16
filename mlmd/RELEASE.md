@@ -321,3 +321,14 @@ selected two-step CPU NVE job. C API ensemble runtime validation remains pending
 there is no GPU ensemble route or automatic labeling/training. Code, English
 guides, script and compact receipt are local only; generated weights/data/logs
 are excluded. Nothing in this tranche has been pushed.
+
+## Local CUDA-assisted frozen-readout integration
+
+Native-only source `dc5449edb165780595abf501a91c595c2c4d4b5b` is integrated unchanged
+as `65a7192c83515afe4c2d039644c6890e493baa1f`. It adds explicit feature-device
+selection, resident CUDA one-hot readout features, device guards, focused tests,
+replay, English docs and a compact [B GPU receipt](native/fixtures/cuda-readout-report.json).
+QR, reference evaluation and assessment stay CPU; full-network GPU training
+rejects. The tiny measured case was slower on CUDA. A's integration validation
+is CPU-only and does not replace or rerun that GPU receipt. Top-level capabilities
+and guides distinguish this subset from full-network GPU training. No push.

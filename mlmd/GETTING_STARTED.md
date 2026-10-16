@@ -443,3 +443,18 @@ them to the consumed dataset SHA256. A candidate can enter existing MD or
 minimization through its source `dataset_frame` index; no labeling or training is
 triggered. The linked replay exercises independent Python statistical oracles,
 label independence, invalid-input refusal and a two-step candidate MD job.
+
+## 10. Optional CUDA-assisted frozen-readout features
+
+Build the sibling `omnimd-native-train` with `--features cuda` and add
+`"device": "cuda:0"` to a readout request only when intentionally selecting that
+device. `train-native REQUEST.json` forwards the request to that executable.
+The engine's own build feature does not prove which features its sibling trainer
+contains. Keep `"device": "cpu"` (the default) for the normal tutorial.
+
+Read [the precise training-device scope](native/TRAINING.md) first: CUDA computes
+E/F/virial basis columns, while reference predictions, QR and assessment run on
+CPU. Hidden weights stay frozen. Full-network CUDA requests reject before input
+or output work. The recorded 3/4-atom feature microcase was slower on CUDA,
+including 21.37 ms feature time versus 5.15 ms CPU and separate 195.88 ms CUDA
+initialization. There is no full-network GPU training or speedup guarantee.

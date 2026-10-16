@@ -58,10 +58,10 @@ an official `input.json` is not a native training request.
 | Dataset preflight | `inspect-dataset`: complete structural check, exact read-byte SHA256, counts, PBC and label coverage | Source hashes are declarations; model suitability and trainer limits are separate |
 | Batch E/F/V assessment | Engine retains one model and streams single-frame calls. C API standalone CLI additionally packs homogeneous multi-frame calls | New C API call layout has mock tests; real-runtime follow-up pending |
 | Model disagreement | CPU `model-deviation`: 2..16 retained models, absolute population E/atom, vector F and nine-component V/atom deviations, explicit candidate interval | [Scope and replay](engine/MODEL_DEVIATION.md); native CPU verified; C API ensemble route unverified; no automatic active-learning loop |
-| Readout training | CPU native final linear coefficients, optional bias, exact E/F features and rank-aware QR | Frozen hidden layers; bounded dense solve |
+| Readout training | CPU default; optional native CUDA E/F/V feature columns, CPU rank-aware QR and assessment, optional bias | Frozen hidden layers; bounded dense solve; [microcase slower on CUDA](native/fixtures/cuda-readout-report.json); full-network GPU training missing |
 | Full supported-network training | CPU tanh/linear network, all neural weights/biases/timesteps, exact mixed E/F derivatives, full-batch Adam, checkpoint/restart | Fixed normalization/cutoff/selection/atomic offsets; small-model limits; duplicated one-side weights not tied |
 | Split/provenance | Seeded or explicit held-out IDs, dataset/source hashes, validation isolation | No trajectory-independent split guarantee from random frames |
-| Generic DeepMD training options | Missing | GPU/minibatch/distributed/multi-task training, learning-rate schedules, virial loss, pretrained fine-tuning and broader architectures |
+| Generic DeepMD training options | Missing | Full-network GPU/minibatch/distributed/multi-task training, learning-rate schedules, virial loss, pretrained fine-tuning and broader architectures |
 | Training monitoring | JSON reports and checkpoints | No TensorBoard integration or live monitoring service |
 | Freeze/export | Native training writes native-v1 JSON, reload checked | No native export into generic official training checkpoints or `.pb` |
 | Model information | `capabilities` static and GPU-free; `model-info` loads selected model | Metadata does not prove graph architecture, training units or GPU execution |
@@ -87,6 +87,10 @@ an official `input.json` is not a native training request.
 - The complete [CPU tutorial](evidence/cpu-tutorial-integrated.json) was rerun with
   the final feature-enabled engine selecting CPU explicitly: import, inspection,
   readout training, batch assessment, CSVR NVT and exact checkpoint continuation.
+
+- Native readout source `dc5449e` is integrated as `65a7192`. CUDA computes feature
+  columns only; QR/reference/assessment remain CPU. B recorded GPU parity, while
+  A runs CPU-safe integration checks without a GPU context.
 
 ## Implementation order and acceptance gates
 

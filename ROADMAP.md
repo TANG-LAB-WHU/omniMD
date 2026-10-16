@@ -69,7 +69,8 @@ with executable commands; pending branch work is not counted as integrated.
   216-atom timing was 1.155x faster; small cases were about 8.4x slower.
   The unified CLI passed CPU routing/build checks and a short same-model NVE
   CPU/GPU comparison with exact checkpoint continuation. Broader GPU simulation
-  validation and native CUDA training remain unimplemented.
+  validation remains future work. Optional CUDA readout feature generation is now
+  integrated; QR and assessment remain CPU and the microcase was slower on CUDA.
 - Broader descriptors, including hybrids, only with implementation and validation.
 
 ## Current local integration after 9eaf284
@@ -83,7 +84,7 @@ with executable commands; pending branch work is not counted as integrated.
   new real-runtime numerical acceptance remains pending. Shared engine schemas
   remain parameter-free, total E/F/V and one combined call per frame.
 - The full CPU tutorial was rerun with the integrated feature-enabled executable
-  selecting CPU. Native GPU training and generic DeepMD coverage remain missing.
+  selecting CPU. Full-network GPU training and generic DeepMD coverage remain missing.
 
 ## Publication gate
 
