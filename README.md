@@ -83,6 +83,9 @@ command and executable tutorial are local follow-ups pending publication; the
 - **Data and prediction:** plain XYZ, a documented extxyz subset and explicit
   DeepMD NPY sets; shared JSONL, optional E/F/virial labels, batch evaluation,
   error metrics and model/capability queries. No units or labels are guessed.
+- **CPU model disagreement:** retained ensembles, absolute E/F/virial deviation and
+  explicit force-window candidate flags; [stepwise usage](mlmd/engine/MODEL_DEVIATION.md)
+  and independent synthetic replay. Disagreement is not calibrated uncertainty.
 - **Native readout training:** frozen-hidden final linear weights (optional
   biases), exact E/F features, rank-aware QR, explicit validation splits and
   unchanged native-v1 model export.

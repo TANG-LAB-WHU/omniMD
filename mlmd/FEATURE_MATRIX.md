@@ -1,6 +1,6 @@
 # DeepMD feature coverage: reference version 3.1.3
 
-Matrix revision 2, checked 2026-10-16. Tested integrated runtime:
+Matrix revision 3, checked 2026-10-16. Previous integrated CUDA runtime:
 `9b8d1847f892e32751c73d3262e0245d0efb4cdd`. This includes engine inspection/tutorial,
 native source `b6b7aa7` and C API source `1aee39c`. Implementation and real-runtime
 validation are separate: the new C API numerical follow-up is still pending. DeepMD 3.1.3 is a pinned comparison target, not a claim about the newest
@@ -56,7 +56,8 @@ an official `input.json` is not a native training request.
 | DeepMD standard NPY data | Partial: explicitly ordered sets, C-order float64 arrays, fixed real type map, optional E/F/V | Mixed types, spin/parameters, arbitrary dtypes/layouts and other formats |
 | XYZ / extxyz | Plain XYZ and strict labeled extxyz profile, explicit units/PBC | General ASE metadata and stress conversion are not inferred |
 | Dataset preflight | `inspect-dataset`: complete structural check, exact read-byte SHA256, counts, PBC and label coverage | Source hashes are declarations; model suitability and trainer limits are separate |
-| Batch E/F/V assessment | Engine retains one model and streams single-frame calls. C API standalone CLI additionally packs homogeneous multi-frame calls | New C API call layout has mock tests; real-runtime follow-up pending. No ensemble-deviation/active-learning workflow |
+| Batch E/F/V assessment | Engine retains one model and streams single-frame calls. C API standalone CLI additionally packs homogeneous multi-frame calls | New C API call layout has mock tests; real-runtime follow-up pending |
+| Model disagreement | CPU `model-deviation`: 2..16 retained models, absolute population E/atom, vector F and nine-component V/atom deviations, explicit candidate interval | [Scope and replay](engine/MODEL_DEVIATION.md); native CPU verified; C API ensemble route unverified; no automatic active-learning loop |
 | Readout training | CPU native final linear coefficients, optional bias, exact E/F features and rank-aware QR | Frozen hidden layers; bounded dense solve |
 | Full supported-network training | CPU tanh/linear network, all neural weights/biases/timesteps, exact mixed E/F derivatives, full-batch Adam, checkpoint/restart | Fixed normalization/cutoff/selection/atomic offsets; small-model limits; duplicated one-side weights not tied |
 | Split/provenance | Seeded or explicit held-out IDs, dataset/source hashes, validation isolation | No trajectory-independent split guarantee from random frames |

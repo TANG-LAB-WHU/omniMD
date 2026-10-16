@@ -55,7 +55,10 @@ with executable commands; pending branch work is not counted as integrated.
   CPU bounds and independent duplicated one-side networks are explicit.
 - Minibatching, broader activation support, virial loss and scalable training
   remain future work; no generic DeepMD training compatibility is claimed.
-- Broader data pipelines, sampling and active learning with explicit formats.
+- CPU ensemble disagreement and explicit candidate marking are implemented with
+  independent population-statistics checks. Reproducible subset extraction and
+  external labeling integration remain the next data-workflow gap.
+- Broader sampling and active learning with explicit formats.
 - DeepMD C API CUDA device propagation and kernel/synchronization checks are
   published with actual public-model E/F/virial agreement, GPU batch
   and two-step MD evidence. The six-atom paired sample was 8.27 times slower on

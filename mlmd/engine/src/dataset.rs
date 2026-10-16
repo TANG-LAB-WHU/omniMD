@@ -144,6 +144,11 @@ fn read_record(reader: &mut impl BufRead, hash: &mut Option<Sha256>) -> Result<O
     }
     Ok(Some(serde_json::from_slice(&line)?))
 }
+#[derive(Debug, Serialize)]
+pub struct DatasetProvenance {
+    pub dataset_sha256: String,
+    pub declared_source_sha256: BTreeMap<String, String>,
+}
 pub struct DatasetReader {
     reader: BufReader<File>,
     pub header: DatasetHeader,
@@ -157,6 +162,23 @@ pub struct DatasetReader {
 impl DatasetReader {
     pub fn open(path: &Path) -> Result<Self> {
         Self::open_inner(path, false)
+    }
+    /// Hash the exact bytes consumed by this reader; retrieve only after full validation.
+    pub fn open_hashed(path: &Path) -> Result<Self> {
+        Self::open_inner(path, true)
+    }
+    pub fn completed_provenance(&self) -> Result<DatasetProvenance> {
+        if !self.completed {
+            return Err("dataset provenance requires validated completion".into());
+        }
+        let hash = self
+            .hash
+            .as_ref()
+            .ok_or("reader was not opened with byte hashing")?;
+        Ok(DatasetProvenance {
+            dataset_sha256: format!("{:x}", hash.clone().finalize()),
+            declared_source_sha256: self.source_sha256.clone(),
+        })
     }
     fn open_inner(path: &Path, hash_bytes: bool) -> Result<Self> {
         if !path.is_absolute() {

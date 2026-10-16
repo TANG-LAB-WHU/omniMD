@@ -431,3 +431,15 @@ request files, completed metrics and checkpoint. Generated data, weights and raw
 logs stay in the external work directory. Compact committed receipts record
 software acceptance without distributing those inputs. No private research model
 or data is needed for this tutorial.
+
+## 9. Compare models on the same dataset
+
+Use [the model-deviation workflow](engine/MODEL_DEVIATION.md) to load 2..16 models
+once and stream absolute E/F/virial population deviations on CPU. Start with an
+inspected dataset, explicit member IDs and identical ordered type maps/units.
+Run without a force window to inspect disagreements, then choose a justified
+half-open max-force interval and review candidate IDs. The completed output binds
+them to the consumed dataset SHA256. A candidate can enter existing MD or
+minimization through its source `dataset_frame` index; no labeling or training is
+triggered. The linked replay exercises independent Python statistical oracles,
+label independence, invalid-input refusal and a two-step candidate MD job.

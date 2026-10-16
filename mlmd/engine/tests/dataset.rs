@@ -395,3 +395,19 @@ fn inspection_bounds_missing_examples_and_cli_does_not_write_on_invalid_input() 
         assert!(!absent.exists());
     }
 }
+
+#[test]
+fn streamed_provenance_is_available_only_after_verified_completion() {
+    let (root, request) = system(false);
+    let input = root.join("hashed.jsonl");
+    import_deepmd(&request, &input).unwrap();
+    let mut reader = DatasetReader::open_hashed(&input).unwrap();
+    assert!(reader.completed_provenance().is_err());
+    while reader.next_frame().unwrap().is_some() {}
+    let result = reader.completed_provenance().unwrap();
+    assert_eq!(result.dataset_sha256, sha256(&input).unwrap());
+    assert!(!result.declared_source_sha256.is_empty());
+    let mut unhashed = DatasetReader::open(&input).unwrap();
+    while unhashed.next_frame().unwrap().is_some() {}
+    assert!(unhashed.completed_provenance().is_err());
+}

@@ -309,3 +309,15 @@ new dependencies, drivers, system settings or research inputs were used. Only
 source, documentation and compact receipts are committed; generated weights,
 data, trajectories and operational logs remain outside Git. No public push is
 part of this integration.
+
+## Local CPU model-deviation workflow
+
+Adds engine-only ensemble loading/streaming, population E/F/virial statistics,
+optional candidate flags, exact consumed-dataset provenance and focused tests.
+Shared/native/deepmd interfaces and dependencies are unchanged. The
+[replay receipt](evidence/model-deviation.json) covers three original models,
+12 nonperiodic/triclinic frames, independent Python statistical oracles and a
+selected two-step CPU NVE job. C API ensemble runtime validation remains pending;
+there is no GPU ensemble route or automatic labeling/training. Code, English
+guides, script and compact receipt are local only; generated weights/data/logs
+are excluded. Nothing in this tranche has been pushed.

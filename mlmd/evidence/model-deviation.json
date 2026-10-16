@@ -1,0 +1,47 @@
+{
+  "schema": "omnimd-model-deviation-receipt-v1",
+  "status": "passed",
+  "device": "cpu",
+  "scope": "Original software fixtures only; native CPU ensemble. C API ensemble route not runtime-validated; no physical accuracy or calibrated uncertainty claim.",
+  "models": 3,
+  "frames": 12,
+  "periodic_frames": 6,
+  "nonperiodic_frames": 6,
+  "atom_counts": [
+    3,
+    4
+  ],
+  "population_oracle": "Python statistics.pstdev, independent vector norm and RMS aggregation",
+  "maximum_absolute_statistic_error": 2.7755575615628914e-17,
+  "candidate_indices": [
+    1,
+    2,
+    3,
+    4,
+    10,
+    11
+  ],
+  "candidate_md_steps": 2,
+  "label_independence": true,
+  "identical_model_zero_deviation": true,
+  "rejections_passed": [
+    "one-model",
+    "duplicate-id",
+    "invalid-window",
+    "unknown-field",
+    "cuda",
+    "truncated",
+    "type-map",
+    "existing-output-preserved"
+  ],
+  "dataset_sha256": "c34eeb420bf7d306d77a159140818118cc27a0ff122e489c8aca0251f4c00618",
+  "engine_sha256": "ef78c838df06bd3741826d7d9a67ecb7f0f4e626209b7b5617baf6f45034cffa",
+  "evaluator_sha256": "c8d7ce2b3816c2705a9a15917a51c2ac2ed0010b4ff3447767813d9f37dd7fc3",
+  "script_sha256": "fc3d89d775ac8e5f256953a447d145bb4449e957f506c5bf439c5a9f914e06cb",
+  "source_base": "cd988d6b01357917026731f51d69921a3ad59fbc",
+  "focused_rust_tests": {
+    "dataset": 7,
+    "deviation": 3,
+    "status": "passed"
+  }
+}
