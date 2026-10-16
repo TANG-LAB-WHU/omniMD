@@ -13,6 +13,8 @@ struct Counts {
     cell: Option<Vec<f64>>,
     frames: i32,
     optional_were_null: bool,
+    fparam: Vec<f64>,
+    aparam: Vec<f64>,
 }
 thread_local! { static COUNTS: RefCell<Counts> = RefCell::new(Counts::default()); }
 struct Mock {
@@ -79,10 +81,21 @@ unsafe extern "C" fn nspin(h: Handle) -> i32 {
     i32::from(unsafe { state(h) }.mode == "spin")
 }
 unsafe extern "C" fn fparam(h: Handle) -> i32 {
-    i32::from(unsafe { state(h) }.mode == "fparam")
+    match unsafe { state(h) }.mode.as_str() {
+        "fparam" => 1,
+        "parameters" => 2,
+        "bad-dim" => -1,
+        _ => 0,
+    }
 }
 unsafe extern "C" fn aparam(h: Handle) -> i32 {
-    i32::from(unsafe { state(h) }.mode == "aparam")
+    i32::from(matches!(
+        unsafe { state(h) }.mode.as_str(),
+        "aparam" | "parameters"
+    ))
+}
+unsafe extern "C" fn charge_spin(h: Handle) -> i32 {
+    i32::from(unsafe { state(h) }.mode == "charge-spin")
 }
 unsafe extern "C" fn cutoff(h: Handle) -> f64 {
     if unsafe { state(h) }.mode == "bad-cutoff" {
@@ -106,17 +119,31 @@ unsafe extern "C" fn compute(
     ae: *mut f64,
     av: *mut f64,
 ) {
-    let coords = unsafe { std::slice::from_raw_parts(x, n as usize * 3) };
+    let count = nf as usize;
+    let n = n as usize;
+    let df = unsafe { fparam(h) } as usize;
+    let da = unsafe { aparam(h) } as usize;
+    let coords = unsafe { std::slice::from_raw_parts(x, count * n * 3) };
     COUNTS.with(|c| {
         let mut c = c.borrow_mut();
         c.computes += 1;
         c.frames = nf;
         c.coords = coords.to_vec();
-        c.types = unsafe { std::slice::from_raw_parts(t, n as usize) }.to_vec();
+        c.types = unsafe { std::slice::from_raw_parts(t, n) }.to_vec();
         c.cell = if cell.is_null() {
             None
         } else {
-            Some(unsafe { std::slice::from_raw_parts(cell, 9) }.to_vec())
+            Some(unsafe { std::slice::from_raw_parts(cell, count * 9) }.to_vec())
+        };
+        c.fparam = if fp.is_null() {
+            vec![]
+        } else {
+            unsafe { std::slice::from_raw_parts(fp, count * df) }.to_vec()
+        };
+        c.aparam = if ap.is_null() {
+            vec![]
+        } else {
+            unsafe { std::slice::from_raw_parts(ap, count * n * da) }.to_vec()
         };
         c.optional_were_null = fp.is_null() && ap.is_null() && ae.is_null() && av.is_null();
     });
@@ -125,18 +152,44 @@ unsafe extern "C" fn compute(
         mock.error = "injected compute error".into();
         return;
     }
-    unsafe {
-        *energy = coords.iter().map(|v| v * v * 0.5).sum();
-    }
-    for (i, x) in coords.iter().enumerate() {
+    for f in 0..count {
+        let offset = f * n * 3;
+        let e = coords[offset..offset + n * 3]
+            .iter()
+            .map(|v| v * v * 0.5)
+            .sum();
         unsafe {
-            *force.add(i) = -*x;
+            *energy.add(f) = e;
         }
-    }
-    if mock.mode != "missing-virial" {
-        for i in 0..9 {
+        for i in 0..n * 3 {
             unsafe {
-                *virial.add(i) = (i + 1) as f64;
+                *force.add(offset + i) = -coords[offset + i];
+            }
+        }
+        if mock.mode != "missing-virial" {
+            for i in 0..9 {
+                unsafe {
+                    *virial.add(f * 9 + i) = (i + 1) as f64;
+                }
+            }
+        }
+        if !ae.is_null() && mock.mode != "missing-atomic" {
+            for atom in 0..n {
+                unsafe {
+                    *ae.add(f * n + atom) = coords[offset + atom * 3..offset + (atom + 1) * 3]
+                        .iter()
+                        .map(|v| v * v * 0.5)
+                        .sum();
+                }
+            }
+        }
+        if !av.is_null() && mock.mode != "missing-atomic" {
+            for atom in 0..n {
+                for i in 0..9 {
+                    unsafe {
+                        *av.add((f * n + atom) * 9 + i) = (i + 1) as f64 / n as f64;
+                    }
+                }
             }
         }
     }
@@ -145,7 +198,13 @@ unsafe extern "C" fn compute(
             *force = f64::INFINITY;
         }
     }
+    if mock.mode == "nonfinite-last-frame" {
+        unsafe {
+            *energy.add(count - 1) = f64::NAN;
+        }
+    }
 }
+
 fn api() -> Api {
     Api {
         new,
@@ -157,6 +216,7 @@ fn api() -> Api {
         nspin,
         fparam,
         aparam,
+        charge_spin: Some(charge_spin),
         cutoff,
         compute,
         _library: None,
@@ -213,8 +273,8 @@ fn failed_initialization_releases_model_and_strings() {
         "empty-map",
         "bad-ntypes",
         "spin",
-        "fparam",
-        "aparam",
+        "bad-dim",
+        "charge-spin",
         "bad-cutoff",
     ] {
         reset();
@@ -280,4 +340,159 @@ fn omitted_device_defaults_to_cpu_without_cuda_dependencies() {
     .unwrap();
     assert_eq!(options.device, Device::Cpu);
     assert!(options.cuda.is_none());
+}
+
+#[test]
+fn combined_batch_preserves_frame_atom_cell_order_and_atomic_outputs() {
+    reset();
+    let mut model = model("parameters").unwrap();
+    assert_eq!(model.details().frame_parameter_dim, 2);
+    assert_eq!(model.details().atom_parameter_dim, 1);
+    let mut f0 = frame();
+    f0.cell = Some([[8., 0., 0.], [1., 9., 0.], [2., 3., 10.]]);
+    let mut f1 = f0.clone();
+    f1.positions[0] = [7., 8., 9.];
+    f1.cell.as_mut().unwrap()[0][0] = 11.;
+    let params = [
+        EvalParameters {
+            fparam: vec![300., 1.],
+            aparam: vec![vec![2.], vec![3.]],
+        },
+        EvalParameters {
+            fparam: vec![600., 4.],
+            aparam: vec![vec![5.], vec![6.]],
+        },
+    ];
+    let outputs = model.evaluate(&[f0, f1], Some(&params), true).unwrap();
+    assert_eq!(outputs.len(), 2);
+    assert_eq!(outputs[0].evaluation.energy, 45.5);
+    assert_eq!(outputs[1].evaluation.energy, 135.5);
+    assert_eq!(outputs[1].evaluation.forces[0], [-7., -8., -9.]);
+    for result in &outputs {
+        let atomic = result.atomic.as_ref().unwrap();
+        assert_eq!(
+            atomic.energies.iter().sum::<f64>(),
+            result.evaluation.energy
+        );
+        assert_eq!(atomic.virials.len(), 2);
+        for i in 0..3 {
+            for j in 0..3 {
+                assert_eq!(
+                    atomic.virials.iter().map(|a| a[i][j]).sum::<f64>(),
+                    result.evaluation.virial[i][j]
+                );
+            }
+        }
+    }
+    drop(model);
+    COUNTS.with(|c| {
+        let c = c.borrow();
+        assert_eq!((c.loads, c.computes, c.frames, c.drops), (1, 1, 2, 1));
+        assert_eq!(
+            c.coords,
+            vec![1., 2., 3., 4., 5., 6., 7., 8., 9., 4., 5., 6.]
+        );
+        assert_eq!(c.types, vec![1, 0]);
+        assert_eq!(c.fparam, vec![300., 1., 600., 4.]);
+        assert_eq!(c.aparam, vec![2., 3., 5., 6.]);
+        assert_eq!(
+            c.cell.as_ref().unwrap(),
+            &vec![8., 0., 0., 1., 9., 0., 2., 3., 10., 11., 0., 0., 1., 9., 0., 2., 3., 10.]
+        );
+        assert_eq!(c.strings, c.frees);
+    });
+}
+
+#[test]
+fn parameter_lengths_and_finiteness_fail_before_ffi() {
+    reset();
+    let mut m = model("parameters").unwrap();
+    assert!(m
+        .eval(&frame())
+        .unwrap_err()
+        .0
+        .contains("explicit parameters"));
+    let good = EvalParameters {
+        fparam: vec![300., 1.],
+        aparam: vec![vec![2.], vec![3.]],
+    };
+    assert!(m.evaluate(&[frame()], Some(&[]), false).is_err());
+    for bad in [
+        EvalParameters {
+            fparam: vec![300.],
+            ..good.clone()
+        },
+        EvalParameters {
+            fparam: vec![300., f64::NAN],
+            ..good.clone()
+        },
+        EvalParameters {
+            aparam: vec![vec![2.]],
+            ..good.clone()
+        },
+        EvalParameters {
+            aparam: vec![vec![2.], vec![3., 4.]],
+            ..good.clone()
+        },
+        EvalParameters {
+            aparam: vec![vec![2.], vec![f64::INFINITY]],
+            ..good.clone()
+        },
+    ] {
+        assert!(m.evaluate(&[frame()], Some(&[bad]), false).is_err());
+    }
+    COUNTS.with(|c| assert_eq!(c.borrow().computes, 0));
+    assert!(m.evaluate(&[frame()], Some(&[good]), false).is_ok());
+}
+
+#[test]
+fn heterogeneous_batches_and_overflow_fail_before_ffi() {
+    reset();
+    let mut m = model("ok").unwrap();
+    assert!(m.evaluate(&[], None, false).is_err());
+    let mut changed = frame();
+    changed.species.swap(0, 1);
+    assert!(m.evaluate(&[frame(), changed], None, false).is_err());
+    let mut changed = frame();
+    changed.positions.pop();
+    changed.species.pop();
+    assert!(m.evaluate(&[frame(), changed], None, false).is_err());
+    let mut changed = frame();
+    changed.cell = Some([[8., 0., 0.], [0., 8., 0.], [0., 0., 8.]]);
+    assert!(m.evaluate(&[frame(), changed], None, false).is_err());
+    assert!(c_product(&[2, c_int::MAX as usize]).is_err());
+    assert!(c_product(&[usize::MAX, 2]).is_err());
+    assert_eq!(c_product(&[2, 3, 9]).unwrap(), 54);
+    COUNTS.with(|c| assert_eq!(c.borrow().computes, 0));
+}
+
+#[test]
+fn whole_batch_and_atomic_outputs_are_validated_before_return() {
+    let mut m = model("nonfinite-last-frame").unwrap();
+    assert!(m.evaluate(&[frame(), frame()], None, false).is_err());
+    let mut m = model("missing-atomic").unwrap();
+    assert!(m
+        .evaluate(&[frame()], None, true)
+        .unwrap_err()
+        .0
+        .contains("atomic outputs"));
+    let mut m = model("ok").unwrap();
+    m.evaluate(&[frame()], None, true).unwrap();
+    let result = m.evaluate(&[frame(), frame()], None, false).unwrap();
+    assert!(result.iter().all(|r| r.atomic.is_none()));
+    COUNTS.with(|c| assert!(c.borrow().optional_were_null));
+}
+
+#[test]
+fn legacy_runtime_without_optional_charge_metadata_still_loads() {
+    let mut api = api();
+    api.charge_spin = None;
+    let mut m = DeepMd::initialize(
+        api,
+        &CString::new("ok").unwrap(),
+        &["O".into(), "H".into()],
+        Units::EvAngstrom,
+    )
+    .unwrap();
+    assert_eq!(m.eval(&frame()).unwrap().energy, 45.5);
 }
