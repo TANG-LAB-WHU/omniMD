@@ -42,6 +42,8 @@ def main():
     parser.add_argument('--evaluator', type=Path, required=True)
     parser.add_argument('--fixtures', type=Path, required=True)
     parser.add_argument('--work', type=Path, required=True)
+    parser.add_argument('--virial-loss', action='store_true', help='Enable weight 1, scale 0.1 eV/atom and a short CPU comparison')
+    parser.add_argument('--legacy-ef-work', type=Path, help='Optional previous six-step E/F integration output for CUDA-v2 continuation check')
     args = parser.parse_args()
     engine, evaluator, fixtures, work = [p.resolve() for p in
         (args.engine, args.evaluator, args.fixtures, args.work)]
@@ -75,6 +77,11 @@ def main():
     assert req['schema'] == 'omnimd-native-full-train-v1'
     req.update(device='cuda:0', initial_model='initial.json', dataset='dataset.jsonl', output_directory='continuous')
     req['config'].update(steps=6, checkpoint_every=3)
+    if args.virial_loss:
+        assert capabilities['training']['virial_loss']['full_network'] is True
+        req['config']['virial_loss']={'weight':1.0,'scale_ev_per_atom':0.1}
+    else:
+        req['config'].pop('virial_loss',None)
     write(work/'continuous.request.json',req)
     run('continuous', [engine,'train-native',work/'continuous.request.json'])
     resume = deepcopy(req)
@@ -93,7 +100,9 @@ def main():
         assert a[key] == b[key], f'exact resume changed {key}'
     for checkpoint, expected in ((a,req['config']),(b,resume['config'])):
         assert checkpoint['config'] == expected
-    assert a['schema'] == 'omnimd-native-full-checkpoint-v2'
+    assert a['schema'] == ('omnimd-native-full-checkpoint-v3' if args.virial_loss else 'omnimd-native-full-checkpoint-v2')
+    if args.virial_loss:
+        assert a['loss_contract'] == b['loss_contract'] == 'energy-force-row-virial-per-atom-nine-v1'
     assert a['execution']['backend'] == 'cuda_hyperdual_f64_v1'
     assert a['execution']['visible_device'] == 0
     assert len(a['execution']['program_sha256']) == 64 and a['execution']['driver_version'] > 0
@@ -123,12 +132,62 @@ def main():
     write(work/'wrong-backend.request.json',wrong)
     run('reject-backend',[engine,'train-native',work/'wrong-backend.request.json'],expected_error='checkpoint training backend/device changed')
     assert not (work/'rejected-backend').exists()
+    cpu_comparison=None
+    loss_change_rejected=False
+    legacy_exact=None
+    if args.virial_loss:
+        cpu=deepcopy(req)
+        cpu.update(device='cpu',output_directory='cpu-reference')
+        write(work/'cpu.request.json',cpu)
+        run('cpu-reference',[engine,'train-native',work/'cpu.request.json'])
+        state=read(work/'cpu-reference/checkpoint.json')
+        assert state['schema']=='omnimd-native-full-checkpoint-v3'
+        assert state['loss_contract']==a['loss_contract']
+        assert state['training_indices']==a['training_indices'] and state['validation_indices']==a['validation_indices']
+        def values(m):
+            return [v for net in [n for row in m['descriptor']['embedding'] for n in row]+m['fitting']
+                    for layer in net['layers'] for vector in [*layer['weights'],layer['bias'],layer['timestep'] or []] for v in vector]
+        parameter_delta=max(abs(x-y) for x,y in zip(values(state['model']),values(a['model'])))
+        moment_delta=max(abs(x-y) for key in ('first_moment','second_moment') for x,y in zip(state[key],a[key]))
+        cpu_pred=[json.loads(s) for s in run('cpu-export-eval',[evaluator,work/'cpu-reference/model.json'],lines).splitlines()]
+        delta=[0.,0.,0.]
+        for c,g in zip(cpu_pred,predictions):
+            delta[0]=max(delta[0],abs(c['energy']-g['energy']))
+            for k,key in enumerate(('forces','virial'),1):
+                delta[k]=max(delta[k],max(abs(x-y) for r,s in zip(c[key],g[key]) for x,y in zip(r,s)))
+        assert max(parameter_delta,moment_delta,*delta)<1e-10
+        cpu_comparison={'parameter_max_abs':parameter_delta,'moment_max_abs':moment_delta,'efv_max_abs':delta}
+        wrong_loss=deepcopy(resume)
+        wrong_loss['output_directory']='rejected-loss'
+        wrong_loss['config']['virial_loss']['weight']=2.0
+        write(work/'wrong-loss.request.json',wrong_loss)
+        run('reject-loss',[engine,'train-native',work/'wrong-loss.request.json'],expected_error='checkpoint')
+        assert not (work/'rejected-loss').exists()
+        loss_change_rejected=True
+    if args.legacy_ef_work:
+        legacy=args.legacy_ef_work.resolve()
+        legacy_request=read(legacy/'continuous.request.json')
+        legacy_request.pop('initial_model')
+        legacy_request.update(checkpoint=str(legacy/'continuous/checkpoint-step-3.json'),
+            dataset=str(legacy/'dataset.jsonl'),output_directory=str(work/'legacy-ef-resumed'))
+        legacy_request['config']['steps']=3
+        assert legacy_request['device']=='cuda:0' and 'virial_loss' not in legacy_request['config']
+        write(work/'legacy-ef.request.json',legacy_request)
+        run('legacy-ef-resume',[engine,'train-native',work/'legacy-ef.request.json'])
+        expected=read(legacy/'continuous/checkpoint.json')
+        expected['config']['steps']=3
+        assert expected['schema']=='omnimd-native-full-checkpoint-v2'
+        assert read(work/'legacy-ef-resumed/checkpoint.json')==expected
+        legacy_exact=True
     receipt = {
         'schema':'omnimd-cuda-full-training-integration-v1', 'status':'passed',
         'scope':'Six-step engine CLI integration only; original synthetic 24-frame fixture. Independent gradient and 300-step acceptance remain in B receipt. No performance or chemical-accuracy claim.',
         'started_utc':started,'completed_utc':datetime.now(timezone.utc).isoformat(),
-        'source_native_commit':'f4dbf62bb4acb97e8f7e12e62de625e08af07a05',
-        'integrated_native_commit':'02b5457',
+        'source_native_commit':'d12fdb5c36a4fa74a10fb14bbb489a664cae0a2c' if args.virial_loss else 'f4dbf62bb4acb97e8f7e12e62de625e08af07a05',
+        'integrated_native_commit':'7d3d472' if args.virial_loss else '02b5457',
+        'virial_loss':req['config'].get('virial_loss'),'checkpoint_schema':a['schema'],
+        'loss_contract':a.get('loss_contract'),'cpu_comparison':cpu_comparison,
+        'changed_loss_rejected_without_output':loss_change_rejected,'legacy_cuda_v2_resume_exact':legacy_exact,
         'execution':a['execution'],'execution_scope':reports[0]['execution_scope'],
         'frames':24,'training_frames':len(a['training_indices']),'validation_frames':len(a['validation_indices']),
         'continuous_steps':6,'resume_from_step':3,'resume_additional_steps':3,

@@ -456,3 +456,43 @@ remain unverified declarations; hidden model defaults are not resolved by the
 file workflow. Job submission, automatic labeling/training and an unattended
 active-learning loop remain outside scope. Generated labels/data/weights/logs
 remain outside Git. All changes are local; no public push or HAP access occurred.
+
+## Local optional virial-loss integration
+
+Native source `d12fdb5c36a4fa74a10fb14bbb489a664cae0a2c` is integrated as
+`7d3d472` on the clean external-label candidate `69cdf12`. The native-only commit
+adds explicit positive virial weight/per-atom scale, all-nine-component row-strain
+loss and shared analytic seeds for full CPU/CUDA training. Enabled loss uses
+checkpoint v3 with an immutable loss contract. E/F-only CPU-v1 and CUDA-v2 schemas
+remain compatible; readout QR remains E/F-only. Architecture/model/data bounds
+and native-v1 inference formats are unchanged. No dependency or CUDA kernel
+arithmetic was added; the existing mixed-derivative kernel receives the combined
+force/strain direction. CPU stages remain explicitly documented.
+
+[Final release-binary acceptance](evidence/native-virial-integrated.json) uses
+24 original synthetic frames (18 training / 6 validation). All 112 neural
+parameters change in six CUDA steps. Three-plus-three continuation is exactly
+equal in model, moments, step, split, configuration and execution/loss identity,
+except the intentionally different requested additional-step count. Six-step
+CPU/CUDA parameter differences are at most 1.39e-17, moments 2.22e-16, and exported
+E/F/V 4.44e-16 / 2.22e-16 / 2.22e-16. Reload E/F/V differences are zero. The prior
+E/F-only CUDA-v2 step-3 checkpoint resumed to its saved step-6 state exactly.
+Changed loss weight and changed backend both reject without output directories.
+Five affected CPU-safe tests and the locked offline release build passed.
+
+The short joint fit's held-out total objective changed from 11.18699 to 0.748744;
+virial-per-atom component RMSE changed from 0.102306 to 0.0239598 eV/atom. These
+are software fixture outcomes, not scientific accuracy evidence. B's independent
+derivative checks, historical CPU-v1 compatibility and 300-step/150+150 checks
+remain [separate evidence](native/fixtures/virial-training-report.json) and were
+not broadly repeated. The GPU window ended 2026-10-16 11:38:34 UTC without a retry.
+
+B's tiny 300-step joint-loss training process measured 619 ms CPU versus 1816 ms
+CUDA, including initialization, input IO, updates, checkpoints, assessment,
+reload verification and export. This integration adds no performance claim.
+Earlier E/F-only warm-gradient timings do not establish joint E/F/V acceleration.
+Linux CUDA, large-model throughput and external-label physical accuracy remain
+unverified. Files committed outside native are capability reporting, English
+README/feature/usage/release/roadmap updates, the short replay and compact receipt.
+Generated data/models/checkpoints/binaries/raw logs remain outside Git. No HAP
+material, system configuration changes or public push are included.

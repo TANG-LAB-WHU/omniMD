@@ -159,7 +159,7 @@ see [DeepMD setup and limits](mlmd/deepmd/README.md).
 - Arbitrary DeepMD architectures, hybrid se_e3 or generic .pb/.pth/pickle import.
 - Partial PBC, mixed-type/virtual atoms or automatic unit/type-map guessing.
 - Classical-potential mixing and the full legacy Simulation/Propagator pipeline.
-- Minibatch/end-to-end GPU training, virial-loss training, learned normalization or generic
+- Minibatch/end-to-end GPU training, learned normalization or generic
   DeepMD training compatibility; duplicated one-side embeddings are not tied.
 - Production validation, long-time stability guarantees or general speedup claims.
 
@@ -190,3 +190,10 @@ connects reviewed candidates to a new labeled dataset and explicit CPU retrainin
 Source/return hashes and exact frame/atom/parameter identity are required;
 conflicting labels reject. It preserves dataset v2 context without adding native
 parameterized training, and launches no external calculator or automatic loop.
+
+Full supported-network CPU/CUDA training also accepts optional
+[virial supervision](mlmd/native/VIRIAL_TRAINING.md): all nine row-strain entries,
+explicit per-atom scale/weight and loss-bound checkpoint v3. E/F-only CPU-v1 and
+CUDA-v2 continuation remain compatible. Frozen-readout fitting remains E/F-only.
+The recorded tiny joint-loss full process was 619 ms CPU versus 1816 ms CUDA;
+no training speedup is claimed. This extension is local and unpushed.

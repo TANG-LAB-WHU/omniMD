@@ -56,7 +56,10 @@ with executable commands; pending branch work is not counted as integrated.
   bounded CUDA computes all neural E/F gradients and Adam; CPU inference/loss
   seeds, geometry, stable reduction and assessment remain. CUDA checkpoint v2
   binds execution identity; CPU v1 remains compatible. See [scope](mlmd/native/CUDA_FULL_TRAINING.md).
-- Minibatching, broader activation support, virial loss and scalable training
+- Optional [row-strain virial supervision](mlmd/native/VIRIAL_TRAINING.md) is
+  implemented for full CPU/CUDA training, with explicit weight/per-atom scale and
+  checkpoint v3. Legacy E/F-only checkpoint schemas remain compatible.
+- Minibatching, broader activation support and scalable training
   remain future work; no generic DeepMD training compatibility is claimed.
 - CPU ensemble disagreement and explicit candidate marking are implemented with
   independent population-statistics checks. Hash-bound subset extraction is now
@@ -94,6 +97,55 @@ with executable commands; pending branch work is not counted as integrated.
 - The full CPU tutorial was rerun with the integrated feature-enabled executable
   selecting CPU. CUDA full-gradient/Adam integration is now available within its
   stricter bounds; end-to-end GPU training and generic DeepMD coverage remain missing.
+
+## Remaining substantial compatibility gaps
+
+- Native model coverage remains bounded `se_e2_a` with restricted conversion;
+  `se_e2_r`, `se_e3`/hybrid, attention/DPA, type embeddings, spin and tensor models
+  are not implemented. Two audited frozen graph profiles are not a generic
+  `.pb` importer; native `.pth`/JAX/Paddle import and compression are absent.
+- Training remains full-batch with fixed normalization/atomic offsets and
+  separately documented shape/data/tape budgets. Minibatches, schedules,
+  distributed/multi-task training, tied one-side embeddings and general DeepMD
+  training-file/checkpoint compatibility remain missing. Optional virial loss
+  closes one loss-function gap, without removing those execution restrictions.
+- Engine parameterized models are CPU C API only; native parameterized training,
+  CUDA engine parameter propagation, parameterized minimization/ensembles and
+  shared atomic/tensor outputs remain unsupported. New C API GPU batch/parameter
+  acceptance and Linux native CUDA execution remain unverified.
+- NPT, constraints, domain decomposition, broader classical coupling and external
+  MD ecosystem adapters remain separate simulation gaps. Physical accuracy and
+  production stability have not been established by the software fixtures.
+
+## Next infrastructure priority: scalable joint-gradient execution
+
+Replace the current parameter-by-parameter CUDA differentiation strategy with
+shared-intermediate reverse accumulation for the existing E/F/V loss. This is a
+scaling priority inferred from the implementation's repeated differentiated
+forward work per parameter, not a claim that it dominates every tiny workload.
+Keep supported physics, file contracts and numerical bounds fixed initially.
+CUDA currently caps neural parameters at 2048, width/descriptor width at 32,
+atoms/neighbor slots at 64, frames at 1024 and estimated work at 50 million terms;
+CPU has separate reference limits. Geometry, primal inference/loss seeds and
+stable reduction still execute on CPU.
+
+First profile joint E/F/V at fixed geometry with increasing parameter counts,
+separating CPU preparation/inference/seeds, transfers, gradient kernels, reduction
+and Adam. Replace only the gradient execution strategy; retain the current path
+as an oracle. Check every small-model parameter against it and independent finite
+differences, including nonperiodic/triclinic/self-image cases and off-diagonal
+virials. Verify clipping, legacy/v3 checkpoint behavior and exact same-runtime
+continuation under an explicitly versioned execution identity. Measure memory,
+warmed stages and complete training processes on tiny and near-limit supported
+fixtures before raising any limits. A later increase in supported dimensions
+requires its own correctness/resource acceptance.
+
+The existing tiny joint fit is about 2.93 times slower on CUDA (1816 ms vs 619 ms
+CPU); the earlier 3.46x E/F-only warmed stage cannot be extrapolated to joint
+training. Minibatching and streamed data are the next distinct data-capacity
+problem, but do not remove repeated differentiation per parameter. Automated
+correctness/restart checks should gate the optimization; no claim is made here
+about current CI availability. This priority is proposed, not implemented.
 
 ## Publication gate
 

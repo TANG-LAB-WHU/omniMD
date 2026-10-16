@@ -313,9 +313,9 @@ python mlmd/native/tools/replay_full_training.py --eval-exe /absolute/omnimd-nat
 Append `.exe` to executable paths on Windows. Full-network resume requests replace
 `initial_model` with `checkpoint`, name a new output directory, retain the dataset
 and fixed configuration, and specify additional steps; see the training document.
-Training checkpoints are distinct from MD checkpoints. GPU, minibatch,
-distributed and virial-loss training remain future work. Optional virial labels
-are assessed, not included in the native loss.
+Training checkpoints are distinct from MD checkpoints. Minibatch/distributed
+training remain future work. Optional full-network virial supervision is now
+explicitly available on CPU/CUDA (step 15); readout fitting still uses E/F only.
 
 ## 6. Minimize, run MD and restart
 
@@ -498,7 +498,8 @@ its joint bounds before choosing a device: at most 2048 neural parameters,
 width/descriptor width 32, 64 neighbor slots, 64 atoms/frame and the stated work
 budget. Use tanh embedding/hidden layers and a linear output. Both E and F labels
 are required. Normalization, geometry settings and atomic offsets remain fixed;
-virial is assessed but is not part of the loss.
+virial is assessed by default and can be explicitly enabled in the full-network
+loss as described in step 15.
 
 1. Build the sibling trainer explicitly with CUDA support:
 
@@ -562,3 +563,50 @@ fixture predictions, without launching an external calculation. Calculator
 accuracy, convergence and provenance authenticity remain the user's scientific
 validation responsibilities; no automatic job submission or active learning loop
 is introduced.
+
+## 15. Enable full-network virial supervision explicitly
+
+Start from a full-network request in step 5 or 13, inspect label coverage, and
+add this object inside `config`:
+
+```json
+"virial_loss": {"weight": 1.0, "scale_ev_per_atom": 0.1}
+```
+
+These example scales are not a physical recommendation. Choose scales and weights
+for your declared labels. Both fields must be finite and positive; omit the
+object or use `null` to retain E/F-only training. Every training/validation frame
+then needs all nine finite `labels.virial` entries in eV, `MinusDEpsilonRow`.
+E/F labels remain mandatory even if their loss weights are zero. This option
+applies only to the full trainer, not the frozen-readout QR request.
+
+Run the same `omnimd-mlmd train-native REQUEST.json` command, choosing CPU or an
+explicit CUDA device with the separately built trainer. Read
+[VIRIAL_TRAINING.md](native/VIRIAL_TRAINING.md) for the exact formula: each frame's
+virial is normalized per physical atom, all nine components contribute, and no
+volume/stress conversion or implicit symmetrization occurs. Inspect the separate
+E/F, virial and total normalized objectives and virial-per-atom RMSE in the report.
+Antisymmetric target components cannot be learned by this invariant energy model.
+
+Enabled virial supervision writes checkpoint v3 with the immutable
+`energy-force-row-virial-per-atom-nine-v1` loss contract and configured weight/scale.
+Resume with the same dataset, split, objective and backend into a new output
+directory, specifying additional steps. Changing/enabling/disabling the loss on
+resume rejects. To change the objective intentionally, start a new optimizer
+from exported `model.json`. Absent/null virial loss retains old E/F CPU-v1 and
+CUDA-v2 checkpoint behavior. Existing CUDA execution identity checks still apply.
+
+For a short final-binary integration replay, reserve the GPU and add
+`--virial-loss` to the step-13 `validate_cuda_full_integration.py` command. It runs
+six CUDA steps, exact 3+3 continuation, six CPU reference steps, reload/parity
+checks and a changed-loss rejection. Optional `--legacy-ef-work` points to an old
+six-step E/F integration directory to verify its CUDA-v2 step-3 continuation.
+The script stops on failures without retry. B's separate 300-step evidence is in
+[its report](native/fixtures/virial-training-report.json); this short replay does
+not repeat gradient acceptance or establish physical accuracy or acceleration.
+
+The [final integrated receipt](evidence/native-virial-integrated.json) confirms
+this short v3 replay, CPU/CUDA exported E/F/V differences at most 4.44e-16 /
+2.22e-16 / 2.22e-16, zero serialization/reload difference, rejected changed loss
+and exact continuation of the previously saved E/F-only CUDA-v2 checkpoint.
+These fixture results do not imply cross-platform/runtime exact reproducibility.

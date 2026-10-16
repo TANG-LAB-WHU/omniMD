@@ -273,3 +273,13 @@ E/F labels, preserving source order and v2 parameters. Duplicate/missing frames,
 changed identities and conflicting existing labels reject before output creation.
 See [the complete return-file contract and replay](EXTERNAL_LABELS.md). Neither
 command starts a calculator, model or GPU. Existing training is a separate command.
+
+## Optional virial loss in the sibling full trainer
+
+The engine forwards `config.virial_loss` unchanged for full-network requests;
+see [the complete loss/checkpoint contract](../native/VIRIAL_TRAINING.md).
+Explicit positive weight and eV/atom scale enable all-nine-component row-strain
+virial supervision on CPU or bounded CUDA, with checkpoint v3. The readout QR
+mode remains E/F-only. Absent/null V retains E/F CPU-v1 and CUDA-v2 behavior.
+The [final integration receipt](../evidence/native-virial-integrated.json) records
+short joint training, exact continuation, CPU parity and legacy CUDA-v2 resume.

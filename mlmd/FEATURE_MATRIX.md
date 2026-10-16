@@ -1,6 +1,6 @@
 # DeepMD feature coverage: reference version 3.1.3
 
-Matrix revision 7, checked 2026-10-16. Previous integrated CUDA runtime:
+Matrix revision 8, checked 2026-10-16. Previous integrated CUDA runtime:
 `9b8d1847f892e32751c73d3262e0245d0efb4cdd`. This includes engine inspection/tutorial,
 native source `b6b7aa7` and C API source `1aee39c`. Implementation and real-runtime
 validation are separate. C API CPU follow-up is now verified in `ce27786`
@@ -63,9 +63,10 @@ an official `input.json` is not a native training request.
 | Model disagreement | CPU `model-deviation`: 2..16 retained models, absolute population E/atom, vector F and nine-component V/atom deviations, explicit candidate interval | [Scope and replay](engine/MODEL_DEVIATION.md); native CPU verified; C API ensemble route unverified; no automatic active-learning loop |
 | External label return | Hash-bound job preparation and E/F/optional-V import; exact geometry/atom/parameter identity; fill missing labels, preserve source order/v2 | [Contract and replay](engine/EXTERNAL_LABELS.md); calculator/provenance declarations unverified; no job submission or automatic training |
 | Readout training | CPU default; optional native CUDA E/F/V feature columns, CPU rank-aware QR and assessment, optional bias | Frozen hidden layers; bounded dense solve; [microcase slower on CUDA](native/fixtures/cuda-readout-report.json); separate full-network route below |
-| Full supported-network training | CPU default; optional bounded CUDA all-neural E/F gradients and Adam, tanh/linear, checkpoint/restart | CPU inference/loss seeds/geometry/reduction/assessment retained; fixed normalization/cutoff/selection/atomic offsets; independent one-side copies; [CUDA bounds](native/CUDA_FULL_TRAINING.md) |
+| Full supported-network training | CPU default; optional bounded CUDA all-neural E/F and optional V gradients and Adam, tanh/linear, checkpoint/restart | CPU inference/loss seeds/geometry/reduction/assessment retained; fixed normalization/cutoff/selection/atomic offsets; independent one-side copies; [CUDA bounds](native/CUDA_FULL_TRAINING.md) |
+| Virial supervision | Optional full-network CPU/CUDA loss on all nine row-strain virial entries per atom; explicit positive weight/scale; loss-bound checkpoint v3 | [Contract](native/VIRIAL_TRAINING.md); E/F labels still required; readout QR remains E/F-only; no stress/volume conversion |
 | Split/provenance | Seeded or explicit held-out IDs, dataset/source hashes, validation isolation | No trajectory-independent split guarantee from random frames |
-| Generic DeepMD training options | Missing | End-to-end GPU/minibatch/distributed/multi-task training, learning-rate schedules, virial loss, pretrained fine-tuning and broader architectures |
+| Generic DeepMD training options | Missing | End-to-end GPU/minibatch/distributed/multi-task training, learning-rate schedules, generic pretrained adaptation and broader architectures |
 | Training monitoring | JSON reports and checkpoints | No TensorBoard integration or live monitoring service |
 | Freeze/export | Native training writes native-v1 JSON, reload checked | No native export into generic official training checkpoints or `.pb` |
 | Model information | `capabilities` static and GPU-free; `model-info` loads selected model | Metadata does not prove graph architecture, training units or GPU execution |
@@ -116,6 +117,13 @@ an official `input.json` is not a native training request.
   exact 3+3 model/moment continuation, all 112 parameters changed, zero reload
   E/F/V difference and rejected backend switching. Seven CPU-safe affected
   checks and the final release build passed.
+
+- Optional virial-loss source `d12fdb5` is integrated as `7d3d472`, following the
+  external-label workflow `69cdf12`. [Final short CLI acceptance](evidence/native-virial-integrated.json)
+  records exact v3 3+3 continuation, six-step CPU/CUDA parameter/model parity,
+  unchanged E/F CUDA-v2 continuation and rejected objective/backend changes.
+  B's independent gradient and 300-step evidence remains separate. Tiny complete
+  joint training was slower on CUDA (1816 ms vs CPU 619 ms); no acceleration claim.
 
 ## Implementation order and acceptance gates
 
