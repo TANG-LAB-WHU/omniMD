@@ -52,7 +52,10 @@ with executable commands; pending branch work is not counted as integrated.
 - Full supported tanh network E+F training is integrated: exact mixed
   parameter-coordinate AD, full-batch Adam and deterministic checkpoints.
   Normalization/cutoff/type-map/selection/atomic offsets stay fixed; small-model
-  CPU bounds and independent duplicated one-side networks are explicit.
+  CPU bounds and independent duplicated one-side networks are explicit. Optional
+  bounded CUDA computes all neural E/F gradients and Adam; CPU inference/loss
+  seeds, geometry, stable reduction and assessment remain. CUDA checkpoint v2
+  binds execution identity; CPU v1 remains compatible. See [scope](mlmd/native/CUDA_FULL_TRAINING.md).
 - Minibatching, broader activation support, virial loss and scalable training
   remain future work; no generic DeepMD training compatibility is claimed.
 - CPU ensemble disagreement and explicit candidate marking are implemented with
@@ -87,7 +90,8 @@ with executable commands; pending branch work is not counted as integrated.
   Shared geometry/EFV types are unchanged; one combined call per frame remains.
   TF restart is exact; PT first-call runtime roundoff prevents a bitwise promise.
 - The full CPU tutorial was rerun with the integrated feature-enabled executable
-  selecting CPU. Full-network GPU training and generic DeepMD coverage remain missing.
+  selecting CPU. CUDA full-gradient/Adam integration is now available within its
+  stricter bounds; end-to-end GPU training and generic DeepMD coverage remain missing.
 
 ## Publication gate
 

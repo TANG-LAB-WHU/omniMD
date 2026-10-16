@@ -159,7 +159,8 @@ See [VALIDATION.md](VALIDATION.md) and the committed evidence for exact numbers.
 ## Final native CUDA cache acceptance
 
 This optional inference-only follow-up is local, based on published a74804d.
-CPU stays the default; GPU training remains unimplemented. The recorded run uses
+CPU stays the default. Optional bounded CUDA gradients/Adam now retain CPU
+inference, geometry, reduction and assessment; see [CUDA training](native/CUDA_FULL_TRAINING.md). The recorded run uses
 existing original synthetic inputs and the already converted public regression
 model. It does not use research data or an equilibrated-water accuracy dataset.
 

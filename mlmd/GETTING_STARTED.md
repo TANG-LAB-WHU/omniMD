@@ -5,7 +5,8 @@ This guide covers the MLIP workspace in `mlmd/`, tested at integrated runtime
 [versioned feature matrix](FEATURE_MATRIX.md) before selecting a model. Native
 Rust and official DeepMD FFI are distinct inference paths. CPU is the default;
 CUDA is explicitly selected. Training defaults to CPU; optional CUDA readout
-features keep QR/assessment on CPU, while full-network GPU training is unsupported.
+features keep QR/assessment on CPU. Bounded full-network CUDA gradients and Adam
+retain CPU inference, geometry, reduction and assessment; see step 13.
 
 All commands below run from the repository root. `omnimd-mlmd` means the binary
 built in step 1, not a globally installed program. Use its full path unless you
@@ -388,7 +389,8 @@ inherited visibility mask; the dedicated worker exposes that entry as ordinal
 zero. `model-info` with CUDA loads a context/model, so use `capabilities` when no
 GPU interaction is intended. Rebuilding only the engine keeps the CPU trainer
 beside it. CUDA readout feature generation additionally requires an explicit
-training request device; full-network GPU training remains unsupported.
+training request device. Full-network CUDA gradients/Adam use the same explicit
+selection with stricter shape bounds; see step 13.
 
 For official C API CUDA, no native-cuda feature is needed. Use a matching official
 TensorFlow `.pb` runtime and add actual absolute CUDA runtime/CUPTI paths:
@@ -456,10 +458,10 @@ contains. Keep `"device": "cpu"` (the default) for the normal tutorial.
 
 Read [the precise training-device scope](native/TRAINING.md) first: CUDA computes
 E/F/virial basis columns, while reference predictions, QR and assessment run on
-CPU. Hidden weights stay frozen. Full-network CUDA requests reject before input
-or output work. The recorded 3/4-atom feature microcase was slower on CUDA,
+CPU. Hidden weights stay frozen. The separate full-network route is described
+in step 13. The recorded 3/4-atom feature microcase was slower on CUDA,
 including 21.37 ms feature time versus 5.15 ms CPU and separate 195.88 ms CUDA
-initialization. There is no full-network GPU training or speedup guarantee.
+initialization. This measurement does not establish a training speedup.
 
 ## 11. Extract reviewed candidates for reuse
 
@@ -488,3 +490,56 @@ The TF/PT CPU replay includes same-species parameter-row permutation and every
 moving-frame comparison with standalone C API. TF restart is exact; PT has
 measured runtime first-call roundoff and numerical restart parity. Native,
 engine CUDA, parameterized ensembles/minimization/training remain unsupported.
+
+## 13. Train the supported full network with explicit CUDA
+
+Read [the CUDA full-training contract](native/CUDA_FULL_TRAINING.md) and confirm
+its joint bounds before choosing a device: at most 2048 neural parameters,
+width/descriptor width 32, 64 neighbor slots, 64 atoms/frame and the stated work
+budget. Use tanh embedding/hidden layers and a linear output. Both E and F labels
+are required. Normalization, geometry settings and atomic offsets remain fixed;
+virial is assessed but is not part of the loss.
+
+1. Build the sibling trainer explicitly with CUDA support:
+
+   ```sh
+   cargo build --release --locked --offline --manifest-path mlmd/Cargo.toml -p omnimd-native --features cuda --bins
+   ```
+
+2. Start with the complete full-training request in
+   [FULL_TRAINING.md](native/FULL_TRAINING.md). Keep its dataset/model and explicit
+   split, scales and optimizer settings; add `"device":"cuda:0"`, choose a new
+   output directory, then run `omnimd-mlmd train-native REQUEST.json`.
+3. Verify `report.json` reports `cuda_hyperdual_f64_v1`, nonzero parameter changes,
+   completed optimizer steps, held-out metrics and reload checks. CUDA computes
+   the neural gradients and Adam; CPU inference/loss seeds, geometry, reductions
+   and assessment still run. A CUDA error stops the job; there is no fallback.
+4. Resume using exactly one `checkpoint` instead of `initial_model`, the same
+   device/dataset/fixed configuration, a new output directory and an additional
+   step count. CUDA checkpoint v2 records backend, visible device, reported
+   device information, driver API version and actual PTX hash. CPU v1 remains
+   compatible. Changing backend intentionally starts a new optimizer from the
+   exported native-v1 model, rather than editing checkpoint identity.
+
+B's original synthetic 300-step replay and exact 150+150 continuation are recorded
+in [its evidence](native/fixtures/cuda-full-training-report.json). Small fits were
+slower on CUDA. The separate 3.46x result covers a warmed 64-atom full-gradient
+stage, excluding initialization, Adam and checkpoint IO; it is not an end-to-end
+training speedup. Linux CUDA, large-model scaling and chemical accuracy remain
+unverified. Use an authorized GPU window for any replay.
+
+The final integrated [CLI receipt](evidence/native-cuda-full-integrated.json)
+checks six steps and exact 3+3 continuation through `train-native`, zero export
+reload E/F/V differences and rejected CPU continuation of a CUDA checkpoint.
+To repeat only this short acceptance with already generated original synthetic
+inputs from B's replay (choose a new output directory and reserve the GPU):
+
+```sh
+python mlmd/scripts/validate_cuda_full_integration.py --engine /absolute/omnimd-mlmd --evaluator /absolute/omnimd-native-eval --fixtures /absolute/original-full-training-replay --work /new/integration-output
+```
+
+The fixture directory must contain `initial.json`, `dataset.jsonl`,
+`frames.jsonl` and `continuous.request.json` from the linked full-training replay.
+The sibling CUDA trainer must be beside the engine. The script never retries a
+failed command. This short run verifies integration, not convergence, general
+performance or cross-runtime reproducibility.

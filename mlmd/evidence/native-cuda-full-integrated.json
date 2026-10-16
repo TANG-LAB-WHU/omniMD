@@ -1,0 +1,123 @@
+{
+  "schema": "omnimd-cuda-full-training-integration-v1",
+  "status": "passed",
+  "scope": "Six-step engine CLI integration only; original synthetic 24-frame fixture. Independent gradient and 300-step acceptance remain in B receipt. No performance or chemical-accuracy claim.",
+  "started_utc": "2026-10-16T11:14:08.682059+00:00",
+  "completed_utc": "2026-10-16T11:14:09.804814+00:00",
+  "source_native_commit": "f4dbf62bb4acb97e8f7e12e62de625e08af07a05",
+  "integrated_native_commit": "02b5457",
+  "execution": {
+    "backend": "cuda_hyperdual_f64_v1",
+    "visible_device": 0,
+    "device_info": "NVIDIA GeForce RTX 4090; compute 8.9; FP64; device 0",
+    "driver_version": 13040,
+    "program_sha256": "36793f1f392c7c3a8a13bb6f9dde7b26d810d4e2600cc5cf4c4cb124107f91b9"
+  },
+  "execution_scope": "CUDA all-neural-parameter mixed derivatives and Adam; CPU inference/loss cotangents, geometry, stable atom/frame reduction, clipping and assessment",
+  "frames": 24,
+  "training_frames": 18,
+  "validation_frames": 6,
+  "continuous_steps": 6,
+  "resume_from_step": 3,
+  "resume_additional_steps": 3,
+  "model_and_moments_exact_resume": true,
+  "frozen_model_fields_unchanged": true,
+  "backend_change_rejected_without_output": true,
+  "parameter_changes_from_initial": {
+    "embedding": {
+      "changed": 56,
+      "delta_l2": 0.20031476475777518,
+      "parameters": 56
+    },
+    "fitting_hidden": {
+      "changed": 48,
+      "delta_l2": 0.1475288916335666,
+      "parameters": 48
+    },
+    "fitting_output": {
+      "changed": 8,
+      "delta_l2": 0.04960543911815724,
+      "parameters": 8
+    }
+  },
+  "initial_training": {
+    "energy_per_atom_rmse_ev": 0.07572476790753267,
+    "energy_rmse_ev": 0.29282298278796637,
+    "force_component_rmse_ev_per_angstrom": 0.2841021659652936,
+    "frames": 18,
+    "normalized_ef_objective": 8.830361483640697,
+    "virial_component_rmse_ev": 0.2890119185893984
+  },
+  "final_training": {
+    "energy_per_atom_rmse_ev": 0.015256153885024406,
+    "energy_rmse_ev": 0.04845737565140769,
+    "force_component_rmse_ev_per_angstrom": 0.08525254708336943,
+    "frames": 18,
+    "normalized_ef_objective": 0.8777207694243152,
+    "virial_component_rmse_ev": 0.07985765942466416
+  },
+  "initial_validation": {
+    "energy_per_atom_rmse_ev": 0.06033371156403555,
+    "energy_rmse_ev": 0.23612446270426193,
+    "force_component_rmse_ev_per_angstrom": 0.3178073922785384,
+    "frames": 6,
+    "normalized_ef_objective": 10.140334936324335,
+    "virial_component_rmse_ev": 0.4072473794946535
+  },
+  "final_validation": {
+    "energy_per_atom_rmse_ev": 0.008501676956529028,
+    "energy_rmse_ev": 0.03032445642831017,
+    "force_component_rmse_ev_per_angstrom": 0.07625522961671466,
+    "frames": 6,
+    "normalized_ef_objective": 0.6928297718811282,
+    "virial_component_rmse_ev": 0.07903627018315013
+  },
+  "native_v1_reload_max_abs_energy_force_virial": [
+    0.0,
+    0.0,
+    0.0
+  ],
+  "sha256": {
+    "engine": "8487f15e20b4a51bb61259fc9eec73c6a95baee1d3419b0b82c2bff96b066d2c",
+    "trainer": "995cc31a60003dd491e9f24e575cec67354037768f1e792b9d94a16b7be726e6",
+    "evaluator": "bab679508abb1818d4973f8b3a0a0980a4b2161c4f57c80c41b8adc13a2a7923",
+    "script": "07f5fbb9ff6abd794c98e9704aa67cf7142c3dc96e5e23e0bd2cf6f9f9c12b4e",
+    "dataset": "5669b8e833b0a409e08b328dc3cf9ef9dfebb52d32f8b8495a75d9342b07902a",
+    "initial_model": "407278c6eab122e6dfee2511b3c3fb4c033f58c04819a580ffc0810df3ce7b9a",
+    "export_model": "7add3ae93802f53b4cd821f0fe33e72212e8cd34dfc9e9fa4cb480db35c32ad2",
+    "checkpoint": "edbe5356382e94746d8471a7fb9b062a57fab86662ab3edb2d5a479e2dc9a4cc"
+  },
+  "checks": [
+    {
+      "label": "capabilities",
+      "exit_code": 0
+    },
+    {
+      "label": "continuous",
+      "exit_code": 0
+    },
+    {
+      "label": "resumed",
+      "exit_code": 0
+    },
+    {
+      "label": "export-eval",
+      "exit_code": 0
+    },
+    {
+      "label": "reject-backend",
+      "exit_code": 1
+    }
+  ],
+  "source_sha256": {
+    "replay_full_training.py": "12067135c9b176aad6d24ab7d65081340b85e68825bbaf2a37ec809356cf48bc",
+    "teacher.json": "1113e4f1d49c77756703a0b6f3362615699a6d9bd0686cddbc1c103066fa0bc8"
+  },
+  "host_only_checks": {
+    "cuda_full_training_checkpoint_guards": 1,
+    "training_device_checks": 3,
+    "engine_binary_checks": 3,
+    "ignored_gpu_tests_not_repeated": 3,
+    "release_build": "passed; offline locked workspace engine/native binaries with native-cuda"
+  }
+}

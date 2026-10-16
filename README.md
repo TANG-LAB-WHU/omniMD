@@ -19,9 +19,9 @@ CPU remains the default at every system size. The six-atom C API sample measured
 kernel verification and synchronization included. Separately, the native
 216-atom sample measured a CPU/GPU time ratio of 1.155, while its small cases were
 about 8.4 times slower on GPU. These bounded measurements have different scopes;
-they do not establish general acceleration or long-time stability. Full-network GPU training is not implemented. The local follow-up adds optional
-CUDA E/F/virial feature generation for frozen readout fitting, with CPU QR and
-assessment; its tiny case was slower than CPU. Runtime/subset requirements
+they do not establish general acceleration or long-time stability. Local training extensions include CUDA readout features with CPU QR and bounded
+all-neural-parameter E/F gradients and Adam on CUDA. CPU inference, geometry,
+reduction and assessment remain; tiny training cases were slower on CUDA. Runtime/subset requirements
 are documented under [device selection](mlmd/engine/README.md#explicit-native-cuda-inference).
 The [published CUDA release scope](mlmd/RELEASE.md#published-cuda-release)
 records the code, documentation and compact validation evidence included.
@@ -47,8 +47,11 @@ engine now supports versioned parameter datasets and fixed-parameter CPU C API M
 The local native source `dc5449e` is integrated as `65a7192`: explicit CUDA-assisted
 frozen-readout features, CPU QR and CPU assessment. [Its receipt](mlmd/native/fixtures/cuda-readout-report.json)
 records same-model parity; the 3/4-atom case took 21.37 ms for CUDA features versus
-5.15 ms CPU, plus 195.88 ms CUDA initialization. Full-network GPU derivatives/Adam
-remain unsupported. CPU remains the default; see [training devices](mlmd/native/TRAINING.md).
+5.15 ms CPU, plus 195.88 ms CUDA initialization. Full-network CUDA source `f4dbf62` is integrated as `02b5457`: all supported neural
+E/F gradients and Adam, with CPU inference/loss seeds, geometry, reduction and
+assessment. CPU remains the default; see [the bounds and checkpoint rules](mlmd/native/CUDA_FULL_TRAINING.md).
+The recorded 3.46x ratio concerns a warmed 64-atom gradient stage only; the tiny
+complete training case was slower. This follow-up remains local.
 
 ## Stepwise setup and current feature coverage
 
@@ -152,11 +155,11 @@ see [DeepMD setup and limits](mlmd/deepmd/README.md).
 ## Current limitations
 
 - NPT/barostats, cell relaxation or constraints. Optional CUDA inference is
-  available within the separate scopes above; full-network GPU training is not implemented.
+  available within the separate scopes above; training retains CPU stages.
 - Arbitrary DeepMD architectures, hybrid se_e3 or generic .pb/.pth/pickle import.
 - Partial PBC, mixed-type/virtual atoms or automatic unit/type-map guessing.
 - Classical-potential mixing and the full legacy Simulation/Propagator pipeline.
-- Minibatch/full-network GPU training, virial-loss training, learned normalization or generic
+- Minibatch/end-to-end GPU training, virial-loss training, learned normalization or generic
   DeepMD training compatibility; duplicated one-side embeddings are not tied.
 - Production validation, long-time stability guarantees or general speedup claims.
 

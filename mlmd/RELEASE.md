@@ -380,3 +380,41 @@ Twenty CPU workflow steps and 29 affected engine checks passed; C's integrated
 container was restored to its original stopped state after all work completed.
 No model weights, generated datasets, raw logs, HAP files or diagnostics are
 included in the commit. No publication is authorized by this local integration.
+
+## Local bounded CUDA full-network training integration
+
+Native source `f4dbf62bb4acb97e8f7e12e62de625e08af07a05` is integrated as
+`02b5457`, after the engine parameter commit `c787afc`. Its native-only scope adds
+FP64 all-neural-parameter E/F mixed gradients and Adam, strict joint bounds,
+CPU-v1/CUDA-v2 checkpoint compatibility checks, original fixtures, tests, English
+documentation and compact evidence. Normalization, cutoffs, neighbor selection,
+type map and atomic offsets remain fixed. Virial labels are assessment only.
+CPU inference/loss seeds, geometry, stable reduction/clipping and assessment
+remain in the full training path. There is no new dependency or implicit device
+selection. CPU is the default; the sibling trainer needs an explicit CUDA build.
+
+The final integration changes outside native are capability reporting, English
+coverage/stepwise guides and a short reproducible acceptance script/receipt.
+[Final release-binary evidence](evidence/native-cuda-full-integrated.json) uses
+24 original synthetic frames (18 training / 6 validation), 112 parameters and
+six steps through the engine's `train-native` command. Every parameter changes;
+training objective is 8.83036 to 0.877721 and held-out objective 10.1403 to
+0.692830. These are software-acceptance values, not chemical accuracy evidence.
+Continuous six steps and three-plus-three restart have exactly equal model,
+Adam moments, optimizer step, split and execution identity. Export/reload E/F/V
+differences are all zero. Changing the checkpoint backend to CPU rejects without
+creating a training output directory. CUDA execution reports the RTX 4090,
+FP64 and the same compiled PTX hash as B's acceptance. The GPU window ended at
+2026-10-16 11:14:09 UTC; no retries or driver changes were needed.
+
+Seven affected CPU-safe checks passed; three ignored GPU tests were not rerun.
+The final feature-enabled engine/evaluator/trainer release build used the locked
+offline cache. B's independent gradient, 300-step and 150+150 evidence remains
+[separate](native/fixtures/cuda-full-training-report.json). Its 3.46x result is
+only a warmed 64-atom full-gradient stage; tiny complete training is slower.
+This integration makes no new performance claim. Linux CUDA and representative
+physical training accuracy remain unverified.
+
+Only source, English documentation, original tiny fixtures already in B's commit
+and compact receipts are in Git. Generated inputs/weights/checkpoints, binaries,
+raw logs and HAP material are excluded. This follow-up is local and unpushed.

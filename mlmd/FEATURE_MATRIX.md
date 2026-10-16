@@ -1,6 +1,6 @@
 # DeepMD feature coverage: reference version 3.1.3
 
-Matrix revision 5, checked 2026-10-16. Previous integrated CUDA runtime:
+Matrix revision 6, checked 2026-10-16. Previous integrated CUDA runtime:
 `9b8d1847f892e32751c73d3262e0245d0efb4cdd`. This includes engine inspection/tutorial,
 native source `b6b7aa7` and C API source `1aee39c`. Implementation and real-runtime
 validation are separate. C API CPU follow-up is now verified in `ce27786`
@@ -61,10 +61,10 @@ an official `input.json` is not a native training request.
 | Batch E/F/V assessment | Engine retains one model and streams single-frame calls. C API standalone CLI additionally packs homogeneous multi-frame calls | TF homogeneous C API batch/atomic CPU comparisons passed; engine retains one call per frame, including parameterized TF/PT |
 | Dataset subset selection | Hash-bound explicit IDs; complete input validation; source-order frames, preserved IDs/labels, new contiguous indices and bundle receipt | [Scope and replay](engine/DATASET_SELECTION.md); 10000 IDs / 256 MiB subset bounds; no external labeling or automatic active learning |
 | Model disagreement | CPU `model-deviation`: 2..16 retained models, absolute population E/atom, vector F and nine-component V/atom deviations, explicit candidate interval | [Scope and replay](engine/MODEL_DEVIATION.md); native CPU verified; C API ensemble route unverified; no automatic active-learning loop |
-| Readout training | CPU default; optional native CUDA E/F/V feature columns, CPU rank-aware QR and assessment, optional bias | Frozen hidden layers; bounded dense solve; [microcase slower on CUDA](native/fixtures/cuda-readout-report.json); full-network GPU training missing |
-| Full supported-network training | CPU tanh/linear network, all neural weights/biases/timesteps, exact mixed E/F derivatives, full-batch Adam, checkpoint/restart | Fixed normalization/cutoff/selection/atomic offsets; small-model limits; duplicated one-side weights not tied |
+| Readout training | CPU default; optional native CUDA E/F/V feature columns, CPU rank-aware QR and assessment, optional bias | Frozen hidden layers; bounded dense solve; [microcase slower on CUDA](native/fixtures/cuda-readout-report.json); separate full-network route below |
+| Full supported-network training | CPU default; optional bounded CUDA all-neural E/F gradients and Adam, tanh/linear, checkpoint/restart | CPU inference/loss seeds/geometry/reduction/assessment retained; fixed normalization/cutoff/selection/atomic offsets; independent one-side copies; [CUDA bounds](native/CUDA_FULL_TRAINING.md) |
 | Split/provenance | Seeded or explicit held-out IDs, dataset/source hashes, validation isolation | No trajectory-independent split guarantee from random frames |
-| Generic DeepMD training options | Missing | Full-network GPU/minibatch/distributed/multi-task training, learning-rate schedules, virial loss, pretrained fine-tuning and broader architectures |
+| Generic DeepMD training options | Missing | End-to-end GPU/minibatch/distributed/multi-task training, learning-rate schedules, virial loss, pretrained fine-tuning and broader architectures |
 | Training monitoring | JSON reports and checkpoints | No TensorBoard integration or live monitoring service |
 | Freeze/export | Native training writes native-v1 JSON, reload checked | No native export into generic official training checkpoints or `.pb` |
 | Model information | `capabilities` static and GPU-free; `model-info` loads selected model | Metadata does not prove graph architecture, training units or GPU execution |
@@ -105,6 +105,16 @@ an official `input.json` is not a native training request.
   records TF/PT CPU batch, explicit/default fixed MD and restart. TF replay is
   bitwise exact; PT has measured runtime first-call roundoff, with zero coordinate
   difference and maximum restart velocity difference 2.65e-23 Angstrom/fs.
+
+- Native CUDA full-training source `f4dbf62` is integrated as `02b5457`. B records
+  independent CPU-gradient parity, all 112 parameters trained, 300-step learning
+  and exact 150+150 continuation. The 64-atom 3.46x ratio is a warmed gradient
+  stage measurement; tiny whole training is slower. [B receipt](native/fixtures/cuda-full-training-report.json).
+  Linux CUDA and physical training accuracy remain unverified. The final integrated
+  [engine CLI receipt](evidence/native-cuda-full-integrated.json) records six steps,
+  exact 3+3 model/moment continuation, all 112 parameters changed, zero reload
+  E/F/V difference and rejected backend switching. Seven CPU-safe affected
+  checks and the final release build passed.
 
 ## Implementation order and acceptance gates
 
