@@ -1,0 +1,356 @@
+{
+  "scope": "CPU, original synthetic 2051-frame whitespace-padded input; repeated warm filesystem-cache comparison; no GPU or physical/scaling claim",
+  "frames": 2051,
+  "file_bytes": 134414893,
+  "repeats_per_case_per_executable": 3,
+  "order": "alternating baseline/candidate within each fresh/resume case",
+  "timing_boundaries": {
+    "dataset_open_ms": "complete initial JSONL scan, strict parse and index construction",
+    "state_preparation_ms": "initial model parse plus constructor validation, or checkpoint parse",
+    "before_trainer_ms": "CLI run entry to trainer entry; baseline includes redundant CLI preflight",
+    "trainer_startup_ms": "trainer entry through validation, initialization and initial train/validation assessments, before first update",
+    "before_first_update_ms": "before_trainer_ms + trainer_startup_ms; excludes process launch",
+    "process_ms": "Python subprocess launch through completion, all updates, assessments and exports",
+    "startup_frame_reads": "cumulative indexed frame reads through initial assessments; index scan is counted separately"
+  },
+  "results": {
+    "fresh": {
+      "samples": {
+        "baseline": [
+          {
+            "before_first_update_ms": 973.4472,
+            "before_trainer_ms": 490.41859999999997,
+            "dataset_open_ms": 216.7917,
+            "state_preparation_ms": 133.3692,
+            "trainer_startup_ms": 483.0286,
+            "trainer_validation_and_initialization_ms": 267.441,
+            "process_ms": 2209.9535999877844,
+            "frame_read_ms": 1101.5609999999983,
+            "integrity_verification_ms": 274.2726,
+            "startup_frame_reads": 10255,
+            "frame_reads": 16663,
+            "integrity_verifications": 4,
+            "run": "fresh-baseline-1"
+          },
+          {
+            "before_first_update_ms": 945.0655999999999,
+            "before_trainer_ms": 487.61359999999996,
+            "dataset_open_ms": 208.7908,
+            "state_preparation_ms": 138.8367,
+            "trainer_startup_ms": 457.452,
+            "trainer_validation_and_initialization_ms": 267.8191,
+            "process_ms": 2127.119100012351,
+            "frame_read_ms": 1085.5532999999996,
+            "integrity_verification_ms": 282.261,
+            "startup_frame_reads": 10255,
+            "frame_reads": 16663,
+            "integrity_verifications": 4,
+            "run": "fresh-baseline-2"
+          },
+          {
+            "before_first_update_ms": 944.3904,
+            "before_trainer_ms": 478.64099999999996,
+            "dataset_open_ms": 200.6638,
+            "state_preparation_ms": 139.0669,
+            "trainer_startup_ms": 465.7494,
+            "trainer_validation_and_initialization_ms": 279.1728,
+            "process_ms": 2104.208499978995,
+            "frame_read_ms": 1086.9778999999944,
+            "integrity_verification_ms": 273.9629,
+            "startup_frame_reads": 10255,
+            "frame_reads": 16663,
+            "integrity_verifications": 4,
+            "run": "fresh-baseline-3"
+          }
+        ],
+        "candidate": [
+          {
+            "before_first_update_ms": 692.0977,
+            "before_trainer_ms": 370.7128,
+            "dataset_open_ms": 225.2537,
+            "state_preparation_ms": 137.9802,
+            "trainer_startup_ms": 321.38489999999996,
+            "trainer_validation_and_initialization_ms": 134.74710000000002,
+            "process_ms": 1954.2495999776293,
+            "frame_read_ms": 815.052700000007,
+            "integrity_verification_ms": 273.2597,
+            "startup_frame_reads": 6153,
+            "frame_reads": 12561,
+            "integrity_verifications": 4,
+            "run": "fresh-candidate-1"
+          },
+          {
+            "before_first_update_ms": 687.1872,
+            "before_trainer_ms": 363.58299999999997,
+            "dataset_open_ms": 220.3146,
+            "state_preparation_ms": 138.3022,
+            "trainer_startup_ms": 323.6042,
+            "trainer_validation_and_initialization_ms": 132.3849,
+            "process_ms": 1860.172100015916,
+            "frame_read_ms": 816.6633999999996,
+            "integrity_verification_ms": 276.998,
+            "startup_frame_reads": 6153,
+            "frame_reads": 12561,
+            "integrity_verifications": 4,
+            "run": "fresh-candidate-2"
+          },
+          {
+            "before_first_update_ms": 672.9331,
+            "before_trainer_ms": 356.046,
+            "dataset_open_ms": 204.71,
+            "state_preparation_ms": 145.31150000000002,
+            "trainer_startup_ms": 316.8871,
+            "trainer_validation_and_initialization_ms": 131.8195,
+            "process_ms": 1843.2779000140727,
+            "frame_read_ms": 821.0303000000057,
+            "integrity_verification_ms": 271.6855,
+            "startup_frame_reads": 6153,
+            "frame_reads": 12561,
+            "integrity_verifications": 4,
+            "run": "fresh-candidate-3"
+          }
+        ]
+      },
+      "median_ms": {
+        "baseline": {
+          "before_first_update_ms": 945.0655999999999,
+          "before_trainer_ms": 487.61359999999996,
+          "dataset_open_ms": 208.7908,
+          "state_preparation_ms": 138.8367,
+          "trainer_startup_ms": 465.7494,
+          "trainer_validation_and_initialization_ms": 267.8191,
+          "process_ms": 2127.119100012351,
+          "frame_read_ms": 1086.9778999999944,
+          "integrity_verification_ms": 274.2726
+        },
+        "candidate": {
+          "before_first_update_ms": 687.1872,
+          "before_trainer_ms": 363.58299999999997,
+          "dataset_open_ms": 220.3146,
+          "state_preparation_ms": 138.3022,
+          "trainer_startup_ms": 321.38489999999996,
+          "trainer_validation_and_initialization_ms": 132.3849,
+          "process_ms": 1860.172100015916,
+          "frame_read_ms": 816.6633999999996,
+          "integrity_verification_ms": 273.2597
+        }
+      },
+      "startup_reduction_percent": 27.286825380164082,
+      "process_reduction_percent": 12.549696911418117,
+      "removed_frame_reads": 4102,
+      "all_checkpoint_fields_model_metrics_sampler_exact": true,
+      "historical_final_checkpoint_exact_except_requested_steps": true,
+      "whole_file_verification_count_unchanged": true,
+      "checkpoint_sha256": "dd223ae15a62ad25ac55968fd856c37c47f724c657e449eb2866bc8b41bac9e2"
+    },
+    "resume": {
+      "samples": {
+        "baseline": [
+          {
+            "before_first_update_ms": 819.3022000000001,
+            "before_trainer_ms": 340.0328,
+            "dataset_open_ms": 196.6379,
+            "state_preparation_ms": 0.28049999999999997,
+            "trainer_startup_ms": 479.2694,
+            "trainer_validation_and_initialization_ms": 274.0885,
+            "process_ms": 1518.385200004559,
+            "frame_read_ms": 820.5938000000045,
+            "integrity_verification_ms": 206.94720000000004,
+            "startup_frame_reads": 8204,
+            "frame_reads": 12564,
+            "integrity_verifications": 3,
+            "run": "resume-baseline-1"
+          },
+          {
+            "before_first_update_ms": 880.0727,
+            "before_trainer_ms": 410.2701,
+            "dataset_open_ms": 257.97979999999995,
+            "state_preparation_ms": 0.26580000000000004,
+            "trainer_startup_ms": 469.80260000000004,
+            "trainer_validation_and_initialization_ms": 283.2699,
+            "process_ms": 1585.9791999973822,
+            "frame_read_ms": 826.155300000007,
+            "integrity_verification_ms": 204.9096,
+            "startup_frame_reads": 8204,
+            "frame_reads": 12564,
+            "integrity_verifications": 3,
+            "run": "resume-baseline-2"
+          },
+          {
+            "before_first_update_ms": 794.7079000000001,
+            "before_trainer_ms": 345.47610000000003,
+            "dataset_open_ms": 201.8923,
+            "state_preparation_ms": 0.2671,
+            "trainer_startup_ms": 449.2318,
+            "trainer_validation_and_initialization_ms": 269.37850000000003,
+            "process_ms": 1491.8377000140026,
+            "frame_read_ms": 800.494800000005,
+            "integrity_verification_ms": 203.7688,
+            "startup_frame_reads": 8204,
+            "frame_reads": 12564,
+            "integrity_verifications": 3,
+            "run": "resume-baseline-3"
+          }
+        ],
+        "candidate": [
+          {
+            "before_first_update_ms": 557.2658,
+            "before_trainer_ms": 219.3521,
+            "dataset_open_ms": 213.256,
+            "state_preparation_ms": 0.2943,
+            "trainer_startup_ms": 337.9137,
+            "trainer_validation_and_initialization_ms": 143.9816,
+            "process_ms": 1261.8299000023399,
+            "frame_read_ms": 554.2947000000019,
+            "integrity_verification_ms": 206.6034,
+            "startup_frame_reads": 4102,
+            "frame_reads": 8462,
+            "integrity_verifications": 3,
+            "run": "resume-candidate-1"
+          },
+          {
+            "before_first_update_ms": 555.5257,
+            "before_trainer_ms": 233.483,
+            "dataset_open_ms": 228.6703,
+            "state_preparation_ms": 0.2848,
+            "trainer_startup_ms": 322.0427,
+            "trainer_validation_and_initialization_ms": 135.8523,
+            "process_ms": 1255.4699999745935,
+            "frame_read_ms": 535.7345000000001,
+            "integrity_verification_ms": 208.1218,
+            "startup_frame_reads": 4102,
+            "frame_reads": 8462,
+            "integrity_verifications": 3,
+            "run": "resume-candidate-2"
+          },
+          {
+            "before_first_update_ms": 563.3308,
+            "before_trainer_ms": 228.74159999999998,
+            "dataset_open_ms": 223.9791,
+            "state_preparation_ms": 0.27540000000000003,
+            "trainer_startup_ms": 334.58919999999995,
+            "trainer_validation_and_initialization_ms": 143.7022,
+            "process_ms": 1262.9273000056855,
+            "frame_read_ms": 549.7968999999995,
+            "integrity_verification_ms": 203.6768,
+            "startup_frame_reads": 4102,
+            "frame_reads": 8462,
+            "integrity_verifications": 3,
+            "run": "resume-candidate-3"
+          }
+        ]
+      },
+      "median_ms": {
+        "baseline": {
+          "before_first_update_ms": 819.3022000000001,
+          "before_trainer_ms": 345.47610000000003,
+          "dataset_open_ms": 201.8923,
+          "state_preparation_ms": 0.2671,
+          "trainer_startup_ms": 469.80260000000004,
+          "trainer_validation_and_initialization_ms": 274.0885,
+          "process_ms": 1518.385200004559,
+          "frame_read_ms": 820.5938000000045,
+          "integrity_verification_ms": 204.9096
+        },
+        "candidate": {
+          "before_first_update_ms": 557.2658,
+          "before_trainer_ms": 228.74159999999998,
+          "dataset_open_ms": 223.9791,
+          "state_preparation_ms": 0.2848,
+          "trainer_startup_ms": 334.58919999999995,
+          "trainer_validation_and_initialization_ms": 143.7022,
+          "process_ms": 1261.8299000023399,
+          "frame_read_ms": 549.7968999999995,
+          "integrity_verification_ms": 206.6034
+        }
+      },
+      "startup_reduction_percent": 31.982875183296233,
+      "process_reduction_percent": 16.896588560099822,
+      "removed_frame_reads": 4102,
+      "all_checkpoint_fields_model_metrics_sampler_exact": true,
+      "historical_final_checkpoint_exact_except_requested_steps": true,
+      "whole_file_verification_count_unchanged": true,
+      "checkpoint_sha256": "b01b5ece956a662c64bf7b5152009ab05e7acaf79e31718ab3701a42813d802d"
+    }
+  },
+  "invalid_requests": [
+    {
+      "case": "zero_steps",
+      "nonzero_exit_and_no_output_directory": true,
+      "diagnostic": "native training failed: invalid full trainer Adam configuration (steps must be 1..100000)"
+    },
+    {
+      "case": "cpu_geometry_cache",
+      "nonzero_exit_and_no_output_directory": true,
+      "diagnostic": "native training failed: fixed_geometry_cache requires explicit CUDA full training; no fallback"
+    },
+    {
+      "case": "checkpoint_moments",
+      "nonzero_exit_and_no_output_directory": true,
+      "diagnostic": "native training failed: checkpoint split or Adam state mismatch"
+    }
+  ],
+  "sha256": {
+    "dataset": "39ed91a494cf9d6f74332be0cb94592b339c6aa9cc7411ed280be6a8760b2d12",
+    "initial_model": "407278c6eab122e6dfee2511b3c3fb4c033f58c04819a580ffc0810df3ce7b9a",
+    "resume_checkpoint": "300d7c1110641c65a2570354abba932850a9fded8b324b80fac7ef2962abd0e6",
+    "script": "0fcf16687f659c8a480dee735debaa965b3d995f3ea17fe2336aa74ae5725c0e",
+    "baseline_executable": "bf00dcd528ddb697d89165fe946555cb84dcf434389011e63f13319b07ca8697",
+    "candidate_executable": "526277d34bfa21618b1cddcd3edbf789e57a54b01d71e43562eb129eaefd8979"
+  },
+  "baseline_build": {
+    "kind": "instrumented baseline preserving original duplicate call chain",
+    "base_commit": "be573fe0f91d323932c85e47448b0aace5950f32",
+    "source_sha256": {
+      "src/full_training.rs": "5410cae67200d1abfada7d9f47802df65da9cc4d37a5d19215fd2c72d960a335",
+      "src/bin/omnimd-native-train.rs": "30a6c640ddd332cb25a5b23df1224433a5a8bcb8f5748cb3d4306d48bb3f81b7"
+    },
+    "executable_sha256": "bf00dcd528ddb697d89165fe946555cb84dcf434389011e63f13319b07ca8697",
+    "source_hash_kind": "actual worktree bytes at baseline build; CRLF may differ from Git-normalized bytes"
+  },
+  "platform": {
+    "os": "Windows-11-10.0.26200-SP0",
+    "machine": "AMD64",
+    "gpu_used": false
+  },
+  "checks": {
+    "default": {
+      "passed": 35,
+      "failed": 0,
+      "ignored": 0,
+      "raw_log_sha256": "60ec93da73cc695cb287b3bb60a563dffc2256c8dc41dc15933942a8d317aa84"
+    },
+    "cuda-feature": {
+      "passed": 49,
+      "failed": 0,
+      "ignored": 9,
+      "raw_log_sha256": "d0bf57423d8e5df52a4a8ecf1cc17873c9cc2f6fae257706e8a2a8f641dacee1"
+    },
+    "format": "cargo fmt --manifest-path mlmd/Cargo.toml -p omnimd-native -- --check passed",
+    "build": "cargo build --release --locked --offline --manifest-path mlmd/native/Cargo.toml --features cuda --bins passed"
+  },
+  "remaining_costs": [
+    "initial strict index scan",
+    "independent constructor validation on fresh start",
+    "one trainer validation",
+    "full initial/final assessments",
+    "native-v1 reload verification",
+    "whole-file hashes before publication"
+  ],
+  "limitations": "CPU Windows only in this change; generated synthetic whitespace-padded input, three repeated warm-cache runs, no GPU execution, no generalized throughput or physical-accuracy claim; no dependencies or shared contract changes",
+  "candidate_git_normalized_sha256": {
+    "mlmd/native/INDEXED_TRAINING.md": "f975cf5ac537a5c756167d2223aec422692c2b88c9a08cf91a8c68912c499d81",
+    "mlmd/native/src/bin/omnimd-native-train.rs": "93cd8b14261c7d93bd5e8f0c7aee269bac6d71e2fe0291a5fd373b1d89c8279e",
+    "mlmd/native/src/full_training.rs": "06b3b62f111c9d6c2c561029a70a5477188ce4634d3795f5656f35e2625d60e7",
+    "mlmd/native/tests/indexed_training.rs": "f1bd18ba4db8cdf0c591525bdbd893e09ac2d7cfc1d0f3697a90cff8feb6ae21",
+    "mlmd/native/tools/replay_indexed_startup.py": "38c7072d2c4cad694396830ba0c514b9f1ef01abdc2c7c15190f443abf98c48c"
+  },
+  "candidate_source_hash_kind": "Git-normalized staged bytes; separate from measured executable and execution-worktree replay script hashes",
+  "commands": [
+    "cargo test --locked --offline --manifest-path mlmd/native/Cargo.toml",
+    "cargo test --locked --offline --manifest-path mlmd/native/Cargo.toml --features cuda",
+    "cargo fmt --manifest-path mlmd/Cargo.toml -p omnimd-native -- --check",
+    "cargo build --release --locked --offline --manifest-path mlmd/native/Cargo.toml --features cuda --bins",
+    "python mlmd/native/tools/replay_indexed_startup.py --baseline-exe mlmd/native/fixtures/generated-deepmd/indexed-startup-build-01/baseline.exe --candidate-exe mlmd/native/target/release/omnimd-native-train.exe --fixture-dir mlmd/native/fixtures/generated-deepmd/indexed-training-01 --output-dir mlmd/native/fixtures/generated-deepmd/indexed-startup-01"
+  ]
+}
