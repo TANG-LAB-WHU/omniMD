@@ -16,6 +16,7 @@ fn config(steps: u64) -> FullConfig {
         fixed_geometry_cache: false,
         cuda_gradient: Default::default(),
         cuda_tiling: None,
+        cuda_loss: Default::default(),
         split: Split::Explicit {
             validation_ids: vec!["case/2".into()],
         },

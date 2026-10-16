@@ -17,6 +17,7 @@ fn config(steps: u64) -> FullConfig {
         fixed_geometry_cache: false,
         cuda_gradient: Default::default(),
         cuda_tiling: None,
+        cuda_loss: Default::default(),
         split: Split::Explicit {
             validation_ids: vec!["case/2".into()],
         },
@@ -867,5 +868,390 @@ fn tiled_aggregate_1024_atom_capacity_and_partial_tail() {
     println!(
         "{}",
         serde_json::json!({"aggregate_1024_atom_capacity_bitwise_exact":true,"profile":p})
+    );
+}
+
+#[test]
+fn device_loss_configuration_and_budget_guards_without_driver() {
+    use omnimd_native::full_training::{CudaLoss, CudaTiling};
+    let m = model();
+    let d = dataset(&m);
+    let mut c = config(1);
+    assert!(serde_json::to_value(&c).unwrap().get("cuda_loss").is_none());
+    c.cuda_loss = CudaLoss::Gpu;
+    assert!(Checkpoint::start(&m, &d, &c).is_err());
+    c.cuda_tiling = Some(CudaTiling {
+        max_frames: 16,
+        max_atoms: 512,
+    });
+    assert!(Checkpoint::start(&m, &d, &c).is_err());
+    c.cuda_gradient = CudaGradient::Reverse;
+    let s = Checkpoint::start(&m, &d, &c).unwrap();
+    assert_eq!(s.schema, "omnimd-native-full-checkpoint-v8");
+    assert!(s.validate_for_device(&d, &c, TrainingDevice::Cpu).is_err());
+    s.validate_for_device(&d, &c, TrainingDevice::Cuda { visible_device: 0 })
+        .unwrap();
+    let mut changed = c.clone();
+    changed.cuda_loss = CudaLoss::Cpu;
+    assert!(s
+        .validate_for_device(&d, &changed, TrainingDevice::Cuda { visible_device: 0 })
+        .is_err());
+    let caps = c.cuda_tiling.as_ref().unwrap();
+    for m in [m, medium()] {
+        let old = omnimd_native::cuda::tiled_resources(&m, caps).unwrap();
+        let new = omnimd_native::cuda::device_loss_resources(&m, caps).unwrap();
+        assert!(new.effective_max_atoms <= old.effective_max_atoms);
+        assert!(new.device_loss.as_ref().unwrap().extra_device_bytes > 0);
+        assert!(new.device_at_capacity.peak_device_buffer_bytes <= 64 * 1024 * 1024);
+        assert!(new.host_tile_payload_at_capacity_bytes <= 32 * 1024 * 1024);
+        assert!(new.estimated_scalar_terms_at_capacity <= 50_000_000);
+    }
+}
+#[test]
+#[ignore = "requires an authorized exclusive GPU window"]
+fn device_loss_predictions_seeds_and_cached_gradients() {
+    use omnimd_native::full_training::{CudaLoss, CudaTiling};
+    let caps = CudaTiling {
+        max_frames: 32,
+        max_atoms: 1024,
+    };
+    let mut max_prediction = 0.0_f64;
+    let mut max_seed = 0.0_f64;
+    let mut max_gradient = 0.0_f64;
+    for m in [model(), medium()] {
+        let d = dataset(&m);
+        let mut gpu = CudaFullTrainer::new_device_loss(m.clone(), 0, &caps).unwrap();
+        gpu.set_device_loss_diagnostics(true);
+        let mut reference = CudaFullTrainer::new_tiled(m.clone(), 0, &caps).unwrap();
+        for mode in 0..4 {
+            let mut c = config(1);
+            c.cuda_gradient = CudaGradient::Reverse;
+            c.cuda_tiling = Some(caps.clone());
+            c.cuda_loss = CudaLoss::Gpu;
+            if mode < 3 {
+                c.energy_weight = if mode == 0 { 1.0 } else { 0.0 };
+                c.force_weight = if mode == 1 { 1.0 } else { 0.0 };
+                if mode < 2 {
+                    c.virial_loss = None;
+                }
+            }
+            // Same physical coordinate locations across different frames remain independent.
+            let indices = [0, 1, 2];
+            let (value, g) = gpu
+                .batch_gradient_with_virial(&d, &indices, &c.loss(), c.virial_loss.as_ref())
+                .unwrap();
+            let (expected, rg) = reference
+                .batch_gradient_with_virial(&d, &indices, &c.loss(), c.virial_loss.as_ref())
+                .unwrap();
+            close(value, expected, 2e-11);
+            max_gradient = max_gradient.max(vector_close(&g, &rg, 2e-11));
+            let diag = gpu.device_loss_diagnostics().unwrap();
+            let mut start = 0;
+            let mut total_objective = 0.;
+            for (i, r) in d.frames.iter().enumerate() {
+                let pred = evaluate(&m, &r.frame);
+                let n = r.frame.positions.len();
+                let nf = n as f64;
+                let (es, fs) = (
+                    (c.energy_weight / 3.).sqrt() / nf / c.energy_scale_ev_per_atom,
+                    (c.force_weight / 3.).sqrt() / (3. * nf).sqrt() / c.force_scale_ev_per_angstrom,
+                );
+                let vs = c.virial_loss.as_ref().map_or(0., |v| {
+                    (v.weight / 3. / 9.).sqrt() / nf / v.scale_ev_per_atom
+                });
+                assert_eq!(
+                    &diag.frame_bounds[i * 2..i * 2 + 2],
+                    &[start as i32, (start + n) as i32]
+                );
+                let ep = &diag.frame_predictions[i * 10..i * 10 + 10];
+                let seed = &diag.frame_seeds[i * 11..i * 11 + 11];
+                max_prediction = max_prediction.max(vector_close(
+                    ep,
+                    &[
+                        vec![pred.energy],
+                        pred.virial.into_iter().flatten().collect(),
+                    ]
+                    .concat(),
+                    2e-12,
+                ));
+                let de = pred.energy - r.labels.energy.unwrap();
+                let a = 2. * es * es * de;
+                max_seed = max_seed.max((a - seed[0]).abs());
+                close(a, seed[0], 2e-11);
+                let mut objective = (de * es).powi(2);
+                for atom in 0..n {
+                    for b in 0..3 {
+                        let index = (start + atom) * 3 + b;
+                        let x = pred.forces[atom][b];
+                        let df = x - r.labels.forces.as_ref().unwrap()[atom][b];
+                        close(x, diag.forces[index], 2e-12);
+                        max_prediction = max_prediction.max((x - diag.forces[index]).abs());
+                        let v = 2. * fs * fs * df;
+                        close(v, diag.force_seeds[index], 2e-11);
+                        max_seed = max_seed.max((v - diag.force_seeds[index]).abs());
+                        objective += (df * fs).powi(2);
+                    }
+                }
+                for k in 0..9 {
+                    let dv = pred.virial[k / 3][k % 3] - r.labels.virial.unwrap()[k / 3][k % 3];
+                    let v = if vs > 0. { 2. * vs * vs * dv } else { 0. };
+                    close(v, seed[1 + k], 2e-11);
+                    max_seed = max_seed.max((v - seed[1 + k]).abs());
+                    if vs > 0. {
+                        objective += (dv * vs).powi(2);
+                    }
+                }
+                close(objective, seed[10], 2e-11);
+                total_objective += objective;
+                start += n;
+            }
+            close(total_objective, value, 2e-11);
+            assert_eq!(gpu.last_profile().device_prediction_frames, 3);
+            assert_eq!(gpu.last_profile().prediction_and_seeds_ms, 0.);
+        }
+        // Reuse buffers with fewer atoms/species and disabled virial; no stale seeds.
+        let c = config(1);
+        let a = gpu
+            .batch_gradient_with_virial(&d, &[2], &c.loss(), None)
+            .unwrap();
+        let b = reference
+            .batch_gradient_with_virial(&d, &[2], &c.loss(), None)
+            .unwrap();
+        close(a.0, b.0, 2e-11);
+        max_gradient = max_gradient.max(vector_close(&a.1, &b.1, 2e-11));
+        assert!(gpu.device_loss_diagnostics().unwrap().frame_seeds[1..10]
+            .iter()
+            .all(|v| *v == 0.));
+    }
+    println!(
+        "{}",
+        serde_json::json!({"device_loss_prediction_max_abs":max_prediction,"device_loss_seed_max_abs":max_seed,"device_loss_gradient_max_abs":max_gradient})
+    );
+}
+
+#[test]
+#[ignore = "requires an authorized exclusive GPU window"]
+fn device_loss_analytic_embedding_path_zero_loss_and_failure() {
+    use omnimd_native::full_training::{CudaLoss, CudaTiling};
+    use omnimd_native::{Network, Normalization};
+    let mut m = model();
+    m.type_map = vec!["O".into()];
+    m.atom_energy_bias = vec![0.2];
+    m.descriptor.sel = vec![1];
+    m.descriptor.normalization = vec![Normalization {
+        mean: [0.; 4],
+        std: [1.; 4],
+    }];
+    let weight = 0.4;
+    let bias = 0.1;
+    let alpha = 0.7;
+    m.descriptor.embedding = vec![vec![Network {
+        layers: vec![Layer {
+            weights: vec![vec![weight]],
+            bias: vec![bias],
+            activation: Activation::Tanh,
+            residual: Residual::None,
+            timestep: None,
+        }],
+    }]];
+    m.fitting = vec![Network {
+        layers: vec![Layer {
+            weights: vec![vec![alpha]],
+            bias: vec![-0.2],
+            activation: Activation::Linear,
+            residual: Residual::None,
+            timestep: None,
+        }],
+    }];
+    let delta = [1.1, 0.4, -0.3];
+    let radius = delta.iter().map(|x| x * x).sum::<f64>().sqrt();
+    let g = (weight / radius + bias).tanh();
+    let e = 4. * alpha * g * g / (radius * radius);
+    let derivative =
+        -8. * alpha * (g * weight * (1. - g * g) / radius.powi(4) + g * g / radius.powi(3));
+    let force0 = delta.map(|x| derivative * x / radius);
+    let v = std::array::from_fn::<_, 3, _>(|a| {
+        std::array::from_fn::<_, 3, _>(|b| -delta[a] * force0[b])
+    });
+    let frame = Frame {
+        positions: vec![[0.; 3], delta],
+        species: vec!["O".into(); 2],
+        cell: None,
+        units: m.units,
+    };
+    let mut d = dataset(&model());
+    d.header.type_map = m.type_map.clone();
+    d.frames = vec![DatasetFrame {
+        index: 0,
+        id: "analytic/0".into(),
+        frame,
+        labels: Labels {
+            energy: Some(e + 0.2),
+            forces: Some(vec![force0.map(|x| x + 0.03), force0.map(|x| -x - 0.03)]),
+            virial: Some(v.map(|r| r.map(|x| x + 0.02))),
+        },
+    }];
+    let caps = CudaTiling {
+        max_frames: 4,
+        max_atoms: 64,
+    };
+    let mut c = config(1);
+    c.cuda_gradient = CudaGradient::Reverse;
+    c.cuda_tiling = Some(caps.clone());
+    c.cuda_loss = CudaLoss::Gpu;
+    let mut gpu = CudaFullTrainer::new_device_loss(m.clone(), 0, &caps).unwrap();
+    gpu.set_device_loss_diagnostics(true);
+    let (_, gradient) = gpu
+        .batch_gradient_with_virial(&d, &[0], &c.loss(), c.virial_loss.as_ref())
+        .unwrap();
+    let diag = gpu.device_loss_diagnostics().unwrap();
+    close(diag.frame_predictions[0], e, 1e-13);
+    vector_close(
+        &diag.forces,
+        &[force0.to_vec(), force0.map(|x| -x).to_vec()].concat(),
+        1e-13,
+    );
+    vector_close(
+        &diag.frame_predictions[1..10],
+        &v.into_iter().flatten().collect::<Vec<_>>(),
+        1e-13,
+    );
+    let layout = ParameterLayout::new(&m).unwrap();
+    let values = layout.values(&m);
+    let mut fd_max = 0.0_f64;
+    for k in 0..values.len() {
+        let h = 1e-5;
+        let mut plus = m.clone();
+        let mut minus = m.clone();
+        let mut x = values.clone();
+        x[k] += h;
+        layout.apply(&mut plus, &x).unwrap();
+        x[k] -= 2. * h;
+        layout.apply(&mut minus, &x).unwrap();
+        let fd = (gradient_fn(&plus, &d.frames[0], &c) - gradient_fn(&minus, &d.frames[0], &c))
+            / (2. * h);
+        close(fd, gradient[k], 2e-7);
+        fd_max = fd_max.max((fd - gradient[k]).abs());
+    }
+    // Use device predictions as labels to require exactly zero residual/seed/direction.
+    d.frames[0].labels.energy = Some(diag.frame_predictions[0]);
+    d.frames[0].labels.forces = Some(
+        diag.forces
+            .chunks_exact(3)
+            .map(|r| [r[0], r[1], r[2]])
+            .collect(),
+    );
+    d.frames[0].labels.virial = Some(std::array::from_fn(|a| {
+        std::array::from_fn(|b| diag.frame_predictions[1 + 3 * a + b])
+    }));
+    let (z, gz) = gpu
+        .batch_gradient_with_virial(&d, &[0], &c.loss(), c.virial_loss.as_ref())
+        .unwrap();
+    assert_eq!(z, 0.);
+    assert!(gz.iter().all(|x| *x == 0.));
+    assert!(gpu
+        .device_loss_diagnostics()
+        .unwrap()
+        .directions
+        .iter()
+        .all(|x| *x == 0.));
+    // Overflow on a later tile must leave the pre-update model/moments untouched.
+    let mut broken = dataset(&model());
+    broken.frames[1].labels.energy = Some(1e308);
+    let mut failing = CudaFullTrainer::new_device_loss(
+        model(),
+        0,
+        &CudaTiling {
+            max_frames: 1,
+            max_atoms: 64,
+        },
+    )
+    .unwrap();
+    let before = serde_json::to_vec(failing.model()).unwrap();
+    let moment = failing.moments().0.to_vec();
+    assert!(failing
+        .batch_gradient_with_virial(&broken, &[0, 1], &c.loss(), c.virial_loss.as_ref())
+        .unwrap_err()
+        .0
+        .contains("nonfinite CUDA"));
+    assert_eq!(failing.last_profile().tiles, 1);
+    assert_eq!(before, serde_json::to_vec(failing.model()).unwrap());
+    assert_eq!(moment, failing.moments().0);
+    assert!(failing
+        .adam_step(&vec![0.; 112], &c)
+        .unwrap_err()
+        .0
+        .contains("earlier failure"));
+    println!(
+        "{}",
+        serde_json::json!({"nonconstant_embedding_analytic_EFV_passed":true,"finite_difference_gradient_max_abs":fd_max,"exact_zero_loss_directions_gradients":true,"later_tile_nonfinite_update_not_committed":true})
+    );
+}
+fn gradient_fn(m: &Model, r: &DatasetFrame, c: &FullConfig) -> f64 {
+    gradient(m, r, c, 1).0
+}
+
+#[test]
+#[ignore = "requires an authorized exclusive GPU window"]
+fn device_loss_large_tile_reuse_clipped_updates_and_boundaries() {
+    use omnimd_native::full_training::{CudaLoss, CudaTiling};
+    let m = model();
+    let layout = ParameterLayout::new(&m).unwrap();
+    let mut d = dataset(&m);
+    d.frames = (0..33)
+        .map(|i| {
+            let mut r = pair_record(&m, 32);
+            r.index = i;
+            r.id = format!("capacity/{i}");
+            r
+        })
+        .collect();
+    let caps = CudaTiling {
+        max_frames: 32,
+        max_atoms: 1024,
+    };
+    let mut gpu = CudaFullTrainer::new_device_loss(m.clone(), 0, &caps).unwrap();
+    let mut reference = CudaFullTrainer::new_tiled(m, 0, &caps).unwrap();
+    let mut c = config(1);
+    c.cuda_gradient = CudaGradient::Reverse;
+    c.cuda_tiling = Some(caps);
+    c.cuda_loss = CudaLoss::Gpu;
+    c.gradient_clip_norm = Some(0.01);
+    let mut maximum = 0.0_f64;
+    for indices in [(0..33).collect::<Vec<_>>(), vec![2], vec![3, 0, 2]] {
+        let (a, mut g) = gpu
+            .batch_gradient_with_virial(&d, &indices, &c.loss(), c.virial_loss.as_ref())
+            .unwrap();
+        let (b, mut h) = reference
+            .batch_gradient_with_virial(&d, &indices, &c.loss(), c.virial_loss.as_ref())
+            .unwrap();
+        close(a, b, 2e-11);
+        maximum = maximum.max(vector_close(&g, &h, 2e-11));
+        if indices.len() == 33 {
+            assert_eq!(gpu.last_profile().max_atoms_per_launch, 1024);
+            assert_eq!(gpu.last_profile().tiles, 2);
+        }
+        for vector in [&mut g, &mut h] {
+            let norm = vector.iter().fold(0.0_f64, |a, v| a.hypot(*v));
+            assert!(norm > 0.01);
+            for x in vector {
+                *x *= 0.01 / norm;
+            }
+        }
+        gpu.adam_step(&g, &c).unwrap();
+        let mut old = c.clone();
+        old.cuda_loss = CudaLoss::Cpu;
+        reference.adam_step(&h, &old).unwrap();
+        maximum = maximum.max(vector_close(
+            &layout.values(gpu.model()),
+            &layout.values(reference.model()),
+            2e-11,
+        ));
+        maximum = maximum.max(vector_close(gpu.moments().0, reference.moments().0, 2e-11));
+        maximum = maximum.max(vector_close(gpu.moments().1, reference.moments().1, 2e-11));
+    }
+    println!(
+        "{}",
+        serde_json::json!({"device_loss_capacity_1024_grow_shrink_and_clipped_adam_max_abs":maximum})
     );
 }

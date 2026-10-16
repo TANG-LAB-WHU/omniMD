@@ -8,7 +8,7 @@ use crate::{
     fixed_geometry::{FixedGeometryCache, FixedGeometryStats},
     full_gradient::ParameterLayout,
     full_loss::{validate_loss, validate_record, LossSeeds, VirialLoss},
-    full_training::{Checkpoint, CudaGradient, CudaTiling, FullConfig, FullExecution},
+    full_training::{Checkpoint, CudaGradient, CudaLoss, CudaTiling, FullConfig, FullExecution},
     neighbor::Geometry,
     training::TrainConfig,
     training_data::{Dataset, DatasetFrame},
@@ -18,6 +18,14 @@ use omnimd_ml_contract::{Error, Potential, Result};
 #[path = "tiled.rs"]
 mod tiled;
 pub use tiled::TiledResources;
+#[path = "device_loss.rs"]
+pub(crate) mod device_loss;
+pub use device_loss::{DeviceLossDiagnostics, DeviceLossResources};
+pub fn device_loss_resources(model: &Model, config: &CudaTiling) -> Result<TiledResources> {
+    let (p, _, s) = packed(model)?;
+    let plan = ReversePlan::new(model, &p, &s)?;
+    device_loss::plan_resources(model, &plan, config)
+}
 pub fn tiled_resources(model: &Model, config: &CudaTiling) -> Result<TiledResources> {
     let (p, _, s) = packed(model)?;
     let plan = ReversePlan::new(model, &p, &s)?;
@@ -135,6 +143,7 @@ pub fn reverse_resources(model: &Model, atoms: usize) -> Result<ReverseResources
 #[derive(Clone, Copy, Default, Debug, serde::Serialize)]
 pub struct FullGradientProfile {
     pub frames: usize,
+    pub device_prediction_frames: usize,
     pub tiles: usize,
     pub kernel_launches: usize,
     pub synchronizations: usize,
@@ -152,6 +161,7 @@ pub struct FullGradientProfile {
 impl FullGradientProfile {
     pub fn add(&mut self, p: Self) {
         self.frames += p.frames;
+        self.device_prediction_frames += p.device_prediction_frames;
         self.tiles += p.tiles;
         self.kernel_launches += p.kernel_launches;
         self.synchronizations += p.synchronizations;
@@ -177,6 +187,9 @@ pub struct CudaFullTrainer {
     runtime: Runtime,
     reverse: Option<ReversePlan>,
     tiled: Option<TiledResources>,
+    device_loss: bool,
+    capture_device_loss: bool,
+    device_loss_diagnostics: Option<DeviceLossDiagnostics>,
     profile: FullGradientProfile,
     step: u64,
     maximum_center_terms: u64,
@@ -191,10 +204,27 @@ impl CudaFullTrainer {
         Self::new_with_gradient(model, device, CudaGradient::Hyperdual)
     }
     pub fn new_with_gradient(model: Model, device: i32, gradient: CudaGradient) -> Result<Self> {
-        Self::build(model, None, device, gradient, None)
+        Self::build(model, None, device, gradient, None, CudaLoss::Cpu)
     }
     pub fn new_tiled(model: Model, device: i32, config: &CudaTiling) -> Result<Self> {
-        Self::build(model, None, device, CudaGradient::Reverse, Some(config))
+        Self::build(
+            model,
+            None,
+            device,
+            CudaGradient::Reverse,
+            Some(config),
+            CudaLoss::Cpu,
+        )
+    }
+    pub fn new_device_loss(model: Model, device: i32, config: &CudaTiling) -> Result<Self> {
+        Self::build(
+            model,
+            None,
+            device,
+            CudaGradient::Reverse,
+            Some(config),
+            CudaLoss::Gpu,
+        )
     }
     pub fn tiling_resources(&self) -> Option<&TiledResources> {
         self.tiled.as_ref()
@@ -206,6 +236,7 @@ impl CudaFullTrainer {
             device,
             state.config.cuda_gradient,
             state.config.cuda_tiling.as_ref(),
+            state.config.cuda_loss,
         )
     }
     fn build(
@@ -214,6 +245,7 @@ impl CudaFullTrainer {
         device: i32,
         gradient: CudaGradient,
         tiling: Option<&CudaTiling>,
+        loss: CudaLoss,
     ) -> Result<Self> {
         if device < 0 {
             return Err(Error(
@@ -242,30 +274,71 @@ impl CudaFullTrainer {
                 let plan = reverse
                     .as_ref()
                     .ok_or_else(|| Error("tiling requires reverse CUDA".into()))?;
-                tiled::plan_resources(&model, plan, c)
+                if loss == CudaLoss::Gpu {
+                    device_loss::plan_resources(&model, plan, c)
+                } else {
+                    tiled::plan_resources(&model, plan, c)
+                }
             })
             .transpose()?;
         let tiled_source = if tiled.is_some() {
-            Some(reverse.as_ref().unwrap().tiled_source()?)
+            let source = reverse.as_ref().unwrap().tiled_source()?;
+            Some(if loss == CudaLoss::Gpu {
+                format!("{source}\n{}", include_str!("device_loss_kernels.cu"))
+            } else {
+                source
+            })
         } else {
             None
         };
-        let mut runtime = match &reverse {
-            Some(p) => Runtime::with_functions(
-                tiled_source.as_ref().unwrap_or(&p.source),
+        let mut runtime = if loss == CudaLoss::Gpu {
+            Runtime::with_functions(
+                tiled_source
+                    .as_ref()
+                    .ok_or_else(|| Error("device loss requires tiling".into()))?,
                 device,
                 &[
-                    "reverse_embed",
+                    "loss_primal_embed",
                     "full_adam",
-                    "reverse_fit",
+                    "loss_primal_fit",
+                    "loss_edge_gradient",
+                    "loss_predictions",
+                    "loss_seeds",
+                    "loss_directions",
+                    "loss_dual_embed",
+                    "loss_dual_fit",
                     "reverse_embedding_backward",
                     "reverse_reduce",
                 ],
-                if tiled.is_some() { 17 } else { 16 },
-            )?,
-            None => Runtime::with_functions(&source, device, &["full_gradient", "full_adam"], 12)?,
+                31,
+            )?
+        } else {
+            match &reverse {
+                Some(p) => Runtime::with_functions(
+                    tiled_source.as_ref().unwrap_or(&p.source),
+                    device,
+                    &[
+                        "reverse_embed",
+                        "full_adam",
+                        "reverse_fit",
+                        "reverse_embedding_backward",
+                        "reverse_reduce",
+                    ],
+                    if tiled.is_some() { 17 } else { 16 },
+                )?,
+                None => {
+                    Runtime::with_functions(&source, device, &["full_gradient", "full_adam"], 12)?
+                }
+            }
         };
-        let execution = if tiled.is_some() {
+        let execution = if loss == CudaLoss::Gpu {
+            FullExecution::CudaTiledDeviceLossF64V1 {
+                visible_device: device,
+                device_info: runtime.device_info.clone(),
+                driver_version: runtime.driver_version,
+                program_sha256: runtime.program_sha256.clone(),
+            }
+        } else if tiled.is_some() {
             FullExecution::CudaTiledReverseF64V1 {
                 visible_device: device,
                 device_info: runtime.device_info.clone(),
@@ -300,10 +373,16 @@ impl CudaFullTrainer {
         if let Some(p) = &reverse {
             runtime.upload(15, &p.parameter_network)?;
         }
+        if loss == CudaLoss::Gpu {
+            runtime.upload(30, &model.atom_energy_bias)?;
+        }
         let maximum_center_terms = center_terms(&model);
         Ok(Self {
             reverse,
             tiled,
+            device_loss: loss == CudaLoss::Gpu,
+            capture_device_loss: false,
+            device_loss_diagnostics: None,
             profile: FullGradientProfile::default(),
             maximum_center_terms,
             cpu: NativePotential::new(model)?,

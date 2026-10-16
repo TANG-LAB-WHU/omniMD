@@ -9,7 +9,10 @@ feature/CPU-QR mode, and is not an end-to-end GPU training system.
 
 The default hyperdual gradient executor described below is retained as a numerical
 reference. An opt-in [cached reverse executor](CUDA_REVERSE_TRAINING.md) removes
-per-parameter network forward replay under the same supported bounds.
+per-parameter network forward replay under the same supported bounds. Optional
+[tiled GPU prediction/seeds](DEVICE_LOSS_TRAINING.md) additionally reuse primal
+intermediates and select v8. The table and hyperdual derivation below describe
+the default CPU-loss path; geometry/reduction/assessment remain on CPU in both.
 
 ## Computation and bounds
 

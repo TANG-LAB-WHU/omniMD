@@ -234,3 +234,12 @@ existing reverse chain rule and Adam implementation; no external batching kernel
 training source or additional dependency is incorporated. Teacher weights and
 labels are original synthetic data. Existing mathematical references and NVIDIA
 runtime terms remain applicable; no algorithmic novelty is claimed.
+
+## Tiled GPU prediction and detached loss seeds
+
+The first-order reverse, deterministic frame gather, detached cotangent kernels,
+primal/directional cache reuse, v8 identity, resource accounting and synthetic
+verification are independently written MIT code. They use the existing chain
+rule, row-strain virial and Adam formulas. No external GPU training source or
+new dependency was incorporated. Original synthetic fixtures and the existing
+mathematical/NVIDIA runtime notices remain applicable.

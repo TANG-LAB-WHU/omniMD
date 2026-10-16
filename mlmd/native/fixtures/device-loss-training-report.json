@@ -1,0 +1,802 @@
+{
+  "schema": "omnimd-native-device-loss-training-evidence-v1",
+  "created_utc": "2026-10-16T15:30:10.407140+00:00",
+  "base_commit": "f6030da6cef085e37bd2d135878c591218f30b2e",
+  "branch": "mlmd/native-gpu-loss",
+  "scope": "original synthetic bounded GPU prediction/loss preparation; no physical validation or general scaling claim",
+  "process_measurement": "Complete Windows subprocess wall time and PeakWorkingSetSize, including startup, validation, assessment, checkpoint/export IO; three alternating-order repetitions",
+  "budget_scope": "64 MiB explicit device buffers; 32 MiB host tile payload, including reserved optional last-tile diagnostics; 50M estimated work policy. Excludes context/module/kernel local memory, allocator, CPU geometry/preparing frame, model/optimizer/cache/index/report/checkpoint. No total VRAM or RSS cap.",
+  "verification": {
+    "cpu_tests_passed": 40,
+    "cuda_feature_without_gpu_tests_passed": 57,
+    "actual_gpu_tests_passed": 4,
+    "actual_gpu_checks": [
+      {
+        "exact_zero_loss_directions_gradients": true,
+        "finite_difference_gradient_max_abs": 4.843791145958676e-09,
+        "later_tile_nonfinite_update_not_committed": true,
+        "nonconstant_embedding_analytic_EFV_passed": true
+      },
+      {
+        "device_loss_capacity_1024_grow_shrink_and_clipped_adam_max_abs": 4.107825191113079e-15
+      },
+      {
+        "device_loss_gradient_max_abs": 4.440892098500626e-15,
+        "device_loss_prediction_max_abs": 4.440892098500626e-16,
+        "device_loss_seed_max_abs": 8.881784197001252e-16
+      },
+      {
+        "changed_mode_schema_capacity_ptx_rejected": true,
+        "device_loss_resume_splits": [
+          2,
+          3,
+          4
+        ],
+        "execution": {
+          "backend": "cuda_tiled_device_loss_f64_v1",
+          "device_info": "NVIDIA GeForce RTX 4090; compute 8.9; FP64; device 0",
+          "driver_version": 13040,
+          "program_sha256": "f26057c92ce96ade4df2749bd2041cf13eb0e3534d208a46a908bb176f14cab6",
+          "visible_device": 0
+        },
+        "indexed_to_memory_and_cache_off_exact": true,
+        "resources": {
+          "device_at_capacity": {
+            "atoms": 7,
+            "cache_bytes": 39984,
+            "descriptor_adjoint_bytes": 896,
+            "peak_device_buffer_bytes": 89676,
+            "policy_limit_bytes": 67108864,
+            "slot_gradient_bytes": 12544
+          },
+          "device_loss": {
+            "estimated_extra_terms_per_atom": 4004,
+            "extra_device_bytes": 18132,
+            "extra_host_reserved_bytes": 18596
+          },
+          "effective_max_atoms": 7,
+          "estimated_scalar_terms_at_capacity": 224028,
+          "host_tile_payload_at_capacity_bytes": 34048,
+          "host_tile_payload_policy_limit_bytes": 33554432,
+          "maximum_center_terms": 250,
+          "requested": {
+            "max_atoms": 7,
+            "max_frames": 2
+          },
+          "scalar_work_policy_limit": 50000000
+        }
+      }
+    ],
+    "successful_training_processes": 16,
+    "invalid_cli_requests_rejected": 12
+  },
+  "whole_process_replay": {
+    "scope": "original synthetic bounded GPU prediction/loss preparation; no physical validation or general scaling claim",
+    "process_measurement": "Complete Windows subprocess wall time and PeakWorkingSetSize, including startup, validation, assessment, checkpoint/export IO; three alternating-order repetitions",
+    "cases": [
+      {
+        "case": "tiny",
+        "parameters": 112,
+        "frames": 128,
+        "training_frames": 120,
+        "validation_frames": 8,
+        "processed_frames": 3840,
+        "steps": 128,
+        "atoms_min": 3,
+        "atoms_max": 4,
+        "medians": {
+          "cpu-loss": {
+            "whole_process_ms": 604.5322999998461,
+            "gradient_ms": 159.17479999999998,
+            "max_process_peak_working_set_bytes": 136470528,
+            "frames_per_whole_process_second": 6352.017915338812
+          },
+          "gpu-loss": {
+            "whole_process_ms": 756.0272999980953,
+            "gradient_ms": 126.49870000000007,
+            "max_process_peak_working_set_bytes": 137682944,
+            "frames_per_whole_process_second": 5079.181664484437
+          }
+        },
+        "whole_process_speed_ratio": 0.7996170244134957,
+        "gradient_speed_ratio": 1.2583117454961978,
+        "runs": [
+          {
+            "mode": "cpu-loss",
+            "repeat": 0,
+            "process": {
+              "process_ms": 680.1185999938753,
+              "peak_working_set_bytes": 136421376
+            },
+            "timing": {
+              "adam_ms": 13.126600000000002,
+              "assessment_ms": 9.4152,
+              "gradient_ms": 143.2477,
+              "initialization_ms": 321.42789999999997,
+              "startup_frame_reads": 504,
+              "startup_ms": 326.0325
+            },
+            "profile": {
+              "device_prediction_frames": 0,
+              "download_ms": 12.675299999999995,
+              "frames": 3840,
+              "geometry_ms": 2.4297999999999997,
+              "kernel_launches": 1024,
+              "kernels_and_sync_ms": 18.036900000000006,
+              "max_atoms_per_launch": 62,
+              "max_frames_per_launch": 16,
+              "peak_device_buffer_bytes": 598004,
+              "peak_host_tile_payload_bytes": 588912,
+              "prediction_and_seeds_ms": 57.99559999999997,
+              "reduction_ms": 0.8508999999999995,
+              "synchronizations": 256,
+              "tiles": 256,
+              "upload_ms": 16.841800000000003
+            }
+          },
+          {
+            "mode": "gpu-loss",
+            "repeat": 0,
+            "process": {
+              "process_ms": 785.3792999812867,
+              "peak_working_set_bytes": 136916992
+            },
+            "timing": {
+              "adam_ms": 13.441400000000002,
+              "assessment_ms": 9.963000000000001,
+              "gradient_ms": 126.49870000000007,
+              "initialization_ms": 566.1667,
+              "startup_frame_reads": 504,
+              "startup_ms": 570.8664
+            },
+            "profile": {
+              "device_prediction_frames": 3840,
+              "download_ms": 12.529,
+              "frames": 3840,
+              "geometry_ms": 6.6651000000000025,
+              "kernel_launches": 2560,
+              "kernels_and_sync_ms": 31.31170000000002,
+              "max_atoms_per_launch": 62,
+              "max_frames_per_launch": 16,
+              "peak_device_buffer_bytes": 757996,
+              "peak_host_tile_payload_bytes": 1355008,
+              "prediction_and_seeds_ms": 0.0,
+              "reduction_ms": 0.8319999999999996,
+              "synchronizations": 256,
+              "tiles": 256,
+              "upload_ms": 35.530300000000004
+            }
+          },
+          {
+            "mode": "gpu-loss",
+            "repeat": 1,
+            "process": {
+              "process_ms": 729.1167000075802,
+              "peak_working_set_bytes": 137682944
+            },
+            "timing": {
+              "adam_ms": 12.664800000000001,
+              "assessment_ms": 9.7314,
+              "gradient_ms": 117.6229,
+              "initialization_ms": 517.2869,
+              "startup_frame_reads": 504,
+              "startup_ms": 522.3532
+            },
+            "profile": {
+              "device_prediction_frames": 3840,
+              "download_ms": 11.812500000000009,
+              "frames": 3840,
+              "geometry_ms": 4.940099999999997,
+              "kernel_launches": 2560,
+              "kernels_and_sync_ms": 30.319399999999998,
+              "max_atoms_per_launch": 62,
+              "max_frames_per_launch": 16,
+              "peak_device_buffer_bytes": 757996,
+              "peak_host_tile_payload_bytes": 1355008,
+              "prediction_and_seeds_ms": 0.0,
+              "reduction_ms": 0.8946,
+              "synchronizations": 256,
+              "tiles": 256,
+              "upload_ms": 32.8058
+            }
+          },
+          {
+            "mode": "cpu-loss",
+            "repeat": 1,
+            "process": {
+              "process_ms": 580.6697999942116,
+              "peak_working_set_bytes": 136101888
+            },
+            "timing": {
+              "adam_ms": 13.094499999999995,
+              "assessment_ms": 9.657599999999999,
+              "gradient_ms": 159.17479999999998,
+              "initialization_ms": 329.1292,
+              "startup_frame_reads": 504,
+              "startup_ms": 334.0621
+            },
+            "profile": {
+              "device_prediction_frames": 0,
+              "download_ms": 11.9699,
+              "frames": 3840,
+              "geometry_ms": 2.656699999999999,
+              "kernel_launches": 1024,
+              "kernels_and_sync_ms": 18.422100000000004,
+              "max_atoms_per_launch": 62,
+              "max_frames_per_launch": 16,
+              "peak_device_buffer_bytes": 598004,
+              "peak_host_tile_payload_bytes": 588912,
+              "prediction_and_seeds_ms": 69.17930000000001,
+              "reduction_ms": 0.9020999999999996,
+              "synchronizations": 256,
+              "tiles": 256,
+              "upload_ms": 17.97459999999999
+            }
+          },
+          {
+            "mode": "cpu-loss",
+            "repeat": 2,
+            "process": {
+              "process_ms": 604.5322999998461,
+              "peak_working_set_bytes": 136470528
+            },
+            "timing": {
+              "adam_ms": 14.377699999999997,
+              "assessment_ms": 14.0276,
+              "gradient_ms": 167.38449999999997,
+              "initialization_ms": 336.9314,
+              "startup_frame_reads": 504,
+              "startup_ms": 344.8163
+            },
+            "profile": {
+              "device_prediction_frames": 0,
+              "download_ms": 12.863200000000004,
+              "frames": 3840,
+              "geometry_ms": 2.8733999999999997,
+              "kernel_launches": 1024,
+              "kernels_and_sync_ms": 19.26390000000001,
+              "max_atoms_per_launch": 62,
+              "max_frames_per_launch": 16,
+              "peak_device_buffer_bytes": 598004,
+              "peak_host_tile_payload_bytes": 588912,
+              "prediction_and_seeds_ms": 64.21419999999999,
+              "reduction_ms": 1.0643,
+              "synchronizations": 256,
+              "tiles": 256,
+              "upload_ms": 23.257400000000004
+            }
+          },
+          {
+            "mode": "gpu-loss",
+            "repeat": 2,
+            "process": {
+              "process_ms": 756.0272999980953,
+              "peak_working_set_bytes": 137093120
+            },
+            "timing": {
+              "adam_ms": 14.217500000000001,
+              "assessment_ms": 10.499600000000001,
+              "gradient_ms": 129.1529,
+              "initialization_ms": 523.4391,
+              "startup_frame_reads": 504,
+              "startup_ms": 528.8380000000001
+            },
+            "profile": {
+              "device_prediction_frames": 3840,
+              "download_ms": 12.299199999999997,
+              "frames": 3840,
+              "geometry_ms": 5.424300000000001,
+              "kernel_launches": 2560,
+              "kernels_and_sync_ms": 32.88499999999999,
+              "max_atoms_per_launch": 62,
+              "max_frames_per_launch": 16,
+              "peak_device_buffer_bytes": 757996,
+              "peak_host_tile_payload_bytes": 1355008,
+              "prediction_and_seeds_ms": 0.0,
+              "reduction_ms": 0.8751,
+              "synchronizations": 256,
+              "tiles": 256,
+              "upload_ms": 38.645999999999965
+            }
+          }
+        ],
+        "historical": {
+          "process": {
+            "process_ms": 663.3485999773256,
+            "peak_working_set_bytes": 137646080
+          },
+          "execution": {
+            "backend": "cuda_tiled_reverse_f64_v1",
+            "device_info": "NVIDIA GeForce RTX 4090; compute 8.9; FP64; device 0",
+            "driver_version": 13040,
+            "program_sha256": "ac8c9019b07549ac68542bcedb83f50f26d06637c98a801bb61a5eb22bef308a",
+            "visible_device": 0
+          },
+          "current_cpu_loss_state_and_ptx_exact": true
+        },
+        "gpu_loss_execution": {
+          "backend": "cuda_tiled_device_loss_f64_v1",
+          "device_info": "NVIDIA GeForce RTX 4090; compute 8.9; FP64; device 0",
+          "driver_version": 13040,
+          "program_sha256": "f26057c92ce96ade4df2749bd2041cf13eb0e3534d208a46a908bb176f14cab6",
+          "visible_device": 0
+        },
+        "gpu_loss_resources": {
+          "device_at_capacity": {
+            "atoms": 512,
+            "cache_bytes": 2924544,
+            "descriptor_adjoint_bytes": 65536,
+            "peak_device_buffer_bytes": 6193996,
+            "policy_limit_bytes": 67108864,
+            "slot_gradient_bytes": 917504
+          },
+          "device_loss": {
+            "estimated_extra_terms_per_atom": 4004,
+            "extra_device_bytes": 1288592,
+            "extra_host_reserved_bytes": 1321600
+          },
+          "effective_max_atoms": 512,
+          "estimated_scalar_terms_at_capacity": 16386048,
+          "host_tile_payload_at_capacity_bytes": 2317312,
+          "host_tile_payload_policy_limit_bytes": 33554432,
+          "maximum_center_terms": 250,
+          "requested": {
+            "max_atoms": 512,
+            "max_frames": 16
+          },
+          "scalar_work_policy_limit": 50000000
+        },
+        "gpu_loss_vs_historical_parameters_and_moments_max_abs": 6.938893903907228e-16,
+        "same_backend_repeats_exact": true,
+        "resume": {
+          "step": 64,
+          "cache_off_memory_storage_state_and_metrics_exact": true,
+          "process": {
+            "process_ms": 687.181099987356,
+            "peak_working_set_bytes": 135573504
+          }
+        },
+        "rejections": [
+          {
+            "case": "cpu-device",
+            "message": "native training failed: cuda_gradient reverse requires an explicit CUDA device; no CPU fallback"
+          },
+          {
+            "case": "missing-tiling",
+            "message": "native training failed: cuda_loss gpu requires explicit reverse cuda_tiling; no fallback"
+          },
+          {
+            "case": "hyperdual",
+            "message": "native training failed: cuda_tiling requires cuda_gradient reverse; no fallback"
+          },
+          {
+            "case": "loss-mode-resume",
+            "message": "native training failed: checkpoint schema, dataset hash, immutable configuration, layout or step mismatch"
+          },
+          {
+            "case": "v7-to-v8",
+            "message": "native training failed: checkpoint schema, dataset hash, immutable configuration, layout or step mismatch"
+          },
+          {
+            "case": "small-capacity",
+            "message": "native training failed: CUDA tile cannot fit largest frame (4 atoms; effective capacity 1)"
+          }
+        ],
+        "native_v1_reload_EFV_difference": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "final_training": {
+          "energy_per_atom_rmse_ev": 0.0032513806613456314,
+          "energy_rmse_ev": 0.012020303972344371,
+          "force_component_rmse_ev_per_angstrom": 0.014857927552317322,
+          "frames": 120,
+          "normalized_ef_objective": 0.023894850689404647,
+          "normalized_total_objective": 0.024359172597749203,
+          "normalized_virial_objective": 0.00046432190834455497,
+          "virial_component_rmse_ev": 0.01934224975086475,
+          "virial_per_atom_component_rmse_ev": 0.005150988300979887
+        },
+        "final_validation": {
+          "energy_per_atom_rmse_ev": 0.003275840616731023,
+          "energy_rmse_ev": 0.011761883933126476,
+          "force_component_rmse_ev_per_angstrom": 0.01282393441380316,
+          "frames": 8,
+          "normalized_ef_objective": 0.01912544148360084,
+          "normalized_total_objective": 0.01936574845123277,
+          "normalized_virial_objective": 0.0002403069676319269,
+          "virial_component_rmse_ev": 0.011829799526021874,
+          "virial_per_atom_component_rmse_ev": 0.0037056479489860324
+        },
+        "dataset_sha256": "468e183da02e656521451e0ce5c1fda99b9158793efed9a2013a357b9dc53406",
+        "model_sha256": "b56e8d996453dcfd9d713dbd006f5dbaf9718f9fb70dfe05d035ff621ba4c39e"
+      },
+      {
+        "case": "medium",
+        "parameters": 466,
+        "frames": 128,
+        "training_frames": 120,
+        "validation_frames": 8,
+        "processed_frames": 3840,
+        "steps": 128,
+        "atoms_min": 32,
+        "atoms_max": 64,
+        "medians": {
+          "cpu-loss": {
+            "whole_process_ms": 3505.7843000104185,
+            "gradient_ms": 1793.1334000000004,
+            "max_process_peak_working_set_bytes": 156897280,
+            "frames_per_whole_process_second": 1095.33264781538
+          },
+          "gpu-loss": {
+            "whole_process_ms": 3060.8972999907564,
+            "gradient_ms": 1277.1496,
+            "max_process_peak_working_set_bytes": 158306304,
+            "frames_per_whole_process_second": 1254.5340871160872
+          }
+        },
+        "whole_process_speed_ratio": 1.1453452881352817,
+        "gradient_speed_ratio": 1.4040120280349306,
+        "runs": [
+          {
+            "mode": "cpu-loss",
+            "repeat": 0,
+            "process": {
+              "process_ms": 3519.696700008353,
+              "peak_working_set_bytes": 156872704
+            },
+            "timing": {
+              "adam_ms": 18.384899999999995,
+              "assessment_ms": 446.478,
+              "gradient_ms": 1802.1812000000002,
+              "initialization_ms": 558.5257,
+              "startup_frame_reads": 504,
+              "startup_ms": 782.5244
+            },
+            "profile": {
+              "device_prediction_frames": 0,
+              "download_ms": 173.9203,
+              "frames": 3840,
+              "geometry_ms": 20.655200000000004,
+              "kernel_launches": 7052,
+              "kernels_and_sync_ms": 265.0124000000001,
+              "max_atoms_per_launch": 128,
+              "max_frames_per_launch": 4,
+              "peak_device_buffer_bytes": 3200388,
+              "peak_host_tile_payload_bytes": 635488,
+              "prediction_and_seeds_ms": 1005.1208999999997,
+              "reduction_ms": 33.62500000000002,
+              "synchronizations": 1763,
+              "tiles": 1763,
+              "upload_ms": 161.62
+            }
+          },
+          {
+            "mode": "gpu-loss",
+            "repeat": 0,
+            "process": {
+              "process_ms": 3021.9587000028696,
+              "peak_working_set_bytes": 157868032
+            },
+            "timing": {
+              "adam_ms": 17.6227,
+              "assessment_ms": 445.1685,
+              "gradient_ms": 1277.1025999999995,
+              "initialization_ms": 765.7528,
+              "startup_frame_reads": 504,
+              "startup_ms": 987.6422
+            },
+            "profile": {
+              "device_prediction_frames": 3840,
+              "download_ms": 161.70509999999993,
+              "frames": 3840,
+              "geometry_ms": 59.83349999999997,
+              "kernel_launches": 17630,
+              "kernels_and_sync_ms": 616.3505000000001,
+              "max_atoms_per_launch": 128,
+              "max_frames_per_launch": 4,
+              "peak_device_buffer_bytes": 3530740,
+              "peak_host_tile_payload_bytes": 845888,
+              "prediction_and_seeds_ms": 0.0,
+              "reduction_ms": 30.232999999999997,
+              "synchronizations": 1763,
+              "tiles": 1763,
+              "upload_ms": 255.3304
+            }
+          },
+          {
+            "mode": "gpu-loss",
+            "repeat": 1,
+            "process": {
+              "process_ms": 3075.9439999819733,
+              "peak_working_set_bytes": 157929472
+            },
+            "timing": {
+              "adam_ms": 16.0892,
+              "assessment_ms": 447.7993,
+              "gradient_ms": 1295.6987000000008,
+              "initialization_ms": 777.2567,
+              "startup_frame_reads": 504,
+              "startup_ms": 1003.9334
+            },
+            "profile": {
+              "device_prediction_frames": 3840,
+              "download_ms": 162.71999999999994,
+              "frames": 3840,
+              "geometry_ms": 60.12180000000001,
+              "kernel_launches": 17630,
+              "kernels_and_sync_ms": 610.8623000000002,
+              "max_atoms_per_launch": 128,
+              "max_frames_per_launch": 4,
+              "peak_device_buffer_bytes": 3530740,
+              "peak_host_tile_payload_bytes": 845888,
+              "prediction_and_seeds_ms": 0.0,
+              "reduction_ms": 30.027000000000005,
+              "synchronizations": 1763,
+              "tiles": 1763,
+              "upload_ms": 276.24350000000015
+            }
+          },
+          {
+            "mode": "cpu-loss",
+            "repeat": 1,
+            "process": {
+              "process_ms": 3489.9273999908473,
+              "peak_working_set_bytes": 156897280
+            },
+            "timing": {
+              "adam_ms": 18.26960000000001,
+              "assessment_ms": 449.0964,
+              "gradient_ms": 1793.1334000000004,
+              "initialization_ms": 540.0486,
+              "startup_frame_reads": 504,
+              "startup_ms": 765.2588000000001
+            },
+            "profile": {
+              "device_prediction_frames": 0,
+              "download_ms": 170.32169999999996,
+              "frames": 3840,
+              "geometry_ms": 20.271500000000003,
+              "kernel_launches": 7052,
+              "kernels_and_sync_ms": 262.8013,
+              "max_atoms_per_launch": 128,
+              "max_frames_per_launch": 4,
+              "peak_device_buffer_bytes": 3200388,
+              "peak_host_tile_payload_bytes": 635488,
+              "prediction_and_seeds_ms": 1006.8489,
+              "reduction_ms": 31.9186,
+              "synchronizations": 1763,
+              "tiles": 1763,
+              "upload_ms": 161.2344
+            }
+          },
+          {
+            "mode": "cpu-loss",
+            "repeat": 2,
+            "process": {
+              "process_ms": 3505.7843000104185,
+              "peak_working_set_bytes": 156643328
+            },
+            "timing": {
+              "adam_ms": 15.805799999999994,
+              "assessment_ms": 453.1753,
+              "gradient_ms": 1757.9510999999995,
+              "initialization_ms": 548.4069999999999,
+              "startup_frame_reads": 504,
+              "startup_ms": 775.6611
+            },
+            "profile": {
+              "device_prediction_frames": 0,
+              "download_ms": 161.26690000000002,
+              "frames": 3840,
+              "geometry_ms": 19.0044,
+              "kernel_launches": 7052,
+              "kernels_and_sync_ms": 263.6533,
+              "max_atoms_per_launch": 128,
+              "max_frames_per_launch": 4,
+              "peak_device_buffer_bytes": 3200388,
+              "peak_host_tile_payload_bytes": 635488,
+              "prediction_and_seeds_ms": 995.8173,
+              "reduction_ms": 30.82469999999999,
+              "synchronizations": 1763,
+              "tiles": 1763,
+              "upload_ms": 156.34460000000004
+            }
+          },
+          {
+            "mode": "gpu-loss",
+            "repeat": 2,
+            "process": {
+              "process_ms": 3060.8972999907564,
+              "peak_working_set_bytes": 158306304
+            },
+            "timing": {
+              "adam_ms": 18.6222,
+              "assessment_ms": 445.5885,
+              "gradient_ms": 1277.1496,
+              "initialization_ms": 787.4594000000001,
+              "startup_frame_reads": 504,
+              "startup_ms": 1011.2015999999999
+            },
+            "profile": {
+              "device_prediction_frames": 3840,
+              "download_ms": 161.42199999999997,
+              "frames": 3840,
+              "geometry_ms": 60.92410000000001,
+              "kernel_launches": 17630,
+              "kernels_and_sync_ms": 617.0391000000003,
+              "max_atoms_per_launch": 128,
+              "max_frames_per_launch": 4,
+              "peak_device_buffer_bytes": 3530740,
+              "peak_host_tile_payload_bytes": 845888,
+              "prediction_and_seeds_ms": 0.0,
+              "reduction_ms": 30.74750000000001,
+              "synchronizations": 1763,
+              "tiles": 1763,
+              "upload_ms": 254.8597
+            }
+          }
+        ],
+        "historical": {
+          "process": {
+            "process_ms": 3582.265600009123,
+            "peak_working_set_bytes": 156704768
+          },
+          "execution": {
+            "backend": "cuda_tiled_reverse_f64_v1",
+            "device_info": "NVIDIA GeForce RTX 4090; compute 8.9; FP64; device 0",
+            "driver_version": 13040,
+            "program_sha256": "f40ec1e2d85bed369d0d6d3d7e62b13270c2101219d81de1a843c51aab517de7",
+            "visible_device": 0
+          },
+          "current_cpu_loss_state_and_ptx_exact": true
+        },
+        "gpu_loss_execution": {
+          "backend": "cuda_tiled_device_loss_f64_v1",
+          "device_info": "NVIDIA GeForce RTX 4090; compute 8.9; FP64; device 0",
+          "driver_version": 13040,
+          "program_sha256": "7ee4b43dce501e16b5ae6c4917771d3fe4e12001e7d400005061e65b85de11b9",
+          "visible_device": 0
+        },
+        "gpu_loss_resources": {
+          "device_at_capacity": {
+            "atoms": 142,
+            "cache_bytes": 2162944,
+            "descriptor_adjoint_bytes": 36352,
+            "peak_device_buffer_bytes": 3918260,
+            "policy_limit_bytes": 67108864,
+            "slot_gradient_bytes": 654336
+          },
+          "device_loss": {
+            "estimated_extra_terms_per_atom": 4992,
+            "extra_device_bytes": 369720,
+            "extra_host_reserved_bytes": 369960
+          },
+          "effective_max_atoms": 142,
+          "estimated_scalar_terms_at_capacity": 49940832,
+          "host_tile_payload_at_capacity_bytes": 1055680,
+          "host_tile_payload_policy_limit_bytes": 33554432,
+          "maximum_center_terms": 744,
+          "requested": {
+            "max_atoms": 512,
+            "max_frames": 16
+          },
+          "scalar_work_policy_limit": 50000000
+        },
+        "gpu_loss_vs_historical_parameters_and_moments_max_abs": 1.1102230246251565e-16,
+        "same_backend_repeats_exact": true,
+        "resume": {
+          "step": 64,
+          "cache_off_memory_storage_state_and_metrics_exact": true,
+          "process": {
+            "process_ms": 6249.178199999733,
+            "peak_working_set_bytes": 136945664
+          }
+        },
+        "rejections": [
+          {
+            "case": "cpu-device",
+            "message": "native training failed: cuda_gradient reverse requires an explicit CUDA device; no CPU fallback"
+          },
+          {
+            "case": "missing-tiling",
+            "message": "native training failed: cuda_loss gpu requires explicit reverse cuda_tiling; no fallback"
+          },
+          {
+            "case": "hyperdual",
+            "message": "native training failed: cuda_tiling requires cuda_gradient reverse; no fallback"
+          },
+          {
+            "case": "loss-mode-resume",
+            "message": "native training failed: checkpoint schema, dataset hash, immutable configuration, layout or step mismatch"
+          },
+          {
+            "case": "v7-to-v8",
+            "message": "native training failed: checkpoint schema, dataset hash, immutable configuration, layout or step mismatch"
+          },
+          {
+            "case": "small-capacity",
+            "message": "native training failed: CUDA tile cannot fit largest frame (64 atoms; effective capacity 1)"
+          }
+        ],
+        "native_v1_reload_EFV_difference": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "final_training": {
+          "energy_per_atom_rmse_ev": 3.16562944747807e-06,
+          "energy_rmse_ev": 0.00017545831686977887,
+          "force_component_rmse_ev_per_angstrom": 2.058715600940513e-05,
+          "frames": 120,
+          "normalized_ef_objective": 4.338927266624718e-08,
+          "normalized_total_objective": 4.343420387010023e-08,
+          "normalized_virial_objective": 4.493120385305061e-11,
+          "virial_component_rmse_ev": 8.883291713968973e-05,
+          "virial_per_atom_component_rmse_ev": 1.6023412130477902e-06
+        },
+        "final_validation": {
+          "energy_per_atom_rmse_ev": 3.1653694274447376e-06,
+          "energy_rmse_ev": 0.0001717720997117094,
+          "force_component_rmse_ev_per_angstrom": 2.0578742555873373e-05,
+          "frames": 8,
+          "normalized_ef_objective": 4.3446484708907244e-08,
+          "normalized_total_objective": 4.349330707512814e-08,
+          "normalized_virial_objective": 4.6822366220895534e-11,
+          "virial_component_rmse_ev": 8.854706170610957e-05,
+          "virial_per_atom_component_rmse_ev": 1.6357150681127728e-06
+        },
+        "dataset_sha256": "991dcc9121752cc2a7d5e422136a842df5b63b58445c30f7c58f1ebe05606881",
+        "model_sha256": "3281e6bc01f778f8c3dbb3d812c7e052d8dd8695d561cdbcf5a8012cb07822be"
+      }
+    ],
+    "sha256": {
+      "script": "33170b2a8fb6e9a2f870ba97d2d049d4b81e04497b080f084551ba6564c3df87",
+      "fixture_recipe": "a69a268ee53b496629ed71aff300e59e0ad86958c7e44738986d7ffc3912a406",
+      "trainer": "543bf2391fb4d83de2a797bf6de2f52c68d3f2bc9faa4b7eaf5b10d59e3847b5",
+      "evaluator": "455ea4c8ae9179943d174c28e0cbfc2d09ed96c74d565cd0ded4a427ad847ffc",
+      "historical_v7_trainer": "a633f11927509e495b434982b873ba28dfb9300814d5385b551678b7acceb94d"
+    }
+  },
+  "commands": [
+    "cargo test --locked --offline --manifest-path mlmd/native/Cargo.toml --no-default-features",
+    "cargo test --locked --offline --manifest-path mlmd/native/Cargo.toml --features cuda",
+    "cargo build --release --locked --offline --manifest-path mlmd/native/Cargo.toml --features cuda --bins",
+    "cargo test --release --locked --offline --manifest-path mlmd/native/Cargo.toml --features cuda device_loss_ -- --ignored --nocapture --test-threads=1",
+    "python -u mlmd/native/tools/replay_device_loss.py --train-exe mlmd/native/target/release/omnimd-native-train.exe --eval-exe mlmd/native/target/release/omnimd-native-eval.exe --reference-exe mlmd/native/fixtures/generated-deepmd/gpu-loss-01/tiled-baseline.exe --output-dir mlmd/native/fixtures/generated-deepmd/gpu-loss-02"
+  ],
+  "environment": {
+    "os": "Windows",
+    "gpu": "NVIDIA GeForce RTX 4090",
+    "nvrtc": "installed CUDA 12.8",
+    "driver_api_version": 13040,
+    "driver_package": "617.42",
+    "dependencies": "existing locked offline cache; none added"
+  },
+  "limitations": [
+    "CPU still builds geometry, computes scale/schedule scalars, reduces/clips gradients, assesses and serializes.",
+    "Tiny-case whole-process regression; no general speedup or DeepMD performance comparison.",
+    "Synthetic software verification, not physical accuracy or production scaling validation.",
+    "Unchanged architecture/per-frame/tile budgets; no Linux CUDA or multi-GPU validation.",
+    "Same-build/runtime exact restart only; different execution mode requires a new optimizer."
+  ],
+  "source_sha256_git_lf": {
+    "mlmd/native/src/cuda/device_loss.rs": "21d78e9c3eb0187d964e0788cf2f7d8bd78a5539bcc0c70eda816b7d21a335bf",
+    "mlmd/native/src/cuda/device_loss_kernels.cu": "9cf67d25586f8cf123997191eee37f0ad3d55778c9fdecc9d7be3e4442024d38",
+    "mlmd/native/src/cuda/device_runtime.rs": "d2710296685327b6b3444cb0154ea6c361968bcb6013d63b2397607156f7078d",
+    "mlmd/native/src/cuda/full.rs": "d52fab2ac054445530fca214ad6f271a11951d4adeb29b1cac8d1bbdf2adb5c8",
+    "mlmd/native/src/cuda/mod.rs": "4e7bb97a89e968c986920c3643cc5b42d19fec103bcffc2149aff331fc3ec2a2",
+    "mlmd/native/src/cuda/runtime.rs": "d4fca7e13acdfbc2dba5099077ba90865857519e539fdc83d04e663fcac5b776",
+    "mlmd/native/src/cuda/tiled.rs": "33d518759a0976bbc1ac5a6bba4184f468998e7c553f93f197c8a42825a02e09",
+    "mlmd/native/src/full_training.rs": "d76738009a3ae8f3a17eb2e9a82be896f9950eee8b72dd4acbcbfd0aa3825c65",
+    "mlmd/native/tests/cuda_full_training.rs": "7bb016d6bb8a2df3181997c513d0c1288325e36856dd74594fffa6550de01623",
+    "mlmd/native/tests/cuda_reverse_training.rs": "0b749ce29ec728c01a78cd8d7613cf26ad4477a689d15f0d235de77264914acc",
+    "mlmd/native/tests/full_training.rs": "f5f37dc3a37fa93137e2054975675a5c364ae6b58e20d5184ca63cb892e1085d",
+    "mlmd/native/tests/indexed_training.rs": "eea0f9a5c422dcf23fd1b2f40d3d25dfce00f81177c21609106d4a4d1724ecbc",
+    "mlmd/native/tests/minibatch_training.rs": "03b8213a5e29d98d4be8ab70dc14050c28785c8ba54d52c2d13d6f023d612d15",
+    "mlmd/native/tests/virial_training.rs": "ff1bc0f07f32c33c61c02b178368d723de8a25a98c410adc9cbc32f02e587048",
+    "mlmd/native/tools/replay_device_loss.py": "7f7a422537464317cc22c79a57a4242662c941ff2d62218c5f14a91f6b1c3c94"
+  },
+  "source_hash_note": "Source hashes identify staged Git LF blobs. Recorded replay hashes identify executed Windows files/binaries. After verification, only a trailing empty line was removed from the new CUDA source and Python replay; executable logic is unchanged."
+}

@@ -73,6 +73,7 @@ fn config(steps: u64) -> FullConfig {
         fixed_geometry_cache: false,
         cuda_gradient: Default::default(),
         cuda_tiling: None,
+        cuda_loss: Default::default(),
         split: Split::Explicit {
             validation_ids: vec!["set.000/2".into()],
         },
@@ -568,5 +569,109 @@ fn tiled_indexed_scheduled_resume_and_cache_toggle_are_exact() {
     println!(
         "{}",
         serde_json::json!({"tiled_scheduled_indexed_resume_splits":[2,3,4],"memory_storage_and_cache_off_exact":true,"changed_caps_schema_backend_ptx_rejected":true,"profile":profile,"execution":all.report.execution,"resources":all.report.cuda_tiling})
+    );
+}
+
+#[cfg(feature = "cuda")]
+#[test]
+#[ignore = "requires an explicitly authorized GPU window"]
+fn device_loss_indexed_scheduled_resume_is_exact() {
+    use omnimd_native::full_training::{
+        train_full_with_device, CudaGradient, CudaLoss, CudaTiling, FullExecution,
+        LearningRateSchedule,
+    };
+    let tmp = Temp::new();
+    let path = tmp.0.join("device-loss.jsonl");
+    let (m, d) = data(8);
+    write_data(&path, &d);
+    let memory = Dataset::load(&path).unwrap();
+    let indexed = IndexedDataset::open(&path).unwrap();
+    let mut c = config(7);
+    c.cuda_gradient = CudaGradient::Reverse;
+    c.cuda_loss = CudaLoss::Gpu;
+    c.fixed_geometry_cache = true;
+    c.cuda_tiling = Some(CudaTiling {
+        max_frames: 2,
+        max_atoms: 7,
+    });
+    c.minibatch.as_mut().unwrap().batch_size = 3;
+    c.learning_rate_schedule = Some(LearningRateSchedule::Exponential {
+        decay_steps: 2,
+        decay_rate: 0.5,
+    });
+    let device = TrainingDevice::Cuda { visible_device: 0 };
+    let mut checkpoints = Vec::new();
+    let all = train_full_with_device(
+        Checkpoint::start(&m, &indexed, &c).unwrap(),
+        &indexed,
+        &c,
+        device,
+        |s| {
+            checkpoints.push(
+                serde_json::from_slice::<Checkpoint>(&serde_json::to_vec(s).unwrap()).unwrap(),
+            );
+            Ok(())
+        },
+    )
+    .unwrap();
+    assert_eq!(all.checkpoint.schema, "omnimd-native-full-checkpoint-v8");
+    assert_eq!(
+        all.report
+            .cuda_gradient_profile
+            .as_ref()
+            .unwrap()
+            .device_prediction_frames,
+        17
+    );
+    assert!(all
+        .report
+        .execution_scope
+        .contains("CUDA tiled E/F/V prediction"));
+    for split in [2, 3, 4] {
+        let mut r = c.clone();
+        r.steps = 7 - split;
+        r.fixed_geometry_cache = false;
+        let resumed = train_full_with_device(
+            checkpoints[split as usize - 1].clone(),
+            &memory,
+            &r,
+            device,
+            |_| Ok(()),
+        )
+        .unwrap();
+        assert_eq!(state(&all.checkpoint), state(&resumed.checkpoint));
+        assert_eq!(
+            serde_json::to_value(&all.report.final_training).unwrap(),
+            serde_json::to_value(&resumed.report.final_training).unwrap()
+        );
+        assert_eq!(
+            serde_json::to_value(&all.report.final_validation).unwrap(),
+            serde_json::to_value(&resumed.report.final_validation).unwrap()
+        );
+    }
+    for case in 0..4 {
+        let mut s = checkpoints[1].clone();
+        let mut r = c.clone();
+        r.steps = 5;
+        match case {
+            0 => r.cuda_loss = CudaLoss::Cpu,
+            1 => s.schema = "omnimd-native-full-checkpoint-v7".into(),
+            2 => r.cuda_tiling.as_mut().unwrap().max_frames = 3,
+            _ => {
+                if let FullExecution::CudaTiledDeviceLossF64V1 { program_sha256, .. } =
+                    &mut s.execution
+                {
+                    *program_sha256 = "changed".into()
+                }
+            }
+        }
+        assert!(train_full_with_device(s, &indexed, &r, device, |_| panic!(
+            "invalid device loss checkpoint published"
+        ))
+        .is_err());
+    }
+    println!(
+        "{}",
+        serde_json::json!({"device_loss_resume_splits":[2,3,4],"indexed_to_memory_and_cache_off_exact":true,"changed_mode_schema_capacity_ptx_rejected":true,"execution":all.report.execution,"resources":all.report.cuda_tiling})
     );
 }
