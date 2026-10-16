@@ -47,6 +47,7 @@ struct Api {
     nspin: Int,
     fparam: Int,
     aparam: Int,
+    charge_spin: Option<Int>,
     cutoff: Cutoff,
     compute: Compute,
     // Keep the code and its dependencies alive until after the model is deleted.
@@ -74,6 +75,12 @@ impl Api {
                 nspin: symbol(&library, b"DP_DeepPotGetNumbTypesSpin\0")?,
                 fparam: symbol(&library, b"DP_DeepPotGetDimFParam\0")?,
                 aparam: symbol(&library, b"DP_DeepPotGetDimAParam\0")?,
+                // Optional API27 metadata: retain API26 runtime compatibility,
+                // but never silently use a default condition on a newer model.
+                charge_spin: library
+                    .get::<Int>(b"DP_DeepPotGetDimChgSpin\0")
+                    .ok()
+                    .map(|s| *s),
                 cutoff: symbol(&library, b"DP_DeepPotGetCutoff\0")?,
                 compute: symbol(&library, b"DP_DeepPotCompute2\0")?,
                 _library: Some(library),
@@ -127,19 +134,98 @@ pub struct LoadOptions {
     pub units: Units,
 }
 
+/// Model-specific inputs exposed by the official runtime, independent of the
+/// common EFV Potential contract. Parameter units come from the training data.
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct ModelDetails {
+    pub frame_parameter_dim: usize,
+    pub atom_parameter_dim: usize,
+}
+
+/// One frame's explicit parameters. No broadcasting, inferred units, default
+/// values or silent zero filling is performed. Atom rows follow input order.
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(deny_unknown_fields)]
+pub struct EvalParameters {
+    #[serde(default)]
+    pub fparam: Vec<f64>,
+    #[serde(default)]
+    pub aparam: Vec<Vec<f64>>,
+}
+
+/// Optional runtime decomposition, in input atom order. Atomic virials follow
+/// the same row-major convention and units as total virial, without dividing by volume.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AtomicEvaluation {
+    pub energies: Vec<f64>,
+    pub virials: Vec<[[f64; 3]; 3]>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DetailedEvaluation {
+    pub evaluation: Evaluation,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub atomic: Option<AtomicEvaluation>,
+}
+
+#[derive(Default)]
+struct Buffers {
+    coords: Vec<f64>,
+    cells: Vec<f64>,
+    fparam: Vec<f64>,
+    aparam: Vec<f64>,
+    energies: Vec<f64>,
+    forces: Vec<f64>,
+    virials: Vec<f64>,
+    atomic_energies: Vec<f64>,
+    atomic_virials: Vec<f64>,
+}
+
+// The C wrapper multiplies lengths as signed C ints. Check the individual
+// products, not merely the dimensions, before allocation or pointer handoff.
+fn c_product(dimensions: &[usize]) -> Result<usize> {
+    dimensions.iter().try_fold(1usize, |n, &d| {
+        n.checked_mul(d)
+            .filter(|&v| v <= c_int::MAX as usize)
+            .ok_or_else(|| {
+                Error("batch buffer dimensions exceed the C API signed-int limit".into())
+            })
+    })
+}
+
+fn nan_buffer(buffer: &mut Vec<f64>, len: usize) {
+    buffer.resize(len, f64::NAN);
+    buffer.fill(f64::NAN);
+}
+
+fn input_pointer(values: &[f64]) -> *const f64 {
+    if values.is_empty() {
+        ptr::null()
+    } else {
+        values.as_ptr()
+    }
+}
+
+fn matrix(values: &[f64]) -> [[f64; 3]; 3] {
+    std::array::from_fn(|i| std::array::from_fn(|j| values[3 * i + j]))
+}
+
 /// The model is loaded once, released once and deliberately not Send or Sync.
 pub struct DeepMd {
     api: Api,
     handle: NonNull<c_void>,
     metadata: ModelMetadata,
+    details: ModelDetails,
     cuda: Option<cuda::CudaGuard>,
     cuda_kernel_launches: u64,
-    coords: Vec<f64>,
-    forces: Vec<f64>,
+    buffers: Buffers,
     _single_thread: PhantomData<Rc<()>>,
 }
 
 impl DeepMd {
+    pub fn details(&self) -> &ModelDetails {
+        &self.details
+    }
     /// Successful direct GPU launches observed during completed evaluations.
     /// None means CPU; zero means the CUDA model has not yet been evaluated.
     pub fn cuda_kernel_launches(&self) -> Option<u64> {
@@ -207,10 +293,10 @@ impl DeepMd {
                 units,
             },
             _single_thread: PhantomData,
+            details: ModelDetails::default(),
             cuda: None,
             cuda_kernel_launches: 0,
-            coords: Vec::new(),
-            forces: Vec::new(),
+            buffers: Buffers::default(),
         };
         let h = model.handle.as_ptr();
         model.api.check(h, "load model")?;
@@ -218,11 +304,23 @@ impl DeepMd {
         let nspin = unsafe { (model.api.nspin)(h) };
         let fparam = unsafe { (model.api.fparam)(h) };
         let aparam = unsafe { (model.api.aparam)(h) };
+        let charge_spin = model
+            .api
+            .charge_spin
+            .map(|query| unsafe { query(h) })
+            .unwrap_or(0);
         model.metadata.cutoff = unsafe { (model.api.cutoff)(h) };
         model.api.check(h, "read model metadata")?;
-        if nspin != 0 || fparam != 0 || aparam != 0 {
-            return Err(Error(format!("unsupported model: spin types={nspin}, frame parameters={fparam}, atom parameters={aparam}; all must be zero")));
+        if charge_spin != 0 {
+            return Err(Error(format!("unsupported model: charge/spin input dimension={charge_spin}; the Compute2 adapter does not supply charge/spin conditions")));
         }
+        if nspin != 0 || fparam < 0 || aparam < 0 {
+            return Err(Error(format!("unsupported model metadata: spin types={nspin}, frame parameters={fparam}, atom parameters={aparam}; spin must be zero and parameter dimensions nonnegative")));
+        }
+        model.details = ModelDetails {
+            frame_parameter_dim: fparam as usize,
+            atom_parameter_dim: aparam as usize,
+        };
         let map = model
             .api
             .text(unsafe { (model.api.type_map)(h) }, "read model type map")?;
@@ -244,70 +342,192 @@ impl DeepMd {
     }
 }
 
-impl Potential for DeepMd {
-    fn metadata(&self) -> &ModelMetadata {
-        &self.metadata
-    }
-
-    fn eval(&mut self, frame: &Frame) -> Result<Evaluation> {
-        let types = frame.type_ids(&self.metadata)?;
-        let n = frame.positions.len();
-        self.coords.clear();
-        self.coords
-            .extend(frame.positions.iter().flatten().copied());
-        let cell = frame
-            .cell
-            .map(|h| std::array::from_fn::<_, 9, _>(|i| h[i / 3][i % 3]));
-        let mut energy = f64::NAN;
-        self.forces.resize(self.coords.len(), f64::NAN);
-        self.forces.fill(f64::NAN);
-        let mut virial = [f64::NAN; 9];
+impl DeepMd {
+    /// Evaluate a homogeneous group with exactly one combined C API call.
+    /// All frames must share atom count, ordered species and periodicity.
+    /// Parameters are explicit per frame, with no broadcasting or defaults.
+    /// Optional atomic outputs share the same call. Scratch arrays are retained.
+    pub fn evaluate(
+        &mut self,
+        frames: &[Frame],
+        parameters: Option<&[EvalParameters]>,
+        atomic: bool,
+    ) -> Result<Vec<DetailedEvaluation>> {
+        let first = frames
+            .first()
+            .ok_or_else(|| Error("at least one frame is required".into()))?;
+        let types = first.type_ids(&self.metadata)?;
+        let nf = frames.len();
+        let n = first.positions.len();
+        let df = self.details.frame_parameter_dim;
+        let da = self.details.atom_parameter_dim;
+        let nx = c_product(&[nf, n, 3])?;
+        let nv = c_product(&[nf, 9])?;
+        // Check the largest C-wrapper product even when atom outputs are omitted.
+        let nav = c_product(&[nf, n, 9])?;
+        let ne = c_product(&[nf, n])?;
+        let nfp = c_product(&[nf, df])?;
+        let nap = c_product(&[nf, n, da])?;
+        let values = [
+            nx,
+            nx,
+            nv,
+            nv,
+            nf,
+            nfp,
+            nap,
+            if atomic { ne } else { 0 },
+            if atomic { nav } else { 0 },
+        ]
+        .iter()
+        .try_fold(0usize, |a, b| a.checked_add(*b))
+        .ok_or_else(|| Error("batch allocation size overflow".into()))?;
+        if values > 32 * 1024 * 1024 {
+            return Err(Error(
+                "batch scratch arrays exceed 256 MiB; reduce batch_size".into(),
+            ));
+        }
+        if let Some(params) = parameters {
+            if params.len() != nf {
+                return Err(Error(format!(
+                    "parameters must contain one entry per frame: expected {nf}, got {}",
+                    params.len()
+                )));
+            }
+        } else if df != 0 || da != 0 {
+            return Err(Error(format!("model requires explicit parameters: fparam dimension={df}, aparam dimension={da}; use DeepMd::evaluate or the standalone evaluator parameters field")));
+        }
+        // Validate the entire batch before packing or entering the runtime.
+        for (i, frame) in frames.iter().enumerate() {
+            frame.validate()?;
+            if frame.units != first.units
+                || frame.species != first.species
+                || frame.positions.len() != n
+                || frame.cell.is_some() != first.cell.is_some()
+            {
+                return Err(Error(format!("frame {i}: a C API batch requires identical atom count, ordered species, units and periodicity; use batch_size=1 for heterogeneous inputs")));
+            }
+            if let Some(params) = parameters {
+                let p = &params[i];
+                if p.fparam.len() != df || !p.fparam.iter().all(|x| x.is_finite()) {
+                    return Err(Error(format!(
+                        "frame {i}: fparam requires exactly {df} finite values"
+                    )));
+                }
+                let rows = if da == 0 { 0 } else { n };
+                if p.aparam.len() != rows
+                    || p.aparam
+                        .iter()
+                        .any(|row| row.len() != da || !row.iter().all(|x| x.is_finite()))
+                {
+                    return Err(Error(format!("frame {i}: aparam requires {rows} atom rows of {da} finite values in input order")));
+                }
+            }
+        }
+        let b = &mut self.buffers;
+        b.coords.clear();
+        b.cells.clear();
+        b.fparam.clear();
+        b.aparam.clear();
+        for (i, frame) in frames.iter().enumerate() {
+            b.coords.extend(frame.positions.iter().flatten().copied());
+            if let Some(cell) = &frame.cell {
+                b.cells.extend(cell.iter().flatten().copied());
+            }
+            if let Some(params) = parameters {
+                b.fparam.extend_from_slice(&params[i].fparam);
+                b.aparam.extend(params[i].aparam.iter().flatten().copied());
+            }
+        }
+        nan_buffer(&mut b.energies, nf);
+        nan_buffer(&mut b.forces, nx);
+        nan_buffer(&mut b.virials, nv);
+        nan_buffer(&mut b.atomic_energies, if atomic { ne } else { 0 });
+        nan_buffer(&mut b.atomic_virials, if atomic { nav } else { 0 });
         let h = self.handle.as_ptr();
         self.api.check(h, "before evaluation")?;
         if let Some(cuda) = &mut self.cuda {
             cuda.begin()?;
         }
         unsafe {
-            // Exactly one call for energy + force + virial; nframes is always one.
             (self.api.compute)(
                 h,
-                1,
+                nf as c_int,
                 n as c_int,
-                self.coords.as_ptr(),
+                b.coords.as_ptr(),
                 types.as_ptr(),
-                cell.as_ref().map_or(ptr::null(), |v| v.as_ptr()),
-                ptr::null(),
-                ptr::null(),
-                &mut energy,
-                self.forces.as_mut_ptr(),
-                virial.as_mut_ptr(),
-                ptr::null_mut(),
-                ptr::null_mut(),
+                input_pointer(&b.cells),
+                input_pointer(&b.fparam),
+                input_pointer(&b.aparam),
+                b.energies.as_mut_ptr(),
+                b.forces.as_mut_ptr(),
+                b.virials.as_mut_ptr(),
+                if atomic {
+                    b.atomic_energies.as_mut_ptr()
+                } else {
+                    ptr::null_mut()
+                },
+                if atomic {
+                    b.atomic_virials.as_mut_ptr()
+                } else {
+                    ptr::null_mut()
+                },
             );
         }
         let runtime_result = self.api.check(h, "evaluate model");
-        // Synchronize and verify GPU work even when the runtime reported an error.
+        // Always finish verification/synchronization, including on runtime error.
         let gpu_result = self.cuda.as_mut().map(|cuda| cuda.finish()).transpose();
         runtime_result?;
         let launches = gpu_result?;
-        let output = Evaluation {
-            energy,
-            forces: self
-                .forces
-                .chunks_exact(3)
-                .map(|v| [v[0], v[1], v[2]])
-                .collect(),
-            virial: std::array::from_fn(|i| std::array::from_fn(|j| virial[3 * i + j])),
-            units: Units::EvAngstrom,
-        };
-        output.validate(n)?;
+        if !b
+            .atomic_energies
+            .iter()
+            .chain(&b.atomic_virials)
+            .all(|x| x.is_finite())
+        {
+            return Err(Error(
+                "atomic outputs contain missing or nonfinite values".into(),
+            ));
+        }
+        let mut outputs = Vec::with_capacity(nf);
+        for i in 0..nf {
+            let evaluation = Evaluation {
+                energy: b.energies[i],
+                forces: b.forces[i * n * 3..(i + 1) * n * 3]
+                    .chunks_exact(3)
+                    .map(|v| [v[0], v[1], v[2]])
+                    .collect(),
+                virial: matrix(&b.virials[i * 9..(i + 1) * 9]),
+                units: Units::EvAngstrom,
+            };
+            evaluation.validate(n)?;
+            let atomic = atomic.then(|| AtomicEvaluation {
+                energies: b.atomic_energies[i * n..(i + 1) * n].to_vec(),
+                virials: b.atomic_virials[i * n * 9..(i + 1) * n * 9]
+                    .chunks_exact(9)
+                    .map(matrix)
+                    .collect(),
+            });
+            outputs.push(DetailedEvaluation { evaluation, atomic });
+        }
         if let Some(launches) = launches {
             self.cuda_kernel_launches = self.cuda_kernel_launches.saturating_add(launches);
-        }
-        if self.cuda.is_some() {
             self.metadata.backend = "deepmd-c-api-cuda-kernels-verified".into();
         }
-        Ok(output)
+        Ok(outputs)
+    }
+}
+
+impl Potential for DeepMd {
+    fn metadata(&self) -> &ModelMetadata {
+        &self.metadata
+    }
+
+    fn eval(&mut self, frame: &Frame) -> Result<Evaluation> {
+        Ok(self
+            .evaluate(std::slice::from_ref(frame), None, false)?
+            .remove(0)
+            .evaluation)
     }
 }
 

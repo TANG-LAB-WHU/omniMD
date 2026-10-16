@@ -1,11 +1,16 @@
 # Official DeepMD C API backend
 
 This crate dynamically loads a trusted official DeepMD C library. Each request
-loads one model handle and keeps it for all frames or MD steps. Each frame uses
-one combined `DP_DeepPotCompute2` energy/force/virial call. Coordinate and force
-scratch buffers are reused; only requested total outputs cross the C interface.
+loads one model handle and keeps it for all frames or MD steps. Each homogeneous group uses
+one combined `DP_DeepPotCompute2` call for energy/force/virial and optional atomic
+outputs. Scratch buffers are reused; parameters are explicit per frame.
 The official runtime still controls its own host/device transfers and internal
 atomic outputs. This is inference through FFI, not native Rust inference.
+
+Start with the English [step-by-step backend guide](BACKEND_GUIDE.md) for runtime
+setup, model inspection, training/freeze/test connection, batched/parameterized
+inference and error handling. See [current validation status](BACKEND_VALIDATION.md)
+for the distinction between tested ABI behavior and actual runtime results.
 
 CPU is the default and needs no CUDA SDK, libraries or driver to build/test.
 CUDA is opt-in, dynamically loaded and currently restricted to official
@@ -41,7 +46,7 @@ loads. Loading native libraries is a trust boundary, not a sandbox.
 The official TensorFlow C API enables soft placement and provides no portable
 actual-device query. We therefore require explicit matching NVIDIA CUDA runtime
 and CUPTI library paths. The guard checks device availability, then observes
-successful direct driver kernel launches during **each** combined evaluation.
+successful direct driver kernel launches during **each** combined C API call (one frame or a homogeneous batch).
 It synchronizes the actual observed CUDA contexts before returning the outputs.
 Zero launches, driver/launch/synchronization errors, failed tracing setup, CUDA
 graphs or stream capture fail explicitly. The fresh worker must be dedicated to
@@ -68,7 +73,10 @@ still be pending. Failed evaluations never return publishable partial EFV.
   The runtime cannot infer training units; this is an operator assertion.
 - Finite coordinates/outputs, exact output shapes, nonsingular right-handed
   row-vector cells, full periodicity or no periodicity. No partial PBC.
-- No spin, frame/atomic parameters, or missing type map; these fail at load.
+- No spin or missing type map; these fail at load. Frame/atom parameter
+  dimensions are inspected once; nonzero dimensions require explicit values via
+  `DeepMd::evaluate` or the standalone CLI. Plain `Potential::eval` returns an
+  error for such models. No inferred defaults or broadcasting.
 - Double input/output buffers; metadata remains `float64-io`. This cannot upgrade
   a model's hidden float32 constants to float64. Internal model precision remains
   model dependent. The public validation fixture has float64 constants.
@@ -122,7 +130,8 @@ visibility or memory usage. Warmup must be 1..100, iterations 1..1000.
 
 ## Verification and sources
 
-Mock tests cover ownership, one load/combined EFV, error/shape/finite checks,
+Mock tests cover ownership, one load/combined EFV, multi-frame parameter packing,
+optional atomic outputs, error/shape/finite checks,
 device JSON compatibility, inherited masks, cross-thread kernel evidence,
 graph/capture rejection and context restoration. They do not prove physical
 accuracy. See [CUDA validation](CUDA_VALIDATION.md) for actual executed tests and
