@@ -1,5 +1,6 @@
 //! Bounded multi-frame reverse execution. Tiles never define optimizer batches.
 use super::*;
+use crate::cuda::transfer;
 use crate::training_data::DatasetAccess;
 use std::time::Instant;
 const HOST_LIMIT: usize = 32 * 1024 * 1024;
@@ -68,10 +69,21 @@ pub(super) fn plan_resources(
             parameters,
             config.max_frames,
         )?;
+        let host = host
+            + transfer::input_bytes(
+                n,
+                model.descriptor.sel.iter().sum(),
+                config.max_frames,
+                false,
+            )?;
         if host > HOST_LIMIT {
             continue;
         }
-        if let Ok(device) = plan.tiled_resources(n) {
+        if let Ok(mut device) = plan.tiled_resources(n) {
+            device.peak_device_buffer_bytes += transfer::ALIGNMENT_RESERVE;
+            if device.peak_device_buffer_bytes > device.policy_limit_bytes {
+                continue;
+            }
             return Ok(TiledResources {
                 device_loss: None,
                 requested: config.clone(),
@@ -328,7 +340,19 @@ impl CudaFullTrainer {
             return Err(Error("CUDA tile packing shape/capacity mismatch".into()));
         }
         // Vec capacities and all simultaneously live output/accumulator payloads.
-        let host_bytes = tile.retained_bytes() + n * (p + 1) * 8 + (p * 2) * 8;
+        let packed_bytes = transfer::input_bytes(n, slots, tile.boundaries.len(), false)?;
+        let host_base = tile.retained_bytes() + n * (p + 1) * 8 + (p * 2) * 8;
+        let available = cap
+            .host_tile_payload_at_capacity_bytes
+            .min(HOST_LIMIT)
+            .checked_sub(host_base)
+            .ok_or_else(|| Error("CUDA tile host payload exceeded".into()))?;
+        let staging_start = Instant::now();
+        let staging = self
+            .runtime
+            .reserve_packed_inputs(packed_bytes, available)?;
+        let staging_ms = staging_start.elapsed().as_secs_f64() * 1000.;
+        let host_bytes = host_base + staging;
         if host_bytes > cap.host_tile_payload_at_capacity_bytes || host_bytes > HOST_LIMIT {
             return Err(Error("CUDA tile host payload capacity exceeded".into()));
         }
@@ -356,6 +380,8 @@ impl CudaFullTrainer {
         );
         self.profile.frames += tile.boundaries.len();
         self.profile.tiles += 1;
+        self.profile.input_transfer_calls += 2;
+        self.profile.input_transfer_bytes += packed_bytes + 4;
         self.profile.kernel_launches += 4;
         self.profile.synchronizations += 1;
         self.profile.max_frames_per_launch = self
@@ -367,7 +393,7 @@ impl CudaFullTrainer {
             self.profile.peak_device_buffer_bytes.max(device_bytes);
         self.profile.peak_host_tile_payload_bytes =
             self.profile.peak_host_tile_payload_bytes.max(host_bytes);
-        self.profile.upload_ms += self.runtime.last_timing_ms[0];
+        self.profile.upload_ms += staging_ms + self.runtime.last_timing_ms[0];
         self.profile.kernels_and_sync_ms += self.runtime.last_timing_ms[1];
         self.profile.download_ms += self.runtime.last_timing_ms[2];
         let phase = Instant::now();

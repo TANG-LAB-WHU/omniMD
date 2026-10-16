@@ -10,6 +10,8 @@ The default tiled path keeps CPU prediction/seeds. On the measured 128-update
 synthetic cases, the new path improved medium-case whole-process time by 1.15x
 but made the tiny case slower (605 to 756 ms). Select it explicitly and measure
 the actual workload. This is not CPU-free training or general DeepMD compatibility.
+These are historical pre-packing measurements. See [input transfer batching](TRANSFER_BATCHING.md)
+for the later same-work comparison and published-data CPU reference.
 
 ## Enable in steps
 
