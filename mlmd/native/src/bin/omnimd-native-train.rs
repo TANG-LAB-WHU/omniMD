@@ -1,7 +1,7 @@
 //! Native readout or full supported-network training; A dataset JSONL v1.
 use omnimd_ml_contract::Potential;
 use omnimd_native::{
-    full_training::{train_full, Checkpoint, FullConfig},
+    full_training::{train_full_with_device, Checkpoint, FullConfig},
     training::{train_with_device, TrainConfig, TrainingDevice},
     training_data::Dataset,
     NativePotential,
@@ -124,6 +124,7 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
             initial_model,
             checkpoint,
             config,
+            device,
             ..
         } => {
             let (state, key, hash) = match (initial_model, checkpoint) {
@@ -154,8 +155,13 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
                     )
                 }
             };
-            fs::create_dir(&output)?;
-            let outcome = train_full(state, &dataset, &config, |s| {
+            state.validate_for_device(&dataset, &config, device)?;
+            let outcome = train_full_with_device(state, &dataset, &config, device, |s| {
+                if !output.exists() {
+                    fs::create_dir(&output).map_err(|e| {
+                        omnimd_ml_contract::Error(format!("create checkpoint directory: {e}"))
+                    })?;
+                }
                 save_checkpoint(&output, &format!("checkpoint-step-{}.json", s.step), s)
             })?;
             save_checkpoint(&output, "checkpoint.json", &outcome.checkpoint)?;

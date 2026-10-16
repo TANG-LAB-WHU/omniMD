@@ -14,14 +14,16 @@ This is a progressively implemented subset, not all DeepMD functionality:
 | tanh/linear, explicit residuals and timesteps | Implemented | Implemented |
 | sigmoid/softplus inference | Implemented | Rejected |
 | Final-readout E/F fitting | Implemented, bounded | Implemented: GPU features, CPU QR/assessment |
-| Full supported tanh-network E/F training and Adam restart | Implemented, bounded | Not implemented |
+| Full supported tanh-network E/F training and Adam restart | Implemented, bounded | [Bounded GPU gradients/Adam, CPU loss/geometry](CUDA_FULL_TRAINING.md) |
 | Arbitrary DeepMD models, attention/spin/hybrid/compression | Not implemented | Not implemented |
 
 Conversion supports a pinned DeepMD 3.1.3 interchange subset and two audited
 frozen graph profiles. Unsupported formats/architectures fail explicitly.
 See [conversion](CONVERSION.md), [frozen export](FROZEN.md),
 [training scope](FULL_TRAINING.md) and [remaining training work](TRAINING_NEXT.md).
-The latest measured GPU implementation is described in [CUDA_FIT.md](CUDA_FIT.md).
+GPU inference is described in [CUDA_FIT.md](CUDA_FIT.md); full neural-parameter
+training, its exact computation boundary and timings are in
+[CUDA_FULL_TRAINING.md](CUDA_FULL_TRAINING.md).
 
 ## Step 1: Build the CPU baseline
 
@@ -164,13 +166,16 @@ omnimd-native-eval /absolute/trained/model.json < held-out-frames.jsonl
 Training writes provenance, split IDs and metrics; the full-network mode also
 supports documented CPU deterministic checkpoint/resume. Readout requests may
 set `"device":"cuda:0"` in a CUDA-enabled build for GPU feature generation with
-CPU QR/assessment; omitted device remains CPU. Full-network requests accept only
-`"cpu"`. See [readout device scope and replay](TRAINING.md#explicit-cpu-or-cuda-features).
+CPU QR/assessment; omitted device remains CPU. Full-network requests also accept
+explicit `"cuda:N"` within the tighter [CUDA training bounds](CUDA_FULL_TRAINING.md),
+with GPU mixed derivatives/Adam and CPU loss/geometry/reduction. GPU checkpoints
+use v2 and require the recorded backend/device/runtime identity on resume.
 Check held-out results
 before MD. GPU inference can consume a trained native model only if it meets
-CUDA's architecture/size bounds. These trainers do not implement full-network
+CUDA's architecture/size bounds. These trainers do not implement end-to-end
 GPU training, automatic normalization/offset fitting or generic DeepMD training
-parity. Tiny readout training is slower on CUDA in the measured parity case.
+parity. Tiny training examples are slower on CUDA; the measured 64-atom gradient
+case is faster, with its timing scope documented separately.
 
 ## Model format v1
 
@@ -277,8 +282,8 @@ outputs using `tools/compare_evaluations.py`. A fixed-seed, untrained DeepMD
 E/F/virial errors of 4.44e-16 / 5.03e-17 / 3.47e-17. This establishes numerical
 compatibility for that fixture, not pretrained-model physical accuracy.
 Native training modes are documented below. This crate has no MD integrator;
-MD is provided by the shared engine. GPU training kernels, compression tables,
-attention, spin, type embedding, `se_e3`, hybrid descriptors, exclusions,
+MD is provided by the shared engine. Compression tables, attention, spin,
+type embedding, `se_e3`, hybrid descriptors, exclusions,
 frame/atomic parameters, environment protection and vacuum subtraction are not
 implemented. Such architectures
 must not be relabeled as this format; unknown fields and unsupported enums fail.
@@ -300,8 +305,9 @@ evidence are in [FROZEN.md](FROZEN.md). Frozen-hidden final-readout training is 
 [TRAINING.md](TRAINING.md) for the native CLI, exact E/F features, reproducible
 split and actual teacher-recovery results. Full supported tanh-network E/F
 training with exact mixed AD, Adam and deterministic checkpoint/restart is now
-implemented in [FULL_TRAINING.md](FULL_TRAINING.md). Its scope is CPU float64,
-small models and fixed descriptor normalization; no general DeepMD training or
+implemented in [FULL_TRAINING.md](FULL_TRAINING.md), with an explicit bounded
+[CUDA gradient/Adam backend](CUDA_FULL_TRAINING.md). Its scope is float64, small
+models and fixed descriptor normalization; no general DeepMD training or
 physical-accuracy claim is made. [TRAINING_NEXT.md](TRAINING_NEXT.md) lists
 remaining training limitations.
 

@@ -169,3 +169,16 @@ labels are original synthetic data. Existing DeepMD mathematical references,
 NVIDIA runtime terms and dependency licenses above remain applicable. No new
 dependency, source download, binary redistribution or algorithmic novelty is
 introduced by this backend change.
+
+## Full neural-parameter CUDA mixed derivatives and Adam
+
+The four-component arithmetic, full CUDA gradient/Adam kernels, execution
+routing, GPU checkpoint metadata and synthetic checks are independently written
+MIT code. No external AD, hyper-dual class, optimizer, CUDA sample/header or
+trained model is copied. The mathematical hyper-dual chain rule is established;
+reference: Martin Neuenhofen, *Review of theory and implementation of hyper-dual
+numbers for first and second order automatic differentiation* (2018),
+https://arxiv.org/abs/1801.03614. Adam and the original se_e2_a references above
+remain applicable. These are implementation choices, not algorithmic novelty.
+Existing NVIDIA runtime terms and approved dependency licenses are unchanged;
+no dependency installation, download or global configuration change occurred.

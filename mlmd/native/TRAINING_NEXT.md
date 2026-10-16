@@ -12,7 +12,12 @@ normalization-statistics estimation, weight tying for one-side embedding models,
 virial-loss optimization, other activations, other DeepMD descriptors, and
 physically representative data validation. The [GPU-assisted readout path](TRAINING.md#explicit-cpu-or-cuda-features) now
 generates analytic final-layer columns on CUDA and solves/assesses them on CPU.
-Full-network CUDA parameter/mixed derivatives and Adam remain unimplemented.
+The [bounded full CUDA trainer](CUDA_FULL_TRAINING.md) now computes all neural
+parameter/mixed derivatives and Adam updates on GPU, while loss cotangents,
+geometry, stable reduction/clipping and assessment remain CPU work. Its per-
+parameter forward computation still needs shared-intermediate or reverse-mode
+optimization for larger networks. CPU v1 and backend-bound GPU v2 checkpoint
+resume are independently verified.
 There is no full DeepMD training-system compatibility claim. Existing converted native-v1
 models can be used as initial weights if they satisfy the documented trainer
 subset and resource bounds. Source framework aliases are not preserved as tied

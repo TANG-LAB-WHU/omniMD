@@ -198,6 +198,7 @@ macro_rules! api {
 }
 api! {
     init:unsafe extern "system" fn(u32)->i32=>"cuInit",
+    driver_version:unsafe extern "system" fn(*mut i32)->i32=>"cuDriverGetVersion",
     get_device:unsafe extern "system" fn(*mut i32,i32)->i32=>"cuDeviceGet",
     name:unsafe extern "system" fn(*mut c_char,i32,i32)->i32=>"cuDeviceGetName",
     capability:unsafe extern "system" fn(*mut i32,*mut i32,i32)->i32=>"cuDeviceComputeCapability",
@@ -246,9 +247,11 @@ pub struct Runtime {
     api: Api,
     context: Handle,
     module: Handle,
-    functions: [Handle; 3],
+    functions: Vec<Handle>,
     buffers: Vec<(u64, usize)>,
     pub device_info: String,
+    pub driver_version: i32,
+    pub program_sha256: String,
     pub kernel_resources: Vec<KernelResources>,
     pub last_timing_ms: [f64; 3],
     pub type_uploads: usize,
@@ -261,6 +264,14 @@ pub struct Runtime {
 }
 impl Runtime {
     pub fn new(source: &str, ordinal: i32) -> Result<Self> {
+        Self::with_functions(source, ordinal, &["embed", "fit", "pullback"], 11)
+    }
+    pub(super) fn with_functions(
+        source: &str,
+        ordinal: i32,
+        names: &[&str],
+        buffers: usize,
+    ) -> Result<Self> {
         unsafe {
             #[cfg(windows)]
             let driver = PathBuf::from(
@@ -272,6 +283,11 @@ impl Runtime {
             let library = Library::open(&driver)?;
             let api = Api::load(&library)?;
             check((api.init)(0), "cuInit")?;
+            let mut driver_version = 0;
+            check(
+                (api.driver_version)(&mut driver_version),
+                "cuDriverGetVersion",
+            )?;
             let mut device = 0;
             check((api.get_device)(&mut device, ordinal), "cuDeviceGet")?;
             let (mut major, mut minor) = (0, 0);
@@ -292,6 +308,8 @@ impl Runtime {
                 ordinal
             );
             let ptx = compile(source, major * 10 + minor)?;
+            use sha2::{Digest, Sha256};
+            let program_sha256 = format!("{:x}", Sha256::digest(&ptx));
             let mut previous = ptr::null_mut();
             check((api.ctx_current)(&mut previous), "cuCtxGetCurrent")?;
             let mut context = ptr::null_mut();
@@ -301,9 +319,11 @@ impl Runtime {
                 api,
                 context,
                 module: ptr::null_mut(),
-                functions: [ptr::null_mut(); 3],
-                buffers: vec![(0, 0); 11],
+                functions: vec![ptr::null_mut(); names.len()],
+                buffers: vec![(0, 0); buffers],
                 device_info,
+                driver_version,
+                program_sha256,
                 kernel_resources: Vec::new(),
                 last_timing_ms: [0.0; 3],
                 type_uploads: 0,
@@ -318,14 +338,14 @@ impl Runtime {
                 (api.module_load)(&mut rt.module, ptx.as_ptr() as *const c_void),
                 "cuModuleLoadData",
             )?;
-            for (i, name) in ["embed", "fit", "pullback"].iter().enumerate() {
+            for (i, name) in names.iter().enumerate() {
                 let name = CString::new(*name).unwrap();
                 check(
                     (api.function)(&mut rt.functions[i], rt.module, name.as_ptr()),
                     "cuModuleGetFunction",
                 )?;
             }
-            for (i, name) in ["embed", "fit", "pullback"].iter().enumerate() {
+            for (i, name) in names.iter().enumerate() {
                 let mut values = [0; 3];
                 for (value, attribute) in values.iter_mut().zip([4, 1, 3]) {
                     check(
@@ -504,18 +524,130 @@ impl Runtime {
             Ok(())
         }
     }
+    pub(super) fn full_frame(
+        &mut self,
+        rows: &[f64],
+        tangent: &[f64],
+        types: &[i32],
+        parameters: usize,
+        mut energy_seed: f64,
+    ) -> Result<(Vec<f64>, Vec<f64>)> {
+        unsafe {
+            let _current = Current::enter(self.api, self.context)?;
+            self.upload_current(2, rows)?;
+            self.upload_current(3, types)?;
+            self.upload_current(5, tangent)?;
+            self.upload_current(8, &[0_i32])?;
+            self.ensure(6, types.len() * parameters * 8)?;
+            self.ensure(7, types.len() * 8)?;
+            let mut address: [u64; 12] = std::array::from_fn(|i| self.buffers[i].0);
+            let pointer = |p: &mut u64| p as *mut u64 as *mut c_void;
+            let mut atoms = types.len() as i32;
+            let mut count = parameters as i32;
+            let mut args = [
+                pointer(&mut address[0]),
+                pointer(&mut address[1]),
+                pointer(&mut address[2]),
+                pointer(&mut address[5]),
+                pointer(&mut address[3]),
+                pointer(&mut address[4]),
+                &mut atoms as *mut i32 as *mut c_void,
+                &mut count as *mut i32 as *mut c_void,
+                &mut energy_seed as *mut f64 as *mut c_void,
+                pointer(&mut address[6]),
+                pointer(&mut address[7]),
+                pointer(&mut address[8]),
+            ];
+            self.launch_grid(0, (types.len() * parameters).div_ceil(64), 64, &mut args)?;
+            check((self.api.sync)(), "cuCtxSynchronize(full gradient)")?;
+            let mut status = [0_i32];
+            Self::download_into(self.api, self.buffers[8].0, &mut status)?;
+            if status[0] != 0 {
+                return Err(Error("nonfinite CUDA full-gradient intermediate".into()));
+            }
+            let mut gradient = vec![0.0; types.len() * parameters];
+            let mut energy = vec![0.0; types.len()];
+            Self::download_into(self.api, self.buffers[6].0, &mut gradient)?;
+            Self::download_into(self.api, self.buffers[7].0, &mut energy)?;
+            Ok((gradient, energy))
+        }
+    }
+    pub(super) fn full_adam(
+        &mut self,
+        gradient: &[f64],
+        mut beta1: f64,
+        mut beta2: f64,
+        mut c1: f64,
+        mut c2: f64,
+        mut rate: f64,
+        mut epsilon: f64,
+    ) -> Result<(Vec<f64>, Vec<f64>, Vec<f64>)> {
+        unsafe {
+            let _current = Current::enter(self.api, self.context)?;
+            self.upload_current(11, gradient)?;
+            self.upload_current(8, &[0_i32])?;
+            let mut address: [u64; 12] = std::array::from_fn(|i| self.buffers[i].0);
+            let pointer = |p: &mut u64| p as *mut u64 as *mut c_void;
+            let scalar = |p: &mut f64| p as *mut f64 as *mut c_void;
+            let mut count = gradient.len() as i32;
+            let mut args = [
+                pointer(&mut address[1]),
+                pointer(&mut address[9]),
+                pointer(&mut address[10]),
+                pointer(&mut address[11]),
+                &mut count as *mut i32 as *mut c_void,
+                scalar(&mut beta1),
+                scalar(&mut beta2),
+                scalar(&mut c1),
+                scalar(&mut c2),
+                scalar(&mut rate),
+                scalar(&mut epsilon),
+                pointer(&mut address[8]),
+            ];
+            self.launch_grid(1, gradient.len().div_ceil(64), 64, &mut args)?;
+            check((self.api.sync)(), "cuCtxSynchronize(full Adam)")?;
+            let mut status = [0_i32];
+            Self::download_into(self.api, self.buffers[8].0, &mut status)?;
+            if status[0] != 0 {
+                return Err(Error(
+                    "nonfinite CUDA Adam update; last completed checkpoint remains usable".into(),
+                ));
+            }
+            let mut values = vec![0.0; gradient.len()];
+            let mut first = values.clone();
+            let mut second = values.clone();
+            Self::download_into(self.api, self.buffers[1].0, &mut values)?;
+            Self::download_into(self.api, self.buffers[9].0, &mut first)?;
+            Self::download_into(self.api, self.buffers[10].0, &mut second)?;
+            Ok((values, first, second))
+        }
+    }
     unsafe fn launch(&self, index: usize, threads: usize, args: &mut [*mut c_void]) -> Result<()> {
+        self.launch_grid(
+            index,
+            if index == 1 {
+                threads
+            } else {
+                threads.div_ceil(64)
+            },
+            if index == 1 { 128 } else { 64 },
+            args,
+        )
+    }
+    unsafe fn launch_grid(
+        &self,
+        index: usize,
+        blocks: usize,
+        threads: usize,
+        args: &mut [*mut c_void],
+    ) -> Result<()> {
         check(
             (self.api.launch)(
                 self.functions[index],
-                if index == 1 {
-                    threads as u32
-                } else {
-                    threads.div_ceil(64) as u32
-                },
+                blocks as u32,
                 1,
                 1,
-                if index == 1 { 128 } else { 64 },
+                threads as u32,
                 1,
                 1,
                 0,

@@ -170,6 +170,8 @@ It reads the reported seed from the header (20261016 in this replay).
 
 Generated models, trajectories, requests, checkpoints and raw logs remain
 ignored. Only the original preparation recipe and compact report are tracked.
-Remaining work includes GPU training, GPU environment/neighbor computation,
-reduced full-environment transfers and asynchronous multi-frame execution.
+The later [bounded CUDA training implementation](CUDA_FULL_TRAINING.md) adds
+all-neural-parameter mixed derivatives and Adam. Remaining infrastructure work
+includes GPU environment/neighbor computation, reduced full-environment
+transfers and asynchronous multi-frame execution.
 No implementation or parity claim is made for those features.
