@@ -224,3 +224,20 @@ For executable setup, model integration, dataset inspection and a complete CPU
 tutorial, see [GETTING_STARTED.md](../GETTING_STARTED.md). The
 [versioned matrix](../FEATURE_MATRIX.md) distinguishes implemented, delegated and
 missing DeepMD functions.
+
+
+## Current integrated adapter and CUDA follow-up
+
+The local integrated runtime 9b8d184 includes native cooperative fitting and
+persistent host buffers. The [final receipt](../evidence/native-cuda-integrated-fit.json)
+measures complete 20-step NVE separately from warmed evaluations and verifies
+exact checkpoint continuation. Older measurements above describe their original
+release snapshots; see [release scopes](../RELEASE.md) for before/after details.
+
+C API batching, parameters and atomic outputs are exposed by the separate
+`omnimd-deepmd` CLI and `DeepMd::evaluate`, not by this engine's shared requests.
+A parameterized C API model can be inspected through the standalone CLI but plain
+engine evaluation cannot supply its parameters and returns an error. Engine
+`batch-eval` retains one model and calls one frame at a time. The
+[standalone guide](../deepmd/BACKEND_GUIDE.md) describes its additive request fields;
+new C API real-runtime numerical validation is pending.

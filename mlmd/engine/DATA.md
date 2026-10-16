@@ -236,3 +236,11 @@ This allows prediction-only inputs; it does not bypass training's requirement
 for both E and F. Complete labels do not guarantee model compatibility, valid
 train/validation splits, sufficient rank, trainer size bounds or physical accuracy.
 The scan retains unique IDs to detect duplicates but never accumulates all frames.
+
+
+The C API standalone evaluator now additionally supports homogeneous multi-frame
+calls, explicit model parameters and atomic energy/virial output. Those are
+adapter-local features; this engine's dataset schema and `batch-eval` still use
+the existing parameter-free total E/F/V contract and single-frame calls. See
+[the standalone guide](../deepmd/BACKEND_GUIDE.md). Its new paths have focused
+FFI/CLI coverage; real-runtime numerical follow-up is pending.

@@ -69,6 +69,19 @@ with executable commands; pending branch work is not counted as integrated.
   validation and native CUDA training remain unimplemented.
 - Broader descriptors, including hybrids, only with implementation and validation.
 
+## Current local integration after 9eaf284
+
+- Native cooperative per-atom fitting and persistent host workspace are integrated.
+  Final same-window 192-atom / 20-step complete MD measured 662 ms old CUDA,
+  412 ms current CUDA and 1352 ms CPU, with numerical agreement and exact same-
+  environment restart. This is a bounded result, not general GPU acceleration.
+- C API adapter-local homogeneous batching, explicit fparam/aparam, optional
+  atomic E/virial and standalone inspection are integrated. Focused tests pass;
+  new real-runtime numerical acceptance remains pending. Shared engine schemas
+  remain parameter-free, total E/F/V and one combined call per frame.
+- The full CPU tutorial was rerun with the integrated feature-enabled executable
+  selecting CPU. Native GPU training and generic DeepMD coverage remain missing.
+
 ## Publication gate
 
 The CPU baseline fce0af9 and CUDA release 9074817 are published on shawn_dev.

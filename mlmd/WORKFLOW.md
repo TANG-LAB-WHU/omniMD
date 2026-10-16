@@ -204,3 +204,41 @@ The CPU algorithm is unchanged and has no candidate cache. In the recorded run,
 final CUDA's complete short MD still took longer than CPU because initialization
 is material. Changed cells, wrapping or large displacements can require rebuilds;
 independent-frame workloads need not obtain the same warm-cache benefit.
+
+
+## Integrated cooperative CUDA acceptance
+
+The later local integration combines native source b6b7aa7, C API source 1aee39c
+and A's preflight/tutorial. Exact tested runtime: 9b8d184. The new compact
+[GPU receipt](evidence/native-cuda-integrated-fit.json) and
+[CPU tutorial receipt](evidence/cpu-tutorial-integrated.json) supersede no historical
+receipts: they identify their own binaries and inputs. C API new numerical
+validation remains separate and pending; this check exercises native CUDA only.
+
+Build and preserve the engine and CUDA checker from 9eaf284 before building the
+integrated candidate with identical release settings. Use the build and input
+preparation above, then run the same acceptance script with the actual provenance
+arguments (paths must name the newly built/preserved binaries and existing inputs):
+
+```sh
+python mlmd/scripts/validate_cuda_infra.py \
+  --baseline-engine /saved/9eaf284/omnimd-mlmd \
+  --baseline-check /saved/9eaf284/omnimd-native-cuda-check \
+  --engine /integrated/mlmd/target/release/omnimd-mlmd \
+  --check /integrated/mlmd/target/release/omnimd-native-cuda-check \
+  --public-model /prepared/public-native.json \
+  --public-frames /prepared/public-water192.jsonl \
+  --medium-model /prepared/medium-model.json \
+  --medium-frames /prepared/medium-frames.jsonl \
+  --baseline-commit 9eaf284050257dae5ffeb53210987d7c35d391a5 \
+  --source-commit 9b8d1847f892e32751c73d3262e0245d0efb4cdd \
+  --native-source-commit b6b7aa7bc239702dafdefb559d758efd4c357eaa \
+  --work /new/integrated-acceptance --run-gpu
+```
+
+Only run in a coordinated GPU window. The recorded invocation completed without
+errors/retries and released its window at 2026-10-16 07:50:26 UTC. Complete MD
+throughput is 20 steps divided by total process wall time, including startup,
+model loading/compilation, JSON output and checkpoint fsync. Warmed five-repeat
+means exclude those startup costs. Normal desktop graphics remain uncontrolled;
+these figures do not establish a scaling curve or production performance.

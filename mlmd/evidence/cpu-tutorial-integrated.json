@@ -1,0 +1,91 @@
+{
+  "schema": "omnimd-cpu-tutorial-receipt-v1",
+  "status": "passed",
+  "scope": "48 synthetic nonperiodic frames; software workflow only; CPU readout training and short NVT/restart; no physical accuracy claim",
+  "frames": 48,
+  "training_frames": 36,
+  "validation_frames": 12,
+  "data_rank": 10,
+  "initial_validation": {
+    "energy_per_atom_rmse_ev": 0.12957733149230263,
+    "energy_rmse_ev": 0.4992692733808373,
+    "force_component_rmse_ev_per_angstrom": 0.014725329120958126,
+    "frames": 12,
+    "normalized_ef_objective": 2.0178913487159136,
+    "virial_component_rmse_ev": 0.008621145830963163
+  },
+  "final_validation": {
+    "energy_per_atom_rmse_ev": 6.721195586654925e-16,
+    "energy_rmse_ev": 2.64824653210786e-15,
+    "force_component_rmse_ev_per_angstrom": 3.171190187753454e-17,
+    "frames": 12,
+    "normalized_ef_objective": 9.742528215121728e-30,
+    "virial_component_rmse_ev": 1.7714411268311535e-17
+  },
+  "inspection_sha_verified": true,
+  "extxyz_labels_preserved": true,
+  "restart_snapshots_and_checkpoint_exact": true,
+  "commands": [
+    {
+      "step": "Generate synthetic CPU teacher E/F/V",
+      "exit_code": 0
+    },
+    {
+      "step": "Read static capabilities",
+      "exit_code": 0
+    },
+    {
+      "step": "Load native CPU model once and report metadata",
+      "exit_code": 0
+    },
+    {
+      "step": "Import explicit extxyz labels",
+      "exit_code": 0
+    },
+    {
+      "step": "Inspect the complete dataset without loading a model",
+      "exit_code": 0
+    },
+    {
+      "step": "Train final readout through the unified CPU CLI",
+      "exit_code": 0
+    },
+    {
+      "step": "Evaluate every frame with one retained model",
+      "exit_code": 0
+    },
+    {
+      "step": "Validate MD and initial E/F/V",
+      "exit_code": 0
+    },
+    {
+      "step": "Run ten CPU CSVR steps",
+      "exit_code": 0
+    },
+    {
+      "step": "Resume five steps with saved thermostat RNG",
+      "exit_code": 0
+    }
+  ],
+  "sha256": {
+    "dataset.jsonl": "b65ddcf5024c2a611b23c68e1e7a3697529b0c7351a7ec09905a5ac2250a0fe2",
+    "teacher.json": "da3ff7e48edd9444dbe71f9a55a2653fff3dc21ff07fb3ef962e37f25f8d908a",
+    "initial.json": "379ac0080726f0e83aae4c1d4c7d56a3ab5ee1659135cf042d3b7fd189f8dfbd",
+    "trained/model.json": "de162cfaa7e2745eb6a6b56c959c6cd77cfe53db7ff7ceaa694b825e050fc78e",
+    "training.extxyz": "085a5bdc7967e591df666337dbe8a4d621ca9166b52ad1192d98a798464a3c07"
+  },
+  "executable_sha256": {
+    "engine": "36a3e478c0bbadcfd4cf19ae9dcebcaa217684fe09dd628c0133a73760f3450c",
+    "evaluator": "b412f7d6b2c6b4e5f6d8c88d6bd6c44704020f8d9e7c82c7d04c29d0dac37c70",
+    "trainer": "0668d29091f3bef3b41d13d8b9551133438680b6ad9f7d6760b359495e750d7f"
+  },
+  "script_sha256": "1030a180c399f6602985e83ab575e04955dc5a3be37631a37e7b3a527119d37a",
+  "source_commit": "9b8d1847f892e32751c73d3262e0245d0efb4cdd",
+  "environment": {
+    "os": "Windows",
+    "rust": "1.99.0",
+    "profile": "release with native-cuda compiled",
+    "device": "cpu",
+    "new_dependencies": false
+  }
+}

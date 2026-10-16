@@ -233,3 +233,79 @@ Cargo dependencies are unchanged. No GPU calls or new installs were made.
 Generated model weights, data, raw logs and checkpoints remain outside Git.
 Publishing this tranche and any pending B/C integrations requires a separate
 scope report and publication authorization.
+
+
+## Local integrated cooperative CUDA and C API batch follow-up
+
+Unpublished. Integration lineage after A's 9eaf284:
+
+- B source b6b7aa7bc239702dafdefb559d758efd4c357eaa -> 887c52d:
+  native cooperative fitting/descriptor kernels, persistent host workspace and
+  cached type uploads, read-only resource/profile counters, native docs/evidence.
+- C source 1aee39ccc64de849eb6fe6aac6d264d786005433 -> 3be7687:
+  adapter-local homogeneous multi-frame C calls, explicit frame/atom parameters,
+  optional atomic E/virial, standalone model inspection and no-clobber output,
+  tests, comparison tooling and English backend guides.
+- 9b8d184 records accurate adapter-versus-engine capabilities and parameterized
+  acceptance provenance/throughput. This is the exact built/tested runtime.
+  Shared Frame/Evaluation/Potential, CPU default and Cargo dependencies are unchanged.
+
+C API integration passes 17 library plus four standalone CLI tests. Native CUDA
+packing/cache and native solver library tests pass (three CPU-safe tests); B's
+broader original acceptance is retained separately. Final release engine, native
+CPU evaluator/trainer, CUDA checker and C API executable build offline. The final
+CPU tutorial passes all ten stages, including 48-frame labeled extxyz import,
+inspection, 36/12 readout fitting, batch assessment, CSVR NVT and exact restart.
+See [its integrated receipt](evidence/cpu-tutorial-integrated.json).
+
+The new C API numerical paths remain **pending real-runtime acceptance**. Earlier
+scalar CPU/GPU receipts do not validate batched/parameter/atomic calls. These
+features are available through `omnimd-deepmd` and `DeepMd::evaluate`; engine MD
+and `batch-eval` retain parameter-free total E/F/V and one frame per call. The
+feature matrix and guides make that distinction explicitly.
+
+### Final integrated native GPU measurement
+
+[The final receipt](evidence/native-cuda-integrated-fit.json) fingerprints all
+inputs and binaries. The paired baseline is 9eaf284 (native code identical to
+7be1d97); both versions use Rust 1.99 GNU release mode on the same Windows host.
+One bounded measurement, five warmed calls per case; no statistical/general
+speedup claim. CPU geometry/final reductions and per-call transfers remain.
+
+| Same-model case | Previous CUDA ms/eval | Integrated CUDA ms/eval | Previous/integrated |
+| --- | ---: | ---: | ---: |
+| Original synthetic 216 atoms | 2.56860 | 0.73486 | 3.495 |
+| Public converted 192 atoms | 4.52998 | 1.21122 | 3.740 |
+
+These are complete warmed EFV calls, not kernel-only timers. Construction and
+first evaluation are separately recorded. Complete MD used the same 192-atom
+public-model frame, 20 NVE steps at 0.1 fs, seeded 300 K velocities (20261014),
+COM removal, one snapshot per step and an interval checkpoint at step ten:
+
+| Complete job | Wall time ms | Steps/s including startup and IO |
+| --- | ---: | ---: |
+| Previous CUDA | 661.758 | 30.223 |
+| Integrated CPU | 1352.116 | 14.792 |
+| Integrated CUDA | 411.725 | 48.576 |
+
+The complete old/new CUDA ratio is 1.607; CPU/new CUDA is 3.284 for this short
+workload. Do not substitute warmed inference ratios for MD throughput. Each
+process includes loading/compilation, output and checkpoint fsync. Ordinary
+desktop graphics were left active; neither runtime construction nor first
+inference is a machine-cold driver-cache measurement.
+
+Old/new CUDA snapshots have zero differences. Integrated CPU/GPU maxima:
+positions 5.55e-17 A, velocities 1.39e-17 A/fs, energy zero, force 1.44e-15 eV/A,
+virial 1.78e-14 eV. Maximum energy drift is 5.47493e-5 eV for all three runs.
+Resuming ten steps from the step-ten checkpoint gives identical decoded
+snapshots and final checkpoint within the tested CUDA binary/environment.
+The moving/rebuild sequence yields cache flags true/false/false/false/false/true/false
+and passes independent native CPU parity. No GPU failures or retries occurred;
+all verification processes exited and the window was released at 07:50:26 UTC.
+
+This evidence establishes the scoped implementation/IO consistency, not chemical
+accuracy, long-time stability, GPU training or full DeepMD compatibility. No
+new dependencies, drivers, system settings or research inputs were used. Only
+source, documentation and compact receipts are committed; generated weights,
+data, trajectories and operational logs remain outside Git. No public push is
+part of this integration.

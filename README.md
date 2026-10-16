@@ -30,6 +30,19 @@ candidate cache, with final-version timing, MD and restart acceptance. It reduce
 host neighbor preparation; kernels and the CPU path are unchanged. This follow-up
 is **not published**. See [its scope and measurements](mlmd/RELEASE.md#local-native-cuda-cache-follow-up).
 
+The current **local integrated follow-up** also contains cooperative native CUDA
+fitting and persistent host buffers, plus standalone C API batching, explicit
+frame/atom parameters, atomic outputs and model inspection. Native final-code
+acceptance measured the same 192-atom, 20-step complete MD job at **412 ms** versus
+**662 ms** previous CUDA and **1352 ms** CPU; the before/after whole-job ratio is
+**1.61x**, separate from the **3.74x** warmed single-frame ratio for that model.
+These are bounded measurements with startup/output/checkpoints included in MD.
+[The final receipt](mlmd/evidence/native-cuda-integrated-fit.json) includes CPU/GPU
+parity and exact restart. New C API paths have passing FFI/CLI tests; their new
+real-runtime numerical validation is **pending**. Use the
+[standalone C API guide](mlmd/deepmd/BACKEND_GUIDE.md) for those options; shared
+engine MD remains parameter-free. This integrated follow-up is **not published**.
+
 ## Stepwise setup and current feature coverage
 
 Start with the [complete English setup and usage guide](mlmd/GETTING_STARTED.md):
@@ -54,7 +67,7 @@ Start with the [complete English setup and usage guide](mlmd/GETTING_STARTED.md)
 with official **DeepMD 3.1.3** and distinguishes native, delegated, partial and
 missing functions. Broad DeepMD feature parity is not implemented. The preflight
 command and executable tutorial are local follow-ups pending publication; the
-[CPU tutorial receipt](mlmd/evidence/cpu-tutorial.json) records the actual run.
+[final CPU tutorial receipt](mlmd/evidence/cpu-tutorial-integrated.json) records the actual run.
 
 ## CPU inference, training and simulation capabilities
 

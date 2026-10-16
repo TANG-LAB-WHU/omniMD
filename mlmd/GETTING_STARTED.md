@@ -1,7 +1,7 @@
 # Stepwise setup and use
 
-This guide covers the MLIP workspace in `mlmd/`, starting from local baseline
-7be1d97 plus the dataset-inspection/tutorial tranche. Read the
+This guide covers the MLIP workspace in `mlmd/`, tested at integrated runtime
+9b8d184 (native source b6b7aa7 and C API source 1aee39c). Read the
 [versioned feature matrix](FEATURE_MATRIX.md) before selecting a model. Native
 Rust and official DeepMD FFI are distinct inference paths. CPU is the default;
 CUDA is explicitly selected and training currently remains CPU-only.
@@ -82,7 +82,7 @@ python3 mlmd/scripts/run_cpu_tutorial.py --engine mlmd/target/release/omnimd-mlm
 Expected final message: `Passed.` The receipt records 48 frames, 36 training
 and 12 explicit validation IDs, dataset/executable hashes, complete label
 preservation and exact resumed snapshots/checkpoint. The
-[executed receipt](evidence/cpu-tutorial.json) records held-out E/atom RMSE
+[final integrated receipt](evidence/cpu-tutorial-integrated.json) records held-out E/atom RMSE
 6.72e-16 eV and force RMSE 3.17e-17 eV/A for this manufactured readout problem.
 These values demonstrate software consistency, not chemical accuracy. The small
 time step, temperature and system in this recipe are demonstration settings.
@@ -181,10 +181,47 @@ cargo build --release --locked --manifest-path mlmd/Cargo.toml -p omnimd-deepmd 
 
 Replace the ordered type map with the model's actual chemical symbols. Explicit
 units assert the model's training convention. The wrapper cannot discover that
-convention or upgrade float32 weights by passing double buffers. This baseline
-rejects spin and additional frame/atom parameters; C's extension branch is not
-part of the current baseline until merged and validated. See
+convention or upgrade float32 weights by passing double buffers. Spin remains
+unsupported. Engine requests still use the parameter-free shared E/F/V contract;
+parameterized models need the adapter-local interface described next. See
 [C API runtime/error contract](deepmd/README.md).
+
+### C. Standalone C API batches, parameters and atomic outputs
+
+The integrated `omnimd-deepmd` executable additionally exposes explicit homogeneous
+batches, parameter arrays and optional atomic energy/virial outputs. Its 21 focused
+Rust tests pass; new real-runtime numerical validation remains pending. These
+options do not extend `omnimd-mlmd` MD/dataset schemas or native inference.
+
+Create `options.cpu.json` containing the C API `options` object from above
+**without** its outer `options` key, then query dimensions:
+
+```sh
+omnimd-deepmd inspect options.cpu.json new-inspection.json
+```
+
+The output reports `model_details.frame_parameter_dim` and `atom_parameter_dim`.
+For ordinary unparameterized models, the standalone evaluation request contains
+`options`, an array of shared `frames`, `batch_size:2` and `atomic:true`. Each
+consecutive batch must share atom count, ordered species and periodicity; cells
+and coordinates may differ. `batch_size:1` preserves serial behavior.
+
+For a model reporting two frame and one atomic parameter, provide one explicit
+object per frame, for example three atoms:
+
+```json
+"parameters": [{"fparam":[300.0,1.0],"aparam":[[0.1],[0.2],[0.3]]}]
+```
+
+This is a member of the full request, with exactly as many objects as `frames`.
+Values here illustrate shape only; their units/meaning must match the model.
+Nonzero dimensions require explicit values, with no broadcasting or guessed
+zeros. Requested `atomic_evaluations` use input atom order and the official
+runtime's decomposition; they are not independently measurable atomic energies.
+Use the [complete standalone requests](deepmd/BACKEND_GUIDE.md) and read
+[the current validation boundary](deepmd/BACKEND_VALIDATION.md). Standalone C API
+output publication requires a filesystem supporting hard links (NTFS/ext4 are
+examples); existing outputs are preserved.
 
 ## 4. Import and inspect your data
 
@@ -244,8 +281,8 @@ omnimd-mlmd batch-eval batch.request.json new-predictions.jsonl
 The current engine streams one frame per combined evaluation and retains the
 model. The last `completed` record contains metrics over actual supplied labels;
 missing labels never become zeros. A failed process or missing completion is not
-successful assessment. C's adapter-level multi-frame call is a separate pending
-extension; this command does not yet pack frames into that API.
+successful assessment. The integrated adapter-level multi-frame call is available
+through `omnimd-deepmd`; the engine command does not yet pack frames into that API.
 
 For a readout fit, adapt the complete `train.request.json` generated in step 2.
 Keep both E and F labels, choose held-out systems/trajectory IDs deliberately,
@@ -366,9 +403,10 @@ is Linux DeepMD 3.1.0, not Windows runtime acceptance or a 3.1.3 GPU claim.
 
 Measure loading, first evaluation, warmed evaluation and complete MD separately.
 Keep identical frames, precision, output/checkpoint cadence and hardware. Current
-native cache measurements improved warmed inference, but complete short MD was
-still slower than CPU in the recorded case. Small C API GPU models were also
-slower. See [measured release scopes](RELEASE.md); GPU presence is not a speedup.
+native cooperative-kernel integration measured a complete 20-step, 192-atom MD
+job at 412 ms CUDA versus 662 ms previous CUDA and 1352 ms CPU. This is a bounded
+same-window result including startup and IO; the earlier cache-only short run
+was slower than CPU. Small C API GPU models were also slower. See [measured release scopes](RELEASE.md); GPU presence is not a speedup.
 
 ## 8. Diagnose failures and preserve provenance
 
