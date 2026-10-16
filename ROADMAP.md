@@ -81,9 +81,11 @@ with executable commands; pending branch work is not counted as integrated.
   412 ms current CUDA and 1352 ms CPU, with numerical agreement and exact same-
   environment restart. This is a bounded result, not general GPU acceleration.
 - C API adapter-local homogeneous batching, explicit fparam/aparam, optional
-  atomic E/virial and standalone inspection are integrated. Focused tests pass;
-  new real-runtime numerical acceptance remains pending. Shared engine schemas
-  remain parameter-free, total E/F/V and one combined call per frame.
+  atomic E/virial, stored frame-default opt-in and standalone inspection are
+  integrated with TF/PT CPU numerical acceptance. Engine dataset v2, explicit
+  NPY parameter import and fixed-parameter CPU MD/checkpoint v3 are implemented.
+  Shared geometry/EFV types are unchanged; one combined call per frame remains.
+  TF restart is exact; PT first-call runtime roundoff prevents a bitwise promise.
 - The full CPU tutorial was rerun with the integrated feature-enabled executable
   selecting CPU. Full-network GPU training and generic DeepMD coverage remain missing.
 

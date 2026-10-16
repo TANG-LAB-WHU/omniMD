@@ -39,10 +39,10 @@ acceptance measured the same 192-atom, 20-step complete MD job at **412 ms** ver
 **1.61x**, separate from the **3.74x** warmed single-frame ratio for that model.
 These are bounded measurements with startup/output/checkpoints included in MD.
 [The final receipt](mlmd/evidence/native-cuda-integrated-fit.json) includes CPU/GPU
-parity and exact restart. New C API paths have passing FFI/CLI tests; their new
-real-runtime numerical validation is **pending**. Use the
+parity and exact restart. C API CPU batch/parameter/default/atomic paths now have real TF/PT numerical
+validation; the new GPU paths remain untested. Use the
 [standalone C API guide](mlmd/deepmd/BACKEND_GUIDE.md) for those options; shared
-engine MD remains parameter-free. This integrated follow-up is **not published**.
+engine now supports versioned parameter datasets and fixed-parameter CPU C API MD. This integrated follow-up is **not published**.
 
 The local native source `dc5449e` is integrated as `65a7192`: explicit CUDA-assisted
 frozen-readout features, CPU QR and CPU assessment. [Its receipt](mlmd/native/fixtures/cuda-readout-report.json)
@@ -87,6 +87,10 @@ command and executable tutorial are local follow-ups pending publication; the
   strain virial. Only the documented native-v1 architecture subset is accepted.
 - **Model conversion:** bounded DeepMD 3.1.3 .dp/safe-YAML conversion and two
   audited frozen .pb graph profiles. Unsupported models fail explicitly.
+- **Parameterized CPU models:** explicit frame/atom data, opt-in model-stored frame
+  defaults, v2 dataset/NPY import and fixed-context MD/checkpoint v3 through C API.
+  [Stepwise parameter guide](mlmd/engine/PARAMETERS.md) records strict ordering and
+  TF/PT acceptance, including PT numerical rather than bitwise restart parity.
 - **Data and prediction:** plain XYZ, a documented extxyz subset and explicit
   DeepMD NPY sets; shared JSONL, optional E/F/virial labels, batch evaluation,
   error metrics and model/capability queries. No units or labels are guessed.

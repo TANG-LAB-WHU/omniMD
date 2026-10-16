@@ -235,13 +235,14 @@ measures complete 20-step NVE separately from warmed evaluations and verifies
 exact checkpoint continuation. Older measurements above describe their original
 release snapshots; see [release scopes](../RELEASE.md) for before/after details.
 
-C API batching, parameters and atomic outputs are exposed by the separate
-`omnimd-deepmd` CLI and `DeepMd::evaluate`, not by this engine's shared requests.
-A parameterized C API model can be inspected through the standalone CLI but plain
-engine evaluation cannot supply its parameters and returns an error. Engine
-`batch-eval` retains one model and calls one frame at a time. The
-[standalone guide](../deepmd/BACKEND_GUIDE.md) describes its additive request fields;
-new C API real-runtime numerical validation is pending.
+C API multi-frame batching and atomic outputs remain in the separate standalone
+CLI. Engine `batch-eval` retains one call per frame; dataset v2 now propagates
+CPU C API frame/atom parameters and explicit stored-default policy. Fixed-parameter
+MD uses the same context for every evaluation and checkpoint v3. See
+[parameter usage](PARAMETERS.md) and [the standalone guide](../deepmd/BACKEND_GUIDE.md).
+Real TF/PT CPU comparisons passed. TF fixed-context restart is bitwise exact;
+PT exhibits external-runtime first-call roundoff and has numerical restart parity.
+No new C API GPU parameter/batch acceptance is claimed.
 
 ## Ensemble comparison and explicit subset extraction
 

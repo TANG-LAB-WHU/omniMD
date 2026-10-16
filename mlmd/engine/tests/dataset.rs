@@ -72,6 +72,7 @@ fn system(periodic: bool) -> (PathBuf, ImportRequest) {
         }
     }
     let request = ImportRequest {
+        parameter_layout: None,
         system: root.clone(),
         sets: vec!["set.001".into(), "set.000".into()],
         units: Units::EvAngstrom,
@@ -410,4 +411,101 @@ fn streamed_provenance_is_available_only_after_verified_completion() {
     let mut unhashed = DatasetReader::open(&input).unwrap();
     while unhashed.next_frame().unwrap().is_some() {}
     assert!(unhashed.completed_provenance().is_err());
+}
+
+#[test]
+fn parameterized_npy_import_retains_order_and_v2_records_survive_selection() {
+    use omnimd_mlmd::parameters::{Field, FramePolicy, Layout};
+    let (root, mut request) = system(false);
+    request.parameter_layout = Some(Layout {
+        fparam: vec![Field {
+            name: "condition".into(),
+            unit: "fixture".into(),
+        }],
+        aparam: vec![Field {
+            name: "atomic".into(),
+            unit: "fixture".into(),
+        }],
+    });
+    for (set, f, a) in [("set.001", 2., [0.7, 0.2]), ("set.000", 3., [0.9, 0.4])] {
+        npy(
+            &root.join(set).join("fparam.npy"),
+            &[1, 1],
+            &[f],
+            "<f8",
+            false,
+        );
+        npy(
+            &root.join(set).join("aparam.npy"),
+            &[1, 2],
+            &a,
+            "<f8",
+            false,
+        );
+    }
+    let output = root.join("params.jsonl");
+    import_deepmd(&request, &output).unwrap();
+    let mut reader = DatasetReader::open(&output).unwrap();
+    assert_eq!(reader.header.schema, "omnimd-dataset-jsonl-v2");
+    let first = reader.next_frame().unwrap().unwrap();
+    let p = first.parameters.unwrap();
+    assert_eq!(p.fparam, vec![2.]);
+    assert_eq!(p.aparam, vec![vec![0.7], vec![0.2]]);
+    assert_eq!(p.frame_parameter_policy, FramePolicy::Explicit);
+    assert_eq!(first.frame.species, vec!["H", "O"]);
+    while reader.next_frame().unwrap().is_some() {}
+    assert!(FrameReference {
+        dataset: output.clone(),
+        index: 0
+    }
+    .resolve()
+    .is_err());
+    let (_, fixed) = FrameReference {
+        dataset: output.clone(),
+        index: 0,
+    }
+    .resolve_with_parameters()
+    .unwrap();
+    assert_eq!(fixed.unwrap().values, p);
+    let req = root.join("select.json");
+    fs::write(&req,serde_json::json!({"schema":"omnimd-select-dataset-v1","dataset":output,"expected_source_sha256":sha256(&output).unwrap(),"ids":["set.001/0"]}).to_string()).unwrap();
+    let bundle = root.join("selection");
+    omnimd_mlmd::selection::select_dataset(&req, &bundle).unwrap();
+    let mut selected = DatasetReader::open(&bundle.join("dataset.jsonl")).unwrap();
+    assert_eq!(selected.next_frame().unwrap().unwrap().parameters, Some(p));
+    assert!(selected.next_frame().unwrap().is_none());
+    // Reader refuses omitted context and parameter injection into legacy v1.
+    let text = fs::read_to_string(&output).unwrap();
+    let mut records: Vec<serde_json::Value> = text
+        .lines()
+        .map(|s| serde_json::from_str(s).unwrap())
+        .collect();
+    records[1]["data"]
+        .as_object_mut()
+        .unwrap()
+        .remove("parameters");
+    let bad = root.join("missing.jsonl");
+    fs::write(
+        &bad,
+        records.iter().map(|r| format!("{r}\n")).collect::<String>(),
+    )
+    .unwrap();
+    assert!(DatasetReader::open(&bad).unwrap().next_frame().is_err());
+    records[0]["header"]["schema"] = "omnimd-dataset-jsonl-v1".into();
+    fs::write(
+        &bad,
+        records.iter().map(|r| format!("{r}\n")).collect::<String>(),
+    )
+    .unwrap();
+    assert!(DatasetReader::open(&bad).is_err());
+    npy(
+        &root.join("set.001/aparam.npy"),
+        &[1, 1],
+        &[0.1],
+        "<f8",
+        false,
+    );
+    assert!(import_deepmd(&request, &root.join("bad-width.jsonl")).is_err());
+    npy(&root.join("set.001/fparam.npy"), &[1, 0], &[], "<f8", false);
+    assert!(import_deepmd(&request, &root.join("missing-array.jsonl")).is_err());
 }

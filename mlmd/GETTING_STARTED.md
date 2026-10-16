@@ -471,3 +471,20 @@ source/output hashes and index mapping. Inspect it before assessment or fitting.
 The linked replay takes six candidates through assessment and uses three already-
 labeled records for CPU readout fitting; it refuses missing-label training.
 External labeling remains a separate step for unlabeled candidates.
+
+## 12. Import and simulate parameterized CPU C API models
+
+Follow [the parameter guide](engine/PARAMETERS.md). Inspect runtime `df`/`da` and
+stored-default availability, declare ordered parameter names/units, and opt into
+dataset v2 using `parameter_layout` in the NPY import request. Supply exact
+float64 frame and atomic arrays; no broadcasting or semantic inference occurs.
+`batch-eval` then propagates each frame's conditions through one combined call.
+
+A v2 `dataset_frame` binds its conditions for the entire new MD run. A direct
+frame can instead supply versioned `fixed_parameters`, including ordered atom
+species. Checkpoint v3 preserves that context, rejecting changes on restart.
+Model-default policy must be explicitly selected; atomic rows remain explicit.
+The TF/PT CPU replay includes same-species parameter-row permutation and every
+moving-frame comparison with standalone C API. TF restart is exact; PT has
+measured runtime first-call roundoff and numerical restart parity. Native,
+engine CUDA, parameterized ensembles/minimization/training remain unsupported.

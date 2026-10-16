@@ -347,3 +347,36 @@ Four additional native device tests and a feature-enabled engine check passed
 without a GPU context; B's existing GPU receipt is retained separately. Disk
 failures can leave an incomplete new bundle; no atomic-directory guarantee or
 automatic labeling is claimed. No generated weights/data/raw logs are committed.
+
+## Local C API default policy and engine parameter propagation
+
+C source `ce27786093dfa3ad5873075d703b8a11fd050b51` is integrated as
+`87abf57e69888e0430ea762a71b373e6938ebf2f`, excluding diagnostic `c8e849e`.
+It records real CPU TF batch/parameters/atomic and PT explicit/default/Python
+comparisons. The TF fixture only received its official declared type-map
+metadata; weights/operations remain unchanged, with provenance retained.
+
+Engine additions are confined to engine data/context/CLI/checkpoint code, tests,
+English guides and a reproducible CPU replay. Dataset v2 introduces explicit
+parameter layout/values without changing shared Frame/Evaluation/Potential.
+NPY import, serial batch assessment and fixed-context MD/checkpoint v3 are
+implemented; v1 data and parameter-free trajectory/checkpoint behavior remain
+compatible. Native and CUDA engine parameter routes, parameterized minimization,
+ensembles and native training reject. No new dependency or automatic fallback.
+
+[Actual CPU evidence](evidence/engine-parameters.json): TF engine vs saved C API
+E/F/V differences are zero; TF vs Python virial differs by 2.22e-16 eV. PT
+explicit/default comparisons differ at most 8.33e-17 eV in virial. Each TF/PT
+moving MD frame agrees exactly with a corresponding standalone sequence.
+TF four-step NVE and step-2 continuation are bitwise identical. PT restart has
+zero coordinate difference, force/virial differences up to 2.78e-17 / 1.11e-16,
+and velocity difference up to 2.65e-23 Angstrom/fs. The same first-versus-later
+call difference reproduces on an identical geometry in standalone PT C API;
+PT restart is numerical parity, not bitwise acceptance. The initial failed exact
+criterion and follow-up diagnostic are retained in local runtime artifacts.
+
+Twenty CPU workflow steps and 29 affected engine checks passed; C's integrated
+23 library / 5 CLI tests passed. The reused GPU-free, network-disabled build
+container was restored to its original stopped state after all work completed.
+No model weights, generated datasets, raw logs, HAP files or diagnostics are
+included in the commit. No publication is authorized by this local integration.

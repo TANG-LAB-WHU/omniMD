@@ -82,6 +82,9 @@ fn worker(input: &Path, output: &Path) -> Result<()> {
         return Err("output already exists".into());
     }
     let mut reader = DatasetReader::open_hashed(&request.dataset)?;
+    if reader.header.parameter_layout.is_some() {
+        return Err("model-deviation does not yet accept parameterized dataset v2".into());
+    }
     let mut models = Vec::with_capacity(request.models.len());
     let mut provenance = Vec::with_capacity(request.models.len());
     let mut hashes = HashSet::new();

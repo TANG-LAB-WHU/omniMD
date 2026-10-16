@@ -1,0 +1,271 @@
+{
+  "schema": "omnimd-engine-parameters-receipt-v1",
+  "status": "passed",
+  "device": "cpu",
+  "scope": "Official DeepMD 3.1.3 saved TF/PT fixtures; v2 NPY/JSONL import, serial engine batch and fixed-parameter NVE/restart. No GPU/performance/chemical-accuracy claim.",
+  "engine_sha256": "f15f33bf7629caa2336905ccf538b9e7237da6a66e7e70ce402d034c9ac7362c",
+  "capi_cli_sha256": "45392689e348c5ffae55279db983a9ea60a70959b0a3dbf38b86c2f4e2159089",
+  "script_sha256": "35524c6ef6351960f8d54da86085073bbf29b2ee76004b96d5445bed73f393fa",
+  "comparisons": {
+    "tf.serial_saved_capi": {
+      "max_absolute_efv": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "absolute_tolerance": 1e-08
+    },
+    "tf.serial_saved_python": {
+      "max_absolute_efv": [
+        0.0,
+        0.0,
+        2.220446049250313e-16
+      ],
+      "absolute_tolerance": 1e-08
+    },
+    "pt.explicit_saved_capi": {
+      "max_absolute_efv": [
+        0.0,
+        0.0,
+        8.326672684688674e-17
+      ],
+      "absolute_tolerance": 1e-07
+    },
+    "pt.explicit_saved_python": {
+      "max_absolute_efv": [
+        0.0,
+        0.0,
+        8.326672684688674e-17
+      ],
+      "absolute_tolerance": 1e-07
+    },
+    "pt.default_saved_capi": {
+      "max_absolute_efv": [
+        0.0,
+        0.0,
+        8.326672684688674e-17
+      ],
+      "absolute_tolerance": 1e-07
+    },
+    "pt.default_saved_python": {
+      "max_absolute_efv": [
+        0.0,
+        0.0,
+        8.326672684688674e-17
+      ],
+      "absolute_tolerance": 1e-07
+    },
+    "permutation": {
+      "max_absolute_efv": [
+        4.440892098500626e-16,
+        2.5673907444456745e-16,
+        3.3306690738754696e-16
+      ],
+      "absolute_tolerance": 1e-08
+    },
+    "tf.serial_md_initial": {
+      "max_absolute_efv": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "absolute_tolerance": 1e-08
+    },
+    "tf.serial_restart_efv": {
+      "max_absolute_efv": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "absolute_tolerance": 1e-12
+    },
+    "tf.serial_md_all_frames": {
+      "max_absolute_efv": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "absolute_tolerance": 1e-08
+    },
+    "pt.default_md_initial": {
+      "max_absolute_efv": [
+        0.0,
+        0.0,
+        8.326672684688674e-17
+      ],
+      "absolute_tolerance": 1e-07
+    },
+    "pt.default_restart_efv": {
+      "max_absolute_efv": [
+        0.0,
+        2.7755575615628914e-17,
+        1.1102230246251565e-16
+      ],
+      "absolute_tolerance": 1e-12
+    },
+    "pt.default_md_all_frames": {
+      "max_absolute_efv": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "absolute_tolerance": 1e-07
+    },
+    "pt_first_vs_subsequent_identical_frame": {
+      "max_absolute_efv": [
+        0.0,
+        2.7755575615628914e-17,
+        1.1102230246251565e-16
+      ],
+      "absolute_tolerance": 1e-12
+    }
+  },
+  "parameter_energy_response_ev": 0.00211578262527512,
+  "md_cases": [
+    {
+      "label": "tf.serial",
+      "steps": 4,
+      "restart_step": 2,
+      "same_environment_restart_exact": true,
+      "final_checkpoint_exact": true,
+      "restart_state_max_absolute_error": {
+        "positions_angstrom": 0.0,
+        "velocities_angstrom_per_fs": 0.0
+      },
+      "policy": "explicit",
+      "same_species_distinct_aparam": true
+    },
+    {
+      "label": "pt.default",
+      "steps": 4,
+      "restart_step": 2,
+      "same_environment_restart_exact": false,
+      "final_checkpoint_exact": false,
+      "restart_state_max_absolute_error": {
+        "positions_angstrom": 0.0,
+        "velocities_angstrom_per_fs": 2.6469779601696886e-23
+      },
+      "policy": "model_default",
+      "same_species_distinct_aparam": false
+    }
+  ],
+  "reference_hashes": {
+    "tf.serial.result.json": "002e6e402309ba4c887a9aef6400946646b9aa9248967bbe49acabf999d2fe99",
+    "tf.python.result.json": "6ee423c809a6804a85c4afd16f4673a1dd6f46eb2ee91eca26be5a1a29ee07c3",
+    "pt.default.result.json": "3c89fa809209899e5095ab3b314adb6086102dc84e37e8fdf8eef8ab41e117d2",
+    "pt.python-default.result.json": "ac55336de5402d9861f1ac4356642d1a298d699573b2a40b84a75e7bd602325b",
+    "fixtures/fparam_aparam-tmap-O.pb": "5590576fe37692abc872aa58a6ac98a76b003d09d751a5ef92898ba11c3c0788",
+    "fixtures/fparam_aparam_default.pth": "95c168635f378b64522b14067bb7458602416fb12d14ce5d605f3b8a71d39d9e",
+    "fixtures/manifest.json": "7442e0d16a9723221fd13e3be1bcfa074b35043d43c3ea766327a652400c6548"
+  },
+  "pt_restart_limitation": "PT runtime first call versus subsequent identical-frame calls can differ at floating-point roundoff. Parameter/geometry restore is exact; PT MD restart is numerical, not bitwise, parity. TF tested restart is bitwise exact.",
+  "provenance": "TF fixture has only official declared tmap metadata supplied by C, weights unchanged; original C provenance manifest retained. PT model unmodified.",
+  "steps": [
+    {
+      "label": "Import explicit TF parameter NPY",
+      "exit_code": 0
+    },
+    {
+      "label": "Engine tf.serial",
+      "exit_code": 0
+    },
+    {
+      "label": "Engine pt.explicit",
+      "exit_code": 0
+    },
+    {
+      "label": "Engine pt.default",
+      "exit_code": 0
+    },
+    {
+      "label": "Same-species coordinate and parameter permutation",
+      "exit_code": 0
+    },
+    {
+      "label": "tf.serial fixed-parameter NVE",
+      "exit_code": 0
+    },
+    {
+      "label": "tf.serial direct fixed-parameter request",
+      "exit_code": 0
+    },
+    {
+      "label": "tf.serial fixed-context restart",
+      "exit_code": 0
+    },
+    {
+      "label": "tf.serial all moving frames via standalone C API",
+      "exit_code": 0
+    },
+    {
+      "label": "tf.serial reject parameter-changing restart",
+      "exit_code": 1
+    },
+    {
+      "label": "pt.default fixed-parameter NVE",
+      "exit_code": 0
+    },
+    {
+      "label": "pt.default direct fixed-parameter request",
+      "exit_code": 0
+    },
+    {
+      "label": "pt.default fixed-context restart",
+      "exit_code": 0
+    },
+    {
+      "label": "pt.default all moving frames via standalone C API",
+      "exit_code": 0
+    },
+    {
+      "label": "pt.default reject parameter-changing restart",
+      "exit_code": 1
+    },
+    {
+      "label": "PT standalone identical-frame repeat diagnostic",
+      "exit_code": 0
+    },
+    {
+      "label": "Reject unsupported TF defaults",
+      "exit_code": 1
+    },
+    {
+      "label": "Reject native-parameters before backend load",
+      "exit_code": 1
+    },
+    {
+      "label": "Reject cuda-parameters before backend load",
+      "exit_code": 1
+    },
+    {
+      "label": "Reject parameterized ensemble rather than discard context",
+      "exit_code": 1
+    }
+  ],
+  "source_base": "87abf57e69888e0430ea762a71b373e6938ebf2f",
+  "runtime": {
+    "image": "7953cbd4b48798e936bae520d44a12ae747c3eb45d9aca8ac75668edc95240a2",
+    "DeepMD": "3.1.3",
+    "TensorFlow": "2.19.1",
+    "PyTorch": "2.10.0",
+    "CUDA_VISIBLE_DEVICES": "-1",
+    "GPU_exposed": false,
+    "network": "none",
+    "OMP_NUM_THREADS": 1,
+    "DP_INTRA_OP_PARALLELISM_THREADS": 1,
+    "DP_INTER_OP_PARALLELISM_THREADS": 1
+  },
+  "checks": {
+    "adapter_library": 23,
+    "adapter_cli": 5,
+    "engine_bin": 3,
+    "dataset": 8,
+    "parameters": 2,
+    "selection": 2,
+    "nve": 4,
+    "thermal": 4,
+    "minimize": 4,
+    "xyz": 2,
+    "status": "passed"
+  }
+}

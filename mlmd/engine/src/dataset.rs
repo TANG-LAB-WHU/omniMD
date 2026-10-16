@@ -1,4 +1,5 @@
 //! Bounded, explicit dataset IO and evaluation statistics. No training or splitting.
+use crate::parameters::{self, FixedParameters, FramePolicy, Layout, Values};
 use omnimd_ml_contract::{Evaluation, Frame, ModelMetadata, Units};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
@@ -30,6 +31,8 @@ pub struct ImportRequest {
     pub sets: Vec<String>,
     pub units: Units,
     pub pbc: Pbc,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub parameter_layout: Option<Layout>,
 }
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -40,6 +43,8 @@ pub struct DatasetHeader {
     pub virial_convention: VirialConvention,
     pub source: String,
     pub selected_sets: Vec<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub parameter_layout: Option<Layout>,
 }
 #[derive(Debug, Default, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -72,6 +77,8 @@ pub struct DatasetFrame {
     pub id: String,
     pub frame: Frame,
     pub labels: Labels,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub parameters: Option<Values>,
 }
 #[derive(Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
@@ -189,8 +196,10 @@ impl DatasetReader {
         let Some(Record::Header { header }) = read_record(&mut reader, &mut hash)? else {
             return Err("dataset must start with one header".into());
         };
-        if header.schema != SCHEMA {
-            return Err("unsupported dataset schema".into());
+        match (header.schema.as_str(), &header.parameter_layout) {
+            (SCHEMA, None) => {}
+            (parameters::DATASET_SCHEMA, Some(layout)) => layout.validate()?,
+            _ => return Err("dataset v1 forbids parameter layout; v2 requires it".into()),
         }
         let metadata = type_metadata(&header.type_map);
         metadata.validate()?;
@@ -223,6 +232,11 @@ impl DatasetReader {
                 }
                 data.frame.type_ids(&self.metadata)?;
                 data.labels.validate(data.frame.positions.len())?;
+                match (&self.header.parameter_layout, &data.parameters) {
+                    (None,None)=>{},
+                    (Some(layout),Some(values))=>values.validate(layout,data.frame.positions.len())?,
+                    _=>return Err("dataset parameter records must match header version/layout; no silent omission".into()),
+                }
                 self.next_index = self
                     .next_index
                     .checked_add(1)
@@ -382,12 +396,27 @@ pub struct FrameReference {
     pub index: u64,
 }
 impl FrameReference {
+    /// Geometry-only consumers must not silently discard conditioning parameters.
     pub fn resolve(&self) -> Result<Frame> {
+        let (frame, parameters) = self.resolve_with_parameters()?;
+        if parameters.is_some() {
+            return Err("this command does not accept parameterized dataset frames".into());
+        }
+        Ok(frame)
+    }
+    pub fn resolve_with_parameters(&self) -> Result<(Frame, Option<FixedParameters>)> {
         let mut reader = DatasetReader::open(&self.dataset)?;
         let mut found = None;
         while let Some(data) = reader.next_frame()? {
             if data.index == self.index {
-                found = Some(data.frame);
+                let parameters = match (reader.header.parameter_layout.clone(), data.parameters) {
+                    (Some(layout), Some(values)) => {
+                        Some(FixedParameters::new(layout, values, &data.frame)?)
+                    }
+                    (None, None) => None,
+                    _ => return Err("inconsistent parameter record".into()),
+                };
+                found = Some((data.frame, parameters));
             }
         }
         found.ok_or_else(|| "dataset frame index out of range".into())
@@ -547,6 +576,9 @@ fn check_shape(array: &Array, n: u64, width: u64, energy: bool) -> Result<()> {
     Ok(())
 }
 pub fn import_deepmd(request: &ImportRequest, output: &Path) -> Result<u64> {
+    if let Some(layout) = &request.parameter_layout {
+        layout.validate()?;
+    }
     if !request.system.is_absolute() || !request.system.is_dir() || request.sets.is_empty() {
         return Err(
             "system must be an absolute directory and sets must be explicit/nonempty".into(),
@@ -605,7 +637,13 @@ pub fn import_deepmd(request: &ImportRequest, output: &Path) -> Result<u64> {
     }
     let width = species.len() as u64 * 3;
     let header = DatasetHeader {
-        schema: SCHEMA.into(),
+        schema: if request.parameter_layout.is_some() {
+            parameters::DATASET_SCHEMA
+        } else {
+            SCHEMA
+        }
+        .into(),
+        parameter_layout: request.parameter_layout.clone(),
         type_map,
         units: request.units,
         virial_convention: VirialConvention::MinusDEpsilonRow,
@@ -622,7 +660,9 @@ pub fn import_deepmd(request: &ImportRequest, output: &Path) -> Result<u64> {
                 && !matches!(
                     name.as_str(),
                     "coord.npy" | "box.npy" | "energy.npy" | "force.npy" | "virial.npy"
-                ))
+                )
+                && !(request.parameter_layout.is_some()
+                    && matches!(name.as_str(), "fparam.npy" | "aparam.npy")))
                 || name.ends_with(".raw")
             {
                 return Err(format!("unsupported data field: {set}/{name}").into());
@@ -649,6 +689,21 @@ pub fn import_deepmd(request: &ImportRequest, output: &Path) -> Result<u64> {
         let energies = optional("energy", 1, true)?;
         let forces = optional("force", width, false)?;
         let virials = optional("virial", 9, false)?;
+        let (fp, ap) = if let Some(layout) = &request.parameter_layout {
+            let df = layout.fparam.len() as u64;
+            let da = layout.aparam.len() as u64;
+            let fp = optional("fparam", df, false)?;
+            let aw = (species.len() as u64)
+                .checked_mul(da)
+                .ok_or("atomic parameter width overflow")?;
+            let ap = optional("aparam", aw, false)?;
+            if fp.is_some() != (df > 0) || ap.is_some() != (da > 0) {
+                return Err("NPY parameters require arrays exactly for nonzero declared dimensions; no broadcast/defaults".into());
+            }
+            (fp, ap)
+        } else {
+            (None, None)
+        };
         for i in 0..n as usize {
             let width = width as usize;
             let frame = Frame {
@@ -670,7 +725,33 @@ pub fn import_deepmd(request: &ImportRequest, output: &Path) -> Result<u64> {
                     .map(|a| matrix3(&a.values[i * 9..(i + 1) * 9])),
             };
             labels.validate(species.len())?;
+            let parameters = if let Some(layout) = &request.parameter_layout {
+                let df = layout.fparam.len();
+                let da = layout.aparam.len();
+                let aw = species.len() * da;
+                let values = Values {
+                    frame_parameter_policy: FramePolicy::Explicit,
+                    fparam: fp
+                        .as_ref()
+                        .map(|a| a.values[i * df..(i + 1) * df].to_vec())
+                        .unwrap_or_default(),
+                    aparam: ap
+                        .as_ref()
+                        .map(|a| {
+                            a.values[i * aw..(i + 1) * aw]
+                                .chunks_exact(da)
+                                .map(|row| row.to_vec())
+                                .collect()
+                        })
+                        .unwrap_or_default(),
+                };
+                values.validate(layout, species.len())?;
+                Some(values)
+            } else {
+                None
+            };
             let data = DatasetFrame {
+                parameters,
                 index,
                 id: format!("{set}/{i}"),
                 frame,

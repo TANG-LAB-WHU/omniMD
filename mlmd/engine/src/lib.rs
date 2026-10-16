@@ -1,8 +1,8 @@
 //! Input conversion for the fallible MLIP dynamics implemented in omnimd-sim.
 pub mod dataset;
 pub mod deviation;
-pub mod xyz;
 mod thermal;
+pub mod xyz;
 use omnimd_core::{Matrix3, Molecule, Particle, System, UnitCell, Vector3D};
 use omnimd_ml_contract::{Error, Frame, Result};
 pub use omnimd_sim::md::MlipDynamics;
@@ -61,6 +61,8 @@ pub struct Checkpoint {
     pub remove_center_of_mass: bool,
     #[serde(default)]
     pub ensemble_state: Option<EnsembleState>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub fixed_parameters: Option<parameters::FixedParameters>,
 }
 
 impl Checkpoint {
@@ -84,14 +86,34 @@ impl Checkpoint {
                 omnimd_core::DegreesOfFreedom::Frozen(3)
             ),
             ensemble_state: None,
+            fixed_parameters: None,
         }
     }
 
     /// Validate the schema/model identity and restore the real omniMD System.
     /// Initial E/F/virial are recomputed by MlipDynamics::new, not trusted from disk.
     pub fn restore(&self, model_sha256: &str, timestep_fs: f64) -> Result<System> {
-        if !matches!(self.schema_version, 1 | 2) {
+        self.restore_with_parameters(model_sha256, timestep_fs, None)
+    }
+    pub fn restore_with_parameters(
+        &self,
+        model_sha256: &str,
+        timestep_fs: f64,
+        expected: Option<&parameters::FixedParameters>,
+    ) -> Result<System> {
+        if !matches!(self.schema_version, 1 | 2 | 3) {
             return Err(Error("unsupported checkpoint version".into()));
+        }
+        if (self.schema_version == 3) != self.fixed_parameters.is_some() {
+            return Err(Error(
+                "only checkpoint v3 may contain fixed parameters, and v3 requires them".into(),
+            ));
+        }
+        if self.fixed_parameters.as_ref() != expected {
+            return Err(Error("checkpoint fixed parameters differ; parameter-free restore cannot drop conditioning".into()));
+        }
+        if let Some(fixed) = &self.fixed_parameters {
+            fixed.validate(&self.frame)?;
         }
         if self.model_sha256.len() != 64
             || !self.model_sha256.bytes().all(|b| b.is_ascii_hexdigit())
@@ -123,3 +145,5 @@ impl Checkpoint {
 }
 
 pub mod selection;
+
+pub mod parameters;

@@ -125,6 +125,7 @@ pub fn worker(input: &Path, output: &Path) -> Result<(), Box<dyn Error>> {
         &mut frame_writer,
         &Record::Header {
             header: DatasetHeader {
+                parameter_layout: None,
                 schema: SCHEMA.into(),
                 type_map: min.metadata().type_map.clone(),
                 units: min.frame().units,
@@ -138,6 +139,7 @@ pub fn worker(input: &Path, output: &Path) -> Result<(), Box<dyn Error>> {
         &mut frame_writer,
         &Record::Frame {
             data: DatasetFrame {
+                parameters: None,
                 index: 0,
                 id: "minimized/0".into(),
                 frame: min.frame().clone(),
