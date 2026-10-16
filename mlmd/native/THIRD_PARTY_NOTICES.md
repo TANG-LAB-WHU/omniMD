@@ -208,3 +208,11 @@ MIT code. They reuse this repository's existing SplitMix64 integer arithmetic.
 Reference: Sebastiano Vigna (2015), https://prng.di.unimi.it/splitmix64.c, released
 with a public-domain dedication and unrestricted permission to use/modify/distribute.
 No external sampler or training library is vendored and no dependency was added.
+
+## Indexed dataset access
+
+The bounded JSONL index, storage adapter, integrity/memory tests and synthetic
+replay are original MIT code using existing Rust standard-library, serde and
+sha2 facilities. No external dataset engine or source was copied and no dependency
+was added. The 2051-frame acceptance input repeats original synthetic geometries
+and adds JSON whitespace for an explicit file-size boundary check.

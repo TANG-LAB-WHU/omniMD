@@ -1,0 +1,198 @@
+{
+  "schema": "omnimd-native-indexed-training-evidence-v1",
+  "source_base_commit": "3e7091c143ffa424c935d86adbd9ecb7f1e97d5c",
+  "parent_integrated_base": "8f80ee542b643386c753f0f23d0e4c29d9270f81",
+  "scope": "Bounded indexed access for existing native minibatch E/F/optional V; no shared model/dataset/checkpoint format change, architecture/atom cap increase or new dependency",
+  "tests": [
+    {
+      "command": "cargo test --locked --offline --manifest-path mlmd/native/Cargo.toml",
+      "passed": 34,
+      "failed": 0
+    },
+    {
+      "command": "cargo test --locked --offline --manifest-path mlmd/native/Cargo.toml --features cuda",
+      "passed": 48,
+      "failed": 0,
+      "gpu_tests_ignored": 9
+    },
+    {
+      "command": "cargo test --release --locked --offline --manifest-path mlmd/native/Cargo.toml --features cuda --test indexed_training indexed_cuda -- --ignored --nocapture --test-threads=1",
+      "passed": 1,
+      "failed": 0,
+      "covers": [
+        "hyperdual and reverse",
+        "memory/indexed exact checkpoint state",
+        "geometry cache",
+        "serialized storage/cache switch resume"
+      ]
+    }
+  ],
+  "focused_integrity_tests": [
+    "same-size restored-mtime frame mutation rejected before parse",
+    "unaccessed header mutation rejected by full verification",
+    "reader invalidated after failure",
+    "truncation and append rejected",
+    "Windows public open denies writing and replacement",
+    "missing/trailing completed, duplicates, nonconsecutive index, unknown fields/units and missing force labels rejected",
+    "record length/newline and 64-atom array bounds",
+    "checked index budget arithmetic",
+    "6000-frame geometry pool rejected by unchanged 64-MiB payload cap before CUDA"
+  ],
+  "bounds": {
+    "indexed_frames": 100000,
+    "indexed_file_bytes": 17179869184,
+    "record_bytes": 262144,
+    "index_payload_bytes": 67108864,
+    "atoms_per_frame": 64,
+    "geometry_cache_payload_bytes": 67108864,
+    "source_entries": 4096,
+    "source_key_bytes": 256,
+    "id_bytes": 256,
+    "header_source_bytes": 65536,
+    "selected_sets": 4096,
+    "sampler_batch_size": 1024
+  },
+  "bounds_scope": "Retained index is O(frame count); payload policy excludes allocator, bounded serde temporaries, construction scratch, sampler/report/checkpoint and neural workspaces. Windows process peak is measured separately. The full maximum indexed ceiling is not benchmarked.",
+  "cli_replay": {
+    "scope": "Original synthetic bounded indexed-dataset acceptance. Python stdlib only.\nLarge records are whitespace padded intentionally to cross both the historical\n1024-frame and 128-MiB file limits without claiming a physical benchmark.\n",
+    "parameters": 112,
+    "small": {
+      "frames": 8,
+      "memory_process": {
+        "process_ms": 168.41119999298826,
+        "peak_working_set_bytes": 10973184
+      },
+      "indexed_process": {
+        "process_ms": 43.373299995437264,
+        "peak_working_set_bytes": 11173888
+      },
+      "access": {
+        "duplicate_check_scratch_bytes": 128,
+        "file_bytes": 7711,
+        "frame_read_ms": 0.7668999999999999,
+        "frame_reads": 68,
+        "frames": 8,
+        "frames_decoded_per_read": 1,
+        "index_build_ms": 0.1984,
+        "index_payload_bytes": 19812,
+        "index_payload_limit_bytes": 67108864,
+        "integrity_verification_ms": 0.1215,
+        "integrity_verifications": 9,
+        "io_buffer_bytes": 65536,
+        "largest_record_bytes": 974,
+        "mode": "indexed_jsonl_v1",
+        "parser_record_limit_bytes": 262144,
+        "peak_decoded_frame_payload_bytes": 581,
+        "record_buffer_peak_capacity_bytes": 974
+      },
+      "state_and_all_metrics_exact": true,
+      "bidirectional_resume": [
+        {
+          "step": 2,
+          "from": "memory",
+          "to": "indexed",
+          "exact": true
+        },
+        {
+          "step": 3,
+          "from": "indexed",
+          "to": "memory",
+          "exact": true
+        }
+      ]
+    },
+    "large": {
+      "frames": 2051,
+      "training_frames": 2050,
+      "validation_frames": 1,
+      "record_padding_bytes": 65536,
+      "process": {
+        "process_ms": 2134.851599985268,
+        "peak_working_set_bytes": 13451264
+      },
+      "access": {
+        "duplicate_check_scratch_bytes": 32816,
+        "file_bytes": 134414893,
+        "frame_read_ms": 1102.057399999989,
+        "frame_reads": 16663,
+        "frames": 2051,
+        "frames_decoded_per_read": 1,
+        "index_build_ms": 188.9856,
+        "index_payload_bytes": 319722,
+        "index_payload_limit_bytes": 67108864,
+        "integrity_verification_ms": 274.5845,
+        "integrity_verifications": 4,
+        "io_buffer_bytes": 65536,
+        "largest_record_bytes": 65536,
+        "mode": "indexed_jsonl_v1",
+        "parser_record_limit_bytes": 262144,
+        "peak_decoded_frame_payload_bytes": 584,
+        "record_buffer_peak_capacity_bytes": 130436
+      },
+      "steps": 19,
+      "processed_frames": 2306,
+      "partial_batches": 1,
+      "end_epoch": 1,
+      "end_cursor": 256,
+      "resume_step_16_exact": true,
+      "resume_processed_frames": 258,
+      "resume_process": {
+        "process_ms": 1511.2137999967672,
+        "peak_working_set_bytes": 13623296
+      },
+      "legacy_128mib_guard_preserved": true,
+      "dataset_sha256": "39ed91a494cf9d6f74332be0cb94592b339c6aa9cc7411ed280be6a8760b2d12",
+      "checkpoint_sha256": "dd223ae15a62ad25ac55968fd856c37c47f724c657e449eb2866bc8b41bac9e2",
+      "model_sha256": "8e3c371ef29cd3d9330b8a7ee410bcf366548f3cfc42a3a1ce1fa999f07a7a55",
+      "native_v1_reload_max_abs_energy_force_virial": [
+        0.0,
+        0.0,
+        0.0
+      ]
+    },
+    "memory_scope": "PeakWorkingSetSize of completed Windows native training subprocess (includes runtime/model/AD/index/report/checkpoint buffers); not a portable hard RSS cap. Input is whitespace padded; payload counters exclude allocator, serde temporary buffers, partition/sampler/report and neural working memory.",
+    "sha256": {
+      "script": "1c2760d3da2682c4e08d8d01ebbae3a1dbe4e1a9d3ed22700d7acdb029fdc749",
+      "trainer": "97b03fa30b753b57f7e478b0eadb7fb1c6a48ebda764fe8be58d0c5b0308e2e1",
+      "evaluator": "eeaa16dcc755229bf1a3269966010e7eae0737a4852079d3fa1d4b9f5d1c0b44"
+    }
+  },
+  "historical_cpu_replay": [
+    {
+      "source": "full-training-01",
+      "schema": "omnimd-native-full-checkpoint-v1",
+      "start_step": 150,
+      "end_step": 300,
+      "access": "memory",
+      "all_state_exact_except_steps": true,
+      "source_checkpoint_sha256": "7c1af46e3a3414d1739468805b27ba38379967cea2ed76d944a615f3f5899605"
+    },
+    {
+      "source": "minibatch-cpu-01",
+      "schema": "omnimd-native-full-checkpoint-v5",
+      "start_step": 2,
+      "end_step": 31,
+      "access": "indexed",
+      "all_state_exact_except_steps": true,
+      "source_checkpoint_sha256": "868350018fd868fd2665376b94f8a0d764830c39f78981a562e019f648e88fa1"
+    }
+  ],
+  "gpu_released_utc": "2026-10-16 13:22:32 UTC",
+  "raw_artifacts": "ignored fixtures/generated-deepmd/indexed-training-01 and indexed-historical-01",
+  "new_dependencies": [],
+  "remaining_blockers": [],
+  "source_sha256": {
+    "mlmd/native/src/bin/omnimd-native-train.rs": "f1f2e193710bbec216dd9859d67bd16dd213e3594dda8af5d3b877f186391289",
+    "mlmd/native/src/fixed_geometry.rs": "3d754efdf6325a6ea307d671384b770a2d989eb17618ddfc7ae1b21dcb2e1336",
+    "mlmd/native/src/full_loss.rs": "6145b550a1f3325d8687fb1391159bf639bbc828e12ba63ba4497d7bbefc2dd8",
+    "mlmd/native/src/full_training.rs": "288315e6e388949266f72542997e4e15f1be179b8cebd231779304aec9d5865f",
+    "mlmd/native/src/indexed_dataset.rs": "eadc60988ce06b6170b2adfc860f0b072700e35e8cc93eaa90b53d83ba2da065",
+    "mlmd/native/src/lib.rs": "07b36130146095c500c1f192786a31acdf3a99a9a240d7e3bfdcf17ed52ee20e",
+    "mlmd/native/src/minibatch.rs": "5e08cc55ddfa1cbbfe3a726266d41ffa77ecb0313fdb31ed38c765bbf21fbf6f",
+    "mlmd/native/src/training.rs": "6a1998ce3114813bbe7bc92bbf9471414089735822dfd4596e9dd1415d8417e6",
+    "mlmd/native/src/training_data.rs": "5466cec0d7acc1602a0fdfc7dfa7cbbbed0806f59d4c98fc3e6739836d0f4e07",
+    "mlmd/native/tests/indexed_training.rs": "ba366bd7e1e5f9f9274312d538d5812a7f7b03abdfaad2e000372722b3f202d8",
+    "mlmd/native/tools/replay_indexed_training.py": "10e07e303810b5fba1d9e178c5bc3d2854523b263d62f130dda32bb694141084"
+  },
+  "source_sha256_scope": "Git normalized staged bytes; executable hashes are in the measured CLI replay receipt"
+}

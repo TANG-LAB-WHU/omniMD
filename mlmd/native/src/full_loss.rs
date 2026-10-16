@@ -2,7 +2,7 @@
 use crate::{
     neighbor::Neighbor,
     training::{metrics_with, scales, Metrics, TrainConfig},
-    training_data::{validate_labels, Dataset, DatasetFrame},
+    training_data::{validate_labels, DatasetAccess, DatasetFrame},
     Model,
 };
 use omnimd_ml_contract::{Error, Evaluation, Result};
@@ -155,7 +155,7 @@ impl std::ops::Deref for FullMetrics {
 }
 pub(crate) fn metrics(
     model: &Model,
-    dataset: &Dataset,
+    dataset: &dyn DatasetAccess,
     indices: &[usize],
     loss: &TrainConfig,
     virial: Option<&VirialLoss>,

@@ -2,8 +2,9 @@
 use omnimd_ml_contract::Potential;
 use omnimd_native::{
     full_training::{train_full_with_device, Checkpoint, FullConfig},
+    indexed_dataset::IndexedDataset,
     training::{train_with_device, TrainConfig, TrainingDevice},
-    training_data::Dataset,
+    training_data::{Dataset, DatasetAccess},
     NativePotential,
 };
 use serde::Deserialize;
@@ -13,6 +14,14 @@ use std::{
     io::Write,
     path::{Path, PathBuf},
 };
+
+#[derive(Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
+enum DatasetMode {
+    #[default]
+    Memory,
+    Indexed,
+}
 
 #[derive(Deserialize)]
 #[serde(tag = "schema", deny_unknown_fields)]
@@ -28,6 +37,8 @@ enum Request {
     },
     #[serde(rename = "omnimd-native-full-train-v1")]
     Full {
+        #[serde(default)]
+        dataset_access: DatasetMode,
         initial_model: Option<PathBuf>,
         checkpoint: Option<PathBuf>,
         dataset: PathBuf,
@@ -102,7 +113,32 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
     if output.exists() {
         return Err("training output directory must not exist".into());
     }
-    let dataset = Dataset::load(dataset_path)?;
+    let use_index = matches!(
+        &request,
+        Request::Full {
+            dataset_access: DatasetMode::Indexed,
+            ..
+        }
+    );
+    if matches!(&request,Request::Full{dataset_access:DatasetMode::Indexed,config,..} if config.minibatch.is_none())
+    {
+        return Err("indexed dataset access requires explicit minibatch configuration".into());
+    }
+    let memory = if use_index {
+        None
+    } else {
+        Some(Dataset::load(&dataset_path)?)
+    };
+    let indexed = if use_index {
+        Some(IndexedDataset::open(&dataset_path)?)
+    } else {
+        None
+    };
+    let dataset: &dyn DatasetAccess = match (&memory, &indexed) {
+        (Some(d), _) => d,
+        (_, Some(d)) => d,
+        _ => unreachable!(),
+    };
     let (model, mut report, input_key, input_sha) = match request {
         Request::Readout {
             initial_model,
@@ -112,7 +148,8 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
         } => {
             let bytes = fs::read(path(base, &initial_model))?;
             let initial = NativePotential::from_json(std::str::from_utf8(&bytes)?)?;
-            let outcome = train_with_device(initial.model(), &dataset, &config, device)?;
+            let outcome =
+                train_with_device(initial.model(), memory.as_ref().unwrap(), &config, device)?;
             (
                 outcome.model,
                 serde_json::to_value(outcome.report)?,
@@ -132,7 +169,7 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
                     let bytes = fs::read(path(base, &initial))?;
                     let model = NativePotential::from_json(std::str::from_utf8(&bytes)?)?;
                     (
-                        Checkpoint::start(model.model(), &dataset, &config)?,
+                        Checkpoint::start(model.model(), dataset, &config)?,
                         "initial_model_sha256",
                         sha(&bytes),
                     )
@@ -155,8 +192,8 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
                     )
                 }
             };
-            state.validate_for_device(&dataset, &config, device)?;
-            let outcome = train_full_with_device(state, &dataset, &config, device, |s| {
+            state.validate_for_device(dataset, &config, device)?;
+            let outcome = train_full_with_device(state, dataset, &config, device, |s| {
                 if !output.exists() {
                     fs::create_dir(&output).map_err(|e| {
                         omnimd_ml_contract::Error(format!("create checkpoint directory: {e}"))
@@ -177,7 +214,8 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
     let mut reloaded = NativePotential::from_json(&model_json)?;
     let mut fitted = NativePotential::new(model)?;
     let mut difference = [0.0_f64; 3];
-    for frame in &dataset.frames {
+    for i in 0..dataset.len() {
+        let frame = dataset.frame(i)?;
         let a = fitted.eval(&frame.frame)?;
         let b = reloaded.eval(&frame.frame)?;
         difference[0] = difference[0].max((a.energy - b.energy).abs());
@@ -191,7 +229,11 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
     if difference.iter().any(|v| *v > 1e-12) {
         return Err("native-v1 serialization/reload mismatch exceeds 1e-12".into());
     }
+    dataset.verify()?;
     let object = report.as_object_mut().unwrap();
+    if let Some(access) = dataset.access_report() {
+        object.insert("dataset_access".into(), serde_json::to_value(access)?);
+    }
     object.insert(input_key.into(), input_sha.into());
     object.insert(
         "output_model_sha256".into(),

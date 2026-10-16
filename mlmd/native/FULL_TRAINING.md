@@ -198,3 +198,8 @@ This establishes implementation correctness for this bounded subset and
 learning on an original synthetic teacher. It does not establish physical
 accuracy, chemical generalization, production MD stability, full DeepMD/HAP
 support, a new optimization algorithm or any speed advantage.
+
+For explicit minibatching, [indexed dataset access](INDEXED_TRAINING.md) can read
+larger datasets one frame at a time. It preserves the existing memory-mode limits
+and numerical/checkpoint semantics; its own parsing/index bounds and the unchanged
+geometry payload cap are documented separately.

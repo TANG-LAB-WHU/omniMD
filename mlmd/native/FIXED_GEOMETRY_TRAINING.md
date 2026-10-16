@@ -117,3 +117,8 @@ CUDA device. Generated datasets, weights and raw results remain under ignored
 `fixtures/generated-deepmd/`. Implementation and synthetic tests are original MIT
 code; no dependency was added and no third-party cache implementation was copied.
 No HAP data or private training was used.
+
+For explicit minibatching, [indexed dataset access](INDEXED_TRAINING.md) can read
+larger datasets one frame at a time. It preserves the existing memory-mode limits
+and numerical/checkpoint semantics; its own parsing/index bounds and the unchanged
+geometry payload cap are documented separately.

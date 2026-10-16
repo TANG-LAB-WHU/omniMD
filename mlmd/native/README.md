@@ -325,3 +325,6 @@ Optional fixed-frame CUDA training preparation: [bounded geometry cache](FIXED_G
 Optional [deterministic minibatch training](MINIBATCH_TRAINING.md) preserves the
 full-batch default and adds exact mid-epoch v5 checkpoint restart for the supported
 CPU/CUDA E/F/V trainer.
+
+Optional [bounded indexed dataset access](INDEXED_TRAINING.md) supports native
+minibatch random access and exact restart without retaining all decoded frames.

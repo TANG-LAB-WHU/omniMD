@@ -67,7 +67,10 @@ fn epoch_state(c: &MiniBatchConfig, training: &[usize], epoch: u64) -> SamplerSt
 impl SamplerState {
     pub fn for_step(c: &MiniBatchConfig, training: &[usize], step: u64) -> Result<Self> {
         c.validate()?;
-        if training.is_empty() || training.len() > 1024 || step > 1_000_000_000 {
+        if training.is_empty()
+            || training.len() > crate::indexed_dataset::MAX_FRAMES
+            || step > 1_000_000_000
+        {
             return Err(Error("invalid minibatch training count/global step".into()));
         }
         if training.windows(2).any(|x| x[0] >= x[1]) {
