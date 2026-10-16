@@ -76,7 +76,11 @@ still be pending. Failed evaluations never return publishable partial EFV.
 - No spin or missing type map; these fail at load. Frame/atom parameter
   dimensions are inspected once; nonzero dimensions require explicit values via
   `DeepMd::evaluate` or the standalone CLI. Plain `Potential::eval` returns an
-  error for such models. No inferred defaults or broadcasting.
+  error for such models. Defaults are available only through the explicit
+  `model_default` policy when the model confirms support; this new path is
+  single-frame and CPU-verified on an official PyTorch fixture. All `.pth`
+  calls require one frame per C API call, including explicit parameters. See the [guide](BACKEND_GUIDE.md#61-opt-into-model-stored-frame-parameter-defaults).
+  No inferred values or broadcasting.
 - Double input/output buffers; metadata remains `float64-io`. This cannot upgrade
   a model's hidden float32 constants to float64. Internal model precision remains
   model dependent. The public validation fixture has float64 constants.

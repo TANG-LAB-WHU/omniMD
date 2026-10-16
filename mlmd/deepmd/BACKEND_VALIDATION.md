@@ -1,86 +1,103 @@
-# Backend tranche validation and integration notes
+# Backend validation and integration notes
 
-Scope: adapter-local multi-frame inference, explicit frame/atomic parameters,
-optional atomic outputs and standalone inspection. Shared `Frame`, `Evaluation`,
-`Potential`, engine code and native inference code are unchanged in this tranche.
+CPU numerical validation completed on 2026-10-16 with official DeepMD 3.1.3,
+TensorFlow 2.19.1 and PyTorch 2.10.0. The CPU container exposes no GPU devices;
+all workers and Python references use `CUDA_VISIBLE_DEVICES=-1` and one thread
+for OpenMP and DeepMD intra/inter-op settings. Every numerical comparison covers
+E, all force/virial components and requested atomic energies/virials.
 
-## Evidence from this revision
+## Executed numerical checks
 
-- Windows CPU-only build: the DeepMD and engine release binaries compile with
-  the cached toolchain using `--offline --locked`; no CUDA SDK or new dependency
-  is required. Existing deprecation warnings originate in core/sim code.
-- Focused Rust tests: 17 adapter/library tests and 4 standalone CLI tests pass.
-  These cover model/string lifetime, legacy loading, a single combined call for
-  a two-frame batch, parameter packing, periodic cell order, requested atomic
-  output shapes/sums in the test double, signed C-integer overflow, invalid
-  inputs before FFI, whole-batch failure, CLI chunking and no-clobber publication.
-- An optional API27 charge/spin-dimension query rejects conditioned models when
-  that metadata is available. Missing optional metadata preserves API26 loading.
-  This is rejection support, not charge/spin inference support.
-- CPU/GPU result comparison now counts combined C API calls, which can each
-  cover multiple frames. It also compares requested atomic outputs and checks
-  compatible batch sizes/metadata. All 17 focused synthetic/saved-output Python
-  regressions passed, including under `python -O`. Existing single-frame receipts
-  remain usable; these script checks do not invoke a GPU.
-- The old executed CPU/GPU result is preserved separately in
-  [CUDA_VALIDATION.md](CUDA_VALIDATION.md). Its numerical values and timings do
-  not validate the newly added multi-frame/parameter/atomic paths.
+| Fixture | Comparison | Max absolute E / F / virial error |
+| --- | --- | --- |
+| Public model, four periodic six-atom frames | Serial C API vs official Python | 0 / 4.440892098500626e-16 / 1.3322676295501878e-15 |
+| Same public frames | Serial vs batch; C API calls 4 to 1 | 0 / 4.440892098500626e-16 / 6.661338147750939e-16 |
+| TF parameter model, two six-atom frames | Serial vs batch; calls 2 to 1 | 0 / 0 / 0 |
+| Same TF parameter frames | C API vs official Python | 0 / 0 / 2.220446049250313e-16 |
+| PT default model, one six-atom frame | Explicit vs stored defaults vs official Python | 0 / 0 / 0 |
 
-Commands used from the repository root (with the cached Windows environment and
-an external `CARGO_TARGET_DIR`):
+Energy and virial units are eV; force units are eV/angstrom. The public case's
+atomic energy error against Python is zero and atomic virial error is at most
+4.440892098500626e-16. TF parameter and PT comparisons have zero atomic-output
+error against Python. Fixture-specific atomic sums also pass. See the compact
+[batch/parameter receipt](validation/cpu-batch-parameters.json) and
+[default-parameter receipt](validation/model-default-fparam.json) for all
+component errors, tolerances, source URLs, model fingerprints and output hashes.
+
+The TF parameter case keeps coordinates fixed and changes the second frame's
+frame parameter by +0.1 and atom i's parameter by +0.01*(i+1). Its energy changes
+by 0.00211578262527512 eV, exercising distinct parameter packing. The original
+official TF fixture has an empty type map and is unsupported as supplied. The
+tested derivative changes only `model_attr/tmap` to `O`, using the matching
+official testcase's declared map; restoring that value reproduces the original
+GraphDef bytes exactly. Weights and computational operations are unchanged.
+The official loader catches that fixture's missing optional `aparam_nall`
+metadata and uses local-atom parameters; numerical results and C API status pass.
+
+The PT fixture is the unmodified official `fparam_aparam_default.pth`. It reports
+frame/atomic dimensions 1/1 and stored-default availability true. Explicit
+`fparam:[0.25852028]` and opt-in NULL-fparam calls match, with explicit atomic
+parameters retained. Results also match the upstream C API fixture baseline:
+the largest error over every checked PT output is 7.875644580934704e-16 (atomic
+virial). The upstream PT test tolerance is 1e-7; the TF fixture tolerance is 1e-8.
+
+These are small compatibility fixtures, not validation of a production model's
+physical accuracy. Double input/output does not establish internal model precision.
+The tests measure correctness and reduced call count; no new speedup is claimed.
+
+## Wrapper checks and builds
+
+- The saved default-policy suite passed 22 library and 5 CLI tests. It covers
+  optional metadata, unchanged strict behavior, NULL-fparam handling, explicit
+  atomic parameters, validation before FFI, cleanup, chunking and timed policy
+  propagation. Eight additional comparator cases passed; the preceding batch
+  tranche had 17 comparator cases, including optimized Python execution.
+- One subsequent focused library regression passed for the `.pth` runtime
+  restriction, proving no compute on multi-frame input, valid single-frame
+  output and preserved TensorFlow batching. The other 22 tests were filtered
+  for this narrow follow-up.
+- Real CPU negative cases reject TF model-default requests and PT multi-frame
+  requests with nonzero status and no published result.
+- Final Windows and Linux CPU release builds of `omnimd-deepmd` and
+  `omnimd-mlmd` passed using cached dependencies and `--offline --locked`.
+  No CUDA SDK or new Rust dependency is required. Existing deprecation warnings
+  originate in core/sim code.
 
 ```sh
 cargo test --offline --locked --manifest-path mlmd/Cargo.toml -p omnimd-deepmd
 cargo build --offline --locked --release --manifest-path mlmd/Cargo.toml -p omnimd-deepmd -p omnimd-mlmd --bins
 ```
 
-## Remaining runtime validation
+## Supported boundaries
 
-The intended action is a small CPU-only, same-model comparison of a homogeneous
-multi-frame call against serial calls, including atomic output shapes and the
-public fixture's energy/virial sums. The previously reused official CPU runtime
-is in Docker. A read-only `docker ps --filter name=omnimd` probe failed because
-`//./pipe/dockerDesktopLinuxEngine` did not exist. The Docker daemon is therefore
-unavailable in this environment; no model evaluation or Linux build was started
-for this tranche. This is an availability blocker, not an approval denial or an
-uncertain inference outcome.
+The optional `DP_DeepPotHasDefaultFParam` query is cached once. Missing metadata
+means unknown, distinct from false. Legacy `evaluate` / `Potential::eval` remain
+strict. Only `evaluate_with_options` or CLI `frame_parameter_policy:model_default`
+can request stored values; atomic parameters remain explicit. No retry or inferred
+parameter fallback occurs. DeepMD 3.1.3 TensorFlow backend does not provide these defaults.
 
-No GPU process/container was started. The coordinated GPU window remains with
-B; the new features are not claimed hardware-validated. No driver, BIOS,
-security setting or unrelated container was modified. No Windows C API runtime
-was installed as a workaround.
+Default policy is limited to one frame per call. All PyTorch `.pth` ordinary C
+API calls, including explicit-parameter calls, have the same limit because the
+[official runtime fixes nframes=1](https://github.com/deepmodeling/deepmd-kit/blob/v3.1.3/source/api_cc/src/DeepPotPT.cc#L337).
+Use `batch_size:1` to process several frames serially. Other backend/model
+families and higher parameter dimensions remain outside the real fixture evidence.
+Spin and available nonzero charge/spin conditioning metadata are rejected.
 
-When the official CPU runtime is available:
+No new GPU inference or timings were run for these additions. The older executed
+single-frame CUDA result remains in [CUDA_VALIDATION.md](CUDA_VALIDATION.md);
+it does not validate batch, parameter or atomic CUDA paths. Operational Docker
+logs, raw model downloads and local troubleshooting data are not release assets.
 
-1. Build the current adapter inside that runtime without GPU access.
-2. Reuse the existing public model and a small homogeneous frame set; use
-   identical library, model, units and type map in both requests.
-3. Run `inspect` with direct `LoadOptions` JSON. Confirm expected dimensions.
-4. Run once with `batch_size:1`, `atomic:true` and no timing; run once with a
-   batch size covering the same frames. Retain both outputs under new paths.
-5. Compare every E/F/virial component and each atomic array with a precision-
-   appropriate tolerance. For the ordinary energy fixture, also compare sums of
-   atomic energies and virials with their totals. Do not treat atomic per-atom
-   decompositions as universal physical observables.
-6. For actual parameterized-model validation, use an official matching fixture
-   with nonzero dimensions, distinct parameters per frame/atom and an official
-   runtime reference. The current synthetic parameter test proves ABI packing,
-   not that a trained parameter-dependent model is numerically correct.
+## Integration
 
-## Integration into A's assembly branch
+Changes stay in `mlmd/deepmd/**`; shared contracts, engine source and native
+inference are unchanged. Existing JSON keeps CPU, batch size 1, atomic false and
+explicit parameter policy as defaults. New response keys are additive. `inspect
+OPTIONS.json NEW_INFO.json` reads `LoadOptions` directly; evaluation reads an
+object containing `options` and `frames`. Output publication requires hard links.
 
-All changes are confined to `mlmd/deepmd/**`. Existing request JSON remains valid:
-`device` still defaults to CPU, `batch_size` to 1, and `atomic` to false. Existing
-`evaluations` records retain their shared schema. New response keys are additive.
-The CLI's new `inspect OPTIONS.json NEW_INFO.json` takes `LoadOptions` directly;
-the normal evaluator continues to take an object containing `options` and
-`frames`. Output publication now requires a filesystem supporting hard links.
-
-Parameter-aware or atomic MD integration is intentionally not added to shared
-interfaces. A can choose a later shared-contract extension; until then, callers
-use `DeepMd::evaluate` or this standalone CLI. Parameter-free MD continues to
-use the existing `Potential::eval` method. The English
-[step-by-step guide](BACKEND_GUIDE.md) can be linked from the top-level README.
-
-This remains delegated official DeepMD inference. It does not imply parity of
-`mlmd/native`, implement training in Rust, or promise every v3.2.0 model family.
+Parameterized or atomic MD needs a later shared-contract extension. For now use
+the adapter-local methods or standalone CLI; parameter-free MD retains
+`Potential::eval`. This remains delegated official DeepMD inference and does not
+imply native-backend parity or implement Rust training. See the
+[backend guide](BACKEND_GUIDE.md) for request examples and error handling.

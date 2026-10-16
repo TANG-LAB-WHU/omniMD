@@ -1,7 +1,8 @@
 //! JSON evaluator and inspector with a fresh device-isolated worker per request.
 //! Complete-result publication requires an output filesystem supporting hard links.
 use omnimd_deepmd::{
-    AtomicEvaluation, DeepMd, DetailedEvaluation, EvalParameters, LoadOptions, ModelDetails,
+    AtomicEvaluation, DeepMd, DetailedEvaluation, EvalParameters, EvaluationOptions,
+    FrameParameterPolicy, LoadOptions, ModelDetails,
 };
 use omnimd_ml_contract::{Evaluation, Frame, ModelMetadata, Potential};
 use serde::{Deserialize, Serialize};
@@ -25,6 +26,8 @@ struct Request {
     parameters: Option<Vec<EvalParameters>>,
     #[serde(default)]
     atomic: bool,
+    #[serde(default)]
+    frame_parameter_policy: FrameParameterPolicy,
     #[serde(default = "default_batch_size")]
     batch_size: usize,
     timing: Option<TimingRequest>,
@@ -56,6 +59,21 @@ impl Request {
         {
             return Err("parameters must contain exactly one entry per frame".into());
         }
+        if self.frame_parameter_policy == FrameParameterPolicy::ModelDefault {
+            if self.batch_size != 1 {
+                return Err("frame_parameter_policy=model_default requires batch_size=1".into());
+            }
+            if self
+                .parameters
+                .as_ref()
+                .is_some_and(|params| params.iter().any(|p| !p.fparam.is_empty()))
+            {
+                return Err(
+                    "frame_parameter_policy=model_default cannot include explicit fparam values"
+                        .into(),
+                );
+            }
+        }
         for frame in &self.frames {
             frame.validate()?;
         }
@@ -84,6 +102,7 @@ struct Response {
     #[serde(skip_serializing_if = "Option::is_none")]
     atomic_evaluations: Option<Vec<AtomicEvaluation>>,
     batch_size: usize,
+    frame_parameter_policy: FrameParameterPolicy,
     capi_calls: usize,
     #[serde(skip_serializing_if = "Option::is_none")]
     cuda_kernel_launches: Option<u64>,
@@ -110,16 +129,20 @@ where
     F: FnMut(
         &[Frame],
         Option<&[EvalParameters]>,
-        bool,
+        EvaluationOptions,
     ) -> omnimd_ml_contract::Result<Vec<DetailedEvaluation>>,
 {
     let mut output = Vec::new();
     let mut offset = 0;
     let mut calls = 0;
+    let options = EvaluationOptions {
+        atomic: request.atomic,
+        frame_parameter_policy: request.frame_parameter_policy,
+    };
     for frames in request.frames.chunks(request.batch_size) {
         let end = offset + frames.len();
         let parameters = request.parameters.as_ref().map(|p| &p[offset..end]);
-        let values = evaluate(frames, parameters, request.atomic)?;
+        let values = evaluate(frames, parameters, options)?;
         if values.len() != frames.len() {
             return Err("DeepMD returned an unexpected number of frame evaluations".into());
         }
@@ -143,23 +166,28 @@ fn worker(input: &Path, output: &Path) -> Result<(), Box<dyn Error>> {
     let mut model = unsafe { DeepMd::load(&request.options) }?;
     let load_seconds = start.elapsed().as_secs_f64();
     let start = Instant::now();
-    let (detailed, first_pass_capi_calls) =
-        evaluate_pass(&request, true, |f, p, a| model.evaluate(f, p, a))?;
+    let (detailed, first_pass_capi_calls) = evaluate_pass(&request, true, |f, p, options| {
+        model.evaluate_with_options(f, p, options)
+    })?;
     let first_pass_seconds = start.elapsed().as_secs_f64();
     let mut capi_calls = first_pass_capi_calls;
     let timing = if let Some(timing) = &request.timing {
         let mut warmup_capi_calls = 0;
         let start = Instant::now();
         for _ in 0..timing.warmup {
-            warmup_capi_calls +=
-                evaluate_pass(&request, false, |f, p, a| model.evaluate(f, p, a))?.1;
+            warmup_capi_calls += evaluate_pass(&request, false, |f, p, options| {
+                model.evaluate_with_options(f, p, options)
+            })?
+            .1;
         }
         let warmup_seconds = start.elapsed().as_secs_f64();
         let mut steady_capi_calls = 0;
         let start = Instant::now();
         for _ in 0..timing.iterations {
-            steady_capi_calls +=
-                evaluate_pass(&request, false, |f, p, a| model.evaluate(f, p, a))?.1;
+            steady_capi_calls += evaluate_pass(&request, false, |f, p, options| {
+                model.evaluate_with_options(f, p, options)
+            })?
+            .1;
         }
         let steady_seconds = start.elapsed().as_secs_f64();
         let steady_evaluations = timing.iterations * request.frames.len();
@@ -174,6 +202,7 @@ fn worker(input: &Path, output: &Path) -> Result<(), Box<dyn Error>> {
             "steady_evaluations": steady_evaluations,
             "seconds_per_evaluation": steady_seconds / steady_evaluations as f64,
             "batch_size": request.batch_size,
+            "frame_parameter_policy": request.frame_parameter_policy,
             "first_pass_capi_calls": first_pass_capi_calls,
             "warmup_capi_calls": warmup_capi_calls,
             "steady_capi_calls": steady_capi_calls,
@@ -199,6 +228,7 @@ fn worker(input: &Path, output: &Path) -> Result<(), Box<dyn Error>> {
             evaluations,
             atomic_evaluations,
             batch_size: request.batch_size,
+            frame_parameter_policy: request.frame_parameter_policy,
             capi_calls,
             cuda_kernel_launches: model.cuda_kernel_launches(),
             timing,
@@ -352,6 +382,10 @@ mod tests {
         let request: Request = serde_json::from_value(request_json()).unwrap();
         request.validate().unwrap();
         assert_eq!(request.batch_size, 1);
+        assert_eq!(
+            request.frame_parameter_policy,
+            FrameParameterPolicy::Explicit
+        );
         assert!(!request.atomic);
         assert!(request.parameters.is_none());
         for (key, value) in [
@@ -366,6 +400,9 @@ mod tests {
         }
         let mut json = request_json();
         json["atomic_typo"] = true.into();
+        assert!(serde_json::from_value::<Request>(json).is_err());
+        let mut json = request_json();
+        json["frame_parameter_policy"] = "unknown".into();
         assert!(serde_json::from_value::<Request>(json).is_err());
     }
 
@@ -397,8 +434,12 @@ mod tests {
         request.validate().unwrap();
         for collect in [true, false] {
             let mut seen = vec![];
-            let (output, calls) = evaluate_pass(&request, collect, |frames, params, atomic| {
-                assert!(atomic);
+            let (output, calls) = evaluate_pass(&request, collect, |frames, params, options| {
+                assert!(options.atomic);
+                assert_eq!(
+                    options.frame_parameter_policy,
+                    FrameParameterPolicy::Explicit
+                );
                 seen.push(
                     params
                         .unwrap()
@@ -426,6 +467,67 @@ mod tests {
             assert_eq!(seen, vec![vec![0, 1], vec![2, 3], vec![4]]);
             assert_eq!(calls, 3);
             assert_eq!(output.len(), if collect { 5 } else { 0 });
+        }
+    }
+
+    #[test]
+    fn model_default_requires_serial_calls_and_no_explicit_fparam() {
+        let mut json = request_json();
+        json["frame_parameter_policy"] = "model_default".into();
+        let mut request: Request = serde_json::from_value(json).unwrap();
+        request.frames = vec![request.frames[0].clone(); 2];
+        request.validate().unwrap();
+        request.batch_size = 2;
+        assert!(request
+            .validate()
+            .unwrap_err()
+            .to_string()
+            .contains("batch_size=1"));
+        request.batch_size = 1;
+        request.parameters = Some(vec![
+            EvalParameters {
+                fparam: vec![],
+                aparam: vec![vec![1.0]],
+            },
+            EvalParameters {
+                fparam: vec![300.0],
+                aparam: vec![vec![2.0]],
+            },
+        ]);
+        assert!(request
+            .validate()
+            .unwrap_err()
+            .to_string()
+            .contains("explicit fparam"));
+        request.parameters.as_mut().unwrap()[1].fparam.clear();
+        request.validate().unwrap();
+        // Collected first-pass and discarded warmup/timed passes share this path.
+        for collect in [true, false] {
+            let mut seen = vec![];
+            let (output, calls) = evaluate_pass(&request, collect, |frames, params, options| {
+                assert_eq!(frames.len(), 1);
+                assert!(!options.atomic);
+                assert_eq!(
+                    options.frame_parameter_policy,
+                    FrameParameterPolicy::ModelDefault
+                );
+                let params = params.unwrap();
+                assert!(params[0].fparam.is_empty());
+                seen.push(params[0].aparam[0][0]);
+                Ok(vec![DetailedEvaluation {
+                    evaluation: Evaluation {
+                        energy: 0.0,
+                        forces: vec![[0.0; 3]],
+                        virial: [[0.0; 3]; 3],
+                        units: Units::EvAngstrom,
+                    },
+                    atomic: None,
+                }])
+            })
+            .unwrap();
+            assert_eq!(seen, vec![1.0, 2.0]);
+            assert_eq!(calls, 2);
+            assert_eq!(output.len(), if collect { 2 } else { 0 });
         }
     }
 

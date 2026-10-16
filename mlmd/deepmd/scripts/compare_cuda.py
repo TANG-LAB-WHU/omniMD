@@ -77,11 +77,25 @@ def validate_execution(result, frames, label):
             value = details.get(key)
             require(isinstance(value, int) and not isinstance(value, bool) and value >= 0,
                     f'{label}: model_details {key} must be a nonnegative integer')
+        default_fparam = details.get('has_default_fparam')
+        require(default_fparam is None or isinstance(default_fparam, bool),
+                f'{label}: has_default_fparam must be a boolean or null')
     batch_size = result.get('batch_size', 1)
     require(positive_integer(batch_size), f'{label}: batch_size must be a positive integer')
+    policy = result.get('frame_parameter_policy', 'explicit')
+    require(policy in ('explicit', 'model_default'), f'{label}: unknown frame_parameter_policy')
+    if policy == 'model_default':
+        details = result.get('model_details', {})
+        require(batch_size == 1, f'{label}: model_default requires batch_size=1')
+        require(details.get('has_default_fparam') is True
+                and positive_integer(details.get('frame_parameter_dim')),
+                f'{label}: model_default requires a positive frame_parameter_dim and has_default_fparam=true')
     passes = 1
     if timing is not None:
         validate_timing(timing, frames, label, batch_size, new_output)
+        if 'frame_parameter_policy' in timing:
+            require(timing['frame_parameter_policy'] == policy,
+                    f'{label}: timing frame_parameter_policy disagrees with output policy')
         passes += timing['warmup_passes'] + timing['steady_passes']
     expected_calls = ((frames + batch_size - 1) // batch_size) * passes
     if new_output:
@@ -135,6 +149,9 @@ def main():
     cpu_batch, cpu_calls, _ = validate_execution(cpu, frames, 'CPU')
     gpu_batch, gpu_calls, gpu_evaluations = validate_execution(gpu, frames, 'CUDA')
     require(cpu_batch == gpu_batch, 'CPU/CUDA batch_size differs')
+    policy = gpu.get('frame_parameter_policy', 'explicit')
+    require(cpu.get('frame_parameter_policy', 'explicit') == policy,
+            'CPU/CUDA frame_parameter_policy differs')
     require(cpu.get('model_details') == gpu.get('model_details'), 'CPU/CUDA model_details differs')
     require(gpu['cuda_kernel_launches'] >= gpu_calls,
             'kernel count is inconsistent with at least one verified kernel per combined C API call')
@@ -163,6 +180,7 @@ def main():
     report = {'frames': frames, 'max_absolute_error': errors,
               'cuda_kernel_launches': gpu['cuda_kernel_launches'], 'atol': args.atol, 'rtol': args.rtol,
               'batch_size': gpu_batch, 'cpu_capi_calls': cpu_calls, 'gpu_capi_calls': gpu_calls,
+              'frame_parameter_policy': policy,
               'cuda_kernel_counted_capi_calls': gpu_calls,
               'cpu_timing': cpu.get('timing'), 'gpu_timing': gpu.get('timing')}
     if cpu.get('timing') is not None and gpu.get('timing') is not None:

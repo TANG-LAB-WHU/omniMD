@@ -20,6 +20,7 @@ type Delete = unsafe extern "C" fn(Handle);
 type Text = unsafe extern "C" fn(Handle) -> *const c_char;
 type DeleteText = unsafe extern "C" fn(*const c_char);
 type Int = unsafe extern "C" fn(Handle) -> c_int;
+type Bool = unsafe extern "C" fn(Handle) -> bool;
 type Cutoff = unsafe extern "C" fn(Handle) -> f64;
 type Compute = unsafe extern "C" fn(
     Handle,
@@ -48,6 +49,7 @@ struct Api {
     fparam: Int,
     aparam: Int,
     charge_spin: Option<Int>,
+    has_default_fparam: Option<Bool>,
     cutoff: Cutoff,
     compute: Compute,
     // Keep the code and its dependencies alive until after the model is deleted.
@@ -79,6 +81,10 @@ impl Api {
                 // but never silently use a default condition on a newer model.
                 charge_spin: library
                     .get::<Int>(b"DP_DeepPotGetDimChgSpin\0")
+                    .ok()
+                    .map(|s| *s),
+                has_default_fparam: library
+                    .get::<Bool>(b"DP_DeepPotHasDefaultFParam\0")
                     .ok()
                     .map(|s| *s),
                 cutoff: symbol(&library, b"DP_DeepPotGetCutoff\0")?,
@@ -140,6 +146,28 @@ pub struct LoadOptions {
 pub struct ModelDetails {
     pub frame_parameter_dim: usize,
     pub atom_parameter_dim: usize,
+    /// None means the optional runtime query is unavailable, not false.
+    #[serde(default)]
+    pub has_default_fparam: Option<bool>,
+}
+
+/// Explicit is always the default. ModelDefault opts into values stored in the
+/// model, whose numeric values are not exposed by the C API availability query.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum FrameParameterPolicy {
+    #[default]
+    Explicit,
+    ModelDefault,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, Default)]
+#[serde(deny_unknown_fields)]
+pub struct EvaluationOptions {
+    #[serde(default)]
+    pub atomic: bool,
+    #[serde(default)]
+    pub frame_parameter_policy: FrameParameterPolicy,
 }
 
 /// One frame's explicit parameters. No broadcasting, inferred units, default
@@ -216,6 +244,7 @@ pub struct DeepMd {
     handle: NonNull<c_void>,
     metadata: ModelMetadata,
     details: ModelDetails,
+    runtime_single_frame_only: bool,
     cuda: Option<cuda::CudaGuard>,
     cuda_kernel_launches: u64,
     buffers: Buffers,
@@ -270,11 +299,21 @@ impl DeepMd {
         };
         let api = unsafe { Api::load(&options.library) }?;
         let mut model = Self::initialize(api, &filename, &options.type_map, options.units)?;
+        model.configure_runtime_batch_limit(&options.model);
         model.cuda = cuda;
         if model.cuda.is_some() {
             model.metadata.backend = "deepmd-c-api-cuda-pending-evaluation".into();
         }
         Ok(model)
+    }
+
+    fn configure_runtime_batch_limit(&mut self, model_path: &Path) {
+        // Ordinary DeepPotPT compute fixes nframes=1, including with explicit
+        // parameters. A multi-frame wrapper call must never reach that path.
+        self.runtime_single_frame_only = model_path
+            .extension()
+            .and_then(|suffix| suffix.to_str())
+            .is_some_and(|suffix| suffix.eq_ignore_ascii_case("pth"));
     }
 
     fn initialize(api: Api, filename: &CStr, expected: &[String], units: Units) -> Result<Self> {
@@ -294,6 +333,7 @@ impl DeepMd {
             },
             _single_thread: PhantomData,
             details: ModelDetails::default(),
+            runtime_single_frame_only: false,
             cuda: None,
             cuda_kernel_launches: 0,
             buffers: Buffers::default(),
@@ -309,6 +349,10 @@ impl DeepMd {
             .charge_spin
             .map(|query| unsafe { query(h) })
             .unwrap_or(0);
+        let has_default_fparam = model
+            .api
+            .has_default_fparam
+            .map(|query| unsafe { query(h) });
         model.metadata.cutoff = unsafe { (model.api.cutoff)(h) };
         model.api.check(h, "read model metadata")?;
         if charge_spin != 0 {
@@ -320,6 +364,7 @@ impl DeepMd {
         model.details = ModelDetails {
             frame_parameter_dim: fparam as usize,
             atom_parameter_dim: aparam as usize,
+            has_default_fparam,
         };
         let map = model
             .api
@@ -353,6 +398,28 @@ impl DeepMd {
         parameters: Option<&[EvalParameters]>,
         atomic: bool,
     ) -> Result<Vec<DetailedEvaluation>> {
+        self.evaluate_with_options(
+            frames,
+            parameters,
+            EvaluationOptions {
+                atomic,
+                frame_parameter_policy: FrameParameterPolicy::Explicit,
+            },
+        )
+    }
+
+    /// Combined inference with an explicit frame-parameter policy.
+    /// ModelDefault requires a positive frame-parameter dimension, confirmed
+    /// stored defaults and exactly one frame per C API call. It never supplies
+    /// defaults for atomic parameters or retries with a different policy.
+    pub fn evaluate_with_options(
+        &mut self,
+        frames: &[Frame],
+        parameters: Option<&[EvalParameters]>,
+        options: EvaluationOptions,
+    ) -> Result<Vec<DetailedEvaluation>> {
+        let atomic = options.atomic;
+        let model_default = options.frame_parameter_policy == FrameParameterPolicy::ModelDefault;
         let first = frames
             .first()
             .ok_or_else(|| Error("at least one frame is required".into()))?;
@@ -361,12 +428,36 @@ impl DeepMd {
         let n = first.positions.len();
         let df = self.details.frame_parameter_dim;
         let da = self.details.atom_parameter_dim;
+        if self.runtime_single_frame_only && nf > 1 {
+            return Err(Error(
+                "PyTorch .pth ordinary C API inference supports one frame per call; set batch_size=1"
+                    .into(),
+            ));
+        }
+        if model_default {
+            if nf != 1 {
+                return Err(Error(
+                    "model_default requires one frame per C API call; set batch_size=1".into(),
+                ));
+            }
+            if df == 0 {
+                return Err(Error(
+                    "model_default requires a positive frame-parameter dimension".into(),
+                ));
+            }
+            match self.details.has_default_fparam {
+                Some(true) => {},
+                Some(false) => return Err(Error("model_default requested but this model has no stored frame-parameter defaults".into())),
+                None => return Err(Error("model_default availability is unknown: runtime lacks DP_DeepPotHasDefaultFParam; provide explicit parameters".into())),
+            }
+        }
+        let required_df = if model_default { 0 } else { df };
         let nx = c_product(&[nf, n, 3])?;
         let nv = c_product(&[nf, 9])?;
         // Check the largest C-wrapper product even when atom outputs are omitted.
         let nav = c_product(&[nf, n, 9])?;
         let ne = c_product(&[nf, n])?;
-        let nfp = c_product(&[nf, df])?;
+        let nfp = c_product(&[nf, required_df])?;
         let nap = c_product(&[nf, n, da])?;
         let values = [
             nx,
@@ -394,7 +485,12 @@ impl DeepMd {
                     params.len()
                 )));
             }
-        } else if df != 0 || da != 0 {
+        } else if required_df != 0 || da != 0 {
+            if model_default {
+                return Err(Error(format!(
+                    "model_default still requires explicit aparam: {n} atom rows of dimension {da}"
+                )));
+            }
             return Err(Error(format!("model requires explicit parameters: fparam dimension={df}, aparam dimension={da}; use DeepMd::evaluate or the standalone evaluator parameters field")));
         }
         // Validate the entire batch before packing or entering the runtime.
@@ -409,7 +505,10 @@ impl DeepMd {
             }
             if let Some(params) = parameters {
                 let p = &params[i];
-                if p.fparam.len() != df || !p.fparam.iter().all(|x| x.is_finite()) {
+                if model_default && !p.fparam.is_empty() {
+                    return Err(Error(format!("frame {i}: model_default conflicts with explicit fparam values; omit fparam or select explicit policy")));
+                }
+                if p.fparam.len() != required_df || !p.fparam.iter().all(|x| x.is_finite()) {
                     return Err(Error(format!(
                         "frame {i}: fparam requires exactly {df} finite values"
                     )));
