@@ -496,3 +496,42 @@ unverified. Files committed outside native are capability reporting, English
 README/feature/usage/release/roadmap updates, the short replay and compact receipt.
 Generated data/models/checkpoints/binaries/raw logs remain outside Git. No HAP
 material, system configuration changes or public push are included.
+
+## Local optional reverse CUDA integration
+
+Native source `f33d332adcafcc2a360b22e9605d6da43870eaf9` is integrated as
+`f4e794af508676e2389d6c76c6d8a275089375a7` on `78cfd034`. Explicit
+`config.cuda_gradient="reverse"` enables cached forward directional pairs and
+reverse accumulation for the existing E/F/optional-virial neural gradients.
+Hyperdual and CPU defaults remain unchanged. Native checkpoint v4 binds loss,
+executor, device, driver and compiled PTX; nonzero-step executor switching rejects.
+No shared format, dependency, model architecture or existing work bound changes.
+The 64 MiB planned payload ceiling excludes context/code/driver allocations.
+
+[Final integrated release acceptance](evidence/native-reverse-integrated.json)
+uses 24 original synthetic frames (18 training / 6 validation), six joint-loss
+CUDA steps and a 3+3 continuation. All 112 neural parameters changed. Continuous
+and resumed models, moments, step, split and loss/execution identity are exactly
+equal; fixed model fields are unchanged. CPU/reverse maximum differences are
+1.11e-16 for parameters, 2.78e-16 for moments and 4.44e-16 / 3.89e-16 / 4.44e-16
+for exported E/F/V. Reload differences are zero. Changed device, loss and executor
+requests reject without training output directories. Five CPU-safe checks and
+the final locked offline release build passed. The GPU window was released at
+2026-10-16 12:07:58 UTC, with no remaining omniMD process or device-failure retry.
+Legacy checkpoint regression is retained in B's report and prior A acceptance.
+
+[B's separate native evidence](native/fixtures/cuda-reverse-training-report.json)
+contains all-parameter derivative parity, 300 steps and exact 150+150 continuation.
+Its three rotated fresh-process medium medians are CPU 2963 ms, hyperdual 1349 ms
+and reverse 877 ms; tiny CPU/reverse times are 615/1573 ms. These timings include
+input, initialization, training, checkpointing, assessment and export/reload.
+A's short integration adds no timing result. CPU primal inference/loss seeds,
+geometry, stable reduction, clipping and assessment remain. Neither production
+scaling, broader model support nor physical accuracy is established.
+
+Outside the native commit, the tranche contains capability reporting, English
+README/guide/matrix/release/roadmap updates, the short acceptance script and a
+compact receipt. Generated data, weights, checkpoints, binaries and raw logs
+remain outside Git. This is a local unpushed candidate with no HAP input or
+system/driver changes. The next proposed optimization is bounded reuse of
+immutable frame geometry, explicitly excluding current-loss directional rows.

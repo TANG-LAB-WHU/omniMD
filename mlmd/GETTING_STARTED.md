@@ -588,7 +588,8 @@ volume/stress conversion or implicit symmetrization occurs. Inspect the separate
 E/F, virial and total normalized objectives and virial-per-atom RMSE in the report.
 Antisymmetric target components cannot be learned by this invariant energy model.
 
-Enabled virial supervision writes checkpoint v3 with the immutable
+Enabled virial supervision with CPU or default hyperdual writes checkpoint v3
+with the immutable
 `energy-force-row-virial-per-atom-nine-v1` loss contract and configured weight/scale.
 Resume with the same dataset, split, objective and backend into a new output
 directory, specifying additional steps. Changing/enabling/disabling the loss on
@@ -610,3 +611,50 @@ this short v3 replay, CPU/CUDA exported E/F/V differences at most 4.44e-16 /
 2.22e-16 / 2.22e-16, zero serialization/reload difference, rejected changed loss
 and exact continuation of the previously saved E/F-only CUDA-v2 checkpoint.
 These fixture results do not imply cross-platform/runtime exact reproducibility.
+
+## 16. Select cached reverse CUDA gradients explicitly
+
+Build the CUDA-enabled sibling trainer as in step 13. Use the same full-training
+request and explicit `"device":"cuda:0"`, adding inside `config`:
+
+```json
+"cuda_gradient": "reverse"
+```
+
+Omitting this field preserves the original hyperdual executor. CPU remains the
+default device; requesting reverse on CPU is an error. The same E/F and optional
+virial loss configuration applies. Keep model, dataset, scales, split and all
+existing shape/work limits unchanged. The reverse planner additionally checks
+64 MiB of device-buffer payload; this excludes context/code/driver allocations
+and does not bound total GPU memory.
+
+Run `omnimd-mlmd train-native REQUEST.json` into a new output directory. Verify
+`execution.backend="cuda_reverse_f64_v1"` and checkpoint v4. This records an
+explicit E/F or E/F/V loss contract plus executor/device/driver/compiled-PTX
+identity. Resume with the same configuration and additional steps; switching
+executors on a nonzero-step checkpoint rejects. An intentional switch requires
+starting a new optimizer from exported native-v1 weights. CPU v1, hyperdual v2
+and hyperdual-virial v3 remain supported under their existing rules.
+
+Read [the reverse execution contract](native/CUDA_REVERSE_TRAINING.md) before
+interpreting performance. Neural forward intermediates are cached and reversed;
+CPU inference/loss seeds, geometry, atom/frame reduction and assessment remain.
+Reports expose phase totals, but these phases are not a whole-process benchmark.
+B's 466-parameter/64-atom fixture measured median complete processes of 2963 ms
+CPU, 1349 ms hyperdual and 877 ms reverse across three rotated-order repeats per
+backend. The tiny 112-parameter case measured 615 ms CPU versus 1573 ms reverse.
+The reference workload and output/checkpoint cadence matter; no universal
+acceleration, larger accepted model or physical accuracy follows from these cases.
+
+For only the short final-binary replay, add `--cuda-gradient reverse --virial-loss`
+to `validate_cuda_full_integration.py` in step 13, reserve the GPU and choose a
+new work directory. It checks six steps versus 3+3 exact continuation, a CPU
+reference, export/reload and refused loss/device/executor changes. Independent
+gradient and 300-step evidence remain in [B's report](native/fixtures/cuda-reverse-training-report.json).
+
+The [final integrated reverse receipt](evidence/native-reverse-integrated.json)
+records exact v4 model/moment continuation, six-step CPU/reverse parameter
+agreement within 1.12e-16 and exported E/F/V differences of 4.44e-16 / 3.89e-16 /
+4.44e-16. All 112 parameters changed and reload differences were zero. Loss,
+device and executor changes rejected without output; this establishes no new
+performance result or cross-runtime exact reproducibility.

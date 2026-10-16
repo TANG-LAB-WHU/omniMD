@@ -193,7 +193,23 @@ parameterized training, and launches no external calculator or automatic loop.
 
 Full supported-network CPU/CUDA training also accepts optional
 [virial supervision](mlmd/native/VIRIAL_TRAINING.md): all nine row-strain entries,
-explicit per-atom scale/weight and loss-bound checkpoint v3. E/F-only CPU-v1 and
-CUDA-v2 continuation remain compatible. Frozen-readout fitting remains E/F-only.
+explicit per-atom scale/weight and loss-bound checkpoint v3 on CPU/default
+hyperdual (v4 on reverse CUDA). E/F-only CPU-v1 and hyperdual CUDA-v2
+continuation remain compatible. Frozen-readout fitting remains E/F-only.
 The recorded tiny joint-loss full process was 619 ms CPU versus 1816 ms CUDA;
-no training speedup is claimed. This extension is local and unpushed.
+that historical hyperdual measurement does not establish a training speedup.
+This extension is local and unpushed.
+
+The local [cached reverse CUDA executor](mlmd/native/CUDA_REVERSE_TRAINING.md) is
+available through explicit `config.cuda_gradient="reverse"`; hyperdual remains
+the default. Reverse checkpoint v4 binds loss/executor and device/runtime/program
+identity. On B's original 466-parameter/64-atom/100-step E/F/V fixture, three fresh
+process medians were CPU 2963 ms, hyperdual 1349 ms and reverse 877 ms. The tiny
+112-parameter case remained faster on CPU (615 ms versus reverse 1573 ms). These
+bounded measurements include startup, IO/checkpoints and export; they do not
+establish production scaling or general speedup. Existing bounds remain in force.
+
+[Final integrated reverse verification](mlmd/evidence/native-reverse-integrated.json)
+passed six joint-loss steps, exact 3+3 checkpoint continuation, CPU E/F/V agreement
+within 4.45e-16 and zero model-reload difference. Device, loss and executor changes
+reject without training output. This short check adds no timing claim.

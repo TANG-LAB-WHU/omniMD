@@ -58,7 +58,8 @@ with executable commands; pending branch work is not counted as integrated.
   binds execution identity; CPU v1 remains compatible. See [scope](mlmd/native/CUDA_FULL_TRAINING.md).
 - Optional [row-strain virial supervision](mlmd/native/VIRIAL_TRAINING.md) is
   implemented for full CPU/CUDA training, with explicit weight/per-atom scale and
-  checkpoint v3. Legacy E/F-only checkpoint schemas remain compatible.
+  checkpoint v3 on CPU/default hyperdual, or v4 on reverse CUDA. Legacy E/F-only
+  checkpoint schemas remain compatible.
 - Minibatching, broader activation support and scalable training
   remain future work; no generic DeepMD training compatibility is claimed.
 - CPU ensemble disagreement and explicit candidate marking are implemented with
@@ -117,35 +118,45 @@ with executable commands; pending branch work is not counted as integrated.
   MD ecosystem adapters remain separate simulation gaps. Physical accuracy and
   production stability have not been established by the software fixtures.
 
-## Next infrastructure priority: scalable joint-gradient execution
+## Delivered: optional reverse CUDA joint gradients
 
-Replace the current parameter-by-parameter CUDA differentiation strategy with
-shared-intermediate reverse accumulation for the existing E/F/V loss. This is a
-scaling priority inferred from the implementation's repeated differentiated
-forward work per parameter, not a claim that it dominates every tiny workload.
-Keep supported physics, file contracts and numerical bounds fixed initially.
-CUDA currently caps neural parameters at 2048, width/descriptor width at 32,
-atoms/neighbor slots at 64, frames at 1024 and estimated work at 50 million terms;
-CPU has separate reference limits. Geometry, primal inference/loss seeds and
-stable reduction still execute on CPU.
+The [cached reverse executor](mlmd/native/CUDA_REVERSE_TRAINING.md) is integrated
+and verified, replacing parameter-by-parameter differentiated forwards only when
+`config.cuda_gradient="reverse"` is explicit. Hyperdual remains the default and
+an independent numerical oracle. Reverse checkpoint v4 binds loss and execution
+identity. Existing model/data/work limits remain, with an additional 64 MiB
+planned device-buffer payload limit that excludes context/code/driver memory.
 
-First profile joint E/F/V at fixed geometry with increasing parameter counts,
-separating CPU preparation/inference/seeds, transfers, gradient kernels, reduction
-and Adam. Replace only the gradient execution strategy; retain the current path
-as an oracle. Check every small-model parameter against it and independent finite
-differences, including nonperiodic/triclinic/self-image cases and off-diagonal
-virials. Verify clipping, legacy/v3 checkpoint behavior and exact same-runtime
-continuation under an explicitly versioned execution identity. Measure memory,
-warmed stages and complete training processes on tiny and near-limit supported
-fixtures before raising any limits. A later increase in supported dimensions
-requires its own correctness/resource acceptance.
+[B's receipt](mlmd/native/fixtures/cuda-reverse-training-report.json) records
+all-parameter CPU/hyperdual agreement, joint E/F/V learning, exact 150+150 restart
+and bounded complete-process measurements. The 466-parameter/64-atom fixture's
+three-repeat medians were CPU 2963 ms, hyperdual 1349 ms and reverse 877 ms. The
+112-parameter tiny replay remained faster on CPU (615 ms versus reverse 1573 ms).
+[A's final short replay](mlmd/evidence/native-reverse-integrated.json) verifies the
+integrated CLI, CPU parity, exact v4 continuation and refusal contracts; it adds
+no performance result. CPU inference/loss seeds, geometry, stable reduction,
+clipping and assessment remain. No general speedup or larger-model support follows.
 
-The existing tiny joint fit is about 2.93 times slower on CUDA (1816 ms vs 619 ms
-CPU); the earlier 3.46x E/F-only warmed stage cannot be extrapolated to joint
-training. Minibatching and streamed data are the next distinct data-capacity
-problem, but do not remove repeated differentiation per parameter. Automated
-correctness/restart checks should gate the optimization; no claim is made here
-about current CI availability. This priority is proposed, not implemented.
+## Next bounded throughput work: reuse immutable training geometry
+
+Propose a transient, memory-bounded cache for fixed training-frame neighbors,
+image displacements, normalized environment R/J and type metadata. Key/invalidate
+it on frame coordinates, ordered types, cell, cutoff, selection and normalization.
+Preserve deterministic ordering, enforce a measured host-memory budget, and keep
+cache state out of checkpoints. Rebuild loss seeds and coordinate-directional
+rows every step: these depend on current predictions and cotangents and must not
+be treated as immutable geometry. Do not change supported physics or raise limits.
+
+The existing reverse medium runs average 34.5 ms of reported geometry work over
+600 frame-gradient evaluations; the tiny replay records 73.7 ms over 5400. This
+phase also includes direction assembly, so those totals are not the amount a
+geometry cache can necessarily save. CPU prediction/seeds in the medium case
+average 226 ms and remain separate. First measure immutable construction versus
+cotangent-dependent work, then compare cache-disabled/enabled gradients, complete
+training and exact restart under the same runtime. Verify invalidation and the
+memory ceiling using tiny and existing medium fixtures. Any throughput benefit
+must be measured; this proposal is not yet implemented. Minibatching/streaming
+and moving primal inference remain distinct later work.
 
 ## Publication gate
 

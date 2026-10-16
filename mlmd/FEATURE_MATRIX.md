@@ -1,6 +1,6 @@
 # DeepMD feature coverage: reference version 3.1.3
 
-Matrix revision 8, checked 2026-10-16. Previous integrated CUDA runtime:
+Matrix revision 9, checked 2026-10-16. Previous integrated CUDA runtime:
 `9b8d1847f892e32751c73d3262e0245d0efb4cdd`. This includes engine inspection/tutorial,
 native source `b6b7aa7` and C API source `1aee39c`. Implementation and real-runtime
 validation are separate. C API CPU follow-up is now verified in `ce27786`
@@ -64,7 +64,8 @@ an official `input.json` is not a native training request.
 | External label return | Hash-bound job preparation and E/F/optional-V import; exact geometry/atom/parameter identity; fill missing labels, preserve source order/v2 | [Contract and replay](engine/EXTERNAL_LABELS.md); calculator/provenance declarations unverified; no job submission or automatic training |
 | Readout training | CPU default; optional native CUDA E/F/V feature columns, CPU rank-aware QR and assessment, optional bias | Frozen hidden layers; bounded dense solve; [microcase slower on CUDA](native/fixtures/cuda-readout-report.json); separate full-network route below |
 | Full supported-network training | CPU default; optional bounded CUDA all-neural E/F and optional V gradients and Adam, tanh/linear, checkpoint/restart | CPU inference/loss seeds/geometry/reduction/assessment retained; fixed normalization/cutoff/selection/atomic offsets; independent one-side copies; [CUDA bounds](native/CUDA_FULL_TRAINING.md) |
-| Virial supervision | Optional full-network CPU/CUDA loss on all nine row-strain virial entries per atom; explicit positive weight/scale; loss-bound checkpoint v3 | [Contract](native/VIRIAL_TRAINING.md); E/F labels still required; readout QR remains E/F-only; no stress/volume conversion |
+| CUDA gradient executor | Hyperdual default; explicit cached reverse accumulation, same shape/work bounds, 64 MiB planned device-buffer payload | [Activation and evidence](native/CUDA_REVERSE_TRAINING.md); reverse checkpoint v4, no executor switch on resume; payload excludes driver/context memory |
+| Virial supervision | Optional full-network CPU/CUDA loss on all nine row-strain virial entries per atom; explicit positive weight/scale; loss-bound CPU/hyperdual v3 or reverse v4 | [Contract](native/VIRIAL_TRAINING.md); E/F labels still required; readout QR remains E/F-only; no stress/volume conversion |
 | Split/provenance | Seeded or explicit held-out IDs, dataset/source hashes, validation isolation | No trajectory-independent split guarantee from random frames |
 | Generic DeepMD training options | Missing | End-to-end GPU/minibatch/distributed/multi-task training, learning-rate schedules, generic pretrained adaptation and broader architectures |
 | Training monitoring | JSON reports and checkpoints | No TensorBoard integration or live monitoring service |
@@ -124,6 +125,18 @@ an official `input.json` is not a native training request.
   unchanged E/F CUDA-v2 continuation and rejected objective/backend changes.
   B's independent gradient and 300-step evidence remains separate. Tiny complete
   joint training was slower on CUDA (1816 ms vs CPU 619 ms); no acceleration claim.
+
+- Native reverse-gradient source `f33d332` is integrated as `f4e794a` on `78cfd034`.
+  It is explicitly selected with `config.cuda_gradient="reverse"`; hyperdual
+  remains the default. [Final CLI acceptance](evidence/native-reverse-integrated.json)
+  records six E/F/V steps, exact v4 3+3 model/moment continuation, CPU E/F/V
+  agreement within 4.45e-16, zero reload difference, and rejected loss/device/
+  executor changes. Five CPU-safe checks and the offline release build passed.
+  [B's separate receipt](native/fixtures/cuda-reverse-training-report.json) records
+  all-parameter derivatives, 300-step learning and rotated fresh-process timings:
+  medium CPU/hyperdual/reverse 2963/1349/877 ms; tiny CPU/reverse 615/1573 ms.
+  CPU primal/loss seeds, geometry, stable reduction and assessment remain. No
+  architecture/dataset bound was raised; Linux CUDA remains unverified.
 
 ## Implementation order and acceptance gates
 

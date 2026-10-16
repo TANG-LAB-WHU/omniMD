@@ -42,6 +42,7 @@ def main():
     parser.add_argument('--evaluator', type=Path, required=True)
     parser.add_argument('--fixtures', type=Path, required=True)
     parser.add_argument('--work', type=Path, required=True)
+    parser.add_argument('--cuda-gradient', choices=('hyperdual','reverse'), default='hyperdual')
     parser.add_argument('--virial-loss', action='store_true', help='Enable weight 1, scale 0.1 eV/atom and a short CPU comparison')
     parser.add_argument('--legacy-ef-work', type=Path, help='Optional previous six-step E/F integration output for CUDA-v2 continuation check')
     args = parser.parse_args()
@@ -77,6 +78,11 @@ def main():
     assert req['schema'] == 'omnimd-native-full-train-v1'
     req.update(device='cuda:0', initial_model='initial.json', dataset='dataset.jsonl', output_directory='continuous')
     req['config'].update(steps=6, checkpoint_every=3)
+    if args.cuda_gradient=='reverse':
+        assert capabilities['training']['cuda']['gradient_executors']['reverse']=='explicit opt-in'
+        req['config']['cuda_gradient']='reverse'
+    else:
+        req['config'].pop('cuda_gradient',None)
     if args.virial_loss:
         assert capabilities['training']['virial_loss']['full_network'] is True
         req['config']['virial_loss']={'weight':1.0,'scale_ev_per_atom':0.1}
@@ -100,10 +106,12 @@ def main():
         assert a[key] == b[key], f'exact resume changed {key}'
     for checkpoint, expected in ((a,req['config']),(b,resume['config'])):
         assert checkpoint['config'] == expected
-    assert a['schema'] == ('omnimd-native-full-checkpoint-v3' if args.virial_loss else 'omnimd-native-full-checkpoint-v2')
+    assert a['schema'] == ('omnimd-native-full-checkpoint-v4' if args.cuda_gradient=='reverse' else 'omnimd-native-full-checkpoint-v3' if args.virial_loss else 'omnimd-native-full-checkpoint-v2')
     if args.virial_loss:
         assert a['loss_contract'] == b['loss_contract'] == 'energy-force-row-virial-per-atom-nine-v1'
-    assert a['execution']['backend'] == 'cuda_hyperdual_f64_v1'
+    assert a['execution']['backend'] == ('cuda_reverse_f64_v1' if args.cuda_gradient=='reverse' else 'cuda_hyperdual_f64_v1')
+    if args.cuda_gradient=='reverse' and not args.virial_loss:
+        assert a['loss_contract']==b['loss_contract']=='energy-force-per-atom-v1'
     assert a['execution']['visible_device'] == 0
     assert len(a['execution']['program_sha256']) == 64 and a['execution']['driver_version'] > 0
     assert a['dataset_sha256'] == sha(work/'dataset.jsonl')
@@ -130,7 +138,7 @@ def main():
     wrong = deepcopy(resume)
     wrong.update(device='cpu',output_directory='rejected-backend')
     write(work/'wrong-backend.request.json',wrong)
-    run('reject-backend',[engine,'train-native',work/'wrong-backend.request.json'],expected_error='checkpoint training backend/device changed')
+    run('reject-backend',[engine,'train-native',work/'wrong-backend.request.json'],expected_error='explicit CUDA' if args.cuda_gradient=='reverse' else 'checkpoint training backend/device changed')
     assert not (work/'rejected-backend').exists()
     cpu_comparison=None
     loss_change_rejected=False
@@ -138,6 +146,7 @@ def main():
     if args.virial_loss:
         cpu=deepcopy(req)
         cpu.update(device='cpu',output_directory='cpu-reference')
+        cpu['config'].pop('cuda_gradient',None)
         write(work/'cpu.request.json',cpu)
         run('cpu-reference',[engine,'train-native',work/'cpu.request.json'])
         state=read(work/'cpu-reference/checkpoint.json')
@@ -164,6 +173,15 @@ def main():
         run('reject-loss',[engine,'train-native',work/'wrong-loss.request.json'],expected_error='checkpoint')
         assert not (work/'rejected-loss').exists()
         loss_change_rejected=True
+    executor_change_rejected=False
+    if args.cuda_gradient=='reverse':
+        wrong_executor=deepcopy(resume)
+        wrong_executor['output_directory']='rejected-executor'
+        wrong_executor['config'].pop('cuda_gradient')
+        write(work/'wrong-executor.request.json',wrong_executor)
+        run('reject-executor',[engine,'train-native',work/'wrong-executor.request.json'],expected_error='checkpoint')
+        assert not (work/'rejected-executor').exists()
+        executor_change_rejected=True
     if args.legacy_ef_work:
         legacy=args.legacy_ef_work.resolve()
         legacy_request=read(legacy/'continuous.request.json')
@@ -183,8 +201,9 @@ def main():
         'schema':'omnimd-cuda-full-training-integration-v1', 'status':'passed',
         'scope':'Six-step engine CLI integration only; original synthetic 24-frame fixture. Independent gradient and 300-step acceptance remain in B receipt. No performance or chemical-accuracy claim.',
         'started_utc':started,'completed_utc':datetime.now(timezone.utc).isoformat(),
-        'source_native_commit':'d12fdb5c36a4fa74a10fb14bbb489a664cae0a2c' if args.virial_loss else 'f4dbf62bb4acb97e8f7e12e62de625e08af07a05',
-        'integrated_native_commit':'7d3d472' if args.virial_loss else '02b5457',
+        'source_native_commit':'f33d332adcafcc2a360b22e9605d6da43870eaf9' if args.cuda_gradient=='reverse' else 'd12fdb5c36a4fa74a10fb14bbb489a664cae0a2c' if args.virial_loss else 'f4dbf62bb4acb97e8f7e12e62de625e08af07a05',
+        'integrated_native_commit':'f4e794a' if args.cuda_gradient=='reverse' else '7d3d472' if args.virial_loss else '02b5457',
+        'cuda_gradient':args.cuda_gradient,'executor_change_rejected_without_output':executor_change_rejected,
         'virial_loss':req['config'].get('virial_loss'),'checkpoint_schema':a['schema'],
         'loss_contract':a.get('loss_contract'),'cpu_comparison':cpu_comparison,
         'changed_loss_rejected_without_output':loss_change_rejected,'legacy_cuda_v2_resume_exact':legacy_exact,
