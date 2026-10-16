@@ -101,7 +101,7 @@ def main():
             return None
         return read(work/request['output_directory']/'checkpoint.json')
     caps=json.loads(run('capabilities',[engine,'capabilities']))
-    assert caps['training']['minibatch']['streaming'] is False
+    assert caps['training']['minibatch']['default_memory_frame_limit']==1024
     req=read(baseline/'continuous.request.json')
     req.update(device='cuda:0',initial_model='initial.json',dataset='dataset.jsonl',output_directory='continuous')
     req['config'].update(steps=7,checkpoint_every=1,cuda_gradient='reverse',fixed_geometry_cache=True,

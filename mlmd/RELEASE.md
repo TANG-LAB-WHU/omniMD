@@ -623,3 +623,58 @@ The candidate remains local and unpushed, without HAP inputs or system changes.
 Dataset streaming is identified as the next infrastructure gap only; it is not
 implemented here. The 1024-frame in-memory limit, constant learning rate, native
 architecture bounds and remaining CPU stages all persist.
+
+## Local indexed dataset integration
+
+Native source `be573fe0f91d323932c85e47448b0aace5950f32` is integrated as
+`dc24b261440be7a17b88427006440c95445c96ba` on stable `8f80ee5`. Explicit top-level
+`dataset_access="indexed"` requires minibatching and reads the existing v1 JSONL
+format one frame at a time. Offset/length/ID/atom-count/line-hash indexing supports
+training, full-partition assessment, geometry preparation and reload checks.
+Storage mode is runtime-only; v5 sampling and numeric execution identity remain
+unchanged. Default memory and readout paths keep their previous limits/behavior.
+
+Indexed caps are 100000 frames, 16 GiB file, 256 KiB record and 64 MiB retained
+index payload. Metadata, sampler, report identities and checkpoints remain O(N);
+the payload budget does not include total process memory or construction/optimizer
+workspaces. The 64-atom/model/work limits and independent 64 MiB geometry cap are
+unchanged. Every accessed line is verified, with whole-file checks before each
+checkpoint, after final metrics and before CLI publication. The Windows retained
+handle denies writing/replacement; portable checks do not establish an atomic
+snapshot against concurrent mutation on unvalidated platforms.
+
+[Final integrated acceptance](evidence/native-indexed-integrated.json) reuses the
+24-frame fixture and actual prior memory v5 checkpoints. Seven indexed reverse
+updates and seven CPU updates exactly match their prior memory model, Adam,
+sampler, all four initial/final partition metrics and exported model bytes.
+Indexed-to-memory plus cache-off restart at step 2 and old-memory-to-indexed plus
+cache-on restart at step 3 are exact. Reload differences are zero. Indexed without
+minibatch, unknown mode and changed raw dataset bytes on resume reject before
+output. The run records 19936 index bytes, 229 CUDA-path frame reads (211 CPU),
+one decoded frame per read and nine whole-file verifications. These counters do
+not represent total live allocations. Eleven focused CPU-safe tests and the
+locked offline release build passed.
+
+GPU was released at 2026-10-16 13:32:49 UTC with no remaining omniMD process and
+no retry. A subsequent engine-only static capability wording correction received
+an offline rebuild, a capability read and an exact one-step CPU indexed resume;
+GPU work was not repeated and the trainer binary was unchanged. Both engine
+hashes are retained in the receipt.
+
+[B's separate capacity evidence](native/fixtures/indexed-training-report.json)
+records 34 default CPU checks, 48 feature CPU checks, one GPU check covering both
+executors, actual old v1/v5 compatibility and a 2051-frame input deliberately
+whitespace padded to 128.19 MiB. That boundary run measured 12.83 MiB Windows peak
+working set and 319722 bytes of retained index, with exact resume. It is neither
+representative physical throughput nor a universal memory limit. The complete
+100000-frame/16-GiB ceiling remains unbenchmarked. No capacity/memory/throughput
+benchmark was repeated by this integration.
+
+Outside native, files are capability reporting, English README/guide/matrix/
+roadmap/release updates, the new short replay and compact receipt, plus the prior
+minibatch replay's capability assertion updated for the new access limits. No
+shared data/model schema or dependency was added. Generated models, datasets,
+checkpoints, binaries and raw logs remain outside Git. Work remains local and
+unpushed with no HAP input or system changes. The next proposed work is measuring
+and removing only confirmed duplicate indexed startup validation, preserving all
+integrity/publication checks; no follow-up implementation starts in this tranche.

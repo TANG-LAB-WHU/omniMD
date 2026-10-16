@@ -62,7 +62,8 @@ with executable commands; pending branch work is not counted as integrated.
   full-batch checkpoint v3 on CPU/default hyperdual, or v4 on reverse CUDA;
   minibatching uses v5. Legacy E/F-only checkpoint schemas remain compatible.
 - Deterministic minibatching is integrated for CPU and both CUDA executors,
-  with actual-count tails and v5 sampler checkpoints. Streaming, schedules,
+  with actual-count tails and v5 sampler checkpoints. Bounded indexed v1 input is
+  also integrated; sharded access, schedules,
   broader activation support and scalable training remain future work; no generic
   DeepMD training compatibility is claimed.
 - CPU ensemble disagreement and explicit candidate marking are implemented with
@@ -110,7 +111,7 @@ with executable commands; pending branch work is not counted as integrated.
   `.pb` importer; native `.pth`/JAX/Paddle import and compression are absent.
 - Training supports full-batch defaults and explicit deterministic minibatches
   with fixed normalization/atomic offsets and separately documented shape/data/
-  tape budgets. Streaming datasets, schedules,
+  tape budgets. Bounded indexed datasets are supported; sharded datasets, schedules,
   distributed/multi-task training, tied one-side embeddings and general DeepMD
   training-file/checkpoint compatibility remain missing. Optional virial loss
   closes one loss-function gap, without removing those execution restrictions.
@@ -169,7 +170,7 @@ GPU speedup or production-model scaling result.
 Remaining throughput work should first measure current-model CPU inference,
 geometry-input transfers and launch costs with this cache enabled. Keeping fixed
 rows/types resident on device would need its own device-memory accounting, exact
-identity and failure/restart checks before implementation. Dataset streaming,
+identity and failure/restart checks before implementation. Sharded datasets,
 larger accepted models and moving primal inference remain distinct later work;
 no supported limit is raised by this cache.
 
@@ -183,18 +184,40 @@ v1-v4 historical continuation remain compatible. [Final integrated evidence](mlm
 covers the CLI, sampler reference, tail/mid-epoch/cache-toggle restart and CPU
 parity. This milestone changes sampling, not supported physics or dataset capacity.
 
-## Next training infrastructure gap: bounded dataset streaming
+## Delivered: bounded indexed dataset access
 
-Training still materializes at most 1024 frames in memory; minibatches only choose
-which of those frames contribute to each update. The next proposed infrastructure
-milestone is an indexed or sharded reader with explicit bounded memory, validated
-frame identities and dataset provenance. It must preserve epoch order, exact tails,
-held-out isolation and sampler restart while detecting changed or missing input.
-Whole-pool geometry preparation would need a separately specified bounded cache
-policy for that reader. Retain the current in-memory route as an acceptance
-reference; do not merely raise limits without resource and restart checks.
-No streaming work starts in this tranche. Constant learning rate, no distributed
-training and the existing model/per-frame bounds remain separate limitations.
+Explicit top-level `dataset_access="indexed"` with minibatching now validates and
+indexes the existing v1 JSONL file, then reads frames individually for training,
+assessment and reload checks. The [indexed contract](mlmd/native/INDEXED_TRAINING.md)
+sets separate bounds: 100000 frames, 16 GiB input, 256 KiB records and 64 MiB index
+payload. Index/sampler/report/checkpoint metadata remains O(frame count). Default
+memory limits, model architecture/64-atom bounds and the geometry-cache cap remain.
+Per-line and publication-boundary whole-file hashes preserve raw dataset identity.
+[Final integration](mlmd/evidence/native-indexed-integrated.json) verifies exact
+CPU/CUDA state/metrics, old-memory continuation and both access/cache directions.
+
+The separate 2051-frame, 128.19-MiB input is deliberately whitespace padded. Its
+12.83-MiB Windows peak working set and 319722-byte index are boundary-test evidence,
+not representative physical throughput or a universal RAM bound. The full indexed
+ceiling and other-platform execution remain unvalidated. Constant learning rate,
+no sharding/distributed training and unchanged per-frame model limits remain.
+
+## Next bounded mainline improvement: remove confirmed duplicate startup validation
+
+First trace repeated frame decoding and semantic validation during indexed open,
+checkpoint start/resume, device preflight and trainer entry. If the same validated
+session is processed repeatedly with identical model/configuration, consolidate
+only that confirmed duplicate work using an internal validated-session boundary.
+Bind it to the retained dataset handle/hash, model and immutable training settings;
+public library entrypoints must retain their validation guarantees.
+
+Keep per-frame hash/identity checks and all required whole-file verifications
+before checkpoints, after metrics and before model/report publication. An earlier
+digest cannot replace a distinct integrity boundary. Use focused call-count tests,
+mutation failures, exact state/metrics and bidirectional access-mode restart to
+verify any change. Existing IO timings do not prove which checks are redundant,
+and the padded case cannot establish a production speedup. No implementation of
+this follow-up begins in this tranche; stop if profiling finds no duplicate work.
 
 ## Publication gate
 

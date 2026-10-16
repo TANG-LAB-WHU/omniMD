@@ -1,0 +1,223 @@
+{
+  "schema": "omnimd-indexed-training-integration-v1",
+  "status": "passed",
+  "started_utc": "2026-10-16T13:32:29.722682+00:00",
+  "completed_utc": "2026-10-16T13:32:31.754256+00:00",
+  "source_native_commit": "be573fe0f91d323932c85e47448b0aace5950f32",
+  "integrated_native_commit": "dc24b261440be7a17b88427006440c95445c96ba",
+  "source_base": "8f80ee542b643386c753f0f23d0e4c29d9270f81",
+  "scope": "Existing 24-frame synthetic fixture, seven reverse E/F/V minibatch updates; storage and cache-switch integration only. No repeated capacity, memory or throughput benchmark.",
+  "execution": {
+    "backend": "cuda_reverse_f64_v1",
+    "visible_device": 0,
+    "device_info": "NVIDIA GeForce RTX 4090; compute 8.9; FP64; device 0",
+    "driver_version": 13040,
+    "program_sha256": "382ea3a3eee82218b9ec2d975822a0a0c995d2968b0a158cf2bdbfc852859844"
+  },
+  "checkpoint_schema": "omnimd-native-full-checkpoint-v5",
+  "frames": 24,
+  "training_frames": 18,
+  "validation_frames": 6,
+  "updates": 7,
+  "state_and_all_four_metrics_exact_vs_prior_memory": true,
+  "cpu_state_and_all_four_metrics_exact_vs_prior_memory": true,
+  "model_export_bytes_exact_vs_prior_memory": true,
+  "indexed_to_memory_cache_off_exact_step_2": true,
+  "old_memory_to_indexed_cache_on_exact_step_3": true,
+  "minibatch": {
+    "batch_size_counts": {
+      "4": 2,
+      "7": 5
+    },
+    "end": {
+      "algorithm": "omnimd-epoch-splitmix64-v1",
+      "cursor": 7,
+      "epoch": 2,
+      "order": [
+        3,
+        22,
+        14,
+        21,
+        19,
+        20,
+        15,
+        17,
+        18,
+        5,
+        6,
+        16,
+        23,
+        1,
+        12,
+        11,
+        9,
+        4
+      ],
+      "order_mode": "shuffle_each_epoch",
+      "rng_state": 2313747478831229000,
+      "seed": 20261016
+    },
+    "frames_processed": 43,
+    "normalization": "arithmetic mean of actual batch frames; unchanged per-frame atom/component scales; no cross-epoch fill or drop",
+    "partial_batches": 2,
+    "start": {
+      "algorithm": "omnimd-epoch-splitmix64-v1",
+      "cursor": 0,
+      "epoch": 0,
+      "order": [
+        6,
+        17,
+        14,
+        4,
+        22,
+        12,
+        11,
+        15,
+        23,
+        18,
+        9,
+        16,
+        19,
+        20,
+        3,
+        5,
+        21,
+        1
+      ],
+      "order_mode": "shuffle_each_epoch",
+      "rng_state": 13909918895508648240,
+      "seed": 20261016
+    }
+  },
+  "indexed_access": {
+    "duplicate_check_scratch_bytes": 384,
+    "file_bytes": 22124,
+    "frame_read_ms": 2.672300000000001,
+    "frame_reads": 229,
+    "frames": 24,
+    "frames_decoded_per_read": 1,
+    "index_build_ms": 0.3396,
+    "index_payload_bytes": 19936,
+    "index_payload_limit_bytes": 67108864,
+    "integrity_verification_ms": 0.19299999999999998,
+    "integrity_verifications": 9,
+    "io_buffer_bytes": 65536,
+    "largest_record_bytes": 997,
+    "mode": "indexed_jsonl_v1",
+    "parser_record_limit_bytes": 262144,
+    "peak_decoded_frame_payload_bytes": 582,
+    "record_buffer_peak_capacity_bytes": 997
+  },
+  "cpu_indexed_access": {
+    "duplicate_check_scratch_bytes": 384,
+    "file_bytes": 22124,
+    "frame_read_ms": 2.5026000000000015,
+    "frame_reads": 211,
+    "frames": 24,
+    "frames_decoded_per_read": 1,
+    "index_build_ms": 0.2453,
+    "index_payload_bytes": 19936,
+    "index_payload_limit_bytes": 67108864,
+    "integrity_verification_ms": 0.18189999999999998,
+    "integrity_verifications": 9,
+    "io_buffer_bytes": 65536,
+    "largest_record_bytes": 997,
+    "mode": "indexed_jsonl_v1",
+    "parser_record_limit_bytes": 262144,
+    "peak_decoded_frame_payload_bytes": 582,
+    "record_buffer_peak_capacity_bytes": 997
+  },
+  "cache_statistics": {
+    "build_ms": 0.5730000000000001,
+    "frames": 18,
+    "geometry_sha256": "e95ff3112fa19819344a4a0fab53e63bd1888fe898969a96daf7395ce2ef1710",
+    "hits": 43,
+    "padded_slots": 1040,
+    "policy_limit_bytes": 67108864,
+    "retained_payload_bytes": 221414
+  },
+  "native_v1_reload_max_abs_energy_force_virial": [
+    0.0,
+    0.0,
+    0.0
+  ],
+  "rejected_before_output": [
+    "indexed without minibatch",
+    "unknown dataset access mode",
+    "changed raw dataset bytes on resume"
+  ],
+  "historical_checkpoint_sha256": {
+    "checkpoint-step-3.json": "a71f31e2252f0ca98f94e2bcf4a4d8fbe53c5d21939cc7d86d843f48c76b93e4",
+    "checkpoint.json": "dbdad7a7e8daf3122048f1417cd07be1509d618b3ffc64ee1e672af39d083def"
+  },
+  "sha256": {
+    "engine": "eeb7ac4e994f46ba683cbe43c28cbfb2e975e0f092bde667edcd60d5932e386c",
+    "trainer": "f57c78ca419dcba890eb6accd622223d7346dc0faff08cff1e42379dcac45315",
+    "script": "99cb50de85d893a44644a84f1e821e759a35310bce0bb79f0b3ce70cd7cdd822",
+    "helper": "9f9f7175a83570ed80a7aabf6c84d856e4498314079fd8446e9aac83285cbe85",
+    "dataset": "5669b8e833b0a409e08b328dc3cf9ef9dfebb52d32f8b8495a75d9342b07902a",
+    "initial_model": "407278c6eab122e6dfee2511b3c3fb4c033f58c04819a580ffc0810df3ce7b9a",
+    "model": "362c5ca38a9a5c67b67a97e59f1597432cfb37bb3766afb3457d26a1e9c94fa1",
+    "checkpoint": "dbdad7a7e8daf3122048f1417cd07be1509d618b3ffc64ee1e672af39d083def",
+    "engine_during_gpu_acceptance": "b600e1db292671b4740440742f043bf3131f745f21b3e8d86d45a0fe671752ed"
+  },
+  "checks": [
+    {
+      "label": "capabilities",
+      "exit_code": 0
+    },
+    {
+      "label": "indexed",
+      "exit_code": 0
+    },
+    {
+      "label": "to-memory-cache-off",
+      "exit_code": 0
+    },
+    {
+      "label": "old-memory-to-indexed",
+      "exit_code": 0
+    },
+    {
+      "label": "cpu-indexed",
+      "exit_code": 0
+    },
+    {
+      "label": "reject-no-minibatch",
+      "exit_code": 1
+    },
+    {
+      "label": "reject-access",
+      "exit_code": 1
+    },
+    {
+      "label": "reject-hash",
+      "exit_code": 1
+    },
+    {
+      "label": "final-engine-capabilities",
+      "exit_code": 0
+    },
+    {
+      "label": "final-engine-cpu-indexed-resume",
+      "exit_code": 0
+    }
+  ],
+  "source_sha256": {
+    "replay_full_training.py": "12067135c9b176aad6d24ab7d65081340b85e68825bbaf2a37ec809356cf48bc",
+    "teacher.json": "1113e4f1d49c77756703a0b6f3362615699a6d9bd0686cddbc1c103066fa0bc8"
+  },
+  "host_only_checks": {
+    "indexed_mode_identity_and_geometry_limit": 3,
+    "indexed_mutation_and_integrity": 3,
+    "readout_partition_regression": 2,
+    "engine_routing": 3,
+    "total": 11,
+    "status": "passed"
+  },
+  "build": "Locked offline CUDA-feature release engine and sibling trainer/evaluator; no dependency download",
+  "gpu_window_released_utc": "2026-10-16T13:32:49.7588071Z",
+  "active_omnimd_processes_at_release": 0,
+  "final_engine_wording_check": "After the GPU replay, only the static unsupported-capability wording changed from streaming to unbounded streaming. Final rebuilt engine capabilities and one CPU indexed resume checked; trainer binary unchanged.",
+  "native_capacity_scope": "Separate B receipt: 2051 frames padded to 128.19 MiB, not representative physical throughput; maximum indexed ceiling not benchmarked. Not repeated in this integration."
+}

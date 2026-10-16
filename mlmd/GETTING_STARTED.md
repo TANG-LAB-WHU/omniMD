@@ -314,8 +314,8 @@ Append `.exe` to executable paths on Windows. Full-network resume requests repla
 `initial_model` with `checkpoint`, name a new output directory, retain the dataset
 and fixed configuration, and specify additional steps; see the training document.
 Training checkpoints are distinct from MD checkpoints. Explicit deterministic
-minibatching is described in step 18; streaming and distributed training remain
-future work. Optional full-network virial supervision is now
+minibatching is described in step 18 and bounded indexed access in step 19;
+sharded/distributed training remains future work. Optional full-network virial supervision is now
 explicitly available on CPU/CUDA (step 15); readout fitting still uses E/F only.
 
 ## 6. Minimize, run MD and restart
@@ -759,9 +759,10 @@ optimizer state remain exact within the recorded runtime identity.
 Old full-batch v1-v4 checkpoints keep their original route. Do not enable
 minibatching when resuming one; initialize a new optimizer from its exported
 native model to change training semantics. The same model/shape/work bounds and
-1024-frame in-memory dataset limit apply. The optional cache still prepares the
+default 1024-frame in-memory dataset limit apply; step 19 provides explicit indexed
+access with separate limits. The optional cache still prepares the
 whole selected training pool and retains its own 64 MiB host-payload bound.
-This option introduces neither dataset streaming nor a learning-rate schedule.
+Minibatch selection alone changes neither storage mode nor the constant learning rate.
 
 Read [the complete sampler/loss contract](native/MINIBATCH_TRAINING.md) for the
 actual-count formula, portable integer shuffle and canonical next-batch state.
@@ -783,3 +784,83 @@ python mlmd/scripts/validate_minibatch_integration.py --engine ENGINE_EXE --eval
 
 It stops on failure without retry. The native 31-update and both-executor evidence
 remain separate; this replay does not repeat their performance benchmarks.
+
+## 19. Read training data through a bounded index
+
+Start from the full-network minibatch request in step 18, on CPU or explicit CUDA.
+Add this field at the request top level, alongside `dataset` and `device`:
+
+```json
+"dataset_access": "indexed"
+```
+
+Run `omnimd-mlmd train-native REQUEST.json` into a new output directory. Indexed
+access requires explicit `config.minibatch`; it is not accepted by readout QR and
+has no silent memory fallback. Omit the field or use `"memory"` for the historical
+reader. The existing `omnimd-dataset-jsonl-v1` coordinates, labels, IDs, units and
+source hashes are unchanged; this does not add native training for dataset v2.
+
+The indexed scanner validates all input before training, retaining frame offsets,
+lengths, IDs, atom counts and hashes of exact raw lines. Training, complete-partition
+assessment and reload verification then decode one frame per read. Sampling and
+gradient reduction order stay unchanged. No disk sidecar, prefetch worker or new
+coordinate format is introduced.
+
+Review [all parser/resource bounds](native/INDEXED_TRAINING.md) before choosing
+this mode. Indexed input is a regular file up to 16 GiB and 100000 frames, with
+256 KiB records, 256-byte IDs, at most 64 atoms/frame and a 64 MiB retained index
+payload budget. Default memory full training still limits input to 128 MiB and
+1024 frames. Architecture, AD/workspace, per-frame CUDA and geometry-cache limits
+are unchanged. The indexed ceiling itself has not been benchmarked in full.
+Index, sampler, partitions, report identities and checkpoints remain O(frame
+count); a bounded index is not an O(1)-memory optimizer or a total RAM guarantee.
+
+Inspect `report.dataset_access` for mode, frame/file count, index payload, record
+buffer capacity, maximum decoded-frame payload, frame reads and IO/integrity
+counts/times. Payload excludes allocator overhead, parser temporaries, construction
+scratch and model/optimizer/report/checkpoint workspaces. Do not interpret
+`frames_decoded_per_read:1` as a count of every live allocation.
+
+Each read checks exact line SHA256, then frame index/ID/atom count. Before every
+checkpoint, after final metrics and before CLI model/report publication, the
+whole file must still match its original SHA256. This costs O(file bytes) per
+verification; frequent checkpoints can increase IO substantially. Windows retains
+a handle denying write/delete sharing. Other platforms' portable checks are not
+an atomic snapshot against concurrent mutation; immutable input is required, and
+Linux/macOS execution is not validated here. Failure invalidates the reader and
+stops the invocation; earlier completed checkpoints remain available.
+
+Storage mode is runtime-only: v5 checkpoints do not embed the index or change
+schema. Resume may switch memory/indexed with the identical raw input, numerical
+backend, split, objective and sampler settings, provided the input satisfies the
+destination mode's bounds. Even whitespace changes alter dataset identity. The
+optional CUDA geometry cache can toggle at the same time, but still prepares the
+entire selected training pool within its independent 64 MiB payload cap. A pool
+that does not fit rejects before CUDA initialization; disable caching explicitly.
+There is no partial/evicting geometry cache in this implementation.
+
+[Final integrated acceptance](evidence/native-indexed-integrated.json) reuses the
+24-frame synthetic minibatch fixture. Seven indexed CPU/CUDA updates match the
+prior memory model, Adam, sampler, all four initial/final partition metrics and
+exported model bytes exactly. Indexed-to-memory with cache off and old memory-to-
+indexed with cache on resume exactly. The index retains 19936 bytes; the run has
+nine whole-file verifications and zero export/reload difference. Three invalid
+mode/config/hash requests reject before output. These short checks add no capacity
+or performance benchmark.
+
+[B's separate boundary evidence](native/fixtures/indexed-training-report.json)
+uses 2051 frames deliberately padded with whitespace to 128.19 MiB, crosses both
+old limits and resumes exactly. Its measured Windows peak working set is 12.83 MiB
+and retained index is 319722 bytes. This exercises reader limits and memory
+accounting; it is not representative physical-data throughput or a universal
+memory bound. The full 100000-frame/16-GiB ceiling remains unmeasured.
+
+For only the short engine integration replay, reserve the GPU, provide the prior
+accepted seven-update memory minibatch directory (including its CPU reference)
+and choose a new output directory:
+
+```text
+python mlmd/scripts/validate_indexed_integration.py --engine ENGINE_EXE --baseline-work PREVIOUS_MINIBATCH_WORK --work NEW_WORK
+```
+
+It stops on failure without retry and does not regenerate the padded capacity case.

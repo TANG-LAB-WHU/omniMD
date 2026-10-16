@@ -160,7 +160,7 @@ see [DeepMD setup and limits](mlmd/deepmd/README.md).
 - Arbitrary DeepMD architectures, hybrid se_e3 or generic .pb/.pth/pickle import.
 - Partial PBC, mixed-type/virtual atoms or automatic unit/type-map guessing.
 - Classical-potential mixing and the full legacy Simulation/Propagator pipeline.
-- Streaming/end-to-end GPU training, learned normalization or generic
+- Sharded/distributed or end-to-end GPU training, learned normalization or generic
   DeepMD training compatibility; duplicated one-side embeddings are not tied.
 - Production validation, long-time stability guarantees or general speedup claims.
 
@@ -243,4 +243,20 @@ Checkpoint v5 stores the validated next-batch sampler and supports exact
 same-runtime mid-epoch restart. The [step-18 guide](mlmd/GETTING_STARTED.md#18-select-deterministic-minibatches)
 and [integrated receipt](mlmd/evidence/native-minibatch-integrated.json) cover
 seven updates, tail/cache-toggle continuation and legacy full-batch compatibility.
-Datasets still load into memory within 1024 frames; this is not streaming training.
+Default memory access retains the 1024-frame full-training limit. Explicit indexed
+access below reads frames individually and has separate index/record/count limits.
+
+[Indexed dataset access](mlmd/native/INDEXED_TRAINING.md) is now available through
+top-level `"dataset_access":"indexed"` plus explicit `config.minibatch`. It
+validates the existing v1 JSONL file, retains offsets/IDs/line hashes, reads one
+frame at a time and verifies the whole file before checkpoints/publication.
+Small inputs can switch memory/indexed on v5 restart exactly; memory is the default.
+Indexed limits are 100000 frames, 16 GiB input, 256 KiB records and 64 MiB retained
+index payload. Index/sampler/report/checkpoint memory remains O(frame count);
+these are not peak-process-memory or validated production-capacity claims.
+The [step-19 guide](mlmd/GETTING_STARTED.md#19-read-training-data-through-a-bounded-index)
+and [final integration evidence](mlmd/evidence/native-indexed-integrated.json)
+record exact CPU/CUDA state, metrics and storage/cache-switch continuation.
+The separate 2051-frame, 128.19-MiB boundary case is deliberately whitespace
+padded; its measured 12.83-MiB Windows peak working set is not a physical-data
+throughput benchmark. The 64-atom and geometry-cache bounds remain unchanged.
