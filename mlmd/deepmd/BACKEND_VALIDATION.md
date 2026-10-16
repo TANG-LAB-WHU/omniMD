@@ -45,6 +45,31 @@ unavailable in this environment; no model evaluation or Linux build was started
 for this tranche. This is an availability blocker, not an approval denial or an
 uncertain inference outcome.
 
+A follow-up attempt used the explicitly authorized ordinary startup of the
+existing Docker Desktop installation. `Start-Process` succeeded;
+`docker desktop start --timeout 45` subsequently reported the application was
+already running. The actual engine remained stopped. Its backend log at
+`2026-10-16T07:46:15.920487200Z` records:
+
+```text
+running services: running services: running OTel manager: OTel manager:
+removing stale socket: remove <HOME>\AppData\Local\Docker\run\userAnalyticsOtlpHttp.sock:
+The file cannot be accessed by the system.
+```
+
+The backend then reported `backend crashed`; a read-only `docker desktop status`
+confirmed `stopped`, and the Linux-engine pipe was still absent. One ordinary
+`docker desktop restart --timeout 45` then failed to stop the remaining Desktop
+frontend/backend processes, returning `context deadline exceeded` and exit 1;
+it did not restore the engine. No forced process termination was attempted.
+Desktop UI/error
+reporter processes remaining alive do not mean its engine is available. No tool
+approval was denied, and no inference had an uncertain outcome. Recovery stopped
+at this application runtime-file failure: no socket deletion, settings change,
+Docker reset/reinstall, WSL repair, credentials change or unrelated-container
+operation was attempted. The exact startup outcome is also recorded in
+[the check receipt](validation/backend-tranche-checks.json).
+
 No GPU process/container was started. The coordinated GPU window remains with
 B; the new features are not claimed hardware-validated. No driver, BIOS,
 security setting or unrelated container was modified. No Windows C API runtime

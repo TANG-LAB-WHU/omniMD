@@ -15,12 +15,49 @@
   "new_runtime_validation": {
     "status": "pending_runtime_availability",
     "target": "official DeepMD CPU container",
-    "reason": "dockerDesktopLinuxEngine named pipe unavailable",
+    "reason": "Docker Desktop backend crashes while removing stale userAnalyticsOtlpHttp.sock: The file cannot be accessed by the system.",
     "denied": false,
     "inference_started": false
   },
   "gpu_jobs_started": 0,
   "new_dependencies": 0,
   "shared_interfaces_modified": false,
-  "native_sources_modified": false
+  "native_sources_modified": false,
+  "docker_startup_attempt": {
+    "authorized_scope": "ordinary startup of the existing Docker Desktop installation",
+    "app_launch": "succeeded",
+    "desktop_start_cli": "Docker Desktop is already running",
+    "engine_status": "stopped",
+    "backend_error_utc": "2026-10-16T07:46:15.920487200Z",
+    "operation": "removing stale socket",
+    "target": "<HOME>\\AppData\\Local\\Docker\\run\\userAnalyticsOtlpHttp.sock",
+    "error": "The file cannot be accessed by the system.",
+    "outcome": "backend crashed; Linux-engine pipe absent",
+    "tool_approval_denied": false,
+    "settings_or_runtime_files_modified_by_agent": false,
+    "containers_started_by_agent": 0,
+    "gpu_jobs_started": 0,
+    "linux_build_started": false,
+    "numerical_validation_started": false,
+    "ordinary_restart": {
+      "command": "docker desktop restart --timeout 45",
+      "exit_code": 1,
+      "error": "Failed to stop Docker Desktop: frontend/backend processes still running; context deadline exceeded",
+      "engine_restored": false,
+      "forced_termination_attempted": false
+    }
+  },
+  "prepared_cpu_validation": {
+    "script": "validate_cpu.py (local phase2-runtime directory)",
+    "frames": 4,
+    "atoms_per_frame": 6,
+    "homogeneous_periodic": true,
+    "batch_sizes": [
+      1,
+      4
+    ],
+    "atomic_outputs": true,
+    "official_python_reference_prepared": true,
+    "executed": false
+  }
 }
