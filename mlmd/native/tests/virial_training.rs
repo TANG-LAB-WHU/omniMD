@@ -12,6 +12,7 @@ fn model() -> Model {
 }
 fn config(steps: u64) -> FullConfig {
     FullConfig {
+        minibatch: None,
         fixed_geometry_cache: false,
         cuda_gradient: Default::default(),
         split: Split::Explicit {

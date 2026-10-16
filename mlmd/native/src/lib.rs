@@ -8,6 +8,7 @@ pub mod full_gradient;
 mod full_loss;
 pub mod full_training;
 mod least_squares;
+pub mod minibatch;
 mod model;
 mod neighbor;
 mod network;

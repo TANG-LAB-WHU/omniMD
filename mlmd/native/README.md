@@ -321,3 +321,7 @@ boundaries, build/runtime requirements, strict limits and verification status.
 Opt-in CUDA full-training gradient optimization: [cached reverse accumulation](CUDA_REVERSE_TRAINING.md).
 
 Optional fixed-frame CUDA training preparation: [bounded geometry cache](FIXED_GEOMETRY_TRAINING.md).
+
+Optional [deterministic minibatch training](MINIBATCH_TRAINING.md) preserves the
+full-batch default and adds exact mid-epoch v5 checkpoint restart for the supported
+CPU/CUDA E/F/V trainer.

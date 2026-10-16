@@ -1,4 +1,4 @@
-//! Bounded deterministic full-batch Adam for the supported tanh networks.
+//! Bounded deterministic full-batch or explicitly sampled minibatch Adam for the supported tanh networks.
 use crate::{
     full_gradient::{frame_gradient_with_virial, NetworkLocation, ParameterLayout},
     full_loss::{metrics, validate_loss, validate_record},
@@ -14,6 +14,7 @@ use std::{
 };
 
 pub use crate::full_loss::{FullMetrics, VirialLoss};
+pub use crate::minibatch::{BatchOrder, MiniBatchConfig, MiniBatchReport, SamplerState};
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum CudaGradient {
@@ -32,7 +33,8 @@ const VIRIAL_LOSS_CONTRACT: &str = "energy-force-row-virial-per-atom-nine-v1";
 /// CUDA v2 records the compiled program and reported device/driver identity.
 /// Backend identity and checkpoint loss_contract together cover host numerical
 /// semantics. New virial semantics require v3; historical E/F semantics and
-/// v1/v2 serialization stay unchanged. Opt-in reverse execution uses v4.
+/// v1/v2 serialization stay unchanged. Opt-in reverse execution uses v4;
+/// explicit minibatch sampling uses v5 on every backend.
 /// PTX hashing alone does not cover host loss semantics.
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "backend", rename_all = "snake_case", deny_unknown_fields)]
@@ -72,6 +74,8 @@ fn cache_disabled(value: &bool) -> bool {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct FullConfig {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub minibatch: Option<MiniBatchConfig>,
     #[serde(default, skip_serializing_if = "cache_disabled")]
     pub fixed_geometry_cache: bool,
     #[serde(default, skip_serializing_if = "CudaGradient::is_default")]
@@ -108,6 +112,9 @@ impl FullConfig {
     }
     pub(crate) fn validate(&self) -> Result<()> {
         validate_loss(&self.loss(), self.virial_loss.as_ref())?;
+        if let Some(c) = &self.minibatch {
+            c.validate()?;
+        }
         if self.steps == 0
             || self.steps > 100_000
             || self.checkpoint_every == 0
@@ -135,6 +142,8 @@ impl FullConfig {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Checkpoint {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sampler: Option<SamplerState>,
     pub schema: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub loss_contract: Option<String>,
@@ -159,6 +168,8 @@ pub struct GroupChange {
 }
 #[derive(Serialize)]
 pub struct FullReport {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub minibatch: Option<MiniBatchReport>,
     pub scope: String,
     pub algorithm: String,
     pub derivative_method: String,
@@ -195,7 +206,9 @@ pub struct FullOutcome {
 }
 
 fn checkpoint_schema(execution: &FullExecution, config: &FullConfig) -> &'static str {
-    if config.cuda_gradient == CudaGradient::Reverse {
+    if config.minibatch.is_some() {
+        "omnimd-native-full-checkpoint-v5"
+    } else if config.cuda_gradient == CudaGradient::Reverse {
         "omnimd-native-full-checkpoint-v4"
     } else if config.virial_loss.is_some() {
         "omnimd-native-full-checkpoint-v3"
@@ -208,7 +221,7 @@ fn checkpoint_schema(execution: &FullExecution, config: &FullConfig) -> &'static
 fn loss_contract(config: &FullConfig) -> Option<&'static str> {
     if config.virial_loss.is_some() {
         Some(VIRIAL_LOSS_CONTRACT)
-    } else if config.cuda_gradient == CudaGradient::Reverse {
+    } else if config.cuda_gradient == CudaGradient::Reverse || config.minibatch.is_some() {
         Some("energy-force-per-atom-v1")
     } else {
         None
@@ -223,6 +236,39 @@ fn validate_virial_scales(
         for indices in partitions {
             for &i in *indices {
                 v.scale(indices.len(), dataset.frames[i].frame.positions.len())?;
+            }
+        }
+    }
+    Ok(())
+}
+fn validate_minibatch_scales(
+    dataset: &Dataset,
+    training: &[usize],
+    config: &FullConfig,
+) -> Result<()> {
+    if let Some(c) = &config.minibatch {
+        let loss = config.loss();
+        let full = c.batch_size.min(training.len());
+        let remainder = training.len() % c.batch_size;
+        for count in [full, if remainder == 0 { full } else { remainder }] {
+            for &i in training {
+                let n = dataset.frames[i].frame.positions.len();
+                let (es, fs) = crate::training::scales(&loss, count, n);
+                for (weight, scale) in [(config.energy_weight, es), (config.force_weight, fs)] {
+                    if weight > 0.
+                        && (!scale.is_finite()
+                            || scale <= 0.
+                            || !(2. * scale * scale).is_finite()
+                            || 2. * scale * scale <= 0.)
+                    {
+                        return Err(Error(
+                            "minibatch E/F normalization underflow/overflow".into(),
+                        ));
+                    }
+                }
+                if let Some(v) = &config.virial_loss {
+                    v.scale(count, n)?;
+                }
             }
         }
     }
@@ -264,8 +310,15 @@ impl Checkpoint {
             &[&training_indices, &validation_indices],
             config.virial_loss.as_ref(),
         )?;
+        validate_minibatch_scales(dataset, &training_indices, config)?;
+        let sampler = config
+            .minibatch
+            .as_ref()
+            .map(|c| SamplerState::for_step(c, &training_indices, 0))
+            .transpose()?;
         let p = layout.parameters.len();
         Ok(Self {
+            sampler,
             schema: checkpoint_schema(&FullExecution::CpuReferenceV1, config).into(),
             loss_contract: loss_contract(config).map(str::to_owned),
             execution: FullExecution::CpuReferenceV1,
@@ -384,6 +437,16 @@ impl Checkpoint {
             &[&training, &validation],
             config.virial_loss.as_ref(),
         )?;
+        validate_minibatch_scales(dataset, &training, config)?;
+        match (&config.minibatch, &self.sampler) {
+            (Some(c), Some(s)) => s.validate(c, &training, self.step)?,
+            (None, None) => {}
+            _ => {
+                return Err(Error(
+                    "checkpoint minibatch configuration/sampler presence mismatch".into(),
+                ))
+            }
+        }
         let p = layout.parameters.len();
         if training != self.training_indices
             || validation != self.validation_indices
@@ -404,7 +467,7 @@ impl Checkpoint {
     }
 }
 
-/// Full-batch updates in stable dataset order. Callback receives complete last-iterate
+/// Full-batch default or explicit deterministic minibatch updates. Callback receives complete last-iterate
 /// model and matching Adam moments/step; its errors stop training and propagate.
 pub fn train_full(
     state: Checkpoint,
@@ -476,24 +539,46 @@ pub fn train_full_with_device(
     timing.assessment_ms += assessment.elapsed().as_secs_f64() * 1000.0;
     state.config = config.clone();
     let mut values = layout.values(&state.model);
+    let mut minibatch = state.sampler.as_ref().map(|s| MiniBatchReport {
+        normalization: concat!(
+            "arithmetic mean of actual batch frames; unchanged per-frame atom/component scales; ",
+            "no cross-epoch fill or drop"
+        )
+        .into(),
+        start: s.clone(),
+        end: s.clone(),
+        frames_processed: 0,
+        partial_batches: 0,
+        batch_size_counts: BTreeMap::new(),
+    });
     while state.step < end {
         let phase = Instant::now();
         let mut gradient = vec![0.0; values.len()];
-        for &i in &state.training_indices {
+        let batch = match (&state.sampler, &config.minibatch) {
+            (Some(s), Some(c)) => s.batch(c)?,
+            _ => state.training_indices.as_slice(),
+        };
+        let batch_len = batch.len();
+        // Prepare sampler progress before touching optimizer state, but publish it only on success.
+        let mut next_sampler = state.sampler.clone();
+        if let (Some(s), Some(c)) = (&mut next_sampler, &config.minibatch) {
+            s.advance(c, &state.training_indices)?;
+        }
+        for &i in batch {
             #[cfg(feature = "cuda")]
             let (_, frame) = match &mut cuda {
                 Some(gpu) => gpu.frame_gradient_with_virial(
                     &dataset.frames[i],
                     &loss,
                     config.virial_loss.as_ref(),
-                    state.training_indices.len(),
+                    batch_len,
                 )?,
                 None => frame_gradient_with_virial(
                     &state.model,
                     &dataset.frames[i],
                     &loss,
                     config.virial_loss.as_ref(),
-                    state.training_indices.len(),
+                    batch_len,
                 )?,
             };
             #[cfg(not(feature = "cuda"))]
@@ -502,7 +587,7 @@ pub fn train_full_with_device(
                 &dataset.frames[i],
                 &loss,
                 config.virial_loss.as_ref(),
-                state.training_indices.len(),
+                batch_len,
             )?;
             #[cfg(feature = "cuda")]
             if let (Some(gpu), Some(profile)) = (&cuda, &mut cuda_gradient_profile) {
@@ -564,6 +649,14 @@ pub fn train_full_with_device(
         }
         layout.apply(&mut state.model, &values)?;
         state.step = step;
+        state.sampler = next_sampler;
+        if let Some(report) = &mut minibatch {
+            report.frames_processed += batch_len as u64;
+            report.partial_batches +=
+                u64::from(batch_len < config.minibatch.as_ref().unwrap().batch_size);
+            *report.batch_size_counts.entry(batch_len).or_default() += 1;
+            report.end = state.sampler.as_ref().unwrap().clone();
+        }
         timing.adam_ms += phase.elapsed().as_secs_f64() * 1000.0;
         if step % config.checkpoint_every == 0 || step == end {
             save(&state)?;
@@ -624,9 +717,15 @@ pub fn train_full_with_device(
     };
     #[cfg(feature = "cuda")]
     let fixed_geometry_cache = cuda.as_ref().and_then(|gpu| gpu.fixed_geometry_stats());
+    let algorithm = if minibatch.is_some() {
+        "deterministic minibatch Adam; constant learning rate per completed update; last iterate export"
+    } else {
+        "deterministic full-batch Adam; constant learning rate; last iterate export"
+    };
     let report=FullReport {
+        minibatch,
         scope:"all embedding/fitting weights, biases and timesteps; fixed normalization, geometry settings and atom_energy_bias".into(),
-        algorithm:"deterministic full-batch Adam; constant learning rate; last iterate export".into(),
+        algorithm:algorithm.into(),
         loss_contract:state.loss_contract.clone().unwrap_or_else(|| "energy-force-per-atom-v1".into()),
         #[cfg(feature="cuda")] cuda_gradient_profile,
         #[cfg(feature="cuda")] fixed_geometry_cache,

@@ -200,3 +200,11 @@ AD or optimizer source was copied and no additional dependency was introduced.
 The fixed training-frame geometry cache, exact identity checks and cache-on/off
 replays are original MIT code, sharing the existing native environment and neighbor
 formulas. No external cache implementation or new dependency was incorporated.
+
+## Deterministic minibatch sampling
+
+The epoch sampler, v5 checkpoint validation and synthetic tests/replay are original
+MIT code. They reuse this repository's existing SplitMix64 integer arithmetic.
+Reference: Sebastiano Vigna (2015), https://prng.di.unimi.it/splitmix64.c, released
+with a public-domain dedication and unrestricted permission to use/modify/distribute.
+No external sampler or training library is vendored and no dependency was added.
