@@ -13,7 +13,9 @@ fitting/scratch and persistent-host-workspace tranche is in [CUDA_FIT.md](CUDA_F
 
 Enable `cuda` explicitly. `cuda::CudaPotential` implements the existing shared
 `Potential` trait and returns energy, analytic force and row-strain virial in
-float64. This is a CPU/CUDA inference pipeline, not CUDA training:
+float64. The inference pipeline is below; the separate bounded
+[readout trainer](TRAINING.md#explicit-cpu-or-cuda-features) reuses it to generate
+analytic feature columns for CPU QR. Full-network GPU training is unsupported:
 
 1. Rust validates native-v1 weights/frame/types and builds or conservatively
    reuses periodic-image candidates, then filters/sorts the exact active CPU

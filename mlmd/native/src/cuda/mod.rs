@@ -1,5 +1,7 @@
 //! Optional real CUDA FP64 network/descriptor inference; CPU geometry/reduction.
 mod neighbor_cache;
+mod readout;
+pub use readout::CudaReadoutBasis;
 mod runtime;
 use crate::{
     neighbor::{Geometry, Neighbor},

@@ -13,9 +13,9 @@ This is a progressively implemented subset, not all DeepMD functionality:
 | Native-v1 se_e2_a scalar-energy inference, E/F/virial | Implemented | Implemented within [CUDA bounds](CUDA.md) |
 | tanh/linear, explicit residuals and timesteps | Implemented | Implemented |
 | sigmoid/softplus inference | Implemented | Rejected |
-| Final-readout E/F fitting | Implemented, bounded | Not implemented |
+| Final-readout E/F fitting | Implemented, bounded | Implemented: GPU features, CPU QR/assessment |
 | Full supported tanh-network E/F training and Adam restart | Implemented, bounded | Not implemented |
-| Arbitrary DeepMD models, attention/spin/hybrid/compression, GPU training | Not implemented | Not implemented |
+| Arbitrary DeepMD models, attention/spin/hybrid/compression | Not implemented | Not implemented |
 
 Conversion supports a pinned DeepMD 3.1.3 interchange subset and two audited
 frozen graph profiles. Unsupported formats/architectures fail explicitly.
@@ -143,7 +143,7 @@ this crate supplies one combined E/F/virial evaluation. See
 and [minimization](../engine/MINIMIZATION.md). No shared-interface changes are
 required for the CUDA improvements.
 
-## Step 6: Train the supported CPU subset and reload
+## Step 6: Train the supported subset and reload
 
 Import/prepare the exact `omnimd-dataset-jsonl-v1` schema through the engine data
 workflow. Native trainers require every selected frame to have E and F labels;
@@ -162,10 +162,15 @@ omnimd-native-eval /absolute/trained/model.json < held-out-frames.jsonl
 ```
 
 Training writes provenance, split IDs and metrics; the full-network mode also
-supports documented deterministic checkpoint/resume. Check held-out results
+supports documented CPU deterministic checkpoint/resume. Readout requests may
+set `"device":"cuda:0"` in a CUDA-enabled build for GPU feature generation with
+CPU QR/assessment; omitted device remains CPU. Full-network requests accept only
+`"cpu"`. See [readout device scope and replay](TRAINING.md#explicit-cpu-or-cuda-features).
+Check held-out results
 before MD. GPU inference can consume a trained native model only if it meets
-CUDA's architecture/size bounds. These trainers do not implement GPU training,
-automatic normalization/offset fitting or generic DeepMD training parity.
+CUDA's architecture/size bounds. These trainers do not implement full-network
+GPU training, automatic normalization/offset fitting or generic DeepMD training
+parity. Tiny readout training is slower on CUDA in the measured parity case.
 
 ## Model format v1
 

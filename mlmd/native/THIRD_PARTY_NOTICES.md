@@ -158,3 +158,14 @@ contraction, residual and timestep semantics. NVIDIA's programming guide and
 Driver API function-attribute documentation were consulted for shared-memory
 barriers and resource reporting. No additional dependencies or runtime
 components were installed; existing third-party runtime license terms remain.
+
+## CUDA-assisted final-readout training
+
+The private resident one-hot coefficient selection, explicit training-device
+routing and synthetic replay are independently written MIT code. They reuse
+this project's existing analytic CUDA inference and CPU pivoted QR; no external
+training or optimizer code was copied. The teacher fixture and all generated
+labels are original synthetic data. Existing DeepMD mathematical references,
+NVIDIA runtime terms and dependency licenses above remain applicable. No new
+dependency, source download, binary redistribution or algorithmic novelty is
+introduced by this backend change.

@@ -5,7 +5,10 @@
 biases and present timesteps jointly against energy and force labels using
 CPU float64 Rust. It preserves the existing readout request and inference model
 formats. The engine's `train-native REQUEST.json` wrapper can forward either
-request unchanged to this executable.
+request unchanged to this executable. The optional request field `device`
+defaults to `"cpu"`; any CUDA value is explicitly rejected before dataset or
+checkpoint IO. GPU support is limited to the separate frozen-readout mode, and
+this CPU Adam checkpoint/resume format remains unchanged.
 
 ## Supported scope
 

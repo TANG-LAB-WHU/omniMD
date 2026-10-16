@@ -2,7 +2,7 @@
 use omnimd_ml_contract::Potential;
 use omnimd_native::{
     full_training::{train_full, Checkpoint, FullConfig},
-    training::{train, TrainConfig},
+    training::{train_with_device, TrainConfig, TrainingDevice},
     training_data::Dataset,
     NativePotential,
 };
@@ -23,6 +23,8 @@ enum Request {
         dataset: PathBuf,
         output_directory: PathBuf,
         config: TrainConfig,
+        #[serde(default)]
+        device: TrainingDevice,
     },
     #[serde(rename = "omnimd-native-full-train-v1")]
     Full {
@@ -31,6 +33,8 @@ enum Request {
         dataset: PathBuf,
         output_directory: PathBuf,
         config: FullConfig,
+        #[serde(default)]
+        device: TrainingDevice,
     },
 }
 fn path(base: &Path, value: &Path) -> PathBuf {
@@ -77,6 +81,11 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
     let request_path = fs::canonicalize(&args[1])?;
     let request_bytes = fs::read(&request_path)?;
     let request: Request = serde_json::from_slice(&request_bytes)?;
+    // Reject unsupported devices before dataset/checkpoint IO or output creation.
+    match &request {
+        Request::Readout { device, .. } => device.validate_readout()?,
+        Request::Full { device, .. } => device.validate_full()?,
+    }
     let base = request_path.parent().unwrap();
     let (dataset_path, output) = match &request {
         Request::Readout {
@@ -98,11 +107,12 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
         Request::Readout {
             initial_model,
             config,
+            device,
             ..
         } => {
             let bytes = fs::read(path(base, &initial_model))?;
             let initial = NativePotential::from_json(std::str::from_utf8(&bytes)?)?;
-            let outcome = train(initial.model(), &dataset, &config)?;
+            let outcome = train_with_device(initial.model(), &dataset, &config, device)?;
             (
                 outcome.model,
                 serde_json::to_value(outcome.report)?,
