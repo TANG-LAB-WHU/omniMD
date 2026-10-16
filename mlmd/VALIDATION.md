@@ -1,5 +1,10 @@
 # Validation record: 2026-10-14
 
+Later physical-data evidence: [public nonperiodic E/F training, 2026-10-16](PHYSICAL_DATA_VALIDATION.md)
+covers exact candidate `8167a4a`: 168 training / 43 held-out frames, 1,000 CUDA
+updates and numerical CPU/GPU inference parity. Held-out force error worsened;
+the result establishes pipeline feasibility, not production accuracy.
+
 Later platform evidence: [Linux native CUDA validation, 2026-10-16](LINUX_CUDA_VALIDATION.md)
 covers exact candidate `06439f1`, including tiled GPU E/F/V training and exact
 same-runtime checkpoint resume. The sections below retain their dated scope.
