@@ -2,7 +2,7 @@
 use crate::{
     least_squares,
     readout::{ReadoutBasis, ReadoutParameter},
-    training_data::{validate_labels, Dataset, DatasetFrame, DatasetHeader},
+    training_data::{validate_labels, Dataset, DatasetAccess, DatasetFrame, DatasetHeader},
     Model, NativePotential,
 };
 use omnimd_ml_contract::{Error, Potential, Result};
@@ -190,8 +190,11 @@ pub(crate) fn next(state: &mut u64) -> u64 {
     z = (z ^ (z >> 27)).wrapping_mul(0x94d049bb133111eb);
     z ^ (z >> 31)
 }
-pub(crate) fn partition(dataset: &Dataset, split: &Split) -> Result<(Vec<usize>, Vec<usize>)> {
-    let n = dataset.frames.len();
+pub(crate) fn partition(
+    dataset: &dyn DatasetAccess,
+    split: &Split,
+) -> Result<(Vec<usize>, Vec<usize>)> {
+    let n = dataset.len();
     if n < 2 {
         return Err(Error(
             "at least two frames are required for disjoint train/validation sets".into(),
@@ -225,11 +228,13 @@ pub(crate) fn partition(dataset: &Dataset, split: &Split) -> Result<(Vec<usize>,
             validation.extend(order.into_iter().take(count));
         }
         Split::Explicit { validation_ids } => {
+            let ids = (0..n)
+                .map(|i| Ok((dataset.id(i)?, i)))
+                .collect::<Result<BTreeMap<_, _>>>()?;
             for id in validation_ids {
-                let index = dataset
-                    .frames
-                    .iter()
-                    .position(|f| &f.id == id)
+                let index = ids
+                    .get(id.as_str())
+                    .copied()
                     .ok_or_else(|| Error(format!("unknown validation frame ID: {id}")))?;
                 if !validation.insert(index) {
                     return Err(Error("duplicate validation ID".into()));
@@ -265,7 +270,7 @@ pub(crate) fn metrics(
 }
 pub(crate) fn metrics_with(
     model: &Model,
-    dataset: &Dataset,
+    dataset: &dyn DatasetAccess,
     indices: &[usize],
     config: &TrainConfig,
     mut observe: impl FnMut(&DatasetFrame, &omnimd_ml_contract::Evaluation) -> Result<()>,
@@ -274,9 +279,9 @@ pub(crate) fn metrics_with(
     let (mut se, mut sea, mut sf, mut sv, mut objective) = (0.0, 0.0, 0.0, 0.0, 0.0);
     let (mut nf, mut nv) = (0usize, 0usize);
     for &i in indices {
-        let record = &dataset.frames[i];
+        let record = dataset.frame(i)?;
         let prediction = potential.eval(&record.frame)?;
-        observe(record, &prediction)?;
+        observe(&record, &prediction)?;
         let n = record.frame.positions.len();
         let de = prediction.energy - record.labels.energy.unwrap();
         se += de * de;

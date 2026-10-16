@@ -195,3 +195,8 @@ The sampler reuses the repository's existing SplitMix64 arithmetic; its standard
 reference is Sebastiano Vigna's [public-domain SplitMix64 implementation](https://prng.di.unimi.it/splitmix64.c).
 The epoch policy, state validation, integration, tests and replay are original
 MIT code. No third-party training implementation or new dependency is vendored.
+
+For explicit minibatching, [indexed dataset access](INDEXED_TRAINING.md) can read
+larger datasets one frame at a time. It preserves the existing memory-mode limits
+and numerical/checkpoint semantics; its own parsing/index bounds and the unchanged
+geometry payload cap are documented separately.

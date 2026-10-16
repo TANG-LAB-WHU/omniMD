@@ -1,7 +1,9 @@
 //! Immutable, bounded prepared training geometry. No neural or loss-dependent values.
+#[cfg(test)]
+use crate::training_data::Dataset;
 use crate::{
     neighbor::{Geometry, Neighbor},
-    training_data::{Dataset, DatasetFrame},
+    training_data::{DatasetAccess, DatasetFrame},
     Model,
 };
 use omnimd_ml_contract::{Error, Frame, Potential, Result, Units};
@@ -191,11 +193,18 @@ fn enforce(bytes: usize) -> Result<usize> {
         Ok(bytes)
     }
 }
-pub(crate) fn estimate(m: &Model, d: &Dataset, indices: &[usize]) -> Result<usize> {
+pub(crate) fn estimate(m: &Model, d: &dyn DatasetAccess, indices: &[usize]) -> Result<usize> {
     crate::cuda::validate_full_model(m)?;
-    if indices.is_empty() || indices.len() > 1024 {
+    if indices.is_empty()
+        || indices.len()
+            > if d.indexed() {
+                crate::indexed_dataset::MAX_FRAMES
+            } else {
+                1024
+            }
+    {
         return Err(Error(
-            "fixed geometry requires 1..1024 selected frames".into(),
+            "fixed geometry selected-frame count exceeds dataset access mode limit".into(),
         ));
     }
     let mut total = add(size_of::<FixedGeometryCache>(), 64)?; // SHA256 string payload
@@ -212,11 +221,7 @@ pub(crate) fn estimate(m: &Model, d: &Dataset, indices: &[usize]) -> Result<usiz
     }
     let slots = m.descriptor.sel.iter().sum::<usize>();
     for &i in indices {
-        let r = d
-            .frames
-            .get(i)
-            .ok_or_else(|| Error("fixed geometry selection index out of range".into()))?;
-        let n = r.frame.positions.len();
+        let n = d.atoms(i)?;
         if n == 0 || n > 64 {
             return Err(Error("fixed geometry requires 1..64 atoms/frame".into()));
         }
@@ -229,14 +234,14 @@ pub(crate) fn estimate(m: &Model, d: &Dataset, indices: &[usize]) -> Result<usiz
     enforce(total)
 }
 impl FixedGeometryCache {
-    pub fn new(m: &Model, d: &Dataset, indices: &[usize]) -> Result<Self> {
+    pub fn new(m: &Model, d: &dyn DatasetAccess, indices: &[usize]) -> Result<Self> {
         let start = Instant::now();
         let bytes = estimate(m, d, indices)?;
         let mut ordered = indices.to_vec();
-        ordered.sort_by_key(|i| d.frames[*i].index);
+        ordered.sort_by_key(|i| d.index(*i).expect("validated index"));
         if ordered
             .windows(2)
-            .any(|w| d.frames[w[0]].index == d.frames[w[1]].index)
+            .any(|w| d.index(w[0]).unwrap() == d.index(w[1]).unwrap())
         {
             return Err(Error("duplicate fixed geometry frame index".into()));
         }
@@ -263,7 +268,7 @@ impl FixedGeometryCache {
             }
         }
         for i in ordered {
-            let r = &d.frames[i];
+            let r = d.frame(i)?;
             let frame = PreparedFrame::new(m, &r.frame)?;
             count += frame.slots.len();
             digest.update(r.index.to_le_bytes());

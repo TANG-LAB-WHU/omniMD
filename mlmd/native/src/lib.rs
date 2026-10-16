@@ -217,3 +217,5 @@ fn environment(
     }
     (r, jac)
 }
+
+pub mod indexed_dataset;

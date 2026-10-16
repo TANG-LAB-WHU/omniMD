@@ -3,7 +3,7 @@ use crate::{
     full_gradient::{frame_gradient_with_virial, NetworkLocation, ParameterLayout},
     full_loss::{metrics, validate_loss, validate_record},
     training::{partition, FrameIdentity, Split, TrainConfig, TrainingDevice},
-    training_data::{Dataset, DatasetHeader},
+    training_data::{DatasetAccess, DatasetHeader},
     Model,
 };
 use omnimd_ml_contract::{Error, Result};
@@ -169,6 +169,8 @@ pub struct GroupChange {
 #[derive(Serialize)]
 pub struct FullReport {
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub dataset_access: Option<crate::indexed_dataset::AccessReport>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub minibatch: Option<MiniBatchReport>,
     pub scope: String,
     pub algorithm: String,
@@ -228,21 +230,21 @@ fn loss_contract(config: &FullConfig) -> Option<&'static str> {
     }
 }
 fn validate_virial_scales(
-    dataset: &Dataset,
+    dataset: &dyn DatasetAccess,
     partitions: &[&[usize]],
     virial: Option<&VirialLoss>,
 ) -> Result<()> {
     if let Some(v) = virial {
         for indices in partitions {
             for &i in *indices {
-                v.scale(indices.len(), dataset.frames[i].frame.positions.len())?;
+                v.scale(indices.len(), dataset.atoms(i)?)?;
             }
         }
     }
     Ok(())
 }
 fn validate_minibatch_scales(
-    dataset: &Dataset,
+    dataset: &dyn DatasetAccess,
     training: &[usize],
     config: &FullConfig,
 ) -> Result<()> {
@@ -252,7 +254,7 @@ fn validate_minibatch_scales(
         let remainder = training.len() % c.batch_size;
         for count in [full, if remainder == 0 { full } else { remainder }] {
             for &i in training {
-                let n = dataset.frames[i].frame.positions.len();
+                let n = dataset.atoms(i)?;
                 let (es, fs) = crate::training::scales(&loss, count, n);
                 for (weight, scale) in [(config.energy_weight, es), (config.force_weight, fs)] {
                     if weight > 0.
@@ -274,34 +276,53 @@ fn validate_minibatch_scales(
     }
     Ok(())
 }
-fn validate_dataset(model: &Model, dataset: &Dataset, virial: Option<&VirialLoss>) -> Result<()> {
+fn validate_dataset(
+    model: &Model,
+    dataset: &dyn DatasetAccess,
+    virial: Option<&VirialLoss>,
+) -> Result<()> {
     let metadata = model.validate()?;
-    if dataset.header.type_map != model.type_map {
+    if dataset.header().type_map != model.type_map {
         return Err(Error(
             "dataset and model ordered type maps must match".into(),
         ));
     }
-    if dataset.frames.len() > 1024 {
-        return Err(Error("full trainer supports at most 1024 frames".into()));
+    if dataset.len()
+        > if dataset.indexed() {
+            crate::indexed_dataset::MAX_FRAMES
+        } else {
+            1024
+        }
+    {
+        return Err(Error("full trainer dataset frame count exceeds access mode limit (memory 1024, indexed 100000)".into()));
     }
     let mut ids = HashSet::new();
-    for (i, record) in dataset.frames.iter().enumerate() {
+    for i in 0..dataset.len() {
+        let record = dataset.frame(i)?;
         record.frame.type_ids(&metadata)?;
-        validate_record(record, virial)?;
+        validate_record(&record, virial)?;
         if record.frame.positions.len() > 64 {
             return Err(Error(
                 "full trainer supports at most 64 atoms per frame".into(),
             ));
         }
-        if record.index != i as u64 || record.id.is_empty() || !ids.insert(&record.id) {
+        if record.index != i as u64
+            || record.id.is_empty()
+            || (!dataset.indexed() && !ids.insert(record.id.clone()))
+        {
             return Err(Error("invalid dataset frame identities".into()));
         }
     }
     Ok(())
 }
 impl Checkpoint {
-    pub fn start(model: &Model, dataset: &Dataset, config: &FullConfig) -> Result<Self> {
+    pub fn start(model: &Model, dataset: &dyn DatasetAccess, config: &FullConfig) -> Result<Self> {
         config.validate()?;
+        if dataset.indexed() && config.minibatch.is_none() {
+            return Err(Error(
+                "indexed dataset requires explicit minibatch configuration".into(),
+            ));
+        }
         validate_dataset(model, dataset, config.virial_loss.as_ref())?;
         let layout = ParameterLayout::new(model)?;
         let (training_indices, validation_indices) = partition(dataset, &config.split)?;
@@ -328,7 +349,7 @@ impl Checkpoint {
             step: 0,
             first_moment: vec![0.0; p],
             second_moment: vec![0.0; p],
-            dataset_sha256: dataset.dataset_sha256.clone(),
+            dataset_sha256: dataset.dataset_sha256().to_owned(),
             parameter_layout_sha256: layout.sha256(),
             training_indices,
             validation_indices,
@@ -337,7 +358,7 @@ impl Checkpoint {
     /// Validates all host inputs and resume mode before creating a CUDA context.
     pub fn validate_for_device(
         &self,
-        dataset: &Dataset,
+        dataset: &dyn DatasetAccess,
         config: &FullConfig,
         device: TrainingDevice,
     ) -> Result<()> {
@@ -389,12 +410,8 @@ impl Checkpoint {
         }
         #[cfg(feature = "cuda")]
         if matches!(device, TrainingDevice::Cuda { .. }) {
-            let atoms = dataset
-                .frames
-                .iter()
-                .map(|f| f.frame.positions.len())
-                .max()
-                .unwrap_or(0);
+            let atoms = (0..dataset.len())
+                .try_fold(0usize, |n, i| Ok::<_, Error>(n.max(dataset.atoms(i)?)))?;
             crate::cuda::full_work_estimate(&self.model, atoms)?;
             if config.cuda_gradient == CudaGradient::Reverse {
                 crate::cuda::reverse_resources(&self.model, atoms)?;
@@ -402,9 +419,18 @@ impl Checkpoint {
         }
         Ok(())
     }
-    fn validate(&self, dataset: &Dataset, config: &FullConfig) -> Result<ParameterLayout> {
+    fn validate(
+        &self,
+        dataset: &dyn DatasetAccess,
+        config: &FullConfig,
+    ) -> Result<ParameterLayout> {
         config.validate()?;
         self.config.validate()?;
+        if dataset.indexed() && config.minibatch.is_none() {
+            return Err(Error(
+                "indexed dataset requires explicit minibatch configuration".into(),
+            ));
+        }
         validate_dataset(&self.model, dataset, config.virial_loss.as_ref())?;
         let layout = ParameterLayout::new(&self.model)?;
         let initial_layout = ParameterLayout::new(&self.initial_model)?;
@@ -413,7 +439,7 @@ impl Checkpoint {
         if self.schema != schema
             || self.loss_contract.as_deref() != contract
             || self.config.restart_key() != config.restart_key()
-            || self.dataset_sha256 != dataset.dataset_sha256
+            || self.dataset_sha256 != dataset.dataset_sha256()
             || self.parameter_layout_sha256 != layout.sha256()
             || initial_layout.sha256() != layout.sha256()
             || self.step > 1_000_000_000
@@ -471,7 +497,7 @@ impl Checkpoint {
 /// model and matching Adam moments/step; its errors stop training and propagate.
 pub fn train_full(
     state: Checkpoint,
-    dataset: &Dataset,
+    dataset: &dyn DatasetAccess,
     config: &FullConfig,
     save: impl FnMut(&Checkpoint) -> Result<()>,
 ) -> Result<FullOutcome> {
@@ -480,7 +506,7 @@ pub fn train_full(
 
 pub fn train_full_with_device(
     mut state: Checkpoint,
-    dataset: &Dataset,
+    dataset: &dyn DatasetAccess,
     config: &FullConfig,
     device: TrainingDevice,
     mut save: impl FnMut(&Checkpoint) -> Result<()>,
@@ -565,17 +591,18 @@ pub fn train_full_with_device(
             s.advance(c, &state.training_indices)?;
         }
         for &i in batch {
+            let record = dataset.frame(i)?;
             #[cfg(feature = "cuda")]
             let (_, frame) = match &mut cuda {
                 Some(gpu) => gpu.frame_gradient_with_virial(
-                    &dataset.frames[i],
+                    &record,
                     &loss,
                     config.virial_loss.as_ref(),
                     batch_len,
                 )?,
                 None => frame_gradient_with_virial(
                     &state.model,
-                    &dataset.frames[i],
+                    &record,
                     &loss,
                     config.virial_loss.as_ref(),
                     batch_len,
@@ -584,7 +611,7 @@ pub fn train_full_with_device(
             #[cfg(not(feature = "cuda"))]
             let (_, frame) = frame_gradient_with_virial(
                 &state.model,
-                &dataset.frames[i],
+                &record,
                 &loss,
                 config.virial_loss.as_ref(),
                 batch_len,
@@ -659,6 +686,7 @@ pub fn train_full_with_device(
         }
         timing.adam_ms += phase.elapsed().as_secs_f64() * 1000.0;
         if step % config.checkpoint_every == 0 || step == end {
+            dataset.verify()?;
             save(&state)?;
         }
     }
@@ -684,8 +712,8 @@ pub fn train_full_with_device(
         change.delta_l2 = change.delta_l2.hypot(delta);
     }
     let identity = |i: &usize| FrameIdentity {
-        index: dataset.frames[*i].index,
-        id: dataset.frames[*i].id.clone(),
+        index: dataset.index(*i).expect("validated dataset index"),
+        id: dataset.id(*i).expect("validated dataset ID").to_owned(),
     };
     let phase = Instant::now();
     let final_training = metrics(
@@ -722,7 +750,9 @@ pub fn train_full_with_device(
     } else {
         "deterministic full-batch Adam; constant learning rate; last iterate export"
     };
+    dataset.verify()?;
     let report=FullReport {
+        dataset_access:dataset.access_report(),
         minibatch,
         scope:"all embedding/fitting weights, biases and timesteps; fixed normalization, geometry settings and atom_energy_bias".into(),
         algorithm:algorithm.into(),
@@ -731,7 +761,7 @@ pub fn train_full_with_device(
         #[cfg(feature="cuda")] fixed_geometry_cache,
         derivative_method:derivative_method.into(), execution:state.execution.clone(), execution_scope:execution_scope.into(), timing,
         config:config.clone(),step_start:start,step_end:end,parameters:values.len(),parameter_layout_sha256:layout.sha256(),
-        dataset_header:dataset.header.clone(),dataset_sha256:dataset.dataset_sha256.clone(),source_sha256:dataset.source_sha256.clone(),
+        dataset_header:dataset.header().clone(),dataset_sha256:dataset.dataset_sha256().to_owned(),source_sha256:dataset.source_sha256().clone(),
         training_frames:state.training_indices.iter().map(identity).collect(),validation_frames:state.validation_indices.iter().map(identity).collect(),
         parameter_changes_from_initial:changes,initial_training,initial_validation,
         final_training, final_validation,

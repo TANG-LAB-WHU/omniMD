@@ -190,3 +190,8 @@ runtime installation was performed. Linux CUDA execution, external driver fault
 injection and representative physical training validation remain unverified.
 
 For immutable selected training frames, [fixed geometry caching](FIXED_GEOMETRY_TRAINING.md) reuses exact neighbor/R/J preparation while rebuilding current predictions and loss directions. It is disabled by default.
+
+For explicit minibatching, [indexed dataset access](INDEXED_TRAINING.md) can read
+larger datasets one frame at a time. It preserves the existing memory-mode limits
+and numerical/checkpoint semantics; its own parsing/index bounds and the unchanged
+geometry payload cap are documented separately.
