@@ -1,5 +1,9 @@
 # Minimal end-to-end local workflow
 
+For installation and a fully executable synthetic CPU walkthrough, start with
+[GETTING_STARTED.md](GETTING_STARTED.md). [FEATURE_MATRIX.md](FEATURE_MATRIX.md)
+pins the official DeepMD comparison version and records implementation gaps.
+
 The same explicit units and Frame representation connect structure conversion,
 prediction or bounded training, fixed-cell relaxation and MD. This page uses
 native inference after model conversion; C API model options can replace native

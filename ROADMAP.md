@@ -1,5 +1,9 @@
 # Rust MLIP-MD roadmap
 
+The [DeepMD 3.1.3 feature matrix](mlmd/FEATURE_MATRIX.md) is the versioned coverage
+baseline. [Stepwise usage](mlmd/GETTING_STARTED.md) connects implemented features
+with executable commands; pending branch work is not counted as integrated.
+
 ## Implemented locally
 
 - Shared fallible, explicit eV/angstrom, float64 E/F/virial contract.
@@ -17,6 +21,8 @@
   convergence, explicit nonconvergence and label-free structure export.
 - Explicit DeepMD standard NPY import, normalized dataset JSONL, partial E/F/V
   labels, batch predictions/metrics, dataset-frame MD entry and model queries.
+- Model-free dataset inspection with byte-exact SHA256, provenance declarations,
+  PBC/species counts and bounded E/F label coverage; complete synthetic CPU tutorial.
 - Public-model C API/Python parity and independent integration comparison;
   synthetic native invariance/gradient checks. See mlmd/VALIDATION.md for limits.
 

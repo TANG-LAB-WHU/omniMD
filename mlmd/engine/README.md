@@ -1,4 +1,4 @@
-# CPU MLIP dynamics CLI
+# MLIP dynamics and data CLI
 
 This is a **separate JSON runner**, backed by the actual upstream
 `omnimd-core::System` and the new fallible `omnimd-sim::md::MlipDynamics`
@@ -28,9 +28,9 @@ without writing a trajectory. The older two-path invocation is also accepted.
 
 Both backends use the same run schema. Model/library paths must be absolute.
 Windows JSON uses escaped backslashes. Output paths must be new; existing files
-are never replaced. Real DeepMD inference uses a fresh worker with GPU visibility
-disabled and one trusted official model handle. Native inference needs no DeepMD,
-Python, GPU or LibTorch installation.
+are never replaced. DeepMD inference uses a fresh device-isolated worker and one
+trusted official model handle. CPU requests disable GPU visibility. Native CPU
+inference needs no DeepMD, Python, GPU or LibTorch installation.
 
 ## Explicit native CUDA inference
 
@@ -216,5 +216,11 @@ The current System is exposed read-only to protect cached model outputs.
 Failed numerical/model/thermostat updates leave the published System unchanged;
 the CSVR wrapper advances its RNG only after a successful dynamics step.
 
-GPU, MPI, NPT/barostats, constraints, classical force-field mixing, legacy
-trajectory plugins and native training are not enabled by this CLI.
+MPI, NPT/barostats, constraints, classical force-field mixing and legacy
+trajectory plugins are not enabled by this CLI. Explicit CUDA inference and the
+CPU `train-native` wrapper are available within their documented scopes.
+
+For executable setup, model integration, dataset inspection and a complete CPU
+tutorial, see [GETTING_STARTED.md](../GETTING_STARTED.md). The
+[versioned matrix](../FEATURE_MATRIX.md) distinguishes implemented, delegated and
+missing DeepMD functions.

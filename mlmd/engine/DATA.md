@@ -1,15 +1,17 @@
 # Dataset input, model queries and batch assessment
 
-The CPU CLI imports an explicitly selected **DeepMD standard NPY subset** into
+The CLI imports an explicitly selected **DeepMD standard NPY subset** into
 one normalized JSONL format, evaluates it through either backend, and can use a
-selected frame to initialize MD. It does not train, choose splits, shuffle,
-fit energy offsets or infer physical units.
+selected frame to initialize MD. These data commands do not train, choose splits,
+shuffle, fit energy offsets or infer physical units. `train-native` is a separate
+CPU training command; evaluation can explicitly select a supported CUDA backend.
 
 ## Commands
 
     omnimd-mlmd capabilities
     omnimd-mlmd model-info model.json new-model-info.json
     omnimd-mlmd import-deepmd import.json new-dataset.jsonl
+    omnimd-mlmd inspect-dataset /absolute/dataset.jsonl new-inspection.json
     omnimd-mlmd batch-eval evaluate.json new-predictions.jsonl
 
 The capabilities command prints static JSON without loading a model.
@@ -208,3 +210,29 @@ Conventions were checked against the
 [libAtoms specification](https://github.com/libAtoms/extxyz) and the official
 [ASE extxyz reader/writer](https://gitlab.com/ase/ase/-/raw/master/ase/io/extxyz.py),
 including its separate lattice transpose and Fortran-order tensor handling.
+
+## Inspect before evaluation or training
+
+`inspect-dataset DATASET.jsonl NEW_REPORT.json` loads no model, native library or
+GPU context. It reads the complete dataset through the same strict reader used
+by batch/MD: terminating newlines, header/schema/type/cell/finite/label checks,
+consecutive indices, unique IDs, positive completion count and no trailing records.
+Only after validation does it exclusively create the new report. Malformed input
+produces no success report; an existing output is never overwritten.
+
+The `omnimd-dataset-inspection-v1` report contains the header, exact-byte
+`dataset_sha256`, `declared_source_sha256`, frame/atom counts, min/max atoms per
+frame, `species_atom_occurrences`, periodic/nonperiodic frame counts and E/F/V
+label coverage. SHA256 uses the bytes consumed by validation, including original
+whitespace/newlines, from the same open handle. The report does not reread or
+verify source files: `source_hashes_verified` is false. Do not mutate datasets
+while running commands.
+
+`labels` counts energy, forces, virial and joint E+F frames separately, with
+`all_frames_have_energy_and_forces`, `missing_energy_or_force_frames`, at most 32
+`missing_examples` (original index/ID and missing fields) and a truncation flag.
+A structurally valid unlabeled dataset returns success with coverage false.
+This allows prediction-only inputs; it does not bypass training's requirement
+for both E and F. Complete labels do not guarantee model compatibility, valid
+train/validation splits, sufficient rank, trainer size bounds or physical accuracy.
+The scan retains unique IDs to detect duplicates but never accumulates all frames.

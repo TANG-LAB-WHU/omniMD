@@ -202,3 +202,34 @@ Only use the ordinary push when the verified remote tip is contained in the
 candidate. If the remote has moved, stop and review that new commit first.
 Ordinary push rejects unseen concurrent remote changes; no force push is needed.
 Do not push any other branch or tag as part of this release.
+
+
+## Local engine preflight and stepwise guide follow-up
+
+Based on local cache candidate 7be1d97; not published. This tranche changes only
+engine dataset IO/CLI/tests, repository integration docs, one stdlib tutorial
+script and its compact receipt. `native/**`, `deepmd/**`, shared contracts and
+Cargo dependencies are unchanged. No GPU calls or new installs were made.
+
+- `inspect-dataset` validates the complete JSONL without loading a model, hashes
+  the original bytes in that pass and reports frame/species/PBC/label coverage.
+  Source hashes are declarations; missing E/F coverage is not trainer approval.
+- [The pinned feature matrix](FEATURE_MATRIX.md) compares official DeepMD 3.1.3
+  with this implementation and marks concurrent C API parameter/batch/atomic
+  output and native CUDA kernel work as pending integration.
+- [The English stepwise guide](GETTING_STARTED.md) covers setup, conversion,
+  C API/native model loading, data, training, minimization, MD/restart, explicit
+  CUDA selection and troubleshooting. Root README links the complete workflow.
+- [CPU tutorial acceptance](evidence/cpu-tutorial.json): 48 original synthetic
+  frames imported with E/F/V preserved; 36 training and 12 explicit held-out IDs;
+  readout rank 10; held-out E/atom RMSE 0.129577 -> 6.72e-16 eV and force RMSE
+  0.0147253 -> 3.17e-17 eV/A. Ten CSVR steps and resume from step five reproduce
+  every corresponding snapshot and final decoded checkpoint exactly.
+- Focused offline dataset tests pass (six, including new byte/hash/coverage and
+  malformed-input/no-overwrite checks). Existing XYZ reader tests also pass.
+  Release CPU engine/evaluator/trainer builds pass; existing legacy deprecation
+  warnings remain. No GPU performance or chemical accuracy claim is added.
+
+Generated model weights, data, raw logs and checkpoints remain outside Git.
+Publishing this tranche and any pending B/C integrations requires a separate
+scope report and publication authorization.

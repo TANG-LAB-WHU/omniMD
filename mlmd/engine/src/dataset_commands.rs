@@ -35,7 +35,7 @@ fn capabilities() -> serde_json::Value {
             "deepmd_c_api":{"precision":"float64-io","internal_weight_precision":"model dependent","runtime_dependencies":"trusted official DeepMD library","default_device":"Cpu","cuda_scope":"official TensorFlow .pb inference with matching CUDA/CUPTI; verified direct kernels and context synchronization; some operations may remain on CPU","extra_fparam_aparam_spin":false}
         },
         "cuda_validation":{"kind":"recorded fixture numerical agreement; not a probe of this host","native_evidence":["mlmd/native/fixtures/cuda-validation-report.json","mlmd/evidence/native-cuda-cli.json"],"deepmd_c_api_evidence":"mlmd/deepmd/validation/cuda-public-six-atom.json","performance":"bounded measurements only; small models were slower on both GPU paths; no general speedup claim"},
-        "datasets":{"schema":dataset::SCHEMA,"import":["DeepMD standard NPY C-order float64","XYZ","bounded extxyz profile"],"explicit_sets":true,"partial_labels":true,"training":false,"automatic_split":false},
+        "datasets":{"schema":dataset::SCHEMA,"import":["DeepMD standard NPY C-order float64","XYZ","bounded extxyz profile"],"explicit_sets":true,"partial_labels":true,"training":false,"automatic_split":false,"inspection":"inspect-dataset; full structural validation, streamed-byte SHA256 and E/F/V coverage; no model or GPU load"},
         "training":{"entry":"train-native","scope":["frozen-hidden final-readout E+F fit","full supported tanh network E+F Adam"],"backend":"native CPU float64","cuda":false,"full_network":true,"full_network_scope":"native-v1 tanh hidden / linear output; fixed normalization, cutoff, type-map, selection and atomic offsets; reference-size bounds","request_schemas":["omnimd-native-readout-train-v1","omnimd-native-full-train-v1"]},
         "minimization":{"method":"bounded steepest descent","fixed_cell":true,"force_and_energy_criteria":true},
         "dynamics":{"ensembles":["nve","nvt_csvr"],"fixed_cell":true,"units":"EvAngstromFsU","dataset_frame_input":true},
@@ -126,6 +126,18 @@ pub fn dispatch(args: &[OsString]) -> Result<bool, Box<dyn Error>> {
     }
     if args.len() == 1 && args[0] == "capabilities" {
         println!("{}", serde_json::to_string_pretty(&capabilities())?);
+        return Ok(true);
+    }
+    if args.len() == 3 && args[0] == "inspect-dataset" {
+        let output = Path::new(&args[2]);
+        if output.exists() {
+            return Err("output already exists".into());
+        }
+        let report = dataset::inspect_dataset(Path::new(&args[1]))?;
+        let mut writer = dataset::new_output(output)?;
+        serde_json::to_writer_pretty(&mut writer, &report)?;
+        writer.write_all(b"\n")?;
+        writer.flush()?;
         return Ok(true);
     }
     if args.len() == 3 && args[0] == "import-xyz" {

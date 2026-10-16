@@ -30,7 +30,33 @@ candidate cache, with final-version timing, MD and restart acceptance. It reduce
 host neighbor preparation; kernels and the CPU path are unchanged. This follow-up
 is **not published**. See [its scope and measurements](mlmd/RELEASE.md#local-native-cuda-cache-follow-up).
 
-## Available in the accepted CPU release
+## Stepwise setup and current feature coverage
+
+Start with the [complete English setup and usage guide](mlmd/GETTING_STARTED.md):
+
+1. Build the separate `mlmd/Cargo.toml` workspace and its engine/native binaries.
+2. Run `mlmd/scripts/run_cpu_tutorial.py` in a new output directory. It generates
+   synthetic data and executes import, preflight, readout training, evaluation,
+   CSVR NVT and exact restart with complete saved requests.
+3. Choose native-v1 weights or a trusted official DeepMD C API runtime; validate
+   conversion scope, type map, units and model metadata.
+4. Import explicit DeepMD NPY sets or XYZ/extxyz; use `inspect-dataset` for full
+   JSONL validation, byte SHA256 and E/F/V label coverage without loading a model.
+5. Run batch assessment, then the supported CPU readout/full-network trainer with
+   explicit validation identities and loss scales.
+6. Minimize when appropriate, inspect convergence, run fixed-cell NVE/CSVR NVT,
+   and continue from a matching checkpoint.
+7. Select native CUDA or official C API CUDA explicitly, verify same-model E/F/V,
+   and compare loading, warmed evaluations and full MD separately.
+8. Follow the guide's troubleshooting table and retain hashes and completed reports.
+
+[The versioned feature matrix](mlmd/FEATURE_MATRIX.md) compares this implementation
+with official **DeepMD 3.1.3** and distinguishes native, delegated, partial and
+missing functions. Broad DeepMD feature parity is not implemented. The preflight
+command and executable tutorial are local follow-ups pending publication; the
+[CPU tutorial receipt](mlmd/evidence/cpu-tutorial.json) records the actual run.
+
+## CPU inference, training and simulation capabilities
 
 - **DeepMD C API inference:** one official model handle, one combined
   energy/force/virial call, explicit CPU selection, and strict type-map,
@@ -94,15 +120,16 @@ provides exact requests for import, prediction/training, minimization and MD.
 Real C API inference additionally requires a trusted compatible DeepMD runtime;
 see [DeepMD setup and limits](mlmd/deepmd/README.md).
 
-## Not included in the accepted CPU release
+## Current limitations
 
-- GPU execution/acceleration, NPT/barostats, cell relaxation or constraints.
+- NPT/barostats, cell relaxation or constraints. Optional CUDA inference is
+  available within the separate scopes above; GPU training is not implemented.
 - Arbitrary DeepMD architectures, hybrid se_e3 or generic .pb/.pth/pickle import.
 - Partial PBC, mixed-type/virtual atoms or automatic unit/type-map guessing.
 - Classical-potential mixing and the full legacy Simulation/Propagator pipeline.
 - Minibatch/GPU training, virial-loss training, learned normalization or generic
   DeepMD training compatibility; duplicated one-side embeddings are not tied.
-- Production validation, long-time stability guarantees or demonstrated speedup.
+- Production validation, long-time stability guarantees or general speedup claims.
 
 The root legacy workspace remains available with its original default features;
 these do not imply equivalent support in the new MLIP runner. Training covers the
