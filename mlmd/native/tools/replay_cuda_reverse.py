@@ -39,7 +39,14 @@ def main():
     parser.add_argument('--output-dir',type=Path,required=True)
     parser.add_argument('--compare-geometry-cache',action='store_true',help='Compare reverse cache off/on, with bitwise state equality')
     parser.add_argument('--periodic',action='store_true',help='Use a fixed triclinic cell for the separated pairs')
-    args=parser.parse_args(); evaluator=args.eval_exe.resolve(); trainer=args.train_exe.resolve()
+    parser.add_argument('--minibatch-size',type=int,help='Optional deterministic shuffled batch size, requires explicit seed')
+    parser.add_argument('--minibatch-seed',type=int)
+    args=parser.parse_args()
+    if (args.minibatch_size is None)!=(args.minibatch_seed is None):
+        raise ValueError('minibatch size and seed must be supplied together')
+    if args.minibatch_size is not None and not (1<=args.minibatch_size<=1024 and 0<=args.minibatch_seed<2**64):
+        raise ValueError('invalid minibatch size/seed')
+    evaluator=args.eval_exe.resolve(); trainer=args.train_exe.resolve()
     output=args.output_dir.resolve();output.mkdir(parents=True,exist_ok=False)
     root=Path(__file__).resolve().parents[1];initial=medium_model(root);teacher=deepcopy(initial)
     parameters=perturb(teacher);assert parameters==466
@@ -61,6 +68,8 @@ def main():
             'energy_weight':1.,'force_weight':1.,'virial_loss':{'weight':1.,'scale_ev_per_atom':.1},
             'energy_scale_ev_per_atom':.1,'force_scale_ev_per_angstrom':.1,'learning_rate':.005,
             'beta1':.9,'beta2':.999,'epsilon':1e-8,'gradient_clip_norm':10.,'checkpoint_every':50}
+    if args.minibatch_size is not None:
+        config['minibatch']={'batch_size':args.minibatch_size,'seed':args.minibatch_seed,'order':'shuffle_each_epoch'}
     rows=[];states={}
     backends=['reverse','reverse-cached'] if args.compare_geometry_cache else ['cpu','hyperdual','reverse']
     # Rotate execution order to reduce systematic warm-up/order bias.
@@ -78,7 +87,7 @@ def main():
                 assert state==states[backend],f'nonrepeatable {backend} checkpoint'
             states[backend]=state
             rows.append({'backend':backend,'repeat':repeat,'complete_training_process_ms':wall,'timing':report['timing'],
-                         'gradient_profile':report.get('cuda_gradient_profile'),'fixed_geometry_cache':report.get('fixed_geometry_cache'),'final_training':report['final_training'],'final_validation':report['final_validation']})
+                         'minibatch':report.get('minibatch'),'gradient_profile':report.get('cuda_gradient_profile'),'fixed_geometry_cache':report.get('fixed_geometry_cache'),'final_training':report['final_training'],'final_validation':report['final_validation']})
     errors={}
     baseline=backends[0]
     for backend in backends[1:]:
@@ -87,8 +96,8 @@ def main():
     if args.compare_geometry_cache:
         strip=lambda s: {**s,'config':{k:v for k,v in s['config'].items() if k!='fixed_geometry_cache'}}
         assert strip(states['reverse'])==strip(states['reverse-cached'])
-    receipt={'scope':'bounded synthetic 466-parameter 64-atom E/F/V training; not a production scaling benchmark',
-             'periodic':args.periodic,'cache_comparison_bitwise_equal':True if args.compare_geometry_cache else None,
+    receipt={'scope':'bounded synthetic 466-parameter 64-atom E/F/V training; not a production scaling benchmark or full-batch convergence-equivalence claim',
+             'minibatch':config.get('minibatch'),'periodic':args.periodic,'cache_comparison_bitwise_equal':True if args.compare_geometry_cache else None,
              'frames':8,'train_frames':6,'validation_frames':2,'steps':100,'parameters':466,'runs':rows,
              'median_complete_process_ms':{b:statistics.median(r['complete_training_process_ms'] for r in rows if r['backend']==b) for b in states},
              'three_repeats_checkpoint_exact':True,'parameter_baseline':baseline,'parameter_max_abs_vs_baseline':errors,

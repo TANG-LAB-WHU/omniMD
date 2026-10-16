@@ -11,7 +11,8 @@ defaults to `"cpu"`; a CUDA-enabled build also accepts explicit `"cuda:N"` for
 bounded all-neural-parameter GPU gradients and Adam. See
 [CUDA full training](CUDA_FULL_TRAINING.md) for its CPU/GPU boundary, tighter
 resource limits and checkpoint identity. E/F-only CPU v1 and CUDA v2 checkpoints
-remain compatible; enabled virial loss uses v3.
+remain compatible; enabled virial loss uses v3, opt-in CUDA reverse execution
+uses v4, and explicit [minibatching](MINIBATCH_TRAINING.md) uses v5.
 
 ## Supported scope
 
@@ -74,9 +75,10 @@ contract and strict parsing details.
 Seeded selection uses the existing SplitMix64/Fisher-Yates split, rounded
 validation count clamped to `[1, frames-1]`, and stable original dataset order.
 Alternatively use `{"mode":"explicit","validation_ids":["set.000/3"]}`.
-There is no optimizer RNG or minibatch reshuffling: the explicit split seed only
-controls validation selection. Validation labels never enter an update, model
-selection, or schedule. Every requested step is a complete training-set update;
+By default there is no optimizer RNG or reshuffling: the split seed only
+controls validation selection. Optional `config.minibatch` adds a separate explicit
+seed, order policy and exact sampler checkpoint; see [MINIBATCH_TRAINING.md](MINIBATCH_TRAINING.md). Validation labels never enter an update, model
+selection, or schedule. Without minibatching, every requested step is a complete training-set update;
 the exported model is the last iterate. Training reports retain exact dataset
 byte SHA-256, source SHA map, original index/ID of both splits, loss scales,
 parameter-layout hash, parameter group changes, and initial/final E/F/virial
@@ -134,7 +136,9 @@ To continue, replace `initial_model` with
 `"checkpoint":"trained/checkpoint.json"`, choose a new output directory,
 and set `config.steps` to the number of **additional** updates. Exactly one of
 `initial_model` or `checkpoint` is required. All other configuration fields,
-including checkpoint interval and split specification, must match exactly.
+including checkpoint interval and split specification, must match exactly, except
+for the runtime-only CUDA fixed geometry cache flag. Explicit minibatching also
+requires unchanged batch size, seed and order policy.
 
 For E/F-only runs, CPU checkpoint schema `omnimd-native-full-checkpoint-v1` stores the last model,
 original anchor model, first/second moments, global step, configuration,

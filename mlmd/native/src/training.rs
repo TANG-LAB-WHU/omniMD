@@ -183,7 +183,7 @@ pub struct TrainOutcome {
     pub report: TrainReport,
 }
 
-fn next(state: &mut u64) -> u64 {
+pub(crate) fn next(state: &mut u64) -> u64 {
     *state = state.wrapping_add(0x9e3779b97f4a7c15);
     let mut z = *state;
     z = (z ^ (z >> 30)).wrapping_mul(0xbf58476d1ce4e5b9);

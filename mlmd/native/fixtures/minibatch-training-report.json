@@ -1,0 +1,500 @@
+{
+  "schema": "omnimd-native-minibatch-evidence-v1",
+  "source_base_commit": "bbfecc639fc045de778344e3ebf3ec97ae07a41c",
+  "parent_integrated_base": "b8ce8fa589e673136902ed162639e012547532b7",
+  "scope": "optional deterministic minibatching for supported CPU/CUDA FP64 full neural E/F and opt-in V training; unchanged default full-batch, physics, inference format and dataset contract",
+  "tests": [
+    {
+      "command": "cargo test --locked --offline --manifest-path mlmd/native/Cargo.toml",
+      "passed": 29,
+      "failed": 0
+    },
+    {
+      "command": "cargo test --locked --offline --manifest-path mlmd/native/Cargo.toml --features cuda",
+      "passed": 42,
+      "failed": 0,
+      "gpu_tests_ignored": 8
+    },
+    {
+      "command": "cargo test --release --locked --offline --manifest-path mlmd/native/Cargo.toml --features cuda --test minibatch_training cuda_minibatch -- --ignored --nocapture --test-threads=1",
+      "passed": 1,
+      "failed": 0
+    },
+    {
+      "command": "cargo test --locked --offline --manifest-path mlmd/native/Cargo.toml --features cuda --test minibatch_training",
+      "passed": 5,
+      "failed": 0,
+      "gpu_tests_ignored": 1,
+      "note": "final source targeted rerun includes v5 E/F-only compatibility"
+    }
+  ],
+  "focused_coverage": [
+    "golden SplitMix64 epoch permutations",
+    "batch sizes 1, N, greater than N and 2 with one-frame tail",
+    "noncontiguous train selection with unequal atom counts and triclinic/cluster geometry",
+    "independent batch E/F/V gradient accumulation and Adam update oracle",
+    "serialized resume at steps 1,2,3,4,6 for CPU and 2,3,4 for both CUDA executors",
+    "callback failure preserves earlier complete checkpoint",
+    "sampler algorithm/seed/order/RNG/epoch/cursor/step corruption and immutable config rejection",
+    "partial-batch scale overflow rejected before context/update",
+    "validation labels do not affect updates",
+    "legacy full-batch schema fields omitted; sequential B>=N same numeric state",
+    "exact cache on/off state with current neural predictions and cotangents"
+  ],
+  "gpu_numerical_test": {
+    "passed": 1,
+    "steps": 7,
+    "processed_frames": 12,
+    "cache_frames": 5,
+    "cache_hits": 12,
+    "cache_retained_payload_bytes": 61602,
+    "exact_cache_toggle_resume_steps": [
+      2,
+      3,
+      4
+    ],
+    "hyperdual_max_parameter_moment_abs": 6.661338147750939e-16,
+    "reverse_max_parameter_moment_abs": 8.881784197001252e-16,
+    "device": "NVIDIA GeForce RTX 4090; compute 8.9",
+    "driver_api_version": 13040,
+    "hyperdual_ptx_sha256": "36793f1f392c7c3a8a13bb6f9dde7b26d810d4e2600cc5cf4c4cb124107f91b9",
+    "reverse_ptx_sha256": "382ea3a3eee82218b9ec2d975822a0a0c995d2968b0a158cf2bdbfc852859844"
+  },
+  "cli_cpu": {
+    "device": "cpu",
+    "execution": {
+      "backend": "cpu_reference_v1"
+    },
+    "parameters": 112,
+    "steps": 31,
+    "training_indices": [
+      0,
+      1,
+      3,
+      4,
+      5
+    ],
+    "checkpoint_schema": "omnimd-native-full-checkpoint-v5",
+    "minibatch": {
+      "batch_size_counts": {
+        "1": 10,
+        "2": 21
+      },
+      "end": {
+        "algorithm": "omnimd-epoch-splitmix64-v1",
+        "cursor": 2,
+        "epoch": 10,
+        "order": [
+          5,
+          3,
+          4,
+          1,
+          0
+        ],
+        "order_mode": "shuffle_each_epoch",
+        "rng_state": 16184311456246918776,
+        "seed": 20261016
+      },
+      "frames_processed": 52,
+      "normalization": "arithmetic mean of actual batch frames; unchanged per-frame atom/component scales; no cross-epoch fill or drop",
+      "partial_batches": 10,
+      "start": {
+        "algorithm": "omnimd-epoch-splitmix64-v1",
+        "cursor": 0,
+        "epoch": 0,
+        "order": [
+          3,
+          1,
+          5,
+          4,
+          0
+        ],
+        "order_mode": "shuffle_each_epoch",
+        "rng_state": 13274578833983480863,
+        "seed": 20261016
+      }
+    },
+    "timing": {
+      "adam_ms": 0.37960000000000005,
+      "assessment_ms": 0.6347,
+      "gradient_ms": 11.904999999999998,
+      "initialization_ms": 0.3246
+    },
+    "complete_training_process_ms": 185.79799999133684,
+    "processed_training_frames_per_gradient_second": 4367.912641747166,
+    "fixed_geometry_cache": null,
+    "exact_serialized_resume_steps": [
+      2,
+      3,
+      4
+    ],
+    "cache_toggled_on_resume": false,
+    "corrupt_checkpoint_rejected_before_output": [
+      "missing_sampler",
+      "changed_order",
+      "changed_seed"
+    ],
+    "cpu_comparison": null,
+    "native_v1_reload_max_abs_energy_force_virial": [
+      0.0,
+      0.0,
+      0.0
+    ],
+    "sha256": {
+      "dataset": "67b56c3905b04f978ac8b9c75a9fe3d1769df557e41a8c48891829432008a4d2",
+      "model": "123e110442271eb563f2753063579b0d91e1bac05724432dcebffe7c4d199b70",
+      "checkpoint": "718cc0e0630236b75c747387954e06e1754a4f360bcfb610cef292376c8a7435",
+      "trainer": "c8e3e5ad17dfa38845822fb838443dcdc4d02759140750e49be0451cac4c9027",
+      "evaluator": "1c8f5ab01856a10ffabbc3e98404a19c1ff2a571ec7c9fe5607223442b99934d",
+      "script": "958f24c4e76039ae25297db613d3563cb6c84fa51baf09ef14c2bc5fbe510872"
+    }
+  },
+  "cli_cuda_final_binary": {
+    "device": "cuda:0",
+    "execution": {
+      "backend": "cuda_reverse_f64_v1",
+      "device_info": "NVIDIA GeForce RTX 4090; compute 8.9; FP64; device 0",
+      "driver_version": 13040,
+      "program_sha256": "382ea3a3eee82218b9ec2d975822a0a0c995d2968b0a158cf2bdbfc852859844",
+      "visible_device": 0
+    },
+    "parameters": 112,
+    "steps": 31,
+    "training_indices": [
+      0,
+      1,
+      3,
+      4,
+      5
+    ],
+    "checkpoint_schema": "omnimd-native-full-checkpoint-v5",
+    "minibatch": {
+      "batch_size_counts": {
+        "1": 10,
+        "2": 21
+      },
+      "end": {
+        "algorithm": "omnimd-epoch-splitmix64-v1",
+        "cursor": 2,
+        "epoch": 10,
+        "order": [
+          5,
+          3,
+          4,
+          1,
+          0
+        ],
+        "order_mode": "shuffle_each_epoch",
+        "rng_state": 16184311456246918776,
+        "seed": 20261016
+      },
+      "frames_processed": 52,
+      "normalization": "arithmetic mean of actual batch frames; unchanged per-frame atom/component scales; no cross-epoch fill or drop",
+      "partial_batches": 10,
+      "start": {
+        "algorithm": "omnimd-epoch-splitmix64-v1",
+        "cursor": 0,
+        "epoch": 0,
+        "order": [
+          3,
+          1,
+          5,
+          4,
+          0
+        ],
+        "order_mode": "shuffle_each_epoch",
+        "rng_state": 13274578833983480863,
+        "seed": 20261016
+      }
+    },
+    "timing": {
+      "adam_ms": 4.1244,
+      "assessment_ms": 0.6280000000000001,
+      "gradient_ms": 11.0307,
+      "initialization_ms": 318.9823
+    },
+    "complete_training_process_ms": 417.8942000144161,
+    "processed_training_frames_per_gradient_second": 4714.116057911103,
+    "fixed_geometry_cache": {
+      "build_ms": 0.1479,
+      "frames": 5,
+      "geometry_sha256": "7d1737c5740cc9383bb95516309bf70fcdc4c534a139a7db652f56ccffc7ce2b",
+      "hits": 52,
+      "padded_slots": 288,
+      "policy_limit_bytes": 67108864,
+      "retained_payload_bytes": 61602
+    },
+    "exact_serialized_resume_steps": [
+      2,
+      3,
+      4
+    ],
+    "cache_toggled_on_resume": true,
+    "corrupt_checkpoint_rejected_before_output": [
+      "missing_sampler",
+      "changed_order",
+      "changed_seed"
+    ],
+    "cpu_comparison": {
+      "parameter_moment_max_abs": 3.83026943495679e-15
+    },
+    "native_v1_reload_max_abs_energy_force_virial": [
+      0.0,
+      0.0,
+      0.0
+    ],
+    "sha256": {
+      "dataset": "67b56c3905b04f978ac8b9c75a9fe3d1769df557e41a8c48891829432008a4d2",
+      "model": "a681715c9122bc9346b6d9f69af069a90f52d22ccb514dde6b1082413067f35b",
+      "checkpoint": "8e74aa549cb4756ba87c01d57c90581befc5f47205e39f85a35095881245d777",
+      "trainer": "225f2cfbd180250b62d213e97634de30149894394c5d815553c2912c8d555bb6",
+      "evaluator": "4385d5c80aacc19c07da840e500222449086106fd34d7feb5287016cd091d8de",
+      "script": "958f24c4e76039ae25297db613d3563cb6c84fa51baf09ef14c2bc5fbe510872"
+    }
+  },
+  "cli_process_timing_scope": "one process including IO, initialization, 4 assessments, each-step checkpoint writes and export; excludes teacher, resumes and CPU comparison",
+  "historical_full_batch": [
+    {
+      "source": "full-training-01",
+      "schema": "omnimd-native-full-checkpoint-v1",
+      "start_step": 150,
+      "end_step": 300,
+      "all_state_exact_except_additional_steps": true,
+      "checkpoint_sha256": "7c1af46e3a3414d1739468805b27ba38379967cea2ed76d944a615f3f5899605"
+    },
+    {
+      "source": "cuda-full-01/cli",
+      "schema": "omnimd-native-full-checkpoint-v2",
+      "start_step": 150,
+      "end_step": 300,
+      "all_state_exact_except_additional_steps": true,
+      "checkpoint_sha256": "f1116cf7660335b4cb23f2d2095632d13e2b8fd4c0ace9d89904c93b78132ca9"
+    },
+    {
+      "source": "virial-training-01/cli",
+      "schema": "omnimd-native-full-checkpoint-v3",
+      "start_step": 150,
+      "end_step": 300,
+      "all_state_exact_except_additional_steps": true,
+      "checkpoint_sha256": "98e40aca81c9734632ee6a696f6fa34a08cf89ebaa00522858d80fddcf74aa9a"
+    },
+    {
+      "source": "reverse-training-01",
+      "schema": "omnimd-native-full-checkpoint-v4",
+      "start_step": 150,
+      "end_step": 300,
+      "all_state_exact_except_additional_steps": true,
+      "checkpoint_sha256": "77e363724517163fada5cfacdbc9a39e974877f0a4e7752573d3c43d9b53bc5f"
+    }
+  ],
+  "bounded_periodic_throughput": {
+    "scope": "bounded synthetic 466-parameter 64-atom E/F/V training; not a production scaling benchmark or full-batch convergence-equivalence claim",
+    "minibatch": {
+      "batch_size": 4,
+      "seed": 20261016,
+      "order": "shuffle_each_epoch"
+    },
+    "periodic": true,
+    "frames": 8,
+    "train_frames": 6,
+    "validation_frames": 2,
+    "steps": 100,
+    "parameters": 466,
+    "median_complete_process_ms": {
+      "reverse": 3119.98489999678,
+      "reverse-cached": 771.0412000014912
+    },
+    "three_repeats_checkpoint_exact": true,
+    "cache_comparison_bitwise_equal": true,
+    "parameter_max_abs_vs_baseline": {
+      "reverse-cached": 0.0
+    },
+    "sha256": {
+      "dataset.jsonl": "fafb44a4a4227c8924414afa32433f059f01f6487fe78d75706da1f43184e15c",
+      "initial.json": "a1946cf0d5480c572a82678fd1af13cd3b75dbde0ac25b1b93039c8cc352b443",
+      "teacher.json": "81d96e632e81131cddd37025dc148dc67fe37d8d1e0db042b8db3ce224de15b7"
+    },
+    "executable_sha256": {
+      "eval": "1c8f5ab01856a10ffabbc3e98404a19c1ff2a571ec7c9fe5607223442b99934d",
+      "train": "c8e3e5ad17dfa38845822fb838443dcdc4d02759140750e49be0451cac4c9027"
+    },
+    "timing_scope": "complete fresh training subprocess, including input, driver/NVRTC initialization, all updates, assessment, two intermediate and final checkpoints and model reload verification; excludes fixture generation",
+    "runs": [
+      {
+        "backend": "reverse",
+        "repeat": 0,
+        "complete_training_process_ms": 3119.98489999678,
+        "timing": {
+          "adam_ms": 12.861900000000007,
+          "assessment_ms": 64.946,
+          "gradient_ms": 2490.7955999999986,
+          "initialization_ms": 372.4097
+        },
+        "gradient_profile": {
+          "download_ms": 22.407999999999983,
+          "frames": 300,
+          "geometry_ms": 1141.0280000000005,
+          "kernels_and_sync_ms": 46.08589999999999,
+          "prediction_and_seeds_ms": 1233.7301,
+          "reduction_ms": 3.0915000000000004,
+          "upload_ms": 42.278400000000005
+        },
+        "fixed_geometry_cache": null
+      },
+      {
+        "backend": "reverse-cached",
+        "repeat": 0,
+        "complete_training_process_ms": 766.5494000248145,
+        "timing": {
+          "adam_ms": 10.710399999999996,
+          "assessment_ms": 64.95519999999999,
+          "gradient_ms": 183.16780000000003,
+          "initialization_ms": 371.7165
+        },
+        "gradient_profile": {
+          "download_ms": 18.77739999999999,
+          "frames": 300,
+          "geometry_ms": 1.382999999999997,
+          "kernels_and_sync_ms": 44.406599999999955,
+          "prediction_and_seeds_ms": 95.56200000000005,
+          "reduction_ms": 2.975900000000001,
+          "upload_ms": 18.9391
+        },
+        "fixed_geometry_cache": {
+          "build_ms": 23.1709,
+          "frames": 6,
+          "geometry_sha256": "34cf1bf1441abfc6ac58c53ee8dc5a6b45286b2313ecc835da9db6a04df54f9c",
+          "hits": 300,
+          "padded_slots": 6144,
+          "policy_limit_bytes": 67108864,
+          "retained_payload_bytes": 1290058
+        }
+      },
+      {
+        "backend": "reverse-cached",
+        "repeat": 1,
+        "complete_training_process_ms": 796.1614999803714,
+        "timing": {
+          "adam_ms": 11.155399999999998,
+          "assessment_ms": 65.68979999999999,
+          "gradient_ms": 181.96749999999992,
+          "initialization_ms": 399.4816
+        },
+        "gradient_profile": {
+          "download_ms": 18.886199999999995,
+          "frames": 300,
+          "geometry_ms": 1.3586999999999987,
+          "kernels_and_sync_ms": 44.6951,
+          "prediction_and_seeds_ms": 93.32650000000005,
+          "reduction_ms": 2.8871,
+          "upload_ms": 19.747
+        },
+        "fixed_geometry_cache": {
+          "build_ms": 24.495,
+          "frames": 6,
+          "geometry_sha256": "34cf1bf1441abfc6ac58c53ee8dc5a6b45286b2313ecc835da9db6a04df54f9c",
+          "hits": 300,
+          "padded_slots": 6144,
+          "policy_limit_bytes": 67108864,
+          "retained_payload_bytes": 1290058
+        }
+      },
+      {
+        "backend": "reverse",
+        "repeat": 1,
+        "complete_training_process_ms": 3095.488999999361,
+        "timing": {
+          "adam_ms": 12.008199999999997,
+          "assessment_ms": 65.6986,
+          "gradient_ms": 2491.985799999999,
+          "initialization_ms": 365.3017
+        },
+        "gradient_profile": {
+          "download_ms": 23.304400000000005,
+          "frames": 300,
+          "geometry_ms": 1140.0992000000006,
+          "kernels_and_sync_ms": 46.19329999999999,
+          "prediction_and_seeds_ms": 1235.4984000000004,
+          "reduction_ms": 3.0769999999999986,
+          "upload_ms": 41.56510000000001
+        },
+        "fixed_geometry_cache": null
+      },
+      {
+        "backend": "reverse",
+        "repeat": 2,
+        "complete_training_process_ms": 3132.987199991476,
+        "timing": {
+          "adam_ms": 12.290000000000001,
+          "assessment_ms": 65.28739999999999,
+          "gradient_ms": 2523.8172,
+          "initialization_ms": 367.28319999999997
+        },
+        "gradient_profile": {
+          "download_ms": 23.536799999999978,
+          "frames": 300,
+          "geometry_ms": 1151.102600000001,
+          "kernels_and_sync_ms": 47.28310000000001,
+          "prediction_and_seeds_ms": 1252.3739000000003,
+          "reduction_ms": 3.1469000000000023,
+          "upload_ms": 43.999299999999984
+        },
+        "fixed_geometry_cache": null
+      },
+      {
+        "backend": "reverse-cached",
+        "repeat": 2,
+        "complete_training_process_ms": 771.0412000014912,
+        "timing": {
+          "adam_ms": 15.249199999999997,
+          "assessment_ms": 65.57589999999999,
+          "gradient_ms": 190.3177,
+          "initialization_ms": 375.85540000000003
+        },
+        "gradient_profile": {
+          "download_ms": 18.609299999999998,
+          "frames": 300,
+          "geometry_ms": 1.5809999999999982,
+          "kernels_and_sync_ms": 50.279300000000035,
+          "prediction_and_seeds_ms": 94.49459999999995,
+          "reduction_ms": 2.8337000000000003,
+          "upload_ms": 21.569599999999998
+        },
+        "fixed_geometry_cache": {
+          "build_ms": 22.9806,
+          "frames": 6,
+          "geometry_sha256": "34cf1bf1441abfc6ac58c53ee8dc5a6b45286b2313ecc835da9db6a04df54f9c",
+          "hits": 300,
+          "padded_slots": 6144,
+          "policy_limit_bytes": 67108864,
+          "retained_payload_bytes": 1290058
+        }
+      }
+    ],
+    "actual_processed_frames_per_run": 300,
+    "partial_batches_per_run": 50,
+    "batch_size_counts_per_run": {
+      "4": 50,
+      "2": 50
+    },
+    "median_actual_frames_per_gradient_second": {
+      "reverse": 120.38591873196073,
+      "reverse-cached": 1637.8424592095334
+    }
+  },
+  "timing_caveat": "Small synthetic cases; timings compare identical minibatch work with cache off/on, not equal-update full-batch training or convergence. Driver/NVRTC startup dominates tiny cases. No production speed/scaling/accuracy claim.",
+  "gpu_released_utc": "2026-10-16 12:50:22 UTC",
+  "artifacts_policy": "Only code, English docs and compact evidence tracked; original synthetic generated datasets, weights, checkpoints and raw logs remain under ignored fixtures/generated-deepmd.",
+  "new_dependencies": [],
+  "remaining_blockers": [],
+  "final_source_sha256": {
+    "src/full_training.rs": "eb9175fbc0a1217402f8dc7d482ef9c519bb299f0de6802955503e44f5bede54",
+    "src/minibatch.rs": "4955a21a203ce0ec467e736183132da35705e9ed0ea8e7b1006ceb045436a289",
+    "src/training.rs": "4f2103269ae22d80a6709aaf751d3e72e4abf2ffbfa6e7441031479f7673e70a",
+    "src/lib.rs": "ec4cf5a42dfe1e96fbd5f43d727de5cb567aec857ae402f21db60c7dea6cd656",
+    "tests/minibatch_training.rs": "6e66d9e14c5fc286a6d81d6e1469400cb61808e9c2426510510991767146873c",
+    "tools/replay_minibatch_training.py": "9f5af5251e2b7d330768e5e17219b56c372c24bd67952f4c0cc95aeef465aab2",
+    "tools/replay_cuda_reverse.py": "6007def476c1dc830c15a71010d6db0f4a96d9156fd7d5de4831fe7ca647aebf"
+  },
+  "final_source_sha256_scope": "Git staged normalized source bytes; executable hashes are recorded per measured run"
+}
