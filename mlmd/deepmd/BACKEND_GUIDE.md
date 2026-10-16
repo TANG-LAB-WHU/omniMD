@@ -18,9 +18,11 @@ that every new model family works through this subset.
 | --- | --- |
 | TensorFlow energy `.pb`, CPU | Established runtime-tested route |
 | TensorFlow energy `.pb`, CUDA | Explicit opt-in; single-frame public-model validation recorded in [CUDA_VALIDATION.md](CUDA_VALIDATION.md) |
-| Nonzero frame/atom parameters | Explicit per-frame inputs through this CLI or `DeepMd::evaluate`; focused FFI tests, real parameterized-model validation pending |
-| Multi-frame C API and atomic E/virial | Implemented; focused FFI tests; this revision's real-runtime validation status is in [BACKEND_VALIDATION.md](BACKEND_VALIDATION.md) |
-| PyTorch `.pth`; newer exportable `.pt2`; Paddle `.json`/`.pdmodel` | CPU load can be delegated to an installed compatible C runtime; unvalidated here, not a compatibility promise |
+| Nonzero frame/atom parameters | Explicit per-frame inputs; CPU TensorFlow two-frame and PyTorch single-frame fixtures verified |
+| Model-stored default frame parameters | Explicit opt-in; PyTorch CPU fixture verified against explicit values and official Python; one frame per call |
+| Multi-frame C API and atomic E/virial | CPU TensorFlow fixtures verified; exact numerical results are in [BACKEND_VALIDATION.md](BACKEND_VALIDATION.md) |
+| PyTorch `.pth`, CPU | Single-frame parameter/default fixture verified; use `batch_size:1` even with explicit parameters |
+| Newer exportable `.pt2`; Paddle `.json`/`.pdmodel` | CPU load can be delegated to a compatible runtime; unvalidated here |
 | `.savedmodel` / `.savedmodeltf` directories | Rejected by the current file-only loader |
 | Python-only formats, checkpoints, `.pte` | Not an advertised C API route; freeze to an explicitly supported runtime format first |
 | Spin, charge/spin conditioning, tensor/DOS/Hessian outputs | Not implemented by the EFV adapter; spin and available nonzero charge/spin metadata are rejected |
@@ -106,6 +108,9 @@ omnimd-deepmd inspect options.cpu.json new-model-info.json
 The isolated worker loads one model, queries its metadata, and exits without
 inference. The response contains `metadata` (cutoff, type map, units and host
 precision) and `model_details.frame_parameter_dim` / `atom_parameter_dim`.
+`model_details.has_default_fparam` is `true` or `false` when the runtime provides
+the availability query, and `null` when that optional query is absent. Inspection
+does not reveal the stored default values or establish their scientific meaning.
 A mismatch in the requested type order fails explicitly; do not fix it by
 reordering positions without also preserving species and parameter rows.
 Inspection is not an accuracy check or evidence of CUDA kernels executing.
@@ -169,6 +174,9 @@ frames into a single `DP_DeepPotCompute2` call. Within each group, atom count,
 ordered species and periodicity must match. Cells and coordinates may differ.
 The last group may be smaller. Use `batch_size:1` or explicitly partition inputs
 when these conditions are not satisfied. A larger batch is not guaranteed faster.
+PyTorch `.pth` ordinary C API inference is restricted to one frame per call,
+including explicit parameters; use `batch_size:1`. Multi-frame calls are rejected
+before entering that runtime compute path.
 
 Cells are either `null` (nonperiodic) or three right-handed, nonsingular lattice
 row vectors (fully periodic). Mixed or partial periodic boundary conditions
@@ -190,9 +198,96 @@ These numbers are shape examples, not universal temperature or charge settings.
 The first dimension of `aparam` follows the frame's original atom order, not
 the type-map order. Values must be finite. A zero dimension requires an empty
 array (or omit that key). If both dimensions are zero, omit `parameters`.
-Nonzero dimensions always require explicit values, even if a newer runtime
-could provide model defaults. The adapter performs no broadcasting, zero
-filling, unit conversion or semantic guessing.
+The default `frame_parameter_policy` is `"explicit"`: nonzero dimensions require
+explicit values even when the model contains defaults. The adapter performs no
+broadcasting, zero filling, unit conversion or semantic guessing. The existing
+`DeepMd::evaluate` and shared `Potential::eval` APIs always retain this behavior.
+
+### 6.1. Opt into model-stored frame-parameter defaults
+
+This feature has been CPU-verified with the official DeepMD 3.1.3 PyTorch
+parameter/default fixture; see [the receipt](validation/model-default-fparam.json).
+Compatibility remains model/runtime dependent. Inspect the intended model first
+and require both a positive `frame_parameter_dim` and
+`has_default_fparam:true`. A `false` value means no defaults; `null` means the
+runtime cannot report availability. Neither permits using model defaults.
+
+For a model that meets those conditions and has `atom_parameter_dim:0`, a
+complete request is:
+
+```json
+{
+  "options": {
+    "library": "/absolute/path/to/libdeepmd_c.so",
+    "model": "/absolute/path/to/model-with-defaults.pth",
+    "device": "cpu",
+    "type_map": ["O", "H"],
+    "units": "EvAngstrom"
+  },
+  "frames": [{
+    "positions": [[0,0,0], [0.9572,0,0], [-0.239,0.927,0]],
+    "species": ["O", "H", "H"],
+    "cell": null,
+    "units": "EvAngstrom"
+  }],
+  "frame_parameter_policy": "model_default",
+  "batch_size": 1,
+  "atomic": false
+}
+```
+
+Save it as `request.defaults.json`, substitute your runtime/model/type map and
+physical input, then run:
+
+```sh
+omnimd-deepmd request.defaults.json new-default-result.json
+```
+
+The `.pth` path is illustrative, not a guarantee of PyTorch/runtime compatibility.
+DeepMD 3.1.3 TensorFlow backend explicitly reports no stored frame-parameter defaults. Support
+must be queried from the actual model/runtime; it cannot be inferred from the
+filename. The PyTorch ordinary C++ inference implementation fixes its frame
+count to
+one. This policy and all `.pth` calls therefore require **one frame per C API call**.
+A request may contain multiple frames, each processed serially
+with `batch_size:1`. Larger batch sizes are rejected for this policy.
+
+If `atom_parameter_dim` is positive, retain one `parameters` object per frame.
+For three atoms with atomic dimension one, use this fragment:
+
+```json
+"parameters": [{"aparam": [[0.1], [0.2], [0.3]]}]
+```
+
+Atomic parameters still require their full finite values in atom order. Omit
+`fparam` or supply an empty array; nonempty `fparam` conflicts with
+`"model_default"` and is rejected. The adapter passes a NULL frame-parameter
+pointer only after all policy and model checks succeed. It never creates zero
+parameters, reads or guesses their values, or retries with another policy.
+Results and optional timing record `frame_parameter_policy` so comparisons can
+check the same policy. This changes neither device selection nor CPU fallback.
+
+For Rust callers in the required isolated worker:
+
+```rust,ignore
+use omnimd_deepmd::{EvaluationOptions, FrameParameterPolicy};
+let outputs = model.evaluate_with_options(
+    std::slice::from_ref(&frame), // Exactly one frame in this call.
+    None, // Or Some(std::slice::from_ref(&parameters_for_frame)) for aparam.
+    EvaluationOptions {
+        atomic: true,
+        frame_parameter_policy: FrameParameterPolicy::ModelDefault,
+    },
+)?;
+```
+
+The optional metadata query is
+[`DP_DeepPotHasDefaultFParam`](https://github.com/deepmodeling/deepmd-kit/blob/v3.1.3/source/api_c/include/c_api.h),
+which returns C `bool`. See the
+[TensorFlow implementation](https://github.com/deepmodeling/deepmd-kit/blob/v3.1.3/source/api_cc/include/DeepPotTF.h)
+and [PyTorch implementation](https://github.com/deepmodeling/deepmd-kit/blob/v3.2.0/source/api_cc/src/DeepPotPT.cc)
+for runtime-specific behavior. No shared contract, MD engine or native-model
+interface is changed by this option.
 
 ## 7. Connect official training to inference
 
@@ -213,7 +308,7 @@ dp test -m model.pb -s /absolute/path/to/validation-system -n 4
 
 For a compatible PyTorch TorchScript installation the upstream commands are
 `dp --pt train input.json` and `dp --pt freeze -o model.pth`; this adapter's
-PyTorch runtime path remains unvalidated. Multi-task checkpoints require
+PyTorch CPU route is verified only for the small parameter/default fixture. Multi-task checkpoints require
 selecting the intended branch during freezing. Keep the training checkpoint
 for resuming training, and supply the frozen inference artifact to omniMD.
 [Freezing](https://docs.deepmodeling.com/projects/deepmd/en/v3.2.0/freeze/freeze.html)
@@ -280,6 +375,7 @@ been revalidated on GPU in this tranche.
 | Requested type order differs | Use the model's exact ordered chemical-element map |
 | Model requires explicit parameters | Inspect dimensions and provide one correctly shaped parameter object per frame |
 | `fparam` or `aparam` shape/finite error | Correct lengths, atom order and finite values before running again |
+| `model_default` unavailable/unknown/conflicting | Inspect availability; otherwise supply explicit frame parameters. Do not combine defaults with explicit `fparam`, and keep `batch_size:1` |
 | Batch requires identical inputs | Reduce `batch_size` to 1 or partition frames by atom count, species order and periodicity |
 | Missing/nonfinite total or atomic output | Treat the request as failed; validate the model/runtime with official tools |
 | CUDA error, no kernels, graphs/capture or tracing unavailable | Preserve the error; choose an explicit CPU request or resolve the runtime issue; do not label CPU execution a GPU success |

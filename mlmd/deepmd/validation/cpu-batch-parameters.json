@@ -1,0 +1,251 @@
+{
+  "status": "passed",
+  "date_utc": "2026-10-16",
+  "runtime": {
+    "deepmd": "3.1.3",
+    "tensorflow": "2.19.1",
+    "pytorch": "2.10.0",
+    "image": "ghcr.io/deepmodeling/deepmd-kit:3.1.3_cpu",
+    "image_id_prefix": "7953cbd4b487",
+    "c_api_sha256": "ebd691da29bc432a1ee820bfd7754c21983d36c97f98e08741f3cec75b498985",
+    "device": "cpu",
+    "CUDA_VISIBLE_DEVICES": "-1",
+    "container_gpu_devices": false,
+    "threads": {
+      "OMP_NUM_THREADS": 1,
+      "DP_INTRA_OP_PARALLELISM_THREADS": 1,
+      "DP_INTER_OP_PARALLELISM_THREADS": 1
+    }
+  },
+  "scope": "CPU combined EFV and atomic outputs; no new GPU or performance claim",
+  "ordinary_public_model": {
+    "fixture": "Prior public six-atom fixture from CUDA_VALIDATION.md; homogeneous periodic source frames 1,2,1,2; frame 2 atom 1 x +=0.013 A, frame 3 atom 4 y -=0.017 A; zero-based indices",
+    "details": {
+      "frame_parameter_dim": 0,
+      "atom_parameter_dim": 0,
+      "has_default_fparam": false
+    },
+    "comparison": {
+      "status": "passed",
+      "frames": 4,
+      "atoms_per_frame": [
+        6,
+        6,
+        6,
+        6
+      ],
+      "atol": 1e-08,
+      "rtol": 1e-10,
+      "tolerance_rule": "abs(a-b) <= max(atol, rtol*max(abs(a),abs(b)))",
+      "max_absolute_error": {
+        "serial_vs_batch": {
+          "energy": 0.0,
+          "forces": 4.440892098500626e-16,
+          "virial": 6.661338147750939e-16,
+          "atomic_energy": 0.0,
+          "atomic_virial": 4.440892098500626e-16
+        },
+        "serial_vs_official_python": {
+          "energy": 0.0,
+          "forces": 4.440892098500626e-16,
+          "virial": 1.3322676295501878e-15,
+          "atomic_energy": 0.0,
+          "atomic_virial": 4.440892098500626e-16
+        },
+        "batch_vs_official_python": {
+          "energy": 0.0,
+          "forces": 0.0,
+          "virial": 1.1102230246251565e-15,
+          "atomic_energy": 0.0,
+          "atomic_virial": 0.0
+        }
+      },
+      "fixture_atomic_sum_max_absolute_error": {
+        "serial": {
+          "energy": 1.1368683772161603e-13,
+          "virial": 2.220446049250313e-16
+        },
+        "batch": {
+          "energy": 1.1368683772161603e-13,
+          "virial": 2.220446049250313e-16
+        },
+        "official_python": {
+          "energy": 1.1368683772161603e-13,
+          "virial": 1.1102230246251565e-15
+        }
+      },
+      "capi_calls": {
+        "serial": 4,
+        "batch": 1
+      },
+      "python_provenance": {
+        "deepmd_version": "3.1.3",
+        "model": "public-deeppot.pb",
+        "model_sha256": "fbe846eed0e503411cac336d76ac81fabfd9d0d195a03c96dd9fe00fecacca1f",
+        "request_sha256": "60d9fa451c2160fc00d01ee810befdde2d5723398f3d42676e36cfb2d01a7dd1",
+        "CUDA_VISIBLE_DEVICES": "-1",
+        "inference_calls": 1
+      },
+      "result_sha256": {
+        "serial": "7e5bacd67636a4ac222aff736d9f139e1cb3f287e55f7d4debecdad818eae75e",
+        "batch": "ce2951ae9c90adb44f9bf23314ce7a93e200b133dfe726d8b4ec798776e4af5a",
+        "official_python": "b59a867735e70e80e5976055d2b97b4a3ba514e97d011d93e82391bda7ffa927"
+      }
+    }
+  },
+  "tensorflow_parameter_model": {
+    "sources": [
+      {
+        "path": "source/tests/infer/fparam_aparam.pbtxt",
+        "filename": "fparam_aparam.pbtxt",
+        "url": "https://raw.githubusercontent.com/deepmodeling/deepmd-kit/v3.1.3/source/tests/infer/fparam_aparam.pbtxt",
+        "bytes": 218393,
+        "sha256": "247566940c8140052ce19b5bde15e236075c41eb1157c4ba0947684f15dc01bb"
+      },
+      {
+        "path": "source/tests/infer/fparam_aparam-testcase.yaml",
+        "filename": "fparam_aparam-testcase.yaml",
+        "url": "https://raw.githubusercontent.com/deepmodeling/deepmd-kit/v3.1.3/source/tests/infer/fparam_aparam-testcase.yaml",
+        "bytes": 4377,
+        "sha256": "788bbf6a820b9e9a85ac3f72f93b716a7a2b9220e7c2797ce482a4d1f82fbdbf"
+      },
+      {
+        "path": "source/api_c/tests/test_deeppot_a_fparam_aparam.cc",
+        "filename": "test_deeppot_a_fparam_aparam.cc",
+        "url": "https://raw.githubusercontent.com/deepmodeling/deepmd-kit/v3.1.3/source/api_c/tests/test_deeppot_a_fparam_aparam.cc",
+        "bytes": 17547,
+        "sha256": "2b89e59a4d2a7dc412fcc9ca3046a07bb518c043fd0ec919e0726c241034acd9"
+      }
+    ],
+    "derived_fixture": {
+      "input_sha256": "247566940c8140052ce19b5bde15e236075c41eb1157c4ba0947684f15dc01bb",
+      "output_sha256": "5590576fe37692abc872aa58a6ac98a76b003d09d751a5ef92898ba11c3c0788",
+      "output_bytes": 78207,
+      "tensorflow_version": "2.19.1",
+      "original_graph_serialized_sha256": "de3fa02190e04093cedc8d49844ad1de79896393d689d1bc3405d7ccbe852102",
+      "conversion": "official TensorFlow GraphDef + protobuf text parser; metadata-only derived test fixture, no model inference",
+      "metadata_change": {
+        "node": "model_attr/tmap",
+        "field": "attr.value.tensor.string_val[0]",
+        "before": "",
+        "after": "O"
+      },
+      "evidence": "official same-directory fparam_aparam-testcase.yaml has type_map=[O] at top level and in model_def_script",
+      "evidence_sha256": "788bbf6a820b9e9a85ac3f72f93b716a7a2b9220e7c2797ce482a4d1f82fbdbf",
+      "verification": "restoring the single metadata value reproduces original GraphDef bytes exactly; no numerical weights or computational operations changed",
+      "CUDA_VISIBLE_DEVICES": "-1"
+    },
+    "details": {
+      "frame_parameter_dim": 1,
+      "atom_parameter_dim": 1,
+      "has_default_fparam": false
+    },
+    "frames": 2,
+    "atoms_per_frame": 6,
+    "type_map": [
+      "O"
+    ],
+    "input": "Frame 0 is the official C API fixture; frame 1 retains coordinates/cell, adds 0.1 to fparam and 0.01*(i+1) to each zero-based atom i aparam",
+    "capi_calls": {
+      "serial": 2,
+      "batch": 1
+    },
+    "comparison": {
+      "absolute_tolerance": 1e-08,
+      "relative_tolerance": 0.0,
+      "max_absolute_error_vs_serial": {
+        "batch": {
+          "energy": 0.0,
+          "forces": 0.0,
+          "virial": 0.0,
+          "atomic_energy": 0.0,
+          "atomic_virial": 0.0
+        },
+        "python": {
+          "energy": 0.0,
+          "forces": 0.0,
+          "virial": 2.220446049250313e-16,
+          "atomic_energy": 0.0,
+          "atomic_virial": 0.0
+        }
+      },
+      "max_absolute_error_first_frame_vs_official": {
+        "serial": {
+          "energy": 0.0,
+          "forces": 1.942890293094024e-16,
+          "virial": 4.440892098500626e-16,
+          "atomic_energy": 0.0,
+          "atomic_virial": 3.608224830031759e-16
+        },
+        "batch": {
+          "energy": 0.0,
+          "forces": 1.942890293094024e-16,
+          "virial": 4.440892098500626e-16,
+          "atomic_energy": 0.0,
+          "atomic_virial": 3.608224830031759e-16
+        },
+        "python": {
+          "energy": 0.0,
+          "forces": 1.942890293094024e-16,
+          "virial": 6.661338147750939e-16,
+          "atomic_energy": 0.0,
+          "atomic_virial": 3.608224830031759e-16
+        }
+      },
+      "fixture_atomic_sums": {
+        "serial": {
+          "energy": 0.0,
+          "virial": 1.1102230246251565e-16
+        },
+        "batch": {
+          "energy": 0.0,
+          "virial": 1.1102230246251565e-16
+        },
+        "python": {
+          "energy": 0.0,
+          "virial": 3.3306690738754696e-16
+        }
+      },
+      "result_sha256": {
+        "serial": "002e6e402309ba4c887a9aef6400946646b9aa9248967bbe49acabf999d2fe99",
+        "batch": "b809bc729275ceaf9e544828ae2192465e30d4111da52740c5e568e423d0622c",
+        "python": "6ee423c809a6804a85c4afd16f4673a1dd6f46eb2ee91eca26be5a1a29ee07c3"
+      },
+      "python_provenance": {
+        "python": {
+          "deepmd_version": "3.1.3",
+          "model": "fparam_aparam-tmap-O.pb",
+          "model_sha256": "5590576fe37692abc872aa58a6ac98a76b003d09d751a5ef92898ba11c3c0788",
+          "request_sha256": "ec82c7c6792b1c70ac44a062bff0ed7c3ea1ed0468af1f3562e0cc24cc67e07d",
+          "CUDA_VISIBLE_DEVICES": "-1",
+          "inference_calls": 1,
+          "backend_version": "2.19.1"
+        }
+      },
+      "energy_change_from_distinct_parameters": 0.00211578262527512
+    },
+    "runtime_note": "The official loader catches missing optional fitting_attr/aparam_nall metadata and uses false (local-atom parameters); subsequent C API status, outputs and numerical comparisons passed.",
+    "runtime_note_source": "https://github.com/deepmodeling/deepmd-kit/blob/v3.1.3/source/api_cc/src/DeepPotTF.cc#L461"
+  },
+  "negative_cases": [
+    {
+      "case": "tf.default-rejected",
+      "status": "expected_rejection",
+      "exit_code": 1,
+      "matched_reason": "this model has no stored frame-parameter defaults",
+      "output_published": false
+    },
+    {
+      "case": "pt.batch-rejected",
+      "status": "expected_rejection",
+      "exit_code": 1,
+      "matched_reason": "PyTorch .pth ordinary C API inference supports one frame per call",
+      "output_published": false
+    }
+  ],
+  "limitations": [
+    "Small periodic energy fixtures only; internal precision is model dependent despite float64 IO.",
+    "Per-atom sums were checked for these fixtures, not asserted for every model.",
+    "No new GPU validation or timing; earlier GPU receipt remains separate."
+  ]
+}

@@ -13,11 +13,12 @@
   ],
   "python_comparator_cases": 17,
   "new_runtime_validation": {
-    "status": "pending_runtime_availability",
-    "target": "official DeepMD CPU container",
-    "reason": "dockerDesktopLinuxEngine named pipe unavailable",
-    "denied": false,
-    "inference_started": false
+    "status": "completed_cpu_fixtures",
+    "date_utc": "2026-10-16",
+    "evidence": [
+      "cpu-batch-parameters.json",
+      "model-default-fparam.json"
+    ]
   },
   "gpu_jobs_started": 0,
   "new_dependencies": 0,

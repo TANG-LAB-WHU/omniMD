@@ -8,6 +8,8 @@ struct Counts {
     strings: usize,
     frees: usize,
     computes: usize,
+    default_queries: usize,
+    fparam_was_null: bool,
     types: Vec<i32>,
     coords: Vec<f64>,
     cell: Option<Vec<f64>>,
@@ -83,7 +85,7 @@ unsafe extern "C" fn nspin(h: Handle) -> i32 {
 unsafe extern "C" fn fparam(h: Handle) -> i32 {
     match unsafe { state(h) }.mode.as_str() {
         "fparam" => 1,
-        "parameters" => 2,
+        "parameters" | "default-fparam" | "default-parameters" | "default-compute-error" => 2,
         "bad-dim" => -1,
         _ => 0,
     }
@@ -91,11 +93,22 @@ unsafe extern "C" fn fparam(h: Handle) -> i32 {
 unsafe extern "C" fn aparam(h: Handle) -> i32 {
     i32::from(matches!(
         unsafe { state(h) }.mode.as_str(),
-        "aparam" | "parameters"
+        "aparam" | "parameters" | "default-parameters"
     ))
 }
 unsafe extern "C" fn charge_spin(h: Handle) -> i32 {
     i32::from(unsafe { state(h) }.mode == "charge-spin")
+}
+unsafe extern "C" fn has_default_fparam(h: Handle) -> bool {
+    COUNTS.with(|c| c.borrow_mut().default_queries += 1);
+    let m = unsafe { state(h) };
+    if m.mode == "default-query-error" {
+        m.error = "injected default metadata error".into();
+    }
+    matches!(
+        m.mode.as_str(),
+        "default-fparam" | "default-parameters" | "default-compute-error"
+    )
 }
 unsafe extern "C" fn cutoff(h: Handle) -> f64 {
     if unsafe { state(h) }.mode == "bad-cutoff" {
@@ -127,6 +140,7 @@ unsafe extern "C" fn compute(
     COUNTS.with(|c| {
         let mut c = c.borrow_mut();
         c.computes += 1;
+        c.fparam_was_null = fp.is_null();
         c.frames = nf;
         c.coords = coords.to_vec();
         c.types = unsafe { std::slice::from_raw_parts(t, n) }.to_vec();
@@ -148,7 +162,10 @@ unsafe extern "C" fn compute(
         c.optional_were_null = fp.is_null() && ap.is_null() && ae.is_null() && av.is_null();
     });
     let mock = unsafe { state(h) };
-    if mock.mode == "compute-error" {
+    if matches!(
+        mock.mode.as_str(),
+        "compute-error" | "default-compute-error"
+    ) {
         mock.error = "injected compute error".into();
         return;
     }
@@ -217,6 +234,7 @@ fn api() -> Api {
         fparam,
         aparam,
         charge_spin: Some(charge_spin),
+        has_default_fparam: Some(has_default_fparam),
         cutoff,
         compute,
         _library: None,
@@ -276,6 +294,7 @@ fn failed_initialization_releases_model_and_strings() {
         "bad-dim",
         "charge-spin",
         "bad-cutoff",
+        "default-query-error",
     ] {
         reset();
         assert!(model(mode).is_err(), "{mode}");
@@ -495,4 +514,208 @@ fn legacy_runtime_without_optional_charge_metadata_still_loads() {
     )
     .unwrap();
     assert_eq!(m.eval(&frame()).unwrap().energy, 45.5);
+}
+
+fn default_options(atomic: bool) -> EvaluationOptions {
+    EvaluationOptions {
+        atomic,
+        frame_parameter_policy: FrameParameterPolicy::ModelDefault,
+    }
+}
+
+#[test]
+fn optional_default_metadata_is_cached_and_legacy_json_stays_readable() {
+    reset();
+    let old: ModelDetails =
+        serde_json::from_str(r#"{"frame_parameter_dim":2,"atom_parameter_dim":0}"#).unwrap();
+    assert_eq!(old.has_default_fparam, None);
+    let mut api = api();
+    api.has_default_fparam = None;
+    let mut legacy = DeepMd::initialize(
+        api,
+        &CString::new("default-fparam").unwrap(),
+        &["O".into(), "H".into()],
+        Units::EvAngstrom,
+    )
+    .unwrap();
+    assert_eq!(legacy.details().has_default_fparam, None);
+    assert!(legacy
+        .evaluate_with_options(&[frame()], None, default_options(false))
+        .unwrap_err()
+        .0
+        .contains("unknown"));
+    assert_eq!(
+        model("fparam").unwrap().details().has_default_fparam,
+        Some(false)
+    );
+    let mut known = model("default-fparam").unwrap();
+    assert_eq!(known.details().has_default_fparam, Some(true));
+    known
+        .evaluate_with_options(&[frame()], None, default_options(false))
+        .unwrap();
+    known
+        .evaluate_with_options(&[frame()], None, default_options(false))
+        .unwrap();
+    COUNTS.with(|c| assert_eq!(c.borrow().default_queries, 2));
+}
+
+#[test]
+fn existing_apis_stay_strict_even_when_model_has_defaults() {
+    reset();
+    let mut m = model("default-fparam").unwrap();
+    assert!(m.eval(&frame()).is_err());
+    assert!(m.evaluate(&[frame()], None, false).is_err());
+    assert!(m
+        .evaluate_with_options(&[frame()], None, EvaluationOptions::default())
+        .is_err());
+    COUNTS.with(|c| assert_eq!(c.borrow().computes, 0));
+    let p = EvalParameters {
+        fparam: vec![3., 4.],
+        aparam: vec![],
+    };
+    m.evaluate(&[frame()], Some(&[p]), false).unwrap();
+    COUNTS.with(|c| {
+        assert!(!c.borrow().fparam_was_null);
+        assert_eq!(c.borrow().fparam, vec![3., 4.]);
+    });
+    // A later explicit opt-in must clear the reused explicit parameter buffer.
+    m.evaluate_with_options(&[frame()], None, default_options(false))
+        .unwrap();
+    COUNTS.with(|c| assert!(c.borrow().fparam_was_null));
+}
+
+#[test]
+fn default_policy_preserves_atomic_parameters_and_combined_atomic_call() {
+    reset();
+    let mut m = model("default-parameters").unwrap();
+    let params = EvalParameters {
+        fparam: vec![],
+        aparam: vec![vec![2.], vec![5.]],
+    };
+    let out = m
+        .evaluate_with_options(&[frame()], Some(&[params]), default_options(true))
+        .unwrap();
+    assert_eq!(out[0].evaluation.energy, 45.5);
+    assert!(out[0].atomic.is_some());
+    drop(m);
+    COUNTS.with(|c| {
+        let c = c.borrow();
+        assert!(c.fparam_was_null);
+        assert_eq!(c.aparam, vec![2., 5.]);
+        assert_eq!(
+            (c.loads, c.drops, c.computes, c.frames, c.default_queries),
+            (1, 1, 1, 1, 1)
+        );
+        assert_eq!(c.strings, c.frees);
+    });
+}
+
+#[test]
+fn default_policy_rejects_conflicts_missing_defaults_and_batches_before_ffi() {
+    reset();
+    let mut m = model("fparam").unwrap();
+    assert!(m
+        .evaluate_with_options(&[frame()], None, default_options(false))
+        .unwrap_err()
+        .0
+        .contains("no stored"));
+    let mut m = model("ok").unwrap();
+    assert!(m
+        .evaluate_with_options(&[frame()], None, default_options(false))
+        .unwrap_err()
+        .0
+        .contains("positive"));
+    let mut m = model("default-fparam").unwrap();
+    assert!(m
+        .evaluate_with_options(&[frame(), frame()], None, default_options(false))
+        .unwrap_err()
+        .0
+        .contains("one frame"));
+    let p = EvalParameters {
+        fparam: vec![1., 2.],
+        aparam: vec![],
+    };
+    assert!(m
+        .evaluate_with_options(&[frame()], Some(&[p]), default_options(false))
+        .unwrap_err()
+        .0
+        .contains("conflicts"));
+    let mut m = model("default-parameters").unwrap();
+    assert!(m
+        .evaluate_with_options(&[frame()], None, default_options(false))
+        .unwrap_err()
+        .0
+        .contains("aparam"));
+    for rows in [
+        vec![],
+        vec![vec![1.]],
+        vec![vec![1.], vec![f64::NAN]],
+        vec![vec![1.], vec![2., 3.]],
+    ] {
+        let p = EvalParameters {
+            fparam: vec![],
+            aparam: rows,
+        };
+        assert!(m
+            .evaluate_with_options(&[frame()], Some(&[p]), default_options(false))
+            .is_err());
+    }
+    COUNTS.with(|c| assert_eq!(c.borrow().computes, 0));
+}
+
+#[test]
+fn default_runtime_error_does_not_retry_or_publish_results() {
+    reset();
+    let mut m = model("default-compute-error").unwrap();
+    assert!(m
+        .evaluate_with_options(&[frame()], None, default_options(true))
+        .unwrap_err()
+        .0
+        .contains("injected compute error"));
+    drop(m);
+    COUNTS.with(|c| {
+        let c = c.borrow();
+        assert_eq!((c.computes, c.loads, c.drops), (1, 1, 1));
+        assert_eq!(c.strings, c.frees);
+    });
+}
+
+#[test]
+fn pytorch_single_frame_limit_rejects_explicit_batch_before_ffi() {
+    reset();
+    let parameters = EvalParameters {
+        fparam: vec![300., 1.],
+        aparam: vec![vec![2.], vec![3.]],
+    };
+    let mut pytorch = model("parameters").unwrap();
+    pytorch.configure_runtime_batch_limit(Path::new("frozen.pth"));
+    let error = pytorch
+        .evaluate(
+            &[frame(), frame()],
+            Some(&[parameters.clone(), parameters.clone()]),
+            true,
+        )
+        .unwrap_err();
+    assert!(error.0.contains("PyTorch .pth"));
+    assert!(error.0.contains("batch_size=1"));
+    COUNTS.with(|c| assert_eq!(c.borrow().computes, 0));
+    let outputs = pytorch
+        .evaluate(&[frame()], Some(&[parameters.clone()]), true)
+        .unwrap();
+    assert_eq!(outputs[0].evaluation.energy, 45.5);
+    assert!(outputs[0].atomic.is_some());
+    COUNTS.with(|c| assert_eq!((c.borrow().computes, c.borrow().frames), (1, 1)));
+
+    // The suffix restriction must not disable TensorFlow's existing batching.
+    let mut tensorflow = model("parameters").unwrap();
+    tensorflow.configure_runtime_batch_limit(Path::new("frozen.pb"));
+    let outputs = tensorflow
+        .evaluate(
+            &[frame(), frame()],
+            Some(&[parameters.clone(), parameters]),
+            false,
+        )
+        .unwrap();
+    assert_eq!(outputs.len(), 2);
+    COUNTS.with(|c| assert_eq!((c.borrow().computes, c.borrow().frames), (2, 2)));
 }
