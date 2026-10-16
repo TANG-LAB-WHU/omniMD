@@ -1,0 +1,485 @@
+{
+  "schema": "omnimd-native-cuda-fit-evidence-v1",
+  "date_utc": "2026-10-16",
+  "baseline_commit": "7be1d976654f1a3c58ded4f69b2c9759cb9b3cbf",
+  "native_baseline_commit": "b6f36dd2ed5efb78e4184ba61854a06eb27285a0",
+  "baseline_note": "Native files match b6f36dd; only read-only cuFuncGetAttribute diagnostics added to baseline executable. No computation/timing changes.",
+  "environment": {
+    "gpu": "NVIDIA GeForce RTX 4090",
+    "compute": "8.9",
+    "vram_mib": 24564,
+    "driver": "617.42",
+    "mode": "Windows WDDM",
+    "nvrtc": "existing CUDA 12.8",
+    "rust": "1.99.0 x86_64-pc-windows-gnu release",
+    "initial_background_gpu_percent": 33,
+    "initial_used_vram_mib": 3809,
+    "project_window": "exclusive B, other workers CPU-only; no background graphics apps stopped"
+  },
+  "scope": "Same supported native se_e2_a float64 inference. Cooperative per-atom fitting, independently bounded embedding scratch, persistent host workspaces, cached type uploads; no GPU training or extra model family.",
+  "timing_scope": "Five warmed complete EFV calls per primary case. Includes host preparation/transfers/kernels/synchronization/reduction; excludes separately reported instance initialization. Host wall-clock, not GPU events. Single bounded before/after measurement, no general speedup or DeepMD comparison claim. Startup is not a cold driver-cache benchmark.",
+  "comparisons": [
+    {
+      "case": "medium",
+      "model_sha256": "5dced056c6df82c73474f504e182e9df7378862217687c44d19f510c44ff979a",
+      "frames_sha256": "019d84706a12a5e492f41127023ba43bc596fbb551674c2ceb9040a9971569db",
+      "neural_scalars": 28258,
+      "sel": [
+        16,
+        16
+      ],
+      "baseline": {
+        "atoms": [
+          216
+        ],
+        "comparison_tolerance": "1e-9 absolute + 1e-9 relative",
+        "cpu_over_cuda_speed_ratio": 23.717101049416172,
+        "device": "NVIDIA GeForce RTX 4090; compute 8.9; FP64; device 0",
+        "first_evaluation_ms": [
+          101.993
+        ],
+        "first_profiles": [
+          {
+            "download_ms": 0.1143,
+            "kernels_and_sync_ms": 55.9151,
+            "neighbor_cache_rebuilds": 1,
+            "neighbor_cache_rebuilt": true,
+            "neighbor_candidates": 3888,
+            "prepare_ms": 45.2876,
+            "reduction_ms": 0.0356,
+            "upload_and_allocation_ms": 0.6329
+          }
+        ],
+        "frames": 1,
+        "kernel_resources": [
+          {
+            "local_bytes_per_thread": 4096,
+            "name": "embed",
+            "registers_per_thread": 136,
+            "static_shared_bytes": 0
+          },
+          {
+            "local_bytes_per_thread": 7312,
+            "name": "fit",
+            "registers_per_thread": 255,
+            "static_shared_bytes": 0
+          },
+          {
+            "local_bytes_per_thread": 0,
+            "name": "pullback",
+            "registers_per_thread": 45,
+            "static_shared_bytes": 0
+          }
+        ],
+        "last_profile": {
+          "download_ms": 0.0481,
+          "kernels_and_sync_ms": 1.6079,
+          "neighbor_cache_rebuilds": 1,
+          "neighbor_cache_rebuilt": false,
+          "neighbor_candidates": 3888,
+          "prepare_ms": 0.20120000000000002,
+          "reduction_ms": 0.0334,
+          "upload_and_allocation_ms": 0.0399
+        },
+        "max_abs_energy_force_virial": [
+          3.552713678800501e-15,
+          1.8151916059659656e-18,
+          6.708500942254059e-19
+        ],
+        "profile_total_ms": {
+          "download": 0.283,
+          "kernels_and_sync": 9.896400000000002,
+          "prepare": 1.0278,
+          "reduction": 0.1609,
+          "upload_and_allocation": 0.7988
+        },
+        "repeats": 5,
+        "startup_ms": 909.6896,
+        "warmed_cpu_total_ms": 288.83160000000004,
+        "warmed_cuda_total_ms": 12.1782
+      },
+      "optimized": {
+        "atoms": [
+          216
+        ],
+        "comparison_tolerance": "1e-9 absolute + 1e-9 relative",
+        "cpu_over_cuda_speed_ratio": 108.60339420771078,
+        "device": "NVIDIA GeForce RTX 4090; compute 8.9; FP64; device 0",
+        "first_evaluation_ms": [
+          47.0441
+        ],
+        "first_profiles": [
+          {
+            "download_ms": 0.0698,
+            "kernels_and_sync_ms": 0.5947,
+            "neighbor_cache_rebuilds": 1,
+            "neighbor_cache_rebuilt": true,
+            "neighbor_candidates": 3888,
+            "prepare_ms": 45.9863,
+            "record_capacity": 4096,
+            "reduction_ms": 0.0332,
+            "row_capacity": 27648,
+            "type_uploads": 1,
+            "upload_and_allocation_ms": 0.3502,
+            "upload_bytes": 222052
+          }
+        ],
+        "frames": 1,
+        "kernel_resources": [
+          {
+            "local_bytes_per_thread": 1024,
+            "name": "embed",
+            "registers_per_thread": 136,
+            "static_shared_bytes": 0
+          },
+          {
+            "local_bytes_per_thread": 0,
+            "name": "fit",
+            "registers_per_thread": 42,
+            "static_shared_bytes": 8192
+          },
+          {
+            "local_bytes_per_thread": 0,
+            "name": "pullback",
+            "registers_per_thread": 45,
+            "static_shared_bytes": 0
+          }
+        ],
+        "last_profile": {
+          "download_ms": 0.0455,
+          "kernels_and_sync_ms": 0.194,
+          "neighbor_cache_rebuilds": 1,
+          "neighbor_cache_rebuilt": false,
+          "neighbor_candidates": 3888,
+          "prepare_ms": 0.21230000000000002,
+          "record_capacity": 4096,
+          "reduction_ms": 0.025,
+          "row_capacity": 27648,
+          "type_uploads": 1,
+          "upload_and_allocation_ms": 0.0317,
+          "upload_bytes": 221188
+        },
+        "max_abs_energy_force_virial": [
+          3.552713678800501e-15,
+          1.8151916059659656e-18,
+          6.708500942254059e-19
+        ],
+        "profile_total_ms": {
+          "download": 0.22999999999999998,
+          "kernels_and_sync": 1.1819,
+          "prepare": 0.9587,
+          "reduction": 0.1271,
+          "upload_and_allocation": 0.19360000000000002
+        },
+        "repeats": 5,
+        "startup_ms": 278.6936,
+        "warmed_cpu_total_ms": 294.3695,
+        "warmed_cuda_total_ms": 2.7104999999999997
+      },
+      "before_over_after_cuda_ratio": 4.492971776425015
+    },
+    {
+      "case": "public192",
+      "model_sha256": "3c2a9354e0c163286a04fcbb91214562c7d0503f4a184f155a3843b1eec0e39a",
+      "frames_sha256": "15300b00c111d57d6ef68996a83e0e403c346e30b174d06639cb2c8a64345b82",
+      "neural_scalars": 826,
+      "sel": [
+        46,
+        92
+      ],
+      "baseline": {
+        "atoms": [
+          192
+        ],
+        "comparison_tolerance": "1e-9 absolute + 1e-9 relative",
+        "cpu_over_cuda_speed_ratio": 11.724977852773673,
+        "device": "NVIDIA GeForce RTX 4090; compute 8.9; FP64; device 0",
+        "first_evaluation_ms": [
+          63.7873
+        ],
+        "first_profiles": [
+          {
+            "download_ms": 0.41590000000000005,
+            "kernels_and_sync_ms": 11.033299999999999,
+            "neighbor_cache_rebuilds": 1,
+            "neighbor_cache_rebuilt": true,
+            "neighbor_candidates": 19840,
+            "prepare_ms": 51.6415,
+            "reduction_ms": 0.2183,
+            "upload_and_allocation_ms": 0.3281
+          }
+        ],
+        "frames": 1,
+        "kernel_resources": [
+          {
+            "local_bytes_per_thread": 1024,
+            "name": "embed",
+            "registers_per_thread": 40,
+            "static_shared_bytes": 0
+          },
+          {
+            "local_bytes_per_thread": 1536,
+            "name": "fit",
+            "registers_per_thread": 164,
+            "static_shared_bytes": 0
+          },
+          {
+            "local_bytes_per_thread": 0,
+            "name": "pullback",
+            "registers_per_thread": 58,
+            "static_shared_bytes": 0
+          }
+        ],
+        "last_profile": {
+          "download_ms": 0.25880000000000003,
+          "kernels_and_sync_ms": 2.3417,
+          "neighbor_cache_rebuilds": 1,
+          "neighbor_cache_rebuilt": false,
+          "neighbor_candidates": 19840,
+          "prepare_ms": 1.3894,
+          "reduction_ms": 0.2251,
+          "upload_and_allocation_ms": 0.6849999999999999
+        },
+        "max_abs_energy_force_virial": [
+          0.0,
+          7.771561172376096e-16,
+          5.329070518200751e-15
+        ],
+        "profile_total_ms": {
+          "download": 1.1672,
+          "kernels_and_sync": 13.1566,
+          "prepare": 6.5733,
+          "reduction": 1.0436,
+          "upload_and_allocation": 1.3552
+        },
+        "repeats": 5,
+        "startup_ms": 372.3107,
+        "warmed_cpu_total_ms": 277.94059999999996,
+        "warmed_cuda_total_ms": 23.705000000000002
+      },
+      "optimized": {
+        "atoms": [
+          192
+        ],
+        "comparison_tolerance": "1e-9 absolute + 1e-9 relative",
+        "cpu_over_cuda_speed_ratio": 46.73958628506659,
+        "device": "NVIDIA GeForce RTX 4090; compute 8.9; FP64; device 0",
+        "first_evaluation_ms": [
+          53.347
+        ],
+        "first_profiles": [
+          {
+            "download_ms": 0.2257,
+            "kernels_and_sync_ms": 0.7639,
+            "neighbor_cache_rebuilds": 1,
+            "neighbor_cache_rebuilt": true,
+            "neighbor_candidates": 19840,
+            "prepare_ms": 51.8718,
+            "record_capacity": 16384,
+            "reduction_ms": 0.129,
+            "row_capacity": 105984,
+            "type_uploads": 1,
+            "upload_and_allocation_ms": 0.34469999999999995,
+            "upload_bytes": 848644
+          }
+        ],
+        "frames": 1,
+        "kernel_resources": [
+          {
+            "local_bytes_per_thread": 256,
+            "name": "embed",
+            "registers_per_thread": 40,
+            "static_shared_bytes": 0
+          },
+          {
+            "local_bytes_per_thread": 0,
+            "name": "fit",
+            "registers_per_thread": 42,
+            "static_shared_bytes": 2304
+          },
+          {
+            "local_bytes_per_thread": 0,
+            "name": "pullback",
+            "registers_per_thread": 58,
+            "static_shared_bytes": 0
+          }
+        ],
+        "last_profile": {
+          "download_ms": 0.0983,
+          "kernels_and_sync_ms": 0.2873,
+          "neighbor_cache_rebuilds": 1,
+          "neighbor_cache_rebuilt": false,
+          "neighbor_candidates": 19840,
+          "prepare_ms": 0.6093999999999999,
+          "record_capacity": 16384,
+          "reduction_ms": 0.0876,
+          "row_capacity": 105984,
+          "type_uploads": 1,
+          "upload_and_allocation_ms": 0.0722,
+          "upload_bytes": 847876
+        },
+        "max_abs_energy_force_virial": [
+          0.0,
+          7.771561172376096e-16,
+          5.329070518200751e-15
+        ],
+        "profile_total_ms": {
+          "download": 0.5115000000000001,
+          "kernels_and_sync": 1.3906999999999998,
+          "prepare": 3.1527,
+          "reduction": 0.496,
+          "upload_and_allocation": 0.42910000000000004
+        },
+        "repeats": 5,
+        "startup_ms": 272.2842,
+        "warmed_cpu_total_ms": 280.4048,
+        "warmed_cuda_total_ms": 5.9993
+      },
+      "before_over_after_cuda_ratio": 3.951294317670395
+    }
+  ],
+  "focused_correctness": {
+    "tiny": {
+      "atoms": [
+        4,
+        4,
+        4,
+        1
+      ],
+      "max_abs_energy_force_virial": [
+        0.0,
+        4.440892098500626e-16,
+        4.440892098500626e-16
+      ],
+      "scope": "original tanh fixture; triclinic/nonperiodic/wrapped and self-image frames; residual/timestep/normalized padding"
+    },
+    "lifecycle": {
+      "atoms": [
+        1,
+        4,
+        4,
+        4,
+        8,
+        4
+      ],
+      "max_abs_energy_force_virial": [
+        0.0,
+        2.220446049250313e-16,
+        4.440892098500626e-16
+      ],
+      "type_upload_counts": [
+        1,
+        2,
+        3,
+        3,
+        4,
+        5
+      ],
+      "row_capacities": [
+        64,
+        256,
+        256,
+        256,
+        512,
+        512
+      ],
+      "scope": "grow/shrink atom count, same-count changed ordered types, repeat same types, regrowth; outputs compared with independent fresh CPU"
+    },
+    "boundary": {
+      "atoms": 4,
+      "embedding_output_width": 64,
+      "embedding_hidden_width": 128,
+      "fitting_width": 128,
+      "embedding_and_fitting_depth": 8,
+      "descriptor_components": 128,
+      "B_components": 256,
+      "model_sha256": "22e2bdc17fe9c7f955cc476f8270dfb1b9e751f16b65b0f95fc94dd339ecb51e",
+      "max_abs_energy_force_virial": [
+        0.0,
+        6.776263578034403e-21,
+        5.082197683525802e-21
+      ],
+      "kernel_resources": [
+        {
+          "local_bytes_per_thread": 4144,
+          "name": "embed",
+          "registers_per_thread": 255,
+          "static_shared_bytes": 0
+        },
+        {
+          "local_bytes_per_thread": 0,
+          "name": "fit",
+          "registers_per_thread": 42,
+          "static_shared_bytes": 14336
+        },
+        {
+          "local_bytes_per_thread": 0,
+          "name": "pullback",
+          "registers_per_thread": 45,
+          "static_shared_bytes": 0
+        }
+      ],
+      "warmed_cpu_total_ms": 1.7699,
+      "warmed_cuda_total_ms": 2.2713,
+      "repeats": 1
+    }
+  },
+  "md": {
+    "snapshots": 21,
+    "steps": 20,
+    "timestep_fs": 0.1,
+    "ensemble": "NVE",
+    "temperature_kelvin": 300,
+    "seed": 20261016,
+    "max_absolute_error": {
+      "position": 8.881784197001252e-16,
+      "velocity": 1.3877787807814457e-17,
+      "energy": 0.0,
+      "force": 1.5543122344752192e-15,
+      "virial": 1.4210854715202004e-14
+    },
+    "tolerance": "1e-9 absolute + 1e-9 relative",
+    "cpu_max_energy_drift_ev": 4.371615432319231e-05,
+    "cuda_max_energy_drift_ev": 4.371615432319231e-05,
+    "whole_process_ms": {
+      "cpu": 1399.5403000153601,
+      "cuda": 387.9971000133082
+    },
+    "trajectory_sha256": {
+      "cpu": "e12fdb615536ef72d3b1991e8472401aaeb225bf00ae63f87caf8ef3cdaecaf2",
+      "cuda": "665b45a91988a23d5ae71a66cf7e27d36a340934339d2004a1e30323e8171766"
+    }
+  },
+  "tests": {
+    "default_cpu_passed": 13,
+    "cuda_feature_cpu_passed": 15,
+    "gpu_tolerance": "1e-9 absolute + 1e-9 relative",
+    "gpu_errors": 0,
+    "retries": 0,
+    "dependencies_added": 0,
+    "shared_contract_or_engine_edits": false
+  },
+  "sha256": {
+    "baseline_check_executable": "0ace9b8483e62a3654da6f4ac40376790de3b92a78de21b2d039c88b2d0c4162",
+    "optimized_check_executable": "e62e83eab45bd1809ef6087db21614560aca78887ca3b4c5b6edf6807b9efc82",
+    "md_engine_executable": "9e282618bc2f38e689a674b24baf1847f9c0fde8b9c57cbfc011eeeb32df5d1e",
+    "edge_recipe": "ca89e31d66d8ecfae72bb5d5a5d6f574640bc044fe67e3a5afdca65c6bddd90d",
+    "lifecycle_frames": "9b9e5087f67bb28243333089d10017ff900919aded0fe3982316b10a6c8d6b45",
+    "boundary_frames": "ddcbcdbe675c8880bdfe82dc8bc687d73e966ba9b49f5f31caa04397b747c730"
+  },
+  "sources": {
+    "descriptor": "https://github.com/deepmodeling/deepmd-kit/blob/v3.1.3/deepmd/dpmodel/descriptor/se_e2_a.py",
+    "networks": "https://github.com/deepmodeling/deepmd-kit/blob/v3.1.3/deepmd/dpmodel/utils/network.py",
+    "cuda": "https://docs.nvidia.com/cuda/cuda-programming-guide/",
+    "public_model": "DeepMD v3.1.3 public deeppot.pbtxt, previously strictly converted; weights remain ignored"
+  },
+  "limitations": [
+    "Tiny and maximum-width four-atom cases remain slower than native CPU.",
+    "Geometry, R/J and final F/virial scatter remain CPU; environment rows and gradients still cross PCIe.",
+    "Three launches and one synchronization remain; no CUDA graphs, asynchronous batching, GPU neighbor search or GPU training.",
+    "Embedding local memory can still be significant at wide/deep limits.",
+    "No claim of generic DeepMD functionality, physical accuracy or long-time MD stability."
+  ],
+  "gpu_window_released_utc": "2026-10-16T07:37:21.4622354Z",
+  "process_check": "No omnimd/Python verification process remained. No further GPU work after release."
+}

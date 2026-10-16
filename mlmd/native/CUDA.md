@@ -6,7 +6,8 @@ checks on original tiny, public converted and 216-atom synthetic fixtures. The
 slower. See the measured results below. The CPU default remains unchanged.
 
 A subsequent host neighbor-cache optimization and same-work before/after
-measurements are documented in [CUDA_INFRA.md](CUDA_INFRA.md).
+measurements are documented in [CUDA_INFRA.md](CUDA_INFRA.md). The next cooperative
+fitting/scratch and persistent-host-workspace tranche is in [CUDA_FIT.md](CUDA_FIT.md).
 
 ## Computation boundary
 
@@ -21,8 +22,8 @@ float64. This is a CPU/CUDA inference pipeline, not CUDA training:
 2. CUDA `embed` evaluates every slot's embedding value `G` and radial derivative
    `dG/dR0`. One thread owns one atom-slot.
 3. CUDA `fit` contracts `B=G^T R/sum(sel)` and `D[m,k]=B[m,:].B[k,:]`, evaluates
-   the fitting network and backpropagates `dE/dD` and `dE/dB`. One thread owns one
-   central atom. Both descriptor factors contribute, including doubled diagonal
+   the fitting network and backpropagates `dE/dD` and `dE/dB`. One 128-thread
+   block cooperates on each central atom using shared memory. Both descriptor factors contribute, including doubled diagonal
    derivatives.
 4. CUDA `pullback` computes `dE/dR`, including the radial embedding chain term.
    Rust downloads only atomic energies and these environment gradients, then
@@ -32,7 +33,8 @@ float64. This is a CPU/CUDA inference pipeline, not CUDA training:
 
 All neural/descriptor arithmetic listed in steps 2-4 executes in real CUDA
 kernels. Geometry and final force/virial reduction remain CPU work. Weights stay
-resident; grow-only workspace buffers are reused. CUDA compilation occurs once
+resident; grow-only device and host workspace buffers are reused. Atom types are
+uploaded again only when their ordered vector changes. CUDA compilation occurs once
 per potential. Parameters are uploaded arrays, not generated source literals.
 The CUDA source specializes dimensions while retaining ordinary bounded loops.
 No fast-math flag is used; FMA contraction is disabled for closer CPU comparison.
@@ -91,9 +93,10 @@ width 32). Neighbor capacity overflow still fails; neighborhoods are not
 truncated. There are no compression tables, GPU neighbor search, GPU Adam or
 mixed-derivative training kernels.
 
-A simple thread-per-slot/thread-per-atom implementation favors reviewable
-correctness and avoids floating-point atomic reduction. Large local scratch
-arrays can spill, and consumer GPUs may have low FP64 throughput. Small models
+Embedding and pullback use one thread per slot; fitting uses one cooperative
+block per atom. Scalar sums retain explicit order and avoid floating-point
+atomic reduction. Embedding local scratch can still spill, and consumer GPUs
+may have low FP64 throughput. Small models
 can be slower after CPU geometry, transfers and launch overhead; no blanket
 speedup or production scaling claim is made.
 

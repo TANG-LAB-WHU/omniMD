@@ -104,7 +104,7 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
     println!(
         "{}",
         serde_json::to_string_pretty(
-            &serde_json::json!({"device":gpu.device_info(),"frames":frames.len(),"atoms":frames.iter().map(|f|f.positions.len()).collect::<Vec<_>>(),"repeats":repeats,
+            &serde_json::json!({"device":gpu.device_info(),"kernel_resources":gpu.kernel_resources(),"frames":frames.len(),"atoms":frames.iter().map(|f|f.positions.len()).collect::<Vec<_>>(),"repeats":repeats,
         "first_evaluation_ms":first_evaluation_ms,"first_profiles":first_profiles,"last_profile":gpu.last_profile(),"profile_total_ms":{"prepare":profile[0],"upload_and_allocation":profile[1],"kernels_and_sync":profile[2],"download":profile[3],"reduction":profile[4]},"max_abs_energy_force_virial":max,"comparison_tolerance":"1e-9 absolute + 1e-9 relative","startup_ms":startup_ms,"warmed_cpu_total_ms":cpu_ms,"warmed_cuda_total_ms":cuda_ms,"cpu_over_cuda_speed_ratio":cpu_ms/cuda_ms,
         "timing_scope":"same-model end-to-end EFV; excludes initialization, includes CPU geometry, transfers, kernels and force/virial reduction; single bounded run, not a general benchmark"})
         )?
