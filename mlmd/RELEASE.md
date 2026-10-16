@@ -963,3 +963,36 @@ Candidate stays local and unpushed. Prior `06439f1` Linux v7/v8 evidence remains
 for its recorded candidate only; new v9 Linux execution is unverified. Wider
 architectures, production physical data and general throughput remain open.
 No further feature started in this integration.
+
+## Local physical-label pipeline evidence: model quality unsuitable
+
+Documentation-only commit `fd19b9f492d32fe597599ebcfe7e1e0e5fea3710`, directly
+based on `8167a4a3f3ff8d67f53c22f911f3ff31f053fa5d`, is integrated unchanged.
+It adds [the experiment report](PHYSICAL_DATA_VALIDATION.md), a validation index
+entry and [compact receipt](evidence/physical-nopbc-training.json). This follow-up
+updates the top-level scope, guide/workflow, engine entry and feature matrix.
+Runtime code, dependencies and schema behavior are unchanged. No tests, GPU runs,
+downloads or tuning were repeated, and no public push was performed.
+
+The official pinned DeepMD `nopbc` example supplied published Gaussian 16
+MN15/6-31G** E/F labels with retained source/license attribution. The 531-parameter
+native model used a fixed 168 training/43 index-held-out split and 1,000 GPU updates.
+Held-out E/atom RMSE improved 0.569513->0.455950 eV/atom, but force RMSE worsened
+3.933565->4.164336 eV/angstrom. Training force error also worsened. **Pipeline
+feasibility passed; the resulting model is unsuitable for scientific acceptance
+or production use.** Numerical parity cannot replace physical-label accuracy.
+
+Three held-out frames gave maximum CPU/GPU E/F/virial differences
+0/4.44e-16/8.88e-16; export reload differences were zero. No physical virial labels
+were available. This checks inference/export, not optimizer-trajectory equivalence.
+The Linux/WSL2 run exercised only 7-10-atom frames with the default 64-atom
+ceiling and v8; new v9 remains unverified on Linux. Its 100+900 continuation was a timing-only decision, not a
+new uninterrupted/resumed equivalence experiment. Original trajectory identities
+are unavailable, and the index-held-out split does not prove independence or
+transferability. No performance or chemical-accuracy claim follows.
+
+Downloaded source arrays, experiment helpers, initialized/trained models,
+checkpoints and raw logs remain task-local and are not added to Git. This
+integration retains the recorded negative baseline without diagnosing its cause
+or duplicating the separate fixed-split follow-up. No HAP material or system
+change is included; the coherent candidate remains local and unpushed.

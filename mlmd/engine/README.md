@@ -136,6 +136,15 @@ and the [final receipt](../evidence/native-large-frame-integrated.json) for actu
 256-atom forwarding, exact 2+2 restart and refusals. Capacity expansion does not
 promise speed; new v9 Linux execution remains unverified.
 
+The [physical-label pilot](../PHYSICAL_DATA_VALIDATION.md) completed the training/
+export pipeline on 168 training and 43 index-held-out `nopbc` frames, but model
+quality was unsuitable: held-out E/atom RMSE improved 0.569513->0.455950 eV/atom
+while force RMSE worsened 3.933565->4.164336 eV/angstrom. Numerical CPU/GPU parity
+is distinct from physical-label accuracy. This Linux run used 7-10-atom frames
+with the default 64-atom ceiling and v8; it provides no new v9 coverage or
+scientific acceptance. See
+[step 26](../GETTING_STARTED.md#26-interpret-the-physical-label-pilot-and-its-negative-result).
+
 ## Dataset workflows
 
 See [DATA.md](DATA.md) for explicit DeepMD NPY import, batch predictions and

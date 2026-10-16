@@ -80,8 +80,9 @@ readout with descriptor/embedding and hidden layers frozen; see
 The wrapper runs the adjacent omnimd-native-train executable unchanged.
 Choose validation IDs appropriate to your own dataset; the example IDs are
 placeholders. Inspect training/validation metrics and rank in report.json.
-Validation labels never enter the fit. Then use the saved model.json as
-native_model for subsequent commands.
+Validation labels never enter the fit. Confirm model suitability from held-out
+metrics and the intended physical use before selecting the saved model.json as
+native_model for subsequent commands. A successful fit/export alone is insufficient.
 
 For all neural weights/biases/timesteps in the supported tanh network, use the
 complete omnimd-native-full-train-v1 request in
@@ -104,6 +105,13 @@ adds explicit `cuda_tiling.max_atoms_per_frame=64..256`; >64 selects v9 and
 GPU-loss backend v2. Default 64 and CPU/untiled limits remain. Unchanged work/payload
 budgets can reject frames below the configured ceiling: the 466-parameter example
 fits only 138 atoms and rejects 256. New v9 Linux execution remains unverified.
+
+The [physical-label pilot](PHYSICAL_DATA_VALIDATION.md) illustrates that distinction:
+1,000 GPU updates completed on 168 training/43 index-held-out physical-label frames,
+but held-out force RMSE worsened 3.933565->4.164336 eV/angstrom while energy/atom
+RMSE improved 0.569513->0.455950 eV/atom. That exported model is unsuitable for
+scientific minimization or MD. Its three-frame CPU/GPU parity and successful
+export do not establish physical accuracy. See [step 26](GETTING_STARTED.md#26-interpret-the-physical-label-pilot-and-its-negative-result).
 
 ## 4. Minimize at fixed cell
 

@@ -10,7 +10,9 @@ retain CPU geometry, reduction and assessment; see step 13. Prediction/loss seed
 remain CPU by default, with an explicit tiled GPU option in step 23. The later
 `06439f1` candidate passed the bounded Linux native CUDA check in step 24; its
 runtime and fixture scope do not generalize to other Linux configurations or
-the later v9 large-frame path in step 25.
+the later v9 large-frame path in step 25. Step 26 records a physical-label pilot
+whose pipeline passed but whose model quality was unsuitable; numerical parity
+and a successful process exit do not establish a usable physical model.
 
 All commands below run from the repository root. `omnimd-mlmd` means the binary
 built in step 1, not a globally installed program. Use its full path unless you
@@ -1253,3 +1255,51 @@ python mlmd/scripts/validate_large_frame_integration.py --engine ENGINE_EXE --ba
 
 It stops on the first unexpected failure without retry. Larger models, production
 physical data, new v9 Linux execution and cross-platform restart remain unverified.
+
+## 26. Interpret the physical-label pilot and its negative result
+
+The unchanged `8167a4a` runtime completed one bounded fit on published Gaussian 16
+MN15/6-31G** E/F labels in the official pinned DeepMD `nopbc` example. These are
+published quantum-chemical labels, not synthetic neural-teacher outputs. The
+[experiment and provenance](PHYSICAL_DATA_VALIDATION.md) retain source/version,
+CC BY 4.0 dataset attribution, official LGPL distribution attribution, input
+hashes, exact split IDs and the frozen configuration.
+
+**Pipeline feasibility passed; the resulting model is unsuitable for scientific
+acceptance or production use.** The 531-parameter native `se_e2_a` model trained
+for 1,000 GPU updates on 168 frames, with 43 index-held-out frames:
+
+| RMSE | Initialized model | After 1,000 updates |
+| --- | ---: | ---: |
+| Training energy per atom, eV/atom | 0.775821 | 0.593012 |
+| Training force components, eV/angstrom | 6.970691 | 7.170289 |
+| Held-out energy per atom, eV/atom | 0.569513 | 0.455950 |
+| Held-out force components, eV/angstrom | 3.933565 | 4.164336 |
+
+Energy/atom RMSE is `sqrt(mean_frames((DeltaE/N_atoms)^2))`; force RMSE is
+`sqrt(sum_components(DeltaF^2)/component_count)`. Both training and held-out force
+errors worsened. Energy improvement alone does not make the exported model
+suitable for subsequent scientific minimization or MD. This result identifies
+no established cause; initialization, normalization and loss-scale diagnosis
+is separate work.
+
+Independent CPU evaluation of initial/final exports reproduced the report metrics.
+On three held-out frames, CPU/GPU inference differences were E 0 eV, F 4.44e-16
+eV/angstrom and virial 8.88e-16 eV; export reload differences were zero. These are arithmetic/export
+checks, not chemical accuracy or CPU/GPU optimizer-trajectory equivalence. There
+were no physical virial labels, so virial was neither supervised nor assessed
+against a physical reference.
+
+The split was fixed before model computation and used no validation labels in
+the baseline or fit. Original trajectory identities are unavailable: index gaps
+and the geometric duplicate screen do not prove statistical independence or
+chemical transferability. All frames contain 7-10 atoms and use the default
+64-atom ceiling and v8 on the recorded Linux/WSL2 runtime. The 100+900-update timing-only continuation does
+not constitute a separate exact uninterrupted/resumed comparison. It does not
+validate the new large-frame/v9 path, long MD or general throughput.
+
+The [receipt](evidence/physical-nopbc-training.json) records the complete result.
+Only documentation and compact evidence are tracked; downloaded arrays, helper
+scripts, initialized/trained models, checkpoints and raw logs remain task-local.
+The saved-experiment instructions describe that fixed run. This documentation
+integration performs no new training or parameter tuning.

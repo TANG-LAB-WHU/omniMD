@@ -5,6 +5,15 @@ from upstream main 761b2484feee132426183c9b66ff2b126d1f7c4a and adds a separate
 CPU MLIP workspace with one fallible, explicit-unit, float64 E/F/virial contract.
 It is an initial software delivery, not a physical model or a performance claim.
 
+The [physical-label training pilot](mlmd/PHYSICAL_DATA_VALIDATION.md) completed
+1,000 native GPU updates on the official DeepMD `nopbc` example (168 training /
+43 index-held-out frames, 531 parameters). **Pipeline feasibility passed; the
+resulting model is unsuitable for scientific acceptance or production use.**
+Held-out energy/atom RMSE improved 0.569513->0.455950 eV/atom, while force RMSE
+worsened 3.933565->4.164336 eV/angstrom. CPU/GPU inference agreement does not
+establish label accuracy. Only 7-10-atom default-limit/v8 frames were exercised;
+this result does not validate the later large-frame/v9 path.
+
 The CPU baseline was published as fce0af9f6a49592a48c13883dfc3aa0d3eb4a28e.
 The [CUDA release 9074817](https://github.com/TANG-LAB-WHU/omniMD/commit/907481708ae5f3df4228a9fb5d5b1110c39f5e23)
 is now published on shawn_dev. It adds two explicitly selected inference paths

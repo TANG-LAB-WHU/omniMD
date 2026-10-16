@@ -124,7 +124,10 @@ with executable commands; pending branch work is not counted as integrated.
   restore remain unverified.
 - NPT, constraints, domain decomposition, broader classical coupling and external
   MD ecosystem adapters remain separate simulation gaps. Physical accuracy and
-  production stability have not been established by the software fixtures.
+  production stability have not been established. The
+  [physical-label pilot](mlmd/PHYSICAL_DATA_VALIDATION.md) demonstrated pipeline
+  feasibility but worsened held-out force error; that model is unsuitable for
+  scientific acceptance or production use.
 
 ## Delivered: optional reverse CUDA joint gradients
 
@@ -300,6 +303,22 @@ B's separate independent derivative/capacity checks and 12-update measurements
 are recorded in the [native contract](mlmd/native/LARGE_FRAME_TRAINING.md).
 The process observations were 1554 ms CPU-loss CUDA and 1721 ms GPU-loss CUDA;
 this delivery expands admitted capacity, not demonstrated throughput.
+
+## Physical-label pilot: pipeline passed, model quality unsuitable
+
+The unchanged `8167a4a` candidate completed 1,000 GPU updates with published
+MN15/6-31G** E/F labels from the official DeepMD `nopbc` example: 531 neural
+parameters, 168 training and 43 index-held-out frames, 7-10 atoms/frame. Held-out
+energy/atom RMSE improved 0.569513->0.455950 eV/atom, but force RMSE worsened
+3.933565->4.164336 eV/angstrom; training force error worsened as well. The
+[recorded experiment](mlmd/PHYSICAL_DATA_VALIDATION.md) demonstrates bounded data/
+training/export feasibility and tested inference consistency, not model quality.
+
+Original trajectory identities are unavailable, so the split does not establish
+independent-trajectory accuracy or transferability. No physical virial labels
+exist. The Linux run used the default 64-atom ceiling and v8, not the new
+large-frame/v9 path. Follow-up diagnosis is separate from this fixed baseline; this documentation integration
+adds no new experiment, tuning result, causal explanation or performance claim.
 
 ## Remaining end-to-end and model limits
 
