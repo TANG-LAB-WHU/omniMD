@@ -341,13 +341,20 @@ fn write_snapshot<P: Potential>(
     md: &MlipDynamics<P>,
     state: &EnsembleState,
 ) -> Result<(), Box<dyn Error>> {
+    // Reuse diagnostics while this immutable snapshot is validated and written.
+    // Keep the existing kinetic sum and temperature calculation order.
+    let time_fs = md.system().step as f64 * md.timestep_fs();
+    let kinetic_energy_ev = md.kinetic_energy_ev();
+    let total_energy_ev = md.evaluation().energy + kinetic_energy_ev;
+    let temperature_kelvin = md.temperature_kelvin();
+    let effective_energy_ev = total_energy_ev - state.heat_ev;
     let diagnostics = [
-        md.system().step as f64 * md.timestep_fs(),
-        md.kinetic_energy_ev(),
-        md.total_energy_ev(),
-        md.temperature_kelvin(),
+        time_fs,
+        kinetic_energy_ev,
+        total_energy_ev,
+        temperature_kelvin,
         state.heat_ev,
-        md.total_energy_ev() - state.heat_ev,
+        effective_energy_ev,
     ];
     if diagnostics.iter().any(|v| !v.is_finite()) {
         return Err("nonfinite trajectory diagnostic".into());
@@ -363,12 +370,12 @@ fn write_snapshot<P: Potential>(
         &mut *writer,
         &json!({
             "kind":"frame", "step":md.system().step,
-            "time_fs": md.system().step as f64 * md.timestep_fs(),
+            "time_fs": time_fs,
             "frame":md.frame(), "velocities": velocities,
-            "evaluation":md.evaluation(), "kinetic_energy_ev": md.kinetic_energy_ev(),
-            "total_energy_ev":md.total_energy_ev(), "temperature_kelvin":md.temperature_kelvin(),
+            "evaluation":md.evaluation(), "kinetic_energy_ev": kinetic_energy_ev,
+            "total_energy_ev":total_energy_ev, "temperature_kelvin":temperature_kelvin,
             "thermostat_heat_ev":state.heat_ev,
-            "effective_energy_ev":md.total_energy_ev()-state.heat_ev
+            "effective_energy_ev":effective_energy_ev
         }),
     )?;
     writer.write_all(b"\n")?;
@@ -448,9 +455,10 @@ fn worker(input: &Path, output: Option<&Path>) -> Result<(), Box<dyn Error>> {
     let mut max_effective_drift = 0.0_f64;
     for step in 1..=request.steps {
         state.advance(&mut md)?;
-        max_drift = max_drift.max((md.total_energy_ev() - initial).abs());
-        max_effective_drift = max_effective_drift
-            .max((md.total_energy_ev() - state.heat_ev - initial_effective).abs());
+        let total_energy_ev = md.total_energy_ev();
+        max_drift = max_drift.max((total_energy_ev - initial).abs());
+        max_effective_drift =
+            max_effective_drift.max((total_energy_ev - state.heat_ev - initial_effective).abs());
         if step % request.sample_every == 0 || step == request.steps {
             write_snapshot(&mut writer, &md, &state)?;
             writer.flush()?;

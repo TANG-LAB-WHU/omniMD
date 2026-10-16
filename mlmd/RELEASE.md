@@ -1032,3 +1032,20 @@ Static checks cover the recorded request differences, retained baseline metrics,
 diagnostic evidence hashes and document links. Downloaded data, models, helpers,
 checkpoints and raw logs remain task-local. No further diagnosis or compute was
 performed here; the coherent candidate remains local and unpushed.
+
+## Engine diagnostic reuse before CUDA performance integration
+
+The comparison baseline remains `201cdef0626bd9308bcff07faef4c5ae3aa9d93a`.
+The engine now reuses scalar diagnostics while validating and writing an immutable
+trajectory snapshot, and reuses total energy for the two drift calculations per
+step. This removes redundant CPU particle traversals while retaining the existing
+kinetic sum, temperature arithmetic, finite checks, output schema and flush cadence.
+Native code, shared contracts, dependency files and GPU execution are unchanged.
+
+CPU-only release builds and two 16-step NVE/NVT comparisons passed: every parsed
+trajectory field matched the baseline after normalizing only the output checkpoint
+path; periodic and final checkpoint bytes matched exactly. The
+[receipt](evidence/engine-diagnostic-reuse.json) retains executable/input hashes
+and the local replay path. This is a narrow CPU-work reduction, not a measured
+end-to-end or GPU speedup. Native CUDA performance integration and workload-specific
+English guidance await measured evidence. No public push is included.
