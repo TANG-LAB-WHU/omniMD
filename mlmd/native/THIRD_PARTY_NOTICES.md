@@ -196,3 +196,7 @@ No dependency, model, driver or toolkit download was introduced.
 The cached CUDA reverse-over-forward kernels, scratch planner and synthetic
 replay are original MIT code implementing standard chain rules; no third-party
 AD or optimizer source was copied and no additional dependency was introduced.
+
+The fixed training-frame geometry cache, exact identity checks and cache-on/off
+replays are original MIT code, sharing the existing native environment and neighbor
+formulas. No external cache implementation or new dependency was incorporated.

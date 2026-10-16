@@ -45,12 +45,15 @@ def main():
     parser.add_argument('--output-dir', type=Path, required=True)
     parser.add_argument('--device', default='cpu', help='cpu or explicit cuda:N; CUDA requires an authorized GPU window')
     parser.add_argument('--cuda-gradient', choices=['hyperdual','reverse'], default='hyperdual')
+    parser.add_argument('--fixed-geometry-cache',action='store_true')
     parser.add_argument('--compare-cpu', action='store_true', help='Compare CUDA result with a separate CPU reference fit')
     parser.add_argument('--virial-weight', type=float, help='Enable all-nine-component per-atom virial loss with this positive weight')
     parser.add_argument('--virial-scale-ev-per-atom', type=float, default=0.1)
     args = parser.parse_args()
     if args.device != 'cpu' and not (args.device.startswith('cuda:') and args.device[5:].isascii() and args.device[5:].isdecimal()):
         raise ValueError('device must be cpu or cuda:N')
+    if args.fixed_geometry_cache and args.device == 'cpu':
+        raise ValueError('fixed geometry cache requires explicit CUDA full training')
     if args.cuda_gradient == 'reverse' and args.device == 'cpu':
         raise ValueError('reverse requires explicit CUDA device')
     if args.compare_cpu and args.device == 'cpu':
@@ -101,6 +104,8 @@ def main():
             'energy_weight':1.,'force_weight':1.,'energy_scale_ev_per_atom':.1,'force_scale_ev_per_angstrom':.1,
             'learning_rate':.005,'beta1':.9,'beta2':.999,'epsilon':1e-8,
             'gradient_clip_norm':10.,'checkpoint_every':150}}
+    if args.fixed_geometry_cache:
+        request['config']['fixed_geometry_cache']=True
     if args.cuda_gradient == 'reverse':
         request['config']['cuda_gradient'] = 'reverse'
     if args.virial_weight is not None:
@@ -145,6 +150,7 @@ def main():
         reference = deepcopy(request)
         reference.update(device='cpu', output_directory='cpu-reference')
         reference['config'].pop('cuda_gradient', None)
+        reference['config'].pop('fixed_geometry_cache', None)
         write(output/'cpu-reference.request.json', reference)
         started = time.perf_counter()
         run([trainer,output/'cpu-reference.request.json'])
@@ -169,7 +175,7 @@ def main():
                       'cpu_complete_training_process_ms':cpu_process_ms,'cuda_complete_training_process_ms':continuous_process_ms,
                       'cpu_final_training':cpu_report['final_training'],'cpu_final_validation':cpu_report['final_validation']}
     receipt = {'scope':'full supported tanh network; original synthetic teacher; no physical accuracy claim',
-        'device':args.device,'cuda_gradient':args.cuda_gradient,'cuda_gradient_profile':report.get('cuda_gradient_profile'),'execution':report['execution'],'execution_scope':report['execution_scope'],'timing':report['timing'],
+        'device':args.device,'fixed_geometry_cache':report.get('fixed_geometry_cache'),'cuda_gradient':args.cuda_gradient,'cuda_gradient_profile':report.get('cuda_gradient_profile'),'execution':report['execution'],'execution_scope':report['execution_scope'],'timing':report['timing'],
         'cpu_comparison':comparison,'checkpoint_schema':a['schema'],'loss_contract':report['loss_contract'],
         'virial_loss':request['config'].get('virial_loss'),'complete_training_process_ms':continuous_process_ms,
         'process_timing_scope':'one training subprocess: input IO, initialization, all updates, initial/final assessment, checkpoints, model serialization/reload verification and export; excludes label generation, replay and separate evaluation subprocesses',

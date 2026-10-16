@@ -13,6 +13,7 @@ fn model() -> Model {
 }
 fn config(steps: u64) -> FullConfig {
     FullConfig {
+        fixed_geometry_cache: false,
         cuda_gradient: Default::default(),
         split: Split::Explicit {
             validation_ids: vec!["case/2".into()],
@@ -466,5 +467,154 @@ fn reverse_profile_and_growing_scratch() {
     println!(
         "{}",
         serde_json::json!({"profile_cases":reports,"growth_shrink_verified":true})
+    );
+}
+
+#[test]
+fn fixed_geometry_config_keeps_legacy_serialization_and_allows_runtime_toggle() {
+    let m = model();
+    let d = dataset(&m);
+    let mut c = config(2);
+    c.cuda_gradient = CudaGradient::Reverse;
+    let state = Checkpoint::start(&m, &d, &c).unwrap();
+    assert!(serde_json::to_value(&c)
+        .unwrap()
+        .get("fixed_geometry_cache")
+        .is_none());
+    c.fixed_geometry_cache = true;
+    state
+        .validate_for_device(&d, &c, TrainingDevice::Cuda { visible_device: 0 })
+        .unwrap();
+    assert!(state
+        .validate_for_device(&d, &c, TrainingDevice::Cpu)
+        .is_err());
+    let mut many = dataset(&m);
+    let mut frame = pair_record(&m, 64);
+    many.frames = (0..400)
+        .map(|i| {
+            frame.index = i;
+            frame.id = format!("large/{i}");
+            frame.clone()
+        })
+        .collect();
+    c.split = Split::Explicit {
+        validation_ids: vec!["large/399".into()],
+    };
+    let large = Checkpoint::start(&m, &many, &c).unwrap();
+    assert!(large
+        .validate_for_device(
+            &many,
+            &c,
+            TrainingDevice::Cuda {
+                visible_device: 2147483647
+            }
+        )
+        .unwrap_err()
+        .0
+        .contains("cache payload"));
+}
+#[test]
+#[ignore = "requires an authorized exclusive GPU window"]
+fn fixed_geometry_gradients_adam_switching_restart_and_profile() {
+    let m = model();
+    let d = dataset(&m);
+    let dev = TrainingDevice::Cuda { visible_device: 0 };
+    let mut evidence = Vec::new();
+    for executor in [CudaGradient::Hyperdual, CudaGradient::Reverse] {
+        let mut off = CudaFullTrainer::new_with_gradient(m.clone(), 0, executor).unwrap();
+        let mut on = CudaFullTrainer::new_with_gradient(m.clone(), 0, executor).unwrap();
+        on.prepare_fixed_geometry_cache(&d, &[0, 1, 2]).unwrap();
+        let mut p0 = FullGradientProfile::default();
+        let mut p1 = FullGradientProfile::default();
+        for step in 0..3 {
+            for mode in 0..4 {
+                let mut c = config(1);
+                c.cuda_gradient = executor;
+                if mode < 3 {
+                    c.energy_weight = if mode == 0 { 1.0 } else { 0.0 };
+                    c.force_weight = if mode == 1 { 1.0 } else { 0.0 };
+                    if mode < 2 {
+                        c.virial_loss = None;
+                    }
+                }
+                for r in &d.frames {
+                    let mut changed = r.clone();
+                    changed
+                        .labels
+                        .energy
+                        .as_mut()
+                        .map(|x| *x += step as f64 * 0.01);
+                    if step == 1 {
+                        changed.labels.forces.as_mut().unwrap()[0][1] += 0.02;
+                        changed.labels.virial.as_mut().unwrap()[0][2] -= 0.03;
+                    }
+                    let a = off
+                        .frame_gradient_with_virial(&changed, &c.loss(), c.virial_loss.as_ref(), 3)
+                        .unwrap();
+                    let b = on
+                        .frame_gradient_with_virial(&changed, &c.loss(), c.virial_loss.as_ref(), 3)
+                        .unwrap();
+                    assert_eq!(a, b);
+                    p0.add(off.last_profile());
+                    p1.add(on.last_profile());
+                    if mode == 3 {
+                        off.adam_step(&a.1, &c).unwrap();
+                        on.adam_step(&b.1, &c).unwrap();
+                        assert_eq!(
+                            serde_json::to_vec(off.model()).unwrap(),
+                            serde_json::to_vec(on.model()).unwrap()
+                        );
+                        assert_eq!(off.moments(), on.moments());
+                    }
+                }
+            }
+        }
+        let mut c = config(2);
+        c.cuda_gradient = executor;
+        let initial = Checkpoint::start(&m, &d, &c).unwrap();
+        let a = train_full_with_device(initial.clone(), &d, &c, dev, |_| Ok(())).unwrap();
+        c.fixed_geometry_cache = true;
+        let b = train_full_with_device(initial.clone(), &d, &c, dev, |_| Ok(())).unwrap();
+        let strip = |s: &Checkpoint| {
+            let mut v = serde_json::to_value(s).unwrap();
+            v["config"]
+                .as_object_mut()
+                .unwrap()
+                .remove("fixed_geometry_cache");
+            v["config"].as_object_mut().unwrap().remove("steps");
+            v
+        };
+        assert_eq!(strip(&a.checkpoint), strip(&b.checkpoint));
+        assert_eq!(b.report.fixed_geometry_cache.as_ref().unwrap().hits, 4);
+        let restored: Checkpoint =
+            serde_json::from_slice(&serde_json::to_vec(&a.checkpoint).unwrap()).unwrap();
+        let resumed = train_full_with_device(restored, &d, &c, dev, |_| Ok(())).unwrap();
+        c.steps = 4;
+        let continuous = train_full_with_device(initial.clone(), &d, &c, dev, |_| Ok(())).unwrap();
+        assert_eq!(strip(&resumed.checkpoint), strip(&continuous.checkpoint));
+        c.steps = 2;
+        c.fixed_geometry_cache = false;
+        let restored: Checkpoint =
+            serde_json::from_slice(&serde_json::to_vec(&b.checkpoint).unwrap()).unwrap();
+        let resumed = train_full_with_device(restored, &d, &c, dev, |_| Ok(())).unwrap();
+        assert_eq!(strip(&resumed.checkpoint), strip(&continuous.checkpoint));
+        let stats = on.fixed_geometry_stats().unwrap();
+        let mut changed = d.frames[0].clone();
+        changed.frame.positions[0][0] += 0.001;
+        assert!(on
+            .frame_gradient(&changed, &c.loss(), 1)
+            .unwrap_err()
+            .0
+            .contains("identity changed"));
+        assert!(on
+            .frame_gradient(&d.frames[0], &c.loss(), 1)
+            .unwrap_err()
+            .0
+            .contains("earlier failure"));
+        evidence.push(serde_json::json!({"executor":executor,"all_gradients_and_adam_bitwise_equal":true,"off_to_on_and_on_to_off_restart_exact":true,"identity_mismatch_stops_trainer":true,"cache":stats,"uncached_profile":p0,"cached_profile":p1}));
+    }
+    println!(
+        "{}",
+        serde_json::json!({"fixed_geometry_acceptance":evidence})
     );
 }

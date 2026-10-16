@@ -319,3 +319,5 @@ CPU remains the default. See [CUDA.md](CUDA.md) for actual GPU/CPU computation
 boundaries, build/runtime requirements, strict limits and verification status.
 
 Opt-in CUDA full-training gradient optimization: [cached reverse accumulation](CUDA_REVERSE_TRAINING.md).
+
+Optional fixed-frame CUDA training preparation: [bounded geometry cache](FIXED_GEOMETRY_TRAINING.md).

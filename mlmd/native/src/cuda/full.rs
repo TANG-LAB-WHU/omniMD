@@ -5,12 +5,13 @@ use super::{
     PackedModel, Runtime,
 };
 use crate::{
+    fixed_geometry::{FixedGeometryCache, FixedGeometryStats},
     full_gradient::ParameterLayout,
     full_loss::{validate_loss, validate_record, LossSeeds, VirialLoss},
     full_training::{Checkpoint, CudaGradient, FullConfig, FullExecution},
     neighbor::Geometry,
     training::TrainConfig,
-    training_data::DatasetFrame,
+    training_data::{Dataset, DatasetFrame},
     Model, NativePotential,
 };
 use omnimd_ml_contract::{Error, Potential, Result};
@@ -156,6 +157,7 @@ pub struct CudaFullTrainer {
     second: Vec<f64>,
     execution: FullExecution,
     poisoned: bool,
+    fixed_geometry: Option<FixedGeometryCache>,
 }
 impl CudaFullTrainer {
     pub fn new(model: Model, device: i32) -> Result<Self> {
@@ -256,7 +258,35 @@ impl CudaFullTrainer {
             second,
             execution,
             poisoned: false,
+            fixed_geometry: None,
         })
+    }
+    /// Eager all-or-error cache preparation for a fixed, explicitly selected frame set.
+    pub fn prepare_fixed_geometry_cache(
+        &mut self,
+        dataset: &Dataset,
+        indices: &[usize],
+    ) -> Result<()> {
+        if self.fixed_geometry.is_some() {
+            return Err(Error(
+                "fixed geometry cache already attached; recreate trainer".into(),
+            ));
+        }
+        let cache = FixedGeometryCache::new(self.cpu.model(), dataset, indices)?;
+        self.attach_fixed_geometry_cache(Some(cache))
+    }
+    pub(crate) fn attach_fixed_geometry_cache(
+        &mut self,
+        cache: Option<FixedGeometryCache>,
+    ) -> Result<()> {
+        if self.fixed_geometry.is_some() {
+            return Err(Error("fixed geometry cache already attached".into()));
+        }
+        self.fixed_geometry = cache;
+        Ok(())
+    }
+    pub fn fixed_geometry_stats(&self) -> Option<FixedGeometryStats> {
+        self.fixed_geometry.as_ref().map(FixedGeometryCache::stats)
     }
     pub fn last_profile(&self) -> FullGradientProfile {
         self.profile
@@ -328,32 +358,62 @@ impl CudaFullTrainer {
             ..Default::default()
         };
         let phase = std::time::Instant::now();
-        let predicted = self.cpu.eval(&record.frame)?;
+        let prepared = match &mut self.fixed_geometry {
+            Some(cache) => Some(cache.get(&self.cpu, record)?),
+            None => None,
+        };
+        let lookup_ms = phase.elapsed().as_secs_f64() * 1000.;
+        let phase = std::time::Instant::now();
+        let predicted = match prepared {
+            Some(frame) => self.cpu.eval_prepared(frame)?,
+            None => self.cpu.eval(&record.frame)?,
+        };
         let seeds = LossSeeds::new(&predicted, record, loss, virial, normalizing_frames)?;
         self.profile.prediction_and_seeds_ms = phase.elapsed().as_secs_f64() * 1000.;
         let phase = std::time::Instant::now();
         let model = self.cpu.model();
         let d = &model.descriptor;
-        let types = record.frame.type_ids(self.cpu.metadata())?;
-        let geometry = Geometry::new(&record.frame, d.rcut)?;
-        let mut rows = Vec::new();
-        let mut tangent = Vec::new();
-        for center in 0..n {
-            let kind = types[center] as usize;
-            let groups = geometry.neighbors(&record.frame, &types, center, &d.sel)?;
-            for (species, group) in groups.iter().enumerate() {
-                for slot in 0..d.sel[species] {
-                    let neighbor = group.get(slot);
-                    let (r, jac) =
-                        crate::environment(neighbor, &d.normalization[kind], d.rcut_smth, d.rcut);
-                    rows.extend(r);
-                    for a in 0..4 {
-                        tangent.push(neighbor.map_or(0.0, |q| seeds.tangent(jac[a], q, center)));
+        let mut uncached_rows = Vec::new();
+        let uncached_types;
+        let mut tangent = Vec::with_capacity(n * d.sel.iter().sum::<usize>() * 4);
+        let (rows, types) = if let Some(frame) = prepared {
+            for (i, slot) in frame.slots.iter().enumerate() {
+                let center = i / frame.slots_per_atom;
+                for a in 0..4 {
+                    tangent.push(
+                        slot.neighbor
+                            .as_ref()
+                            .map_or(0.0, |q| seeds.tangent(slot.jac[a], q, center)),
+                    );
+                }
+            }
+            (frame.rows.as_ref(), frame.types.as_ref())
+        } else {
+            uncached_types = record.frame.type_ids(self.cpu.metadata())?;
+            let geometry = Geometry::new(&record.frame, d.rcut)?;
+            for center in 0..n {
+                let kind = uncached_types[center] as usize;
+                let groups = geometry.neighbors(&record.frame, &uncached_types, center, &d.sel)?;
+                for (species, group) in groups.iter().enumerate() {
+                    for slot in 0..d.sel[species] {
+                        let neighbor = group.get(slot);
+                        let (r, jac) = crate::environment(
+                            neighbor,
+                            &d.normalization[kind],
+                            d.rcut_smth,
+                            d.rcut,
+                        );
+                        uncached_rows.extend(r);
+                        for a in 0..4 {
+                            tangent
+                                .push(neighbor.map_or(0.0, |q| seeds.tangent(jac[a], q, center)));
+                        }
                     }
                 }
             }
-        }
-        self.profile.geometry_ms = phase.elapsed().as_secs_f64() * 1000.;
+            (uncached_rows.as_slice(), uncached_types.as_slice())
+        };
+        self.profile.geometry_ms = lookup_ms + phase.elapsed().as_secs_f64() * 1000.;
         let p = self.layout.parameters.len();
         let (atomic_gradient, energy) = match &resources {
             Some(r) => self

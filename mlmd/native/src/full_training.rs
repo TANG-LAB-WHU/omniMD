@@ -65,9 +65,15 @@ pub struct FullTiming {
     pub assessment_ms: f64,
 }
 
+fn cache_disabled(value: &bool) -> bool {
+    !*value
+}
+
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct FullConfig {
+    #[serde(default, skip_serializing_if = "cache_disabled")]
+    pub fixed_geometry_cache: bool,
     #[serde(default, skip_serializing_if = "CudaGradient::is_default")]
     pub cuda_gradient: CudaGradient,
     pub split: Split,
@@ -121,6 +127,8 @@ impl FullConfig {
     fn restart_key(&self) -> serde_json::Value {
         let mut key = serde_json::to_value(self).unwrap();
         key.as_object_mut().unwrap().remove("steps");
+        // Geometry reuse does not change numerical state; safe to toggle at restart.
+        key.as_object_mut().unwrap().remove("fixed_geometry_cache");
         key
     }
 }
@@ -161,6 +169,9 @@ pub struct FullReport {
     #[cfg(feature = "cuda")]
     #[serde(skip_serializing_if = "Option::is_none")]
     pub cuda_gradient_profile: Option<crate::cuda::FullGradientProfile>,
+    #[cfg(feature = "cuda")]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub fixed_geometry_cache: Option<crate::cuda::FixedGeometryStats>,
     pub config: FullConfig,
     pub step_start: u64,
     pub step_end: u64,
@@ -284,6 +295,15 @@ impl Checkpoint {
             ));
         }
         self.validate(dataset, config)?;
+        if config.fixed_geometry_cache && device == TrainingDevice::Cpu {
+            return Err(Error(
+                "fixed_geometry_cache requires explicit CUDA full training; no fallback".into(),
+            ));
+        }
+        #[cfg(feature = "cuda")]
+        if config.fixed_geometry_cache {
+            crate::fixed_geometry::estimate(&self.model, dataset, &self.training_indices)?;
+        }
         if self
             .step
             .checked_add(config.steps)
@@ -407,7 +427,17 @@ pub fn train_full_with_device(
     let layout = state.validate(dataset, config)?;
     #[cfg(feature = "cuda")]
     let mut cuda = if let TrainingDevice::Cuda { visible_device } = device {
-        let gpu = crate::cuda::CudaFullTrainer::restore(&state, visible_device)?;
+        let cache = if config.fixed_geometry_cache {
+            Some(crate::fixed_geometry::FixedGeometryCache::new(
+                &state.model,
+                dataset,
+                &state.training_indices,
+            )?)
+        } else {
+            None
+        };
+        let mut gpu = crate::cuda::CudaFullTrainer::restore(&state, visible_device)?;
+        gpu.attach_fixed_geometry_cache(cache)?;
         state.execution = gpu.execution().clone();
         state.schema = checkpoint_schema(&state.execution, config).into();
         Some(gpu)
@@ -592,11 +622,14 @@ pub fn train_full_with_device(
     } else {
         "CUDA all-neural-parameter mixed derivatives and Adam; CPU inference/loss cotangents, geometry, stable atom/frame reduction, clipping and assessment"
     };
+    #[cfg(feature = "cuda")]
+    let fixed_geometry_cache = cuda.as_ref().and_then(|gpu| gpu.fixed_geometry_stats());
     let report=FullReport {
         scope:"all embedding/fitting weights, biases and timesteps; fixed normalization, geometry settings and atom_energy_bias".into(),
         algorithm:"deterministic full-batch Adam; constant learning rate; last iterate export".into(),
         loss_contract:state.loss_contract.clone().unwrap_or_else(|| "energy-force-per-atom-v1".into()),
         #[cfg(feature="cuda")] cuda_gradient_profile,
+        #[cfg(feature="cuda")] fixed_geometry_cache,
         derivative_method:derivative_method.into(), execution:state.execution.clone(), execution_scope:execution_scope.into(), timing,
         config:config.clone(),step_start:start,step_end:end,parameters:values.len(),parameter_layout_sha256:layout.sha256(),
         dataset_header:dataset.header.clone(),dataset_sha256:dataset.dataset_sha256.clone(),source_sha256:dataset.source_sha256.clone(),
