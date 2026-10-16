@@ -200,3 +200,8 @@ geometry payload cap are documented separately.
 Optional [learning-rate schedules](LEARNING_RATE.md) use global optimizer-update
 counts on both CUDA gradient executors. The host computes the float64 rate and
 passes it to the unchanged Adam kernel; explicit schedules select checkpoint v6.
+
+Optional [multi-frame reverse tiling](TILED_TRAINING.md) reduces per-frame transfers
+and kernel launches under explicit aggregate work and memory budgets. It uses v7
+checkpoints, including when a learning-rate schedule is present; other executors
+retain their existing checkpoint versions.

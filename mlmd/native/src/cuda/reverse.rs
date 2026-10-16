@@ -84,9 +84,34 @@ impl ReversePlan {
             source,
         })
     }
+    pub fn tiled_source(&self) -> Result<String> {
+        let argument = "int atoms,int parameters,double energy_seed,";
+        let seed = "adj[0]=energy_seed;";
+        if self.source.matches(argument).count() != 1 || self.source.matches(seed).count() != 1 {
+            return Err(Error(
+                "CUDA tiled seed specialization source mismatch".into(),
+            ));
+        }
+        Ok(self
+            .source
+            .replacen(
+                argument,
+                "int atoms,int parameters,const double *energy_seed,",
+                1,
+            )
+            .replacen(seed, "adj[0]=energy_seed[atom];", 1))
+    }
     pub fn resources(&self, n: usize) -> Result<ReverseResources> {
-        if n == 0 || n > 64 {
-            return Err(Error("CUDA reverse requires 1..64 atoms".into()));
+        self.resources_impl(n, false)
+    }
+    pub fn tiled_resources(&self, n: usize) -> Result<ReverseResources> {
+        self.resources_impl(n, true)
+    }
+    fn resources_impl(&self, n: usize, tiled: bool) -> Result<ReverseResources> {
+        if n == 0 || n > if tiled { 1024 } else { 64 } {
+            return Err(Error(
+                "CUDA reverse atom count exceeds execution bound".into(),
+            ));
         }
         let cache_bytes = bytes_product(&[n, self.slots + 1, self.cache_stride, 8])?;
         let descriptor_adjoint_bytes = bytes_product(&[n, self.width, 8, 8])?;
@@ -103,6 +128,7 @@ impl ReversePlan {
             self.parameters * 4,
             n * 4,
             self.slots * 4,
+            if tiled { n * 8 } else { 0 }, // per-atom energy seeds
             4,
         ];
         let peak = parts

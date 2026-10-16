@@ -8,13 +8,21 @@ use crate::{
     fixed_geometry::{FixedGeometryCache, FixedGeometryStats},
     full_gradient::ParameterLayout,
     full_loss::{validate_loss, validate_record, LossSeeds, VirialLoss},
-    full_training::{Checkpoint, CudaGradient, FullConfig, FullExecution},
+    full_training::{Checkpoint, CudaGradient, CudaTiling, FullConfig, FullExecution},
     neighbor::Geometry,
     training::TrainConfig,
     training_data::{Dataset, DatasetFrame},
     Model, NativePotential,
 };
 use omnimd_ml_contract::{Error, Potential, Result};
+#[path = "tiled.rs"]
+mod tiled;
+pub use tiled::TiledResources;
+pub fn tiled_resources(model: &Model, config: &CudaTiling) -> Result<TiledResources> {
+    let (p, _, s) = packed(model)?;
+    let plan = ReversePlan::new(model, &p, &s)?;
+    tiled::plan_resources(model, &plan, config)
+}
 
 pub(super) fn packed(model: &Model) -> Result<(PackedModel, ParameterLayout, String)> {
     let layout = ParameterLayout::new(model)?;
@@ -127,6 +135,13 @@ pub fn reverse_resources(model: &Model, atoms: usize) -> Result<ReverseResources
 #[derive(Clone, Copy, Default, Debug, serde::Serialize)]
 pub struct FullGradientProfile {
     pub frames: usize,
+    pub tiles: usize,
+    pub kernel_launches: usize,
+    pub synchronizations: usize,
+    pub max_frames_per_launch: usize,
+    pub max_atoms_per_launch: usize,
+    pub peak_device_buffer_bytes: usize,
+    pub peak_host_tile_payload_bytes: usize,
     pub prediction_and_seeds_ms: f64,
     pub geometry_ms: f64,
     pub upload_ms: f64,
@@ -137,6 +152,17 @@ pub struct FullGradientProfile {
 impl FullGradientProfile {
     pub fn add(&mut self, p: Self) {
         self.frames += p.frames;
+        self.tiles += p.tiles;
+        self.kernel_launches += p.kernel_launches;
+        self.synchronizations += p.synchronizations;
+        self.max_frames_per_launch = self.max_frames_per_launch.max(p.max_frames_per_launch);
+        self.max_atoms_per_launch = self.max_atoms_per_launch.max(p.max_atoms_per_launch);
+        self.peak_device_buffer_bytes = self
+            .peak_device_buffer_bytes
+            .max(p.peak_device_buffer_bytes);
+        self.peak_host_tile_payload_bytes = self
+            .peak_host_tile_payload_bytes
+            .max(p.peak_host_tile_payload_bytes);
         self.prediction_and_seeds_ms += p.prediction_and_seeds_ms;
         self.geometry_ms += p.geometry_ms;
         self.upload_ms += p.upload_ms;
@@ -150,6 +176,7 @@ pub struct CudaFullTrainer {
     layout: ParameterLayout,
     runtime: Runtime,
     reverse: Option<ReversePlan>,
+    tiled: Option<TiledResources>,
     profile: FullGradientProfile,
     step: u64,
     maximum_center_terms: u64,
@@ -164,7 +191,13 @@ impl CudaFullTrainer {
         Self::new_with_gradient(model, device, CudaGradient::Hyperdual)
     }
     pub fn new_with_gradient(model: Model, device: i32, gradient: CudaGradient) -> Result<Self> {
-        Self::build(model, None, device, gradient)
+        Self::build(model, None, device, gradient, None)
+    }
+    pub fn new_tiled(model: Model, device: i32, config: &CudaTiling) -> Result<Self> {
+        Self::build(model, None, device, CudaGradient::Reverse, Some(config))
+    }
+    pub fn tiling_resources(&self) -> Option<&TiledResources> {
+        self.tiled.as_ref()
     }
     pub(crate) fn restore(state: &Checkpoint, device: i32) -> Result<Self> {
         Self::build(
@@ -172,6 +205,7 @@ impl CudaFullTrainer {
             Some(state),
             device,
             state.config.cuda_gradient,
+            state.config.cuda_tiling.as_ref(),
         )
     }
     fn build(
@@ -179,6 +213,7 @@ impl CudaFullTrainer {
         state: Option<&Checkpoint>,
         device: i32,
         gradient: CudaGradient,
+        tiling: Option<&CudaTiling>,
     ) -> Result<Self> {
         if device < 0 {
             return Err(Error(
@@ -202,9 +237,22 @@ impl CudaFullTrainer {
         } else {
             None
         };
+        let tiled = tiling
+            .map(|c| {
+                let plan = reverse
+                    .as_ref()
+                    .ok_or_else(|| Error("tiling requires reverse CUDA".into()))?;
+                tiled::plan_resources(&model, plan, c)
+            })
+            .transpose()?;
+        let tiled_source = if tiled.is_some() {
+            Some(reverse.as_ref().unwrap().tiled_source()?)
+        } else {
+            None
+        };
         let mut runtime = match &reverse {
             Some(p) => Runtime::with_functions(
-                &p.source,
+                tiled_source.as_ref().unwrap_or(&p.source),
                 device,
                 &[
                     "reverse_embed",
@@ -213,11 +261,18 @@ impl CudaFullTrainer {
                     "reverse_embedding_backward",
                     "reverse_reduce",
                 ],
-                16,
+                if tiled.is_some() { 17 } else { 16 },
             )?,
             None => Runtime::with_functions(&source, device, &["full_gradient", "full_adam"], 12)?,
         };
-        let execution = if gradient == CudaGradient::Reverse {
+        let execution = if tiled.is_some() {
+            FullExecution::CudaTiledReverseF64V1 {
+                visible_device: device,
+                device_info: runtime.device_info.clone(),
+                driver_version: runtime.driver_version,
+                program_sha256: runtime.program_sha256.clone(),
+            }
+        } else if gradient == CudaGradient::Reverse {
             FullExecution::CudaReverseF64V1 {
                 visible_device: device,
                 device_info: runtime.device_info.clone(),
@@ -248,6 +303,7 @@ impl CudaFullTrainer {
         let maximum_center_terms = center_terms(&model);
         Ok(Self {
             reverse,
+            tiled,
             profile: FullGradientProfile::default(),
             maximum_center_terms,
             cpu: NativePotential::new(model)?,
@@ -329,6 +385,11 @@ impl CudaFullTrainer {
                 "CUDA full trainer stopped after earlier failure; no automatic retry".into(),
             ));
         }
+        if self.tiled.is_some() {
+            return Err(Error(
+                "tiled CUDA executor requires batch_gradient_with_virial".into(),
+            ));
+        }
         let result = self.gradient(record, loss, virial, normalizing_frames);
         if result.is_err() {
             self.poisoned = true;
@@ -355,6 +416,11 @@ impl CudaFullTrainer {
         let resources = self.reverse.as_ref().map(|p| p.resources(n)).transpose()?;
         self.profile = FullGradientProfile {
             frames: 1,
+            tiles: 1,
+            kernel_launches: if self.reverse.is_some() { 4 } else { 1 },
+            synchronizations: 1,
+            max_frames_per_launch: 1,
+            max_atoms_per_launch: n,
             ..Default::default()
         };
         let phase = std::time::Instant::now();
@@ -423,6 +489,7 @@ impl CudaFullTrainer {
                 .runtime
                 .full_frame(&rows, &tangent, &types, p, seeds.energy)?,
         };
+        self.profile.peak_device_buffer_bytes = self.runtime.resident_buffer_bytes();
         self.profile.upload_ms = self.runtime.last_timing_ms[0];
         self.profile.kernels_and_sync_ms = self.runtime.last_timing_ms[1];
         self.profile.download_ms = self.runtime.last_timing_ms[2];

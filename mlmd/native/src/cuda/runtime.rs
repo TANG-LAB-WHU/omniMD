@@ -665,6 +665,101 @@ impl Runtime {
             Ok((gradient, energy))
         }
     }
+    pub(super) fn reverse_tile(
+        &mut self,
+        rows: &[f64],
+        tangent: &[f64],
+        types: &[i32],
+        parameters: usize,
+        energy_seed: &[f64],
+        resources: &super::ReverseResources,
+    ) -> Result<(Vec<f64>, Vec<f64>)> {
+        if energy_seed.len() != types.len() {
+            return Err(Error("CUDA tile energy seed shape mismatch".into()));
+        }
+        unsafe {
+            let _current = Current::enter(self.api, self.context)?;
+            let phase = std::time::Instant::now();
+            // Scratch has no persistent state. Release every growing allocation first,
+            // so old+new buffers never exceed the planner's resident payload bound.
+            let required = [
+                (2, std::mem::size_of_val(rows)),
+                (3, std::mem::size_of_val(types)),
+                (5, std::mem::size_of_val(tangent)),
+                (6, types.len() * parameters * 8),
+                (7, types.len() * 8),
+                (12, resources.cache_bytes),
+                (13, resources.descriptor_adjoint_bytes),
+                (14, resources.slot_gradient_bytes),
+                (16, std::mem::size_of_val(energy_seed)),
+            ];
+            for (index, bytes) in required {
+                if self.buffers[index].1 < bytes && self.buffers[index].0 != 0 {
+                    check(
+                        (self.api.free)(self.buffers[index].0),
+                        "cuMemFree_v2(reverse grow)",
+                    )?;
+                    self.buffers[index] = (0, 0);
+                }
+            }
+            self.upload_current(2, rows)?;
+            self.upload_current(3, types)?;
+            self.upload_current(5, tangent)?;
+            self.upload_current(8, &[0_i32])?;
+            self.upload_current(16, energy_seed)?;
+            self.ensure(6, types.len() * parameters * 8)?;
+            self.ensure(7, types.len() * 8)?;
+            self.ensure(12, resources.cache_bytes)?;
+            self.ensure(13, resources.descriptor_adjoint_bytes)?;
+            self.ensure(14, resources.slot_gradient_bytes)?;
+            let mut address: [u64; 17] = std::array::from_fn(|i| self.buffers[i].0);
+            let pointer = |p: &mut u64| p as *mut u64 as *mut c_void;
+            let mut atoms = types.len() as i32;
+            let mut count = parameters as i32;
+            let mut args = [
+                pointer(&mut address[0]),
+                pointer(&mut address[1]),
+                pointer(&mut address[2]),
+                pointer(&mut address[5]),
+                pointer(&mut address[3]),
+                pointer(&mut address[4]),
+                &mut atoms as *mut i32 as *mut c_void,
+                &mut count as *mut i32 as *mut c_void,
+                pointer(&mut address[16]),
+                pointer(&mut address[6]),
+                pointer(&mut address[7]),
+                pointer(&mut address[8]),
+                pointer(&mut address[12]),
+                pointer(&mut address[13]),
+                pointer(&mut address[14]),
+                pointer(&mut address[15]),
+            ];
+            self.last_timing_ms[0] = phase.elapsed().as_secs_f64() * 1000.;
+            let phase = std::time::Instant::now();
+            let slots = rows.len() / 4;
+            self.launch_grid(0, slots.div_ceil(64), 64, &mut args)?;
+            self.launch_grid(2, types.len().div_ceil(32), 32, &mut args)?;
+            self.launch_grid(3, slots.div_ceil(64), 64, &mut args)?;
+            self.launch_grid(4, (types.len() * parameters).div_ceil(64), 64, &mut args)?;
+            check((self.api.sync)(), "cuCtxSynchronize(reverse gradient)")?;
+            self.last_timing_ms[1] = phase.elapsed().as_secs_f64() * 1000.;
+            let phase = std::time::Instant::now();
+            let mut status = [0_i32];
+            Self::download_into(self.api, self.buffers[8].0, &mut status)?;
+            if status[0] != 0 {
+                return Err(Error("nonfinite CUDA reverse-gradient intermediate".into()));
+            }
+            let mut gradient = vec![0.; types.len() * parameters];
+            let mut energy = vec![0.; types.len()];
+            Self::download_into(self.api, self.buffers[6].0, &mut gradient)?;
+            Self::download_into(self.api, self.buffers[7].0, &mut energy)?;
+            self.last_timing_ms[2] = phase.elapsed().as_secs_f64() * 1000.;
+            Ok((gradient, energy))
+        }
+    }
+    pub(super) fn resident_buffer_bytes(&self) -> usize {
+        self.buffers.iter().map(|b| b.1).sum()
+    }
     pub(super) fn full_adam(
         &mut self,
         gradient: &[f64],

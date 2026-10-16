@@ -21,6 +21,7 @@ fn config(steps: u64) -> FullConfig {
         }),
         fixed_geometry_cache: false,
         cuda_gradient: Default::default(),
+        cuda_tiling: None,
         split: Split::Explicit {
             validation_ids: vec!["set.000/2".into()],
         },

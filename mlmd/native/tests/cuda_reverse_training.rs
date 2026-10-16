@@ -16,6 +16,7 @@ fn config(steps: u64) -> FullConfig {
         minibatch: None,
         fixed_geometry_cache: false,
         cuda_gradient: Default::default(),
+        cuda_tiling: None,
         split: Split::Explicit {
             validation_ids: vec!["case/2".into()],
         },
@@ -618,5 +619,253 @@ fn fixed_geometry_gradients_adam_switching_restart_and_profile() {
     println!(
         "{}",
         serde_json::json!({"fixed_geometry_acceptance":evidence})
+    );
+}
+
+#[test]
+fn tiled_configuration_schema_and_resource_guards_without_driver() {
+    use omnimd_native::full_training::CudaTiling;
+    let m = model();
+    let d = dataset(&m);
+    let mut c = config(1);
+    assert!(serde_json::to_value(&c)
+        .unwrap()
+        .get("cuda_tiling")
+        .is_none());
+    c.cuda_tiling = Some(CudaTiling {
+        max_frames: 2,
+        max_atoms: 7,
+    });
+    assert!(Checkpoint::start(&m, &d, &c).is_err());
+    c.cuda_gradient = CudaGradient::Reverse;
+    let s = Checkpoint::start(&m, &d, &c).unwrap();
+    assert_eq!(s.schema, "omnimd-native-full-checkpoint-v7");
+    assert!(s.validate_for_device(&d, &c, TrainingDevice::Cpu).is_err());
+    let dev = TrainingDevice::Cuda { visible_device: 0 };
+    s.validate_for_device(&d, &c, dev).unwrap();
+    let mut invalid = c.clone();
+    invalid.cuda_tiling.as_mut().unwrap().max_atoms = 3;
+    let q = Checkpoint::start(&m, &d, &invalid).unwrap();
+    assert!(q
+        .validate_for_device(&d, &invalid, dev)
+        .unwrap_err()
+        .0
+        .contains("largest frame"));
+    assert!(s.validate_for_device(&d, &invalid, dev).is_err());
+    for value in [
+        serde_json::json!({"max_frames":0,"max_atoms":7}),
+        serde_json::json!({"max_frames":33,"max_atoms":7}),
+        serde_json::json!({"max_frames":2,"max_atoms":1025}),
+    ] {
+        let mut v = serde_json::to_value(&c).unwrap();
+        v["cuda_tiling"] = value;
+        let cfg: FullConfig = serde_json::from_value(v).unwrap();
+        assert!(Checkpoint::start(&m, &d, &cfg).is_err());
+    }
+    assert!(serde_json::from_value::<CudaTiling>(
+        serde_json::json!({"max_frames":2,"max_atoms":7,"unknown":1})
+    )
+    .is_err());
+    let r = omnimd_native::cuda::tiled_resources(
+        &medium(),
+        &CudaTiling {
+            max_frames: 32,
+            max_atoms: 1024,
+        },
+    )
+    .unwrap();
+    assert!(r.effective_max_atoms >= 64 && r.effective_max_atoms < 1024);
+    assert!(r.estimated_scalar_terms_at_capacity <= 50_000_000);
+    assert!((r.effective_max_atoms as u64 + 1) * 466 * r.maximum_center_terms > 50_000_000);
+}
+
+#[test]
+#[ignore = "requires an authorized exclusive GPU window"]
+fn tiled_gradients_grouping_reuse_adam_and_failure_atomicity() {
+    use omnimd_native::full_training::CudaTiling;
+    let m = model();
+    let d = dataset(&m);
+    let layout = ParameterLayout::new(&m).unwrap();
+    let mut maximum = 0.0_f64;
+    let mut bitwise = true;
+    let mut observations = Vec::new();
+    for caps in [
+        CudaTiling {
+            max_frames: 1,
+            max_atoms: 64,
+        },
+        CudaTiling {
+            max_frames: 2,
+            max_atoms: 7,
+        },
+        CudaTiling {
+            max_frames: 32,
+            max_atoms: 1024,
+        },
+    ] {
+        let mut reference =
+            CudaFullTrainer::new_with_gradient(m.clone(), 0, CudaGradient::Reverse).unwrap();
+        let mut tiled = CudaFullTrainer::new_tiled(m.clone(), 0, &caps).unwrap();
+        let mut c = config(1);
+        c.cuda_gradient = CudaGradient::Reverse;
+        c.cuda_tiling = Some(caps.clone());
+        // Grow, shrink, reorder and vary species; include self-images and a partial tail.
+        for (turn, indices) in [&[0, 1, 2][..], &[2][..], &[1, 0][..], &[2, 1, 0][..]]
+            .into_iter()
+            .enumerate()
+        {
+            let mut ref_gradient = vec![0.; layout.parameters.len()];
+            let mut objective = 0.;
+            // E-only, F-only, V-only and mixed E/F/V.
+            let mut loss = c.loss();
+            if turn < 3 {
+                loss.energy_weight = if turn == 0 { 1. } else { 0. };
+                loss.force_weight = if turn == 1 { 1. } else { 0. };
+            }
+            let virial = if turn < 2 {
+                None
+            } else {
+                c.virial_loss.as_ref()
+            };
+            for &i in indices {
+                let (value, g) = reference
+                    .frame_gradient_with_virial(&d.frames[i], &loss, virial, indices.len())
+                    .unwrap();
+                objective += value;
+                for (a, b) in ref_gradient.iter_mut().zip(g) {
+                    *a += b;
+                }
+            }
+            let (value, g) = tiled
+                .batch_gradient_with_virial(&d, indices, &loss, virial)
+                .unwrap();
+            assert_eq!(value, objective);
+            bitwise &= g == ref_gradient;
+            maximum = maximum.max(vector_close(&g, &ref_gradient, 2e-12));
+            let profile = tiled.last_profile();
+            assert_eq!(profile.frames, indices.len());
+            assert_eq!(profile.kernel_launches, profile.tiles * 4);
+            if turn == 0 && caps.max_frames == 2 {
+                assert_eq!(profile.tiles, 2);
+                assert_eq!(profile.max_frames_per_launch, 2);
+                assert_eq!(profile.max_atoms_per_launch, 7);
+            }
+            assert!(profile.peak_host_tile_payload_bytes <= 32 * 1024 * 1024);
+            assert!(profile.peak_device_buffer_bytes <= 64 * 1024 * 1024);
+            observations.push(serde_json::to_value(profile).unwrap());
+            let mut reference_config = c.clone();
+            reference_config.cuda_tiling = None;
+            reference
+                .adam_step(&ref_gradient, &reference_config)
+                .unwrap();
+            tiled.adam_step(&g, &c).unwrap();
+            maximum = maximum.max(vector_close(
+                &layout.values(reference.model()),
+                &layout.values(tiled.model()),
+                2e-12,
+            ));
+            maximum = maximum.max(vector_close(
+                reference.moments().0,
+                tiled.moments().0,
+                2e-12,
+            ));
+            maximum = maximum.max(vector_close(
+                reference.moments().1,
+                tiled.moments().1,
+                2e-12,
+            ));
+        }
+    }
+    let mut broken = dataset(&m);
+    broken.frames[1].frame.positions[1] = broken.frames[1].frame.positions[0];
+    let mut gpu = CudaFullTrainer::new_tiled(
+        m.clone(),
+        0,
+        &CudaTiling {
+            max_frames: 1,
+            max_atoms: 64,
+        },
+    )
+    .unwrap();
+    let before = serde_json::to_vec(gpu.model()).unwrap();
+    let first = gpu.moments().0.to_vec();
+    let second = gpu.moments().1.to_vec();
+    let c = config(1);
+    assert!(gpu
+        .batch_gradient_with_virial(&broken, &[0, 1], &c.loss(), c.virial_loss.as_ref())
+        .is_err());
+    assert_eq!(gpu.last_profile().tiles, 1);
+    assert_eq!(before, serde_json::to_vec(gpu.model()).unwrap());
+    assert_eq!(first, gpu.moments().0);
+    assert_eq!(second, gpu.moments().1);
+    assert!(gpu
+        .adam_step(&vec![0.; 112], &c)
+        .unwrap_err()
+        .0
+        .contains("earlier failure"));
+    assert!(gpu
+        .batch_gradient_with_virial(&d, &[0], &c.loss(), None)
+        .unwrap_err()
+        .0
+        .contains("earlier failure"));
+    println!(
+        "{}",
+        serde_json::json!({"tiled_max_absolute_gradient_parameter_moment_difference":maximum,"raw_gradients_bitwise_equal":bitwise,"late_tile_failure_committed_state_unchanged":true,"profiles":observations})
+    );
+}
+
+#[test]
+#[ignore = "requires an authorized exclusive GPU window"]
+fn tiled_aggregate_1024_atom_capacity_and_partial_tail() {
+    use omnimd_native::full_training::CudaTiling;
+    let m = model();
+    let mut d = dataset(&m);
+    let record = pair_record(&m, 32);
+    d.frames = (0..33)
+        .map(|i| {
+            let mut r = record.clone();
+            r.index = i;
+            r.id = format!("capacity/{i}");
+            r
+        })
+        .collect();
+    let c = config(1);
+    let mut reference =
+        CudaFullTrainer::new_with_gradient(m.clone(), 0, CudaGradient::Reverse).unwrap();
+    let mut tiled = CudaFullTrainer::new_tiled(
+        m,
+        0,
+        &CudaTiling {
+            max_frames: 32,
+            max_atoms: 1024,
+        },
+    )
+    .unwrap();
+    let mut expected = vec![0.; 112];
+    let mut objective = 0.;
+    for r in &d.frames {
+        let (v, g) = reference
+            .frame_gradient_with_virial(r, &c.loss(), c.virial_loss.as_ref(), 33)
+            .unwrap();
+        objective += v;
+        for (a, b) in expected.iter_mut().zip(g) {
+            *a += b;
+        }
+    }
+    let indices = (0..33).collect::<Vec<_>>();
+    let (value, g) = tiled
+        .batch_gradient_with_virial(&d, &indices, &c.loss(), c.virial_loss.as_ref())
+        .unwrap();
+    assert_eq!(value, objective);
+    assert_eq!(g, expected);
+    let p = tiled.last_profile();
+    assert_eq!(p.tiles, 2);
+    assert_eq!(p.max_frames_per_launch, 32);
+    assert_eq!(p.max_atoms_per_launch, 1024);
+    assert!(p.peak_device_buffer_bytes <= 64 * 1024 * 1024);
+    assert!(p.peak_host_tile_payload_bytes <= 32 * 1024 * 1024);
+    println!(
+        "{}",
+        serde_json::json!({"aggregate_1024_atom_capacity_bitwise_exact":true,"profile":p})
     );
 }

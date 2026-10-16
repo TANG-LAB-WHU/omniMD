@@ -225,3 +225,12 @@ float64 arithmetic. No DeepMD scheduler, external optimizer or training source
 was copied, and no dependency was added. The original synthetic fixture and
 existing Adam reference remain applicable. No equivalence to DeepMD default
 formulas or configuration semantics is claimed.
+
+## Bounded multi-frame CUDA execution
+
+The tile packing, per-frame seed specialization, resource planner, v7 execution
+identity and synthetic replay are independently written MIT code. They reuse the
+existing reverse chain rule and Adam implementation; no external batching kernel,
+training source or additional dependency is incorporated. Teacher weights and
+labels are original synthetic data. Existing mathematical references and NVIDIA
+runtime terms remain applicable; no algorithmic novelty is claimed.
