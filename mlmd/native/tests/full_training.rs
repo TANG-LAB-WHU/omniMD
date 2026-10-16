@@ -15,6 +15,7 @@ fn config(steps: u64) -> FullConfig {
         minibatch: None,
         fixed_geometry_cache: false,
         cuda_gradient: Default::default(),
+        cuda_tiling: None,
         split: Split::Seeded {
             seed: 20261015,
             validation_fraction: 0.25,

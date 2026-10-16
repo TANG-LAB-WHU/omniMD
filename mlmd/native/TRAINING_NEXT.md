@@ -12,7 +12,8 @@ sampler restart remain explicit.
 
 CUDA offers the existing hyperdual reference and
 [cached reverse gradients](CUDA_REVERSE_TRAINING.md), plus optional
-[fixed geometry reuse](FIXED_GEOMETRY_TRAINING.md). All neural weights, biases and
+[fixed geometry reuse](FIXED_GEOMETRY_TRAINING.md) and
+[bounded multi-frame kernel execution](TILED_TRAINING.md). All neural weights, biases and
 present timesteps train; normalization, atomic offsets, architecture and type
 mapping remain fixed. GPU gradients/Adam still use CPU loss cotangents, geometry,
 stable reduction/clipping, schedule scalars and assessment.
@@ -28,7 +29,8 @@ This is not full DeepMD training-system compatibility. Converted native-v1 model
 can initialize a new optimizer only when they satisfy the documented subset and
 resource bounds. Source framework aliases are not preserved as tied parameters.
 Historical missing-schedule v1-v5 checkpoints remain supported; explicit schedule
-v6 retains applicable backend, loss and sampler checks.
+v6 retains applicable backend, loss and sampler checks. Tiled reverse execution
+uses v7 with immutable capacities and its own backend/program identity.
 
 Original synthetic teacher tests establish implementation behavior. They do not
 establish chemical accuracy, extrapolation, stable production MD, algorithmic

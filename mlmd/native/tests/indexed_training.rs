@@ -72,6 +72,7 @@ fn config(steps: u64) -> FullConfig {
         }),
         fixed_geometry_cache: false,
         cuda_gradient: Default::default(),
+        cuda_tiling: None,
         split: Split::Explicit {
             validation_ids: vec!["set.000/2".into()],
         },
@@ -472,4 +473,100 @@ fn scheduled_minibatch_indexed_boundaries_and_storage_restart_are_exact() {
         ))
         .is_err());
     }
+}
+
+#[cfg(feature = "cuda")]
+#[test]
+#[ignore = "requires an explicitly authorized GPU window"]
+fn tiled_indexed_scheduled_resume_and_cache_toggle_are_exact() {
+    use omnimd_native::full_training::{
+        train_full_with_device, CudaGradient, CudaTiling, FullExecution, LearningRateSchedule,
+    };
+    let tmp = Temp::new();
+    let path = tmp.0.join("tiled.jsonl");
+    let (m, d) = data(8);
+    write_data(&path, &d);
+    let memory = Dataset::load(&path).unwrap();
+    let indexed = IndexedDataset::open(&path).unwrap();
+    let mut c = config(7);
+    c.cuda_gradient = CudaGradient::Reverse;
+    c.fixed_geometry_cache = true;
+    c.cuda_tiling = Some(CudaTiling {
+        max_frames: 2,
+        max_atoms: 7,
+    });
+    c.minibatch.as_mut().unwrap().batch_size = 3;
+    c.learning_rate_schedule = Some(LearningRateSchedule::Exponential {
+        decay_steps: 2,
+        decay_rate: 0.5,
+    });
+    let dev = TrainingDevice::Cuda { visible_device: 0 };
+    let mut snapshots = Vec::new();
+    let all = train_full_with_device(
+        Checkpoint::start(&m, &indexed, &c).unwrap(),
+        &indexed,
+        &c,
+        dev,
+        |s| {
+            snapshots.push(
+                serde_json::from_slice::<Checkpoint>(&serde_json::to_vec(s).unwrap()).unwrap(),
+            );
+            Ok(())
+        },
+    )
+    .unwrap();
+    assert_eq!(all.checkpoint.schema, "omnimd-native-full-checkpoint-v7");
+    assert_eq!(all.report.minibatch.as_ref().unwrap().partial_batches, 2);
+    let profile = all.report.cuda_gradient_profile.as_ref().unwrap();
+    assert!(profile.max_frames_per_launch > 1 && profile.tiles < profile.frames);
+    for split in [2, 3, 4] {
+        let mut r = c.clone();
+        r.steps = 7 - split;
+        r.fixed_geometry_cache = false;
+        let resumed = train_full_with_device(
+            snapshots[split as usize - 1].clone(),
+            &memory,
+            &r,
+            dev,
+            |_| Ok(()),
+        )
+        .unwrap();
+        assert_eq!(state(&all.checkpoint), state(&resumed.checkpoint));
+        assert_eq!(
+            serde_json::to_value(&all.report.final_training).unwrap(),
+            serde_json::to_value(&resumed.report.final_training).unwrap()
+        );
+        assert_eq!(
+            serde_json::to_value(&all.report.final_validation).unwrap(),
+            serde_json::to_value(&resumed.report.final_validation).unwrap()
+        );
+    }
+    for case in 0..5 {
+        let mut altered = snapshots[1].clone();
+        let mut r = c.clone();
+        r.steps = 5;
+        match case {
+            0 => r.cuda_tiling = None,
+            1 => r.cuda_tiling.as_mut().unwrap().max_atoms = 8,
+            2 => r.cuda_tiling.as_mut().unwrap().max_frames = 3,
+            3 => altered.schema = "omnimd-native-full-checkpoint-v6".into(),
+            _ => {
+                if let FullExecution::CudaTiledReverseF64V1 { program_sha256, .. } =
+                    &mut altered.execution
+                {
+                    *program_sha256 = "different".into();
+                }
+            }
+        }
+        assert!(
+            train_full_with_device(altered, &indexed, &r, dev, |_| panic!(
+                "invalid tiled checkpoint published"
+            ))
+            .is_err()
+        );
+    }
+    println!(
+        "{}",
+        serde_json::json!({"tiled_scheduled_indexed_resume_splits":[2,3,4],"memory_storage_and_cache_off_exact":true,"changed_caps_schema_backend_ptx_rejected":true,"profile":profile,"execution":all.report.execution,"resources":all.report.cuda_tiling})
+    );
 }

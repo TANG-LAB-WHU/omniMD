@@ -124,3 +124,7 @@ Raw generated data, model weights and logs stay under ignored
 licenses and compact replay summaries are tracked. No HAP data was accessed.
 
 The next opt-in infrastructure step is the [fixed training-frame geometry cache](FIXED_GEOMETRY_TRAINING.md), shared by both CUDA gradient executors.
+
+The optional [tiled reverse executor](TILED_TRAINING.md) packs multiple independent
+frames per launch. It retains the original optimizer/loss/sampler semantics and
+uses a separate v7 backend identity; omitted tiling preserves this framewise path.

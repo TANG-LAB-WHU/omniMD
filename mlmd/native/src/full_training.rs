@@ -28,6 +28,23 @@ impl CudaGradient {
         *self == Self::Hyperdual
     }
 }
+/// Execution chunks only; never changes minibatch normalization or Adam steps.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct CudaTiling {
+    pub max_frames: usize,
+    pub max_atoms: usize,
+}
+impl CudaTiling {
+    pub fn validate(&self) -> Result<()> {
+        if !(1..=32).contains(&self.max_frames) || !(1..=1024).contains(&self.max_atoms) {
+            return Err(Error(
+                "CUDA tiling requires max_frames in 1..32 and max_atoms in 1..1024".into(),
+            ));
+        }
+        Ok(())
+    }
+}
 const VIRIAL_LOSS_CONTRACT: &str = "energy-force-row-virial-per-atom-nine-v1";
 
 /// CPU v1 checkpoints remain byte-schema compatible (this default is omitted).
@@ -36,7 +53,8 @@ const VIRIAL_LOSS_CONTRACT: &str = "energy-force-row-virial-per-atom-nine-v1";
 /// semantics. New virial semantics require v3; historical E/F semantics and
 /// v1/v2 serialization stay unchanged. Opt-in reverse execution uses v4;
 /// explicit minibatch sampling uses v5 on every backend; an explicit learning-rate
-/// schedule uses v6 on every backend. Absent schedules preserve older schemas.
+/// schedule uses v6. Tiled reverse execution takes precedence with v7; absent
+/// schedules/tiling preserve older schemas.
 /// PTX hashing alone does not cover host loss semantics.
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "backend", rename_all = "snake_case", deny_unknown_fields)]
@@ -50,6 +68,12 @@ pub enum FullExecution {
         program_sha256: String,
     },
     CudaReverseF64V1 {
+        visible_device: i32,
+        device_info: String,
+        driver_version: i32,
+        program_sha256: String,
+    },
+    CudaTiledReverseF64V1 {
         visible_device: i32,
         device_info: String,
         driver_version: i32,
@@ -87,6 +111,8 @@ pub struct FullConfig {
     pub fixed_geometry_cache: bool,
     #[serde(default, skip_serializing_if = "CudaGradient::is_default")]
     pub cuda_gradient: CudaGradient,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cuda_tiling: Option<CudaTiling>,
     pub split: Split,
     /// Additional updates in this invocation, including after restart.
     pub steps: u64,
@@ -142,6 +168,14 @@ impl FullConfig {
         validate_loss(&self.loss(), self.virial_loss.as_ref())?;
         if let Some(c) = &self.minibatch {
             c.validate()?;
+        }
+        if let Some(c) = &self.cuda_tiling {
+            c.validate()?;
+            if self.cuda_gradient != CudaGradient::Reverse {
+                return Err(Error(
+                    "cuda_tiling requires cuda_gradient reverse; no fallback".into(),
+                ));
+            }
         }
         if self.steps == 0
             || self.steps > 100_000
@@ -215,6 +249,9 @@ pub struct FullReport {
     #[cfg(feature = "cuda")]
     #[serde(skip_serializing_if = "Option::is_none")]
     pub fixed_geometry_cache: Option<crate::cuda::FixedGeometryStats>,
+    #[cfg(feature = "cuda")]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub cuda_tiling: Option<crate::cuda::TiledResources>,
     pub config: FullConfig,
     pub step_start: u64,
     pub step_end: u64,
@@ -238,7 +275,9 @@ pub struct FullOutcome {
 }
 
 fn checkpoint_schema(execution: &FullExecution, config: &FullConfig) -> &'static str {
-    if config.learning_rate_schedule.is_some() {
+    if config.cuda_tiling.is_some() {
+        "omnimd-native-full-checkpoint-v7"
+    } else if config.learning_rate_schedule.is_some() {
         "omnimd-native-full-checkpoint-v6"
     } else if config.minibatch.is_some() {
         "omnimd-native-full-checkpoint-v5"
@@ -442,7 +481,21 @@ impl Checkpoint {
                     TrainingDevice::Cuda {
                         visible_device: requested,
                     },
-                ) => config.cuda_gradient == CudaGradient::Reverse && *visible_device == requested,
+                ) => {
+                    config.cuda_gradient == CudaGradient::Reverse
+                        && config.cuda_tiling.is_none()
+                        && *visible_device == requested
+                }
+                (
+                    FullExecution::CudaTiledReverseF64V1 { visible_device, .. },
+                    TrainingDevice::Cuda {
+                        visible_device: requested,
+                    },
+                ) => {
+                    config.cuda_gradient == CudaGradient::Reverse
+                        && config.cuda_tiling.is_some()
+                        && *visible_device == requested
+                }
                 _ => false,
             };
             if !compatible {
@@ -456,6 +509,15 @@ impl Checkpoint {
             crate::cuda::full_work_estimate(&self.model, atoms)?;
             if config.cuda_gradient == CudaGradient::Reverse {
                 crate::cuda::reverse_resources(&self.model, atoms)?;
+            }
+            if let Some(c) = &config.cuda_tiling {
+                let r = crate::cuda::tiled_resources(&self.model, c)?;
+                if atoms > r.effective_max_atoms {
+                    return Err(Error(format!(
+                        "CUDA tile cannot fit largest frame ({atoms} atoms; effective capacity {})",
+                        r.effective_max_atoms
+                    )));
+                }
             }
         }
         Ok(layout)
@@ -632,38 +694,57 @@ pub fn train_full_with_device(
         if let (Some(s), Some(c)) = (&mut next_sampler, &config.minibatch) {
             s.advance(c, &state.training_indices)?;
         }
-        for &i in batch {
-            let record = dataset.frame(i)?;
-            #[cfg(feature = "cuda")]
-            let (_, frame) = match &mut cuda {
-                Some(gpu) => gpu.frame_gradient_with_virial(
-                    &record,
-                    &loss,
-                    config.virial_loss.as_ref(),
-                    batch_len,
-                )?,
-                None => frame_gradient_with_virial(
+        #[cfg(feature = "cuda")]
+        let tiled = if config.cuda_tiling.is_some() {
+            let gpu = cuda
+                .as_mut()
+                .ok_or_else(|| Error("CUDA tiling requires CUDA".into()))?;
+            gradient = gpu
+                .batch_gradient_with_virial(dataset, batch, &loss, config.virial_loss.as_ref())?
+                .1;
+            if let Some(profile) = &mut cuda_gradient_profile {
+                profile.add(gpu.last_profile());
+            }
+            true
+        } else {
+            false
+        };
+        #[cfg(not(feature = "cuda"))]
+        let tiled = false;
+        if !tiled {
+            for &i in batch {
+                let record = dataset.frame(i)?;
+                #[cfg(feature = "cuda")]
+                let (_, frame) = match &mut cuda {
+                    Some(gpu) => gpu.frame_gradient_with_virial(
+                        &record,
+                        &loss,
+                        config.virial_loss.as_ref(),
+                        batch_len,
+                    )?,
+                    None => frame_gradient_with_virial(
+                        &state.model,
+                        &record,
+                        &loss,
+                        config.virial_loss.as_ref(),
+                        batch_len,
+                    )?,
+                };
+                #[cfg(not(feature = "cuda"))]
+                let (_, frame) = frame_gradient_with_virial(
                     &state.model,
                     &record,
                     &loss,
                     config.virial_loss.as_ref(),
                     batch_len,
-                )?,
-            };
-            #[cfg(not(feature = "cuda"))]
-            let (_, frame) = frame_gradient_with_virial(
-                &state.model,
-                &record,
-                &loss,
-                config.virial_loss.as_ref(),
-                batch_len,
-            )?;
-            #[cfg(feature = "cuda")]
-            if let (Some(gpu), Some(profile)) = (&cuda, &mut cuda_gradient_profile) {
-                profile.add(gpu.last_profile());
-            }
-            for (g, f) in gradient.iter_mut().zip(frame) {
-                *g += f;
+                )?;
+                #[cfg(feature = "cuda")]
+                if let (Some(gpu), Some(profile)) = (&cuda, &mut cuda_gradient_profile) {
+                    profile.add(gpu.last_profile());
+                }
+                for (g, f) in gradient.iter_mut().zip(frame) {
+                    *g += f;
+                }
             }
         }
         // hypot avoids overflow while computing a norm for optional clipping.
@@ -788,6 +869,10 @@ pub fn train_full_with_device(
     };
     #[cfg(feature = "cuda")]
     let fixed_geometry_cache = cuda.as_ref().and_then(|gpu| gpu.fixed_geometry_stats());
+    #[cfg(feature = "cuda")]
+    let cuda_tiling = cuda
+        .as_ref()
+        .and_then(|gpu| gpu.tiling_resources().cloned());
     let algorithm = match (minibatch.is_some(), config.learning_rate_schedule.as_ref()) {
         (true, Some(LearningRateSchedule::Exponential { .. })) =>
             "deterministic minibatch Adam; global-update exponential staircase learning rate; last iterate export",
@@ -818,6 +903,7 @@ pub fn train_full_with_device(
         loss_contract:state.loss_contract.clone().unwrap_or_else(|| "energy-force-per-atom-v1".into()),
         #[cfg(feature="cuda")] cuda_gradient_profile,
         #[cfg(feature="cuda")] fixed_geometry_cache,
+        #[cfg(feature="cuda")] cuda_tiling,
         derivative_method:derivative_method.into(), execution:state.execution.clone(), execution_scope:execution_scope.into(), timing,
         config:config.clone(),step_start:start,step_end:end,parameters:values.len(),parameter_layout_sha256:layout.sha256(),
         dataset_header:dataset.header().clone(),dataset_sha256:dataset.dataset_sha256().to_owned(),source_sha256:dataset.source_sha256().clone(),

@@ -332,3 +332,7 @@ minibatch random access and exact restart without retaining all decoded frames.
 Optional [constant and exponential learning-rate schedules](LEARNING_RATE.md)
 use global optimizer-update counts and exact v6 checkpoint restart. Omitting the
 schedule preserves legacy constant-rate behavior and checkpoint formats.
+
+Optional [bounded multi-frame CUDA training](TILED_TRAINING.md) batches independent
+frames through the reverse kernels while preserving optimizer batches and exact
+v7 restart. Architecture and per-frame bounds remain unchanged.

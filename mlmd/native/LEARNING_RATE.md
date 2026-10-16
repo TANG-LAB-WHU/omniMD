@@ -162,3 +162,6 @@ synthetic runs verify scheduling behavior, not physical accuracy, convergence,
 production scaling or speed. [Compact evidence](fixtures/learning-rate-report.json)
 records commands, hashes, execution identities, rates and checks. Generated
 weights, datasets, checkpoints and raw logs stay ignored.
+
+Tiled reverse CUDA execution takes checkpoint-version precedence (v7), while
+retaining these exact schedule semantics; see [TILED_TRAINING.md](TILED_TRAINING.md).
