@@ -38,6 +38,7 @@ fn capabilities() -> serde_json::Value {
         "parameters":{"engine_device":"cpu","backend":"official DeepMD C API","md":"fixed values/policy and immutable atom order; checkpoint v3","defaults":"explicit opt-in with confirmed model availability; never atomic defaults","unsupported":["native parameter models","CUDA engine parameter route","parameterized model-deviation/minimization/native training"]},
         "datasets":{"schema":dataset::SCHEMA,"parameter_schema":"omnimd-dataset-jsonl-v2","parameter_import":"explicit optional parameter_layout plus float64 fparam.npy/aparam.npy; no broadcast/default inference","import":["DeepMD standard NPY C-order float64","XYZ","bounded extxyz profile"],"explicit_sets":true,"partial_labels":true,"training":false,"automatic_split":false,"inspection":"inspect-dataset; full structural validation, streamed-byte SHA256 and E/F/V coverage; no model or GPU load"},
         "dataset_selection":{"entry":"select-dataset","expected_source_sha256":"required","output":"new bundle: dataset.jsonl, request.json, receipt.json","order":"source order; IDs preserved, contiguous new indices","bounds":"10000 IDs; 4 MiB request; 256 MiB selected JSONL","labels":"preserved including absence; none generated"},
+        "external_labels":{"commands":["prepare-labels","import-labels"],"identity":"source SHA256, frame ID/index, exact geometry/atom/parameter context","merge":"fill absent E/F/optional virial; exact existing labels only","output":"new bundle and receipt; source order and dataset v2 parameters preserved","calculator_launched":false},
         "model_deviation":{"entry":"model-deviation","device":"cpu","members":"2..16","statistics":"absolute population E/atom, force vector and virial/atom deviation","selection":"explicit max-force interval; marks candidates only","runtime_scope":"native CPU tested; parameter-free C API route requires compatible external runtime"},
         "training":{"entry":"train-native","scope":["frozen-hidden final-readout E+F fit","full supported tanh network E+F Adam"],"backend":"native float64; CPU default","cuda":{"frozen_readout_features":true,"requires_sibling_trainer_cuda_feature":true,"solver":"CPU QR","assessment":"CPU","full_network":true,"full_network_scope":"bounded FP64 all-neural E/F gradients and Adam; CPU inference/loss seeds, geometry, reduction and assessment","checkpoint":"CUDA v2 binds backend/device/driver/PTX; CPU v1 preserved","performance":"tiny readout/full fits slower; 64-atom warmed full-gradient stage 3.46x only; no whole-training speedup claim"},"full_network":true,"full_network_scope":"native-v1 tanh hidden / linear output; fixed normalization, cutoff, type-map, selection and atomic offsets; reference-size bounds","request_schemas":["omnimd-native-readout-train-v1","omnimd-native-full-train-v1"]},
         "minimization":{"method":"bounded steepest descent","fixed_cell":true,"force_and_energy_criteria":true},
@@ -149,6 +150,17 @@ pub fn dispatch(args: &[OsString]) -> Result<bool, Box<dyn Error>> {
     }
     if args.len() == 1 && args[0] == "capabilities" {
         println!("{}", serde_json::to_string_pretty(&capabilities())?);
+        return Ok(true);
+    }
+    if args.len() == 3 && (args[0] == "prepare-labels" || args[0] == "import-labels") {
+        let request = Path::new(&args[1]);
+        let output = Path::new(&args[2]);
+        let report = if args[0] == "prepare-labels" {
+            omnimd_mlmd::labeling::prepare_labels(request, output)?
+        } else {
+            omnimd_mlmd::labeling::import_labels(request, output)?
+        };
+        println!("Completed label bundle for {} frames; verify receipt.json and recorded hashes before reuse.",report.frames);
         return Ok(true);
     }
     if args.len() == 3 && args[0] == "select-dataset" {

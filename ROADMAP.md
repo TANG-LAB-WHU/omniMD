@@ -61,7 +61,9 @@ with executable commands; pending branch work is not counted as integrated.
 - CPU ensemble disagreement and explicit candidate marking are implemented with
   independent population-statistics checks. Hash-bound subset extraction is now
   implemented and verified through assessment and CPU training of preserved
-  existing labels. External labeling integration remains a separate future gap.
+  existing labels. Bound external-label preparation/import now closes the file
+  return and explicit CPU retraining workflow, preserving v2 context. Calculator
+  adapters, job submission and scientific validation remain separate future work.
 - Broader sampling and active learning with explicit formats.
 - DeepMD C API CUDA device propagation and kernel/synchronization checks are
   published with actual public-model E/F/virial agreement, GPU batch

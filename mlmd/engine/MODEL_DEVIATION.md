@@ -110,3 +110,7 @@ hash, candidate identity, eight refusal cases and a selected two-step CPU NVE jo
 These are software fixtures, not trained physical potentials. Raw models, frames
 and logs stay in the new work directory. See the compact
 [recorded receipt](../evidence/model-deviation.json).
+
+For reviewed candidates requiring labels, use [external label return](EXTERNAL_LABELS.md)
+after selection. Its import binds exact source/frame/geometry/parameter identity
+and writes a new dataset without launching a calculator or training automatically.

@@ -184,3 +184,9 @@ compact validation summaries and licenses. External runtimes, public pretrained
 weights, generated training data, raw operational logs and private research
 inputs are excluded. No HAP research inputs or old HAP computations are used.
 The CPU baseline and CUDA release are published on shawn_dev.
+
+The local [external-label return workflow](mlmd/engine/EXTERNAL_LABELS.md) now
+connects reviewed candidates to a new labeled dataset and explicit CPU retraining.
+Source/return hashes and exact frame/atom/parameter identity are required;
+conflicting labels reject. It preserves dataset v2 context without adding native
+parameterized training, and launches no external calculator or automatic loop.

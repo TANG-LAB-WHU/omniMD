@@ -263,3 +263,13 @@ recorded microcase was slower than CPU. Local source `f4dbf62` adds bounded
 inference, loss seeds, geometry, reduction and assessment. See
 [training-device rules](../native/TRAINING.md). Engine compilation alone does not
 prove its sibling trainer was built with CUDA support.
+
+## External label return
+
+`prepare-labels REQUEST.json NEW_DIRECTORY` exports exact frame identities from
+an explicitly hash-bound dataset. `import-labels REQUEST.json NEW_DIRECTORY`
+accepts a complete hash-bound return with explicit units, geometry/context and
+E/F labels, preserving source order and v2 parameters. Duplicate/missing frames,
+changed identities and conflicting existing labels reject before output creation.
+See [the complete return-file contract and replay](EXTERNAL_LABELS.md). Neither
+command starts a calculator, model or GPU. Existing training is a separate command.

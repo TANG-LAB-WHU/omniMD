@@ -243,3 +243,14 @@ throughput is 20 steps divided by total process wall time, including startup,
 model loading/compilation, JSON output and checkpoint fsync. Warmed five-repeat
 means exclude those startup costs. Normal desktop graphics remain uncontrolled;
 these figures do not establish a scaling curve or production performance.
+
+## External label return after candidate selection
+
+Use [EXTERNAL_LABELS.md](engine/EXTERNAL_LABELS.md) for the exact preparation and
+return contract. Select a hash-bound subset, export its frame identities, obtain
+external results separately, then import complete E/F labels into a new dataset.
+The merge fills missing labels and rejects conflicts, changed geometry/parameters,
+duplicates and mismatched hashes. Inspect before explicitly retraining. The
+[CPU replay](evidence/external-labels.json) closes these file/CLI steps on saved
+synthetic labels, while preserving v2 context in a separate IO check. It does not
+launch an external calculator or make the native trainer parameter-aware.

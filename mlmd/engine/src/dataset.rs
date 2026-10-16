@@ -156,8 +156,36 @@ pub struct DatasetProvenance {
     pub dataset_sha256: String,
     pub declared_source_sha256: BTreeMap<String, String>,
 }
+struct LimitedFile {
+    file: File,
+    remaining: u64,
+}
+impl Read for LimitedFile {
+    fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+        if buf.is_empty() {
+            return Ok(0);
+        }
+        if self.remaining == 0 {
+            let mut extra = [0];
+            return if self.file.read(&mut extra)? == 0 {
+                Ok(0)
+            } else {
+                Err(std::io::Error::new(
+                    std::io::ErrorKind::InvalidData,
+                    "dataset exceeds byte limit",
+                ))
+            };
+        }
+        let n = buf
+            .len()
+            .min(self.remaining.min(usize::MAX as u64) as usize);
+        let n = self.file.read(&mut buf[..n])?;
+        self.remaining -= n as u64;
+        Ok(n)
+    }
+}
 pub struct DatasetReader {
-    reader: BufReader<File>,
+    reader: BufReader<LimitedFile>,
     pub header: DatasetHeader,
     metadata: ModelMetadata,
     next_index: u64,
@@ -168,11 +196,15 @@ pub struct DatasetReader {
 }
 impl DatasetReader {
     pub fn open(path: &Path) -> Result<Self> {
-        Self::open_inner(path, false)
+        Self::open_inner(path, false, u64::MAX)
     }
     /// Hash the exact bytes consumed by this reader; retrieve only after full validation.
     pub fn open_hashed(path: &Path) -> Result<Self> {
-        Self::open_inner(path, true)
+        Self::open_inner(path, true, u64::MAX)
+    }
+    /// Enforce a total read-byte budget on the same handle used for hashing/validation.
+    pub fn open_hashed_bounded(path: &Path, max_bytes: u64) -> Result<Self> {
+        Self::open_inner(path, true, max_bytes)
     }
     pub fn completed_provenance(&self) -> Result<DatasetProvenance> {
         if !self.completed {
@@ -187,11 +219,14 @@ impl DatasetReader {
             declared_source_sha256: self.source_sha256.clone(),
         })
     }
-    fn open_inner(path: &Path, hash_bytes: bool) -> Result<Self> {
+    fn open_inner(path: &Path, hash_bytes: bool, max_bytes: u64) -> Result<Self> {
         if !path.is_absolute() {
             return Err("dataset path must be absolute".into());
         }
-        let mut reader = BufReader::new(File::open(path)?);
+        let mut reader = BufReader::new(LimitedFile {
+            file: File::open(path)?,
+            remaining: max_bytes,
+        });
         let mut hash = hash_bytes.then(Sha256::new);
         let Some(Record::Header { header }) = read_record(&mut reader, &mut hash)? else {
             return Err("dataset must start with one header".into());
@@ -311,7 +346,7 @@ fn increment(count: &mut u64, amount: u64) -> Result<()> {
 /// One file handle, one streaming pass. Hash original bytes including newlines.
 /// Existing unique-ID validation retains IDs; frame contents are not accumulated.
 pub fn inspect_dataset(path: &Path) -> Result<DatasetInspection> {
-    let mut reader = DatasetReader::open_inner(path, true)?;
+    let mut reader = DatasetReader::open_hashed(path)?;
     let mut report = DatasetInspection {
         schema: "omnimd-dataset-inspection-v1",
         dataset_sha256: String::new(),

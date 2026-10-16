@@ -543,3 +543,22 @@ The fixture directory must contain `initial.json`, `dataset.jsonl`,
 The sibling CUDA trainer must be beside the engine. The script never retries a
 failed command. This short run verifies integration, not convergence, general
 performance or cross-runtime reproducibility.
+
+## 14. Return external labels and retrain explicitly
+
+After reviewing model-deviation candidates and selecting a subset, follow the
+[external label guide](engine/EXTERNAL_LABELS.md): inspect the immediate subset
+hash, run `prepare-labels`, adapt external results into its exact return schema,
+then bind the return-file hash and run `import-labels` into a new directory.
+The returned geometry and parameter context must match exactly. Missing/duplicate
+frames, shape/unit errors and conflicting existing labels fail. Existing virial
+is retained if the return omits it. Source order and v2 parameters are preserved.
+
+Inspect the labeled output before pointing a CPU training request at it. Dataset
+v2 preservation does not add parameterized native training; use the documented
+CPU C API route for parameterized assessment/MD. The synthetic acceptance closes
+candidate selection, label import and v1 CPU retraining using saved software
+fixture predictions, without launching an external calculation. Calculator
+accuracy, convergence and provenance authenticity remain the user's scientific
+validation responsibilities; no automatic job submission or active learning loop
+is introduced.

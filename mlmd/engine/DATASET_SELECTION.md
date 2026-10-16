@@ -76,8 +76,9 @@ minimization, and native training. Always use the new index within the selected
 dataset, or resolve it from the receipt's preserved ID. Existing labels and their
 absence are retained; this command never evaluates a model to manufacture labels.
 Training still requires E and F for every selected record. Unlabeled candidates
-require an external labeling process before training. The CLI does not launch
-that process or an automatic active-learning loop.
+require an external labeling process before training. Use [the label-return
+workflow](EXTERNAL_LABELS.md) to prepare bound identities and import its results.
+The CLI does not launch that process or an automatic active-learning loop.
 
 ## 4. Reproduce the complete CPU workflow
 

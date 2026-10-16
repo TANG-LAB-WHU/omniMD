@@ -418,3 +418,41 @@ physical training accuracy remain unverified.
 Only source, English documentation, original tiny fixtures already in B's commit
 and compact receipts are in Git. Generated inputs/weights/checkpoints, binaries,
 raw logs and HAP material are excluded. This follow-up is local and unpushed.
+
+## Local external-label return workflow
+
+The engine-only tranche after `e764502` adds `prepare-labels` and `import-labels`.
+Requests bind exact source/return SHA256 values. Prepared identities bind source,
+ID/index, ordered coordinates/species/cell, units/convention and v2 parameter
+layout/values/policy using a versioned binary hash. Returned records echo that
+context; complete coverage, finite E/F and exact existing-label agreement are
+required. Optional virial fills an absence or preserves existing data. Source
+frame order, IDs, indices and parameter values remain unchanged. New bundles
+contain exact request/return bytes and a last-written completion receipt; no
+existing output is replaced. Source/return/output sizes are bounded. No dependency,
+shared model contract, native backend or GPU implementation changed.
+
+[Final CPU evidence](evidence/external-labels.json) records 14 CLI steps using
+saved original synthetic software fixtures: 12-frame model disagreement, six
+selected candidates, label preparation/return, inspection and five-training /
+one-validation readout fitting. E/F-labeled frames increased from three to six.
+Twelve frame identity hashes matched an independent Python binary-encoding
+implementation. V2 parameters/order were preserved in a separate IO-only case.
+Five CLI refusal cases produced no output directories. Nineteen affected Rust
+checks passed, including four new labeling tests with 24 identity/shape/conflict
+cases plus malformed-file, hash, existing-output and byte-bound checks.
+
+The original synthetic held-out E/atom RMSE changed from 0.0432649 to
+1.11022e-16 eV and force RMSE from 0.00247869 to 6.59758e-18 eV/angstrom; the
+readout design rank is 10. Native-v1 reload E/F/V differences are zero. These
+numbers establish software consistency on manufactured labels, not chemical
+accuracy or independent physical generalization. The versioned parameter case
+only establishes IO/identity preservation; it does not validate an external
+parameter-dependent calculator or add native v2 training.
+
+The replay set `CUDA_VISIBLE_DEVICES=-1`, used the default CPU build/trainer and
+launched no external scientific calculation. Calculator metadata/artifact hashes
+remain unverified declarations; hidden model defaults are not resolved by the
+file workflow. Job submission, automatic labeling/training and an unattended
+active-learning loop remain outside scope. Generated labels/data/weights/logs
+remain outside Git. All changes are local; no public push or HAP access occurred.

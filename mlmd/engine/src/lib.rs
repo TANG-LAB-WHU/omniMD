@@ -1,4 +1,5 @@
 //! Input conversion for the fallible MLIP dynamics implemented in omnimd-sim.
+pub mod labeling;
 pub mod dataset;
 pub mod deviation;
 mod thermal;
