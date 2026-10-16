@@ -750,6 +750,8 @@ fn tiled_gradients_grouping_reuse_adam_and_failure_atomicity() {
             maximum = maximum.max(vector_close(&g, &ref_gradient, 2e-12));
             let profile = tiled.last_profile();
             assert_eq!(profile.frames, indices.len());
+            assert_eq!(profile.input_transfer_calls, 2 * profile.tiles);
+            assert!(profile.input_transfer_bytes > 0);
             assert_eq!(profile.kernel_launches, profile.tiles * 4);
             if turn == 0 && caps.max_frames == 2 {
                 assert_eq!(profile.tiles, 2);
@@ -1016,6 +1018,10 @@ fn device_loss_predictions_seeds_and_cached_gradients() {
             }
             close(total_objective, value, 2e-11);
             assert_eq!(gpu.last_profile().device_prediction_frames, 3);
+            assert_eq!(
+                gpu.last_profile().input_transfer_calls,
+                2 * gpu.last_profile().tiles
+            );
             assert_eq!(gpu.last_profile().prediction_and_seeds_ms, 0.);
         }
         // Reuse buffers with fewer atoms/species and disabled virial; no stale seeds.

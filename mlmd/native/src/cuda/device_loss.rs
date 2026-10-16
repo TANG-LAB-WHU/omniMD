@@ -1,5 +1,6 @@
 //! GPU prediction/seed tile path. Geometry remains host-owned and immutable.
 use super::*;
+use crate::cuda::transfer;
 use crate::training_data::DatasetAccess;
 use std::time::Instant;
 const HOST_LIMIT: usize = 32 * 1024 * 1024;
@@ -108,10 +109,16 @@ pub(super) fn plan_resources(
         .min((WORK_LIMIT / per_atom) as usize);
     for n in (1..=cap).rev() {
         let frames = config.max_frames;
-        let extra_device =
-            n * slots * 148 + n * (76 + 32 * width) + frames * 280 + model.type_map.len() * 8;
+        let extra_device = n * slots * 148
+            + n * (76 + 32 * width)
+            + frames * 280
+            + model.type_map.len() * 8
+            + transfer::ALIGNMENT_RESERVE;
         // Includes optional last-tile diagnostic downloads, plus conservative legacy reserves.
-        let extra_host = n * slots * 156 + n * 76 + frames * 296;
+        let extra_host = n * slots * 156
+            + n * 76
+            + frames * 296
+            + transfer::input_bytes(n, slots, frames, true)?;
         let host = tiled::host_bytes(n, slots, p, frames)?
             .checked_add(extra_host)
             .ok_or_else(|| Error("GPU loss host payload overflow".into()))?;
@@ -357,7 +364,19 @@ impl CudaFullTrainer {
         } else {
             0
         };
-        let host = tile.retained_bytes() + (n * p + 2 * p + f * 11) * 8 + diagnostic_bytes;
+        let packed_bytes = transfer::input_bytes(n, slots, f, true)?;
+        let host_base = tile.retained_bytes() + (n * p + 2 * p + f * 11) * 8 + diagnostic_bytes;
+        let available = cap
+            .host_tile_payload_at_capacity_bytes
+            .min(HOST_LIMIT)
+            .checked_sub(host_base)
+            .ok_or_else(|| Error("GPU loss host payload exceeded".into()))?;
+        let staging_start = Instant::now();
+        let staging = self
+            .runtime
+            .reserve_packed_inputs(packed_bytes, available)?;
+        let staging_ms = staging_start.elapsed().as_secs_f64() * 1000.;
+        let host = host_base + staging;
         if host > cap.host_tile_payload_at_capacity_bytes || host > HOST_LIMIT {
             return Err(Error("GPU loss host tile payload exceeded".into()));
         }
@@ -383,6 +402,8 @@ impl CudaFullTrainer {
         self.profile.frames += f;
         self.profile.device_prediction_frames += f;
         self.profile.tiles += 1;
+        self.profile.input_transfer_calls += 2;
+        self.profile.input_transfer_bytes += packed_bytes + 4;
         self.profile.kernel_launches += 10;
         self.profile.synchronizations += 1;
         self.profile.max_frames_per_launch = self.profile.max_frames_per_launch.max(f);
@@ -390,7 +411,7 @@ impl CudaFullTrainer {
         self.profile.peak_device_buffer_bytes = self.profile.peak_device_buffer_bytes.max(resident);
         self.profile.peak_host_tile_payload_bytes =
             self.profile.peak_host_tile_payload_bytes.max(host);
-        self.profile.upload_ms += self.runtime.last_timing_ms[0];
+        self.profile.upload_ms += staging_ms + self.runtime.last_timing_ms[0];
         self.profile.kernels_and_sync_ms += self.runtime.last_timing_ms[1];
         self.profile.download_ms += self.runtime.last_timing_ms[2];
         let phase = Instant::now();

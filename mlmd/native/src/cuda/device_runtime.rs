@@ -17,8 +17,6 @@ impl Runtime {
             let _current = Current::enter(self.api, self.context)?;
             let phase = std::time::Instant::now();
             let required = [
-                (2, t.rows.len() * 8),
-                (3, n * 4),
                 (5, t.rows.len() * 8),
                 (6, n * p * 8),
                 (7, n * 8),
@@ -26,13 +24,6 @@ impl Runtime {
                 (13, r.descriptor_adjoint_bytes),
                 (14, r.slot_gradient_bytes),
                 (16, n * 8),
-                (17, slots * 4),
-                (18, slots * 15 * 8),
-                (19, n * 4),
-                (20, f * 2 * 4),
-                (21, n * 3 * 8),
-                (22, f * 10 * 8),
-                (23, f * 3 * 8),
                 (24, n * 3 * 8),
                 (25, f * 10 * 8),
                 (26, n * 3 * 8),
@@ -52,17 +43,19 @@ impl Runtime {
             for (index, bytes) in required {
                 self.ensure(index, bytes)?;
             }
-            self.upload_current(2, &t.rows)?;
-            self.upload_current(3, &t.types)?;
-            self.upload_current(17, &t.owners)?;
-            self.upload_current(18, &t.geometry)?;
-            self.upload_current(19, &t.frame_ids)?;
-            self.upload_current(20, &t.bounds)?;
-            self.upload_current(21, &t.force_labels)?;
-            self.upload_current(22, &t.frame_labels)?;
-            self.upload_current(23, &t.scales)?;
             self.upload_current(8, &[0_i32])?;
-            let mut address: [u64; 31] = std::array::from_fn(|i| self.buffers[i].0);
+            use crate::cuda::transfer::{f64_bytes, i32_bytes};
+            let mut address = self.upload_packed_inputs(&[
+                (2, f64_bytes(&t.rows)),
+                (3, i32_bytes(&t.types)),
+                (17, i32_bytes(&t.owners)),
+                (18, f64_bytes(&t.geometry)),
+                (19, i32_bytes(&t.frame_ids)),
+                (20, i32_bytes(&t.bounds)),
+                (21, f64_bytes(&t.force_labels)),
+                (22, f64_bytes(&t.frame_labels)),
+                (23, f64_bytes(&t.scales)),
+            ])?;
             let pointer = |x: &mut u64| x as *mut u64 as *mut c_void;
             let mut atoms = n as i32;
             let mut parameters = p as i32;

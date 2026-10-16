@@ -252,3 +252,16 @@ They extend the existing FP64 arithmetic and mathematical references without
 copying external training kernels or introducing dependencies. The 32-atom
 perturbed O/H motif and its 128/256-atom periodic replicas are synthetic software
 fixtures, not private structures or physically validated potentials.
+
+## Packed-transfer performance replay
+
+`src/cuda/transfer.rs` and `tools/replay_transfer_batching.py` are original MIT
+implementation/tooling. No NVIDIA, DeepMD, or other third-party code is copied.
+The published-data timing case reuses the integration team's already audited
+[physical-data subset](../PHYSICAL_DATA_VALIDATION.md), without redistributing
+source arrays or fitted weights. Attribution: Jinzhe Zeng and Tong Zhu,
+*Dataset for methane combustion* (2020),
+[version 3](https://doi.org/10.6084/m9.figshare.12973055.v3), CC BY 4.0;
+the official DeepMD example is distributed under LGPL-3.0-or-later at commit
+`b494a0d5413d5f1895202c82f20477300b716bf2`. The original synthetic medium/tiny
+recipes remain MIT. See `TRANSFER_BATCHING.md` for scope and limitations.

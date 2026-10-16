@@ -259,6 +259,8 @@ pub struct Runtime {
     pub type_uploads: usize,
     pub last_upload_bytes: usize,
     cached_types: Vec<i32>,
+    packed_input: Vec<u8>,
+    packed_input_index: Option<usize>,
     pub energies: Vec<f64>,
     pub gradients: Vec<f64>,
     _library: Library,
@@ -331,6 +333,8 @@ impl Runtime {
                 type_uploads: 0,
                 last_upload_bytes: 0,
                 cached_types: Vec::new(),
+                packed_input: Vec::new(),
+                packed_input_index: None,
                 energies: Vec::new(),
                 gradients: Vec::new(),
                 _library: library,
@@ -364,6 +368,74 @@ impl Runtime {
             }
             drop(restore);
             Ok(rt)
+        }
+    }
+    pub(super) fn enable_packed_inputs(&mut self) {
+        assert!(self.packed_input_index.is_none());
+        self.packed_input_index = Some(self.buffers.len());
+        self.buffers.push((0, 0));
+    }
+    pub(super) fn reserve_packed_inputs(
+        &mut self,
+        bytes: usize,
+        host_budget: usize,
+    ) -> Result<usize> {
+        if self.packed_input.capacity().max(bytes) > host_budget {
+            return Err(Error("packed CUDA input host capacity exceeded".into()));
+        }
+        if self.packed_input.capacity() < bytes {
+            self.packed_input = Vec::new();
+            self.packed_input = Vec::with_capacity(bytes);
+        }
+        // Vec is allowed to provide excess capacity: count the actual retained payload.
+        if self.packed_input.capacity() > host_budget {
+            self.packed_input = Vec::new();
+            return Err(Error(
+                "packed CUDA allocation exceeded host capacity".into(),
+            ));
+        }
+        Ok(self.packed_input.capacity())
+    }
+    // Caller holds this runtime's current context; copies are synchronous.
+    // Only the arena base is owned in buffers. Interior pointers are call-local.
+    fn upload_packed_inputs(&mut self, parts: &[(usize, &[u8])]) -> Result<[u64; 31]> {
+        let layout = super::transfer::Layout::new(parts.iter().map(|(i, x)| (*i, x.len())))?;
+        if layout.bytes > 32 * 1024 * 1024 {
+            return Err(Error("packed CUDA inputs exceed host policy".into()));
+        }
+        let index = self
+            .packed_input_index
+            .ok_or_else(|| Error("packed CUDA inputs are not enabled".into()))?;
+        if self.packed_input.capacity() < layout.bytes {
+            return Err(Error(
+                "packed CUDA inputs were not reserved within host budget".into(),
+            ));
+        }
+        self.packed_input.resize(layout.bytes, 0);
+        for &(i, bytes) in parts {
+            let start = layout.offsets[i];
+            self.packed_input[start..start + bytes.len()].copy_from_slice(bytes);
+        }
+        unsafe {
+            if self.buffers[index].1 < layout.bytes && self.buffers[index].0 != 0 {
+                check(
+                    (self.api.free)(self.buffers[index].0),
+                    "cuMemFree_v2(packed grow)",
+                )?;
+                self.buffers[index] = (0, 0);
+            }
+            let base = self.ensure(index, layout.bytes)?;
+            check(
+                (self.api.h2d)(base, self.packed_input.as_ptr().cast(), layout.bytes),
+                "cuMemcpyHtoD_v2(packed)",
+            )?;
+            let mut address = std::array::from_fn(|i| self.buffers.get(i).map_or(0, |b| b.0));
+            for &(i, _) in parts {
+                address[i] = base
+                    .checked_add(layout.offsets[i] as u64)
+                    .ok_or_else(|| Error("packed CUDA pointer overflow".into()))?;
+            }
+            Ok(address)
         }
     }
     fn ensure(&mut self, index: usize, bytes: usize) -> Result<u64> {
@@ -685,15 +757,11 @@ impl Runtime {
             // Scratch has no persistent state. Release every growing allocation first,
             // so old+new buffers never exceed the planner's resident payload bound.
             let required = [
-                (2, std::mem::size_of_val(rows)),
-                (3, std::mem::size_of_val(types)),
-                (5, std::mem::size_of_val(tangent)),
                 (6, types.len() * parameters * 8),
                 (7, types.len() * 8),
                 (12, resources.cache_bytes),
                 (13, resources.descriptor_adjoint_bytes),
                 (14, resources.slot_gradient_bytes),
-                (16, std::mem::size_of_val(energy_seed)),
             ];
             for (index, bytes) in required {
                 if self.buffers[index].1 < bytes && self.buffers[index].0 != 0 {
@@ -704,17 +772,19 @@ impl Runtime {
                     self.buffers[index] = (0, 0);
                 }
             }
-            self.upload_current(2, rows)?;
-            self.upload_current(3, types)?;
-            self.upload_current(5, tangent)?;
             self.upload_current(8, &[0_i32])?;
-            self.upload_current(16, energy_seed)?;
             self.ensure(6, types.len() * parameters * 8)?;
             self.ensure(7, types.len() * 8)?;
             self.ensure(12, resources.cache_bytes)?;
             self.ensure(13, resources.descriptor_adjoint_bytes)?;
             self.ensure(14, resources.slot_gradient_bytes)?;
-            let mut address: [u64; 17] = std::array::from_fn(|i| self.buffers[i].0);
+            use super::transfer::{f64_bytes, i32_bytes};
+            let mut address = self.upload_packed_inputs(&[
+                (2, f64_bytes(rows)),
+                (3, i32_bytes(types)),
+                (5, f64_bytes(tangent)),
+                (16, f64_bytes(energy_seed)),
+            ])?;
             let pointer = |p: &mut u64| p as *mut u64 as *mut c_void;
             let mut atoms = types.len() as i32;
             let mut count = parameters as i32;

@@ -1,5 +1,6 @@
 //! Optional real CUDA FP64 network/descriptor inference; CPU geometry/reduction.
 mod full;
+mod transfer;
 pub use crate::fixed_geometry::FixedGeometryStats;
 pub use full::{
     device_loss_resources, full_work_estimate, reverse_resources, tiled_resources,

@@ -154,6 +154,9 @@ pub struct FullGradientProfile {
     pub max_atoms_per_frame: usize,
     pub device_prediction_frames: usize,
     pub tiles: usize,
+    /// Tiled gradient inputs plus status resets; excludes Adam and initialization.
+    pub input_transfer_calls: usize,
+    pub input_transfer_bytes: usize,
     pub kernel_launches: usize,
     pub synchronizations: usize,
     pub max_frames_per_launch: usize,
@@ -173,6 +176,8 @@ impl FullGradientProfile {
         self.max_atoms_per_frame = self.max_atoms_per_frame.max(p.max_atoms_per_frame);
         self.device_prediction_frames += p.device_prediction_frames;
         self.tiles += p.tiles;
+        self.input_transfer_calls += p.input_transfer_calls;
+        self.input_transfer_bytes += p.input_transfer_bytes;
         self.kernel_launches += p.kernel_launches;
         self.synchronizations += p.synchronizations;
         self.max_frames_per_launch = self.max_frames_per_launch.max(p.max_frames_per_launch);
@@ -394,6 +399,9 @@ impl CudaFullTrainer {
             if s.step > 0 && s.execution != execution {
                 return Err(Error("CUDA checkpoint device, driver or compiled-program identity changed; exact resume rejected".into()));
             }
+        }
+        if tiling.is_some() {
+            runtime.enable_packed_inputs();
         }
         runtime.upload(0, &packed.metadata)?;
         runtime.upload(1, &packed.weights)?;
