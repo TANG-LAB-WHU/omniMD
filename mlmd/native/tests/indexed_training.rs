@@ -234,6 +234,47 @@ fn indexed_memory_exact_metrics_updates_and_bidirectional_resume() {
     assert!(Checkpoint::start(&m, &reopened, &legacy).is_err());
 }
 #[test]
+fn indexed_trainer_validates_once_and_rejects_invalid_state_before_callback() {
+    let tmp = Temp::new();
+    let path = tmp.0.join("data.jsonl");
+    let (m, d) = data(6);
+    write_data(&path, &d);
+    let indexed = IndexedDataset::open(&path).unwrap();
+    let c = config(1);
+    let start = Checkpoint::start(&m, &indexed, &c).unwrap();
+    let reads_before = indexed.access_report().unwrap().frame_reads;
+    let result = train_full(start.clone(), &indexed, &c, |_| Ok(())).unwrap();
+    // One complete trainer validation plus initial train/validation assessment.
+    // Constructor, index scan, updates and final assessment are separate work.
+    assert_eq!(
+        result.report.timing.startup_frame_reads.unwrap() - reads_before,
+        2 * d.frames.len() as u64
+    );
+    assert_eq!(indexed.access_report().unwrap().integrity_verifications, 2);
+    for case in 0..5 {
+        let mut state = start.clone();
+        let mut config = c.clone();
+        match case {
+            0 => state.first_moment[0] = 1.0,
+            1 => state.dataset_sha256 = "changed".into(),
+            2 => state.sampler.as_mut().unwrap().cursor = 1,
+            3 => config.fixed_geometry_cache = true,
+            _ => config.steps = 0,
+        }
+        let mut called = false;
+        assert!(
+            train_full(state, &indexed, &config, |_| {
+                called = true;
+                Ok(())
+            })
+            .is_err(),
+            "case {case}"
+        );
+        assert!(!called, "case {case} published an invalid checkpoint");
+    }
+}
+
+#[test]
 fn indexed_strict_record_and_completion_rules() {
     let tmp = Temp::new();
     let path = tmp.0.join("data.jsonl");

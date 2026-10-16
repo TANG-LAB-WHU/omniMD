@@ -61,6 +61,11 @@ impl FullExecution {
 }
 #[derive(Default, Serialize)]
 pub struct FullTiming {
+    /// Within this trainer call, through initial assessments, before the first update.
+    pub startup_ms: f64,
+    /// Indexed reader counter at that boundary; includes earlier caller reads.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub startup_frame_reads: Option<u64>,
     pub initialization_ms: f64,
     pub gradient_ms: f64,
     pub adam_ms: f64,
@@ -362,13 +367,24 @@ impl Checkpoint {
         config: &FullConfig,
         device: TrainingDevice,
     ) -> Result<()> {
+        self.validated_layout_for_device(dataset, config, device)
+            .map(|_| ())
+    }
+    // Validation and its layout result are one operation. No cross-call cache:
+    // public callers may edit checkpoint/model/data between invocations.
+    fn validated_layout_for_device(
+        &self,
+        dataset: &dyn DatasetAccess,
+        config: &FullConfig,
+        device: TrainingDevice,
+    ) -> Result<ParameterLayout> {
         device.validate_full()?;
         if config.cuda_gradient == CudaGradient::Reverse && device == TrainingDevice::Cpu {
             return Err(Error(
                 "cuda_gradient reverse requires an explicit CUDA device; no CPU fallback".into(),
             ));
         }
-        self.validate(dataset, config)?;
+        let layout = self.validate(dataset, config)?;
         if config.fixed_geometry_cache && device == TrainingDevice::Cpu {
             return Err(Error(
                 "fixed_geometry_cache requires explicit CUDA full training; no fallback".into(),
@@ -417,7 +433,7 @@ impl Checkpoint {
                 crate::cuda::reverse_resources(&self.model, atoms)?;
             }
         }
-        Ok(())
+        Ok(layout)
     }
     fn validate(
         &self,
@@ -512,8 +528,7 @@ pub fn train_full_with_device(
     mut save: impl FnMut(&Checkpoint) -> Result<()>,
 ) -> Result<FullOutcome> {
     let initialization = Instant::now();
-    state.validate_for_device(dataset, config, device)?;
-    let layout = state.validate(dataset, config)?;
+    let layout = state.validated_layout_for_device(dataset, config, device)?;
     #[cfg(feature = "cuda")]
     let mut cuda = if let TrainingDevice::Cuda { visible_device } = device {
         let cache = if config.fixed_geometry_cache {
@@ -577,6 +592,8 @@ pub fn train_full_with_device(
         partial_batches: 0,
         batch_size_counts: BTreeMap::new(),
     });
+    timing.startup_ms = initialization.elapsed().as_secs_f64() * 1000.;
+    timing.startup_frame_reads = dataset.access_report().map(|r| r.frame_reads);
     while state.step < end {
         let phase = Instant::now();
         let mut gradient = vec![0.0; values.len()];

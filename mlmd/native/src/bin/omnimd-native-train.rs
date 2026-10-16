@@ -85,6 +85,7 @@ fn save_checkpoint(
     operation().map_err(|e| omnimd_ml_contract::Error(format!("save checkpoint: {e}")))
 }
 fn run() -> Result<(), Box<dyn std::error::Error>> {
+    let startup = std::time::Instant::now();
     let args: Vec<_> = std::env::args().collect();
     if args.len() != 2 {
         return Err("usage: omnimd-native-train REQUEST.json".into());
@@ -124,6 +125,7 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
     {
         return Err("indexed dataset access requires explicit minibatch configuration".into());
     }
+    let dataset_open = std::time::Instant::now();
     let memory = if use_index {
         None
     } else {
@@ -139,6 +141,8 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
         (_, Some(d)) => d,
         _ => unreachable!(),
     };
+    let dataset_open_ms = dataset_open.elapsed().as_secs_f64() * 1000.;
+    let mut startup_timing = None;
     let (model, mut report, input_key, input_sha) = match request {
         Request::Readout {
             initial_model,
@@ -164,6 +168,7 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
             device,
             ..
         } => {
+            let prepare = std::time::Instant::now();
             let (state, key, hash) = match (initial_model, checkpoint) {
                 (Some(initial), None) => {
                     let bytes = fs::read(path(base, &initial))?;
@@ -192,7 +197,8 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
                     )
                 }
             };
-            state.validate_for_device(dataset, &config, device)?;
+            let state_preparation_ms = prepare.elapsed().as_secs_f64() * 1000.;
+            let before_trainer_ms = startup.elapsed().as_secs_f64() * 1000.;
             let outcome = train_full_with_device(state, dataset, &config, device, |s| {
                 if !output.exists() {
                     fs::create_dir(&output).map_err(|e| {
@@ -201,6 +207,12 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
                 }
                 save_checkpoint(&output, &format!("checkpoint-step-{}.json", s.step), s)
             })?;
+            startup_timing = Some(serde_json::json!({
+                "dataset_open_ms":dataset_open_ms,
+                "state_preparation_ms":state_preparation_ms,
+                "before_trainer_ms":before_trainer_ms,
+                "before_first_update_ms":before_trainer_ms+outcome.report.timing.startup_ms
+            }));
             save_checkpoint(&output, "checkpoint.json", &outcome.checkpoint)?;
             (
                 outcome.checkpoint.model,
@@ -231,6 +243,9 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
     }
     dataset.verify()?;
     let object = report.as_object_mut().unwrap();
+    if let Some(timing) = startup_timing {
+        object.insert("startup_timing".into(), timing);
+    }
     if let Some(access) = dataset.access_report() {
         object.insert("dataset_access".into(), serde_json::to_value(access)?);
     }
