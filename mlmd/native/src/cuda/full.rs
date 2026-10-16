@@ -3,10 +3,11 @@
 use super::{PackedModel, Runtime};
 use crate::{
     full_gradient::ParameterLayout,
+    full_loss::{validate_loss, validate_record, LossSeeds, VirialLoss},
     full_training::{Checkpoint, FullConfig, FullExecution},
     neighbor::Geometry,
-    training::{scales, TrainConfig},
-    training_data::{validate_labels, DatasetFrame},
+    training::TrainConfig,
+    training_data::DatasetFrame,
     Model, NativePotential,
 };
 use omnimd_ml_contract::{Error, Potential, Result};
@@ -199,12 +200,21 @@ impl CudaFullTrainer {
         loss: &TrainConfig,
         normalizing_frames: usize,
     ) -> Result<(f64, Vec<f64>)> {
+        self.frame_gradient_with_virial(record, loss, None, normalizing_frames)
+    }
+    pub fn frame_gradient_with_virial(
+        &mut self,
+        record: &DatasetFrame,
+        loss: &TrainConfig,
+        virial: Option<&VirialLoss>,
+        normalizing_frames: usize,
+    ) -> Result<(f64, Vec<f64>)> {
         if self.poisoned {
             return Err(Error(
                 "CUDA full trainer stopped after earlier failure; no automatic retry".into(),
             ));
         }
-        let result = self.gradient(record, loss, normalizing_frames);
+        let result = self.gradient(record, loss, virial, normalizing_frames);
         if result.is_err() {
             self.poisoned = true;
         }
@@ -214,11 +224,12 @@ impl CudaFullTrainer {
         &mut self,
         record: &DatasetFrame,
         loss: &TrainConfig,
+        virial: Option<&VirialLoss>,
         normalizing_frames: usize,
     ) -> Result<(f64, Vec<f64>)> {
-        loss.validate()?;
+        validate_loss(loss, virial)?;
         record.frame.validate()?;
-        validate_labels(record)?;
+        validate_record(record, virial)?;
         let n = record.frame.positions.len();
         if n > 64 || normalizing_frames == 0 {
             return Err(Error(
@@ -227,24 +238,7 @@ impl CudaFullTrainer {
         }
         check_work(n, self.layout.parameters.len(), self.maximum_center_terms)?;
         let predicted = self.cpu.eval(&record.frame)?;
-        let (es, fs) = scales(loss, normalizing_frames, n);
-        let de = predicted.energy - record.labels.energy.unwrap();
-        let energy_seed = 2.0 * es * es * de;
-        let mut seeds = vec![[0.0; 3]; n];
-        let mut objective = (de * es).powi(2);
-        for i in 0..n {
-            for a in 0..3 {
-                let df = predicted.forces[i][a] - record.labels.forces.as_ref().unwrap()[i][a];
-                seeds[i][a] = 2.0 * fs * fs * df;
-                objective += (df * fs).powi(2);
-            }
-        }
-        if !objective.is_finite()
-            || !energy_seed.is_finite()
-            || seeds.iter().flatten().any(|x| !x.is_finite())
-        {
-            return Err(Error("nonfinite CUDA full loss/cotangent".into()));
-        }
+        let seeds = LossSeeds::new(&predicted, record, loss, virial, normalizing_frames)?;
         let model = self.cpu.model();
         let d = &model.descriptor;
         let types = record.frame.type_ids(self.cpu.metadata())?;
@@ -261,11 +255,7 @@ impl CudaFullTrainer {
                         crate::environment(neighbor, &d.normalization[kind], d.rcut_smth, d.rcut);
                     rows.extend(r);
                     for a in 0..4 {
-                        tangent.push(neighbor.map_or(0.0, |q| {
-                            (0..3)
-                                .map(|k| jac[a][k] * (seeds[q.atom][k] - seeds[center][k]))
-                                .sum()
-                        }));
+                        tangent.push(neighbor.map_or(0.0, |q| seeds.tangent(jac[a], q, center)));
                     }
                 }
             }
@@ -273,7 +263,7 @@ impl CudaFullTrainer {
         let p = self.layout.parameters.len();
         let (atomic_gradient, energy) =
             self.runtime
-                .full_frame(&rows, &tangent, &types, p, energy_seed)?;
+                .full_frame(&rows, &tangent, &types, p, seeds.energy)?;
         let primal = energy
             .iter()
             .enumerate()
@@ -295,7 +285,7 @@ impl CudaFullTrainer {
         if gradient.iter().any(|x| !x.is_finite()) {
             return Err(Error("nonfinite reduced CUDA gradient".into()));
         }
-        Ok((objective, gradient))
+        Ok((seeds.objective, gradient))
     }
     /// Receives the already batch-reduced, clipped gradient. Commits host state
     /// only after every GPU candidate value/moment has passed validation.

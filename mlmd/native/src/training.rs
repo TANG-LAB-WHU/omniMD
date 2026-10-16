@@ -116,6 +116,9 @@ pub struct TrainConfig {
 }
 impl TrainConfig {
     pub(crate) fn validate(&self) -> Result<()> {
+        self.validate_allow_zero_ef(false)
+    }
+    pub(crate) fn validate_allow_zero_ef(&self, other_loss: bool) -> Result<()> {
         if ![
             self.energy_weight,
             self.force_weight,
@@ -123,7 +126,7 @@ impl TrainConfig {
         ]
         .iter()
         .all(|x| x.is_finite() && *x >= 0.0)
-            || self.energy_weight + self.force_weight == 0.0
+            || (!other_loss && self.energy_weight + self.force_weight == 0.0)
             || ![
                 self.energy_scale_ev_per_atom,
                 self.force_scale_ev_per_angstrom,
@@ -258,12 +261,22 @@ pub(crate) fn metrics(
     indices: &[usize],
     config: &TrainConfig,
 ) -> Result<Metrics> {
+    metrics_with(model, dataset, indices, config, |_, _| Ok(()))
+}
+pub(crate) fn metrics_with(
+    model: &Model,
+    dataset: &Dataset,
+    indices: &[usize],
+    config: &TrainConfig,
+    mut observe: impl FnMut(&DatasetFrame, &omnimd_ml_contract::Evaluation) -> Result<()>,
+) -> Result<Metrics> {
     let mut potential = NativePotential::new(model.clone())?;
     let (mut se, mut sea, mut sf, mut sv, mut objective) = (0.0, 0.0, 0.0, 0.0, 0.0);
     let (mut nf, mut nv) = (0usize, 0usize);
     for &i in indices {
         let record = &dataset.frames[i];
         let prediction = potential.eval(&record.frame)?;
+        observe(record, &prediction)?;
         let n = record.frame.positions.len();
         let de = prediction.energy - record.labels.energy.unwrap();
         se += de * de;

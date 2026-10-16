@@ -3,6 +3,7 @@ mod autodiff;
 #[cfg(feature = "cuda")]
 pub mod cuda;
 pub mod full_gradient;
+mod full_loss;
 pub mod full_training;
 mod least_squares;
 mod model;

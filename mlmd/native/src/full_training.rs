@@ -1,8 +1,9 @@
 //! Bounded deterministic full-batch Adam for the supported tanh networks.
 use crate::{
-    full_gradient::{frame_gradient, NetworkLocation, ParameterLayout},
-    training::{metrics, partition, FrameIdentity, Metrics, Split, TrainConfig, TrainingDevice},
-    training_data::{validate_labels, Dataset, DatasetHeader},
+    full_gradient::{frame_gradient_with_virial, NetworkLocation, ParameterLayout},
+    full_loss::{metrics, validate_loss, validate_record},
+    training::{partition, FrameIdentity, Split, TrainConfig, TrainingDevice},
+    training_data::{Dataset, DatasetHeader},
     Model,
 };
 use omnimd_ml_contract::{Error, Result};
@@ -12,10 +13,14 @@ use std::{
     time::Instant,
 };
 
+pub use crate::full_loss::{FullMetrics, VirialLoss};
+const VIRIAL_LOSS_CONTRACT: &str = "energy-force-row-virial-per-atom-nine-v1";
+
 /// CPU v1 checkpoints remain byte-schema compatible (this default is omitted).
 /// CUDA v2 records the compiled program and reported device/driver identity.
-/// The backend version also covers host loss/reduction/update semantics; bump it
-/// when those numerical semantics change. PTX hashing alone does not cover them.
+/// Backend identity and checkpoint loss_contract together cover host numerical
+/// semantics. New virial semantics require v3; historical E/F semantics and
+/// v1/v2 serialization stay unchanged. PTX hashing alone does not cover them.
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "backend", rename_all = "snake_case", deny_unknown_fields)]
 pub enum FullExecution {
@@ -49,6 +54,8 @@ pub struct FullConfig {
     pub steps: u64,
     pub energy_weight: f64,
     pub force_weight: f64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub virial_loss: Option<VirialLoss>,
     pub energy_scale_ev_per_atom: f64,
     pub force_scale_ev_per_angstrom: f64,
     pub learning_rate: f64,
@@ -59,6 +66,7 @@ pub struct FullConfig {
     pub checkpoint_every: u64,
 }
 impl FullConfig {
+    /// Legacy E/F component; pass virial_loss separately to the extended gradient API.
     pub fn loss(&self) -> TrainConfig {
         TrainConfig {
             split: self.split.clone(),
@@ -72,7 +80,7 @@ impl FullConfig {
         }
     }
     pub(crate) fn validate(&self) -> Result<()> {
-        self.loss().validate()?;
+        validate_loss(&self.loss(), self.virial_loss.as_ref())?;
         if self.steps == 0
             || self.steps > 100_000
             || self.checkpoint_every == 0
@@ -99,6 +107,8 @@ impl FullConfig {
 #[serde(deny_unknown_fields)]
 pub struct Checkpoint {
     pub schema: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub loss_contract: Option<String>,
     #[serde(default, skip_serializing_if = "FullExecution::is_cpu")]
     pub execution: FullExecution,
     pub initial_model: Model,
@@ -123,6 +133,7 @@ pub struct FullReport {
     pub scope: String,
     pub algorithm: String,
     pub derivative_method: String,
+    pub loss_contract: String,
     pub execution: FullExecution,
     pub execution_scope: String,
     pub timing: FullTiming,
@@ -138,17 +149,40 @@ pub struct FullReport {
     pub validation_frames: Vec<FrameIdentity>,
     pub parameter_changes_from_initial: BTreeMap<String, GroupChange>,
     /// Start of this invocation; checkpoint anchor is separately preserved.
-    pub initial_training: Metrics,
-    pub final_training: Metrics,
-    pub initial_validation: Metrics,
-    pub final_validation: Metrics,
+    pub initial_training: FullMetrics,
+    pub final_training: FullMetrics,
+    pub initial_validation: FullMetrics,
+    pub final_validation: FullMetrics,
 }
 pub struct FullOutcome {
     pub checkpoint: Checkpoint,
     pub report: FullReport,
 }
 
-fn validate_dataset(model: &Model, dataset: &Dataset) -> Result<()> {
+fn checkpoint_schema(execution: &FullExecution, config: &FullConfig) -> &'static str {
+    if config.virial_loss.is_some() {
+        "omnimd-native-full-checkpoint-v3"
+    } else if execution.is_cpu() {
+        "omnimd-native-full-checkpoint-v1"
+    } else {
+        "omnimd-native-full-checkpoint-v2"
+    }
+}
+fn validate_virial_scales(
+    dataset: &Dataset,
+    partitions: &[&[usize]],
+    virial: Option<&VirialLoss>,
+) -> Result<()> {
+    if let Some(v) = virial {
+        for indices in partitions {
+            for &i in *indices {
+                v.scale(indices.len(), dataset.frames[i].frame.positions.len())?;
+            }
+        }
+    }
+    Ok(())
+}
+fn validate_dataset(model: &Model, dataset: &Dataset, virial: Option<&VirialLoss>) -> Result<()> {
     let metadata = model.validate()?;
     if dataset.header.type_map != model.type_map {
         return Err(Error(
@@ -161,7 +195,7 @@ fn validate_dataset(model: &Model, dataset: &Dataset) -> Result<()> {
     let mut ids = HashSet::new();
     for (i, record) in dataset.frames.iter().enumerate() {
         record.frame.type_ids(&metadata)?;
-        validate_labels(record)?;
+        validate_record(record, virial)?;
         if record.frame.positions.len() > 64 {
             return Err(Error(
                 "full trainer supports at most 64 atoms per frame".into(),
@@ -176,12 +210,21 @@ fn validate_dataset(model: &Model, dataset: &Dataset) -> Result<()> {
 impl Checkpoint {
     pub fn start(model: &Model, dataset: &Dataset, config: &FullConfig) -> Result<Self> {
         config.validate()?;
-        validate_dataset(model, dataset)?;
+        validate_dataset(model, dataset, config.virial_loss.as_ref())?;
         let layout = ParameterLayout::new(model)?;
         let (training_indices, validation_indices) = partition(dataset, &config.split)?;
+        validate_virial_scales(
+            dataset,
+            &[&training_indices, &validation_indices],
+            config.virial_loss.as_ref(),
+        )?;
         let p = layout.parameters.len();
         Ok(Self {
-            schema: "omnimd-native-full-checkpoint-v1".into(),
+            schema: checkpoint_schema(&FullExecution::CpuReferenceV1, config).into(),
+            loss_contract: config
+                .virial_loss
+                .as_ref()
+                .map(|_| VIRIAL_LOSS_CONTRACT.into()),
             execution: FullExecution::CpuReferenceV1,
             initial_model: model.clone(),
             model: model.clone(),
@@ -241,15 +284,17 @@ impl Checkpoint {
     fn validate(&self, dataset: &Dataset, config: &FullConfig) -> Result<ParameterLayout> {
         config.validate()?;
         self.config.validate()?;
-        validate_dataset(&self.model, dataset)?;
+        validate_dataset(&self.model, dataset, config.virial_loss.as_ref())?;
         let layout = ParameterLayout::new(&self.model)?;
         let initial_layout = ParameterLayout::new(&self.initial_model)?;
-        let schema = if self.execution.is_cpu() {
-            "omnimd-native-full-checkpoint-v1"
-        } else {
-            "omnimd-native-full-checkpoint-v2"
-        };
+        let schema = checkpoint_schema(&self.execution, &self.config);
+        let contract = self
+            .config
+            .virial_loss
+            .as_ref()
+            .map(|_| VIRIAL_LOSS_CONTRACT);
         if self.schema != schema
+            || self.loss_contract.as_deref() != contract
             || self.config.restart_key() != config.restart_key()
             || self.dataset_sha256 != dataset.dataset_sha256
             || self.parameter_layout_sha256 != layout.sha256()
@@ -270,6 +315,11 @@ impl Checkpoint {
             return Err(Error("checkpoint changed frozen model fields".into()));
         }
         let (training, validation) = partition(dataset, &config.split)?;
+        validate_virial_scales(
+            dataset,
+            &[&training, &validation],
+            config.virial_loss.as_ref(),
+        )?;
         let p = layout.parameters.len();
         if training != self.training_indices
             || validation != self.validation_indices
@@ -315,7 +365,7 @@ pub fn train_full_with_device(
     let mut cuda = if let TrainingDevice::Cuda { visible_device } = device {
         let gpu = crate::cuda::CudaFullTrainer::restore(&state, visible_device)?;
         state.execution = gpu.execution().clone();
-        state.schema = "omnimd-native-full-checkpoint-v2".into();
+        state.schema = checkpoint_schema(&state.execution, config).into();
         Some(gpu)
     } else {
         None
@@ -331,8 +381,20 @@ pub fn train_full_with_device(
         .ok_or_else(|| Error("full trainer global step exceeds limit".into()))?;
     let loss = config.loss();
     let assessment = Instant::now();
-    let initial_training = metrics(&state.model, dataset, &state.training_indices, &loss)?;
-    let initial_validation = metrics(&state.model, dataset, &state.validation_indices, &loss)?;
+    let initial_training = metrics(
+        &state.model,
+        dataset,
+        &state.training_indices,
+        &loss,
+        config.virial_loss.as_ref(),
+    )?;
+    let initial_validation = metrics(
+        &state.model,
+        dataset,
+        &state.validation_indices,
+        &loss,
+        config.virial_loss.as_ref(),
+    )?;
     timing.assessment_ms += assessment.elapsed().as_secs_f64() * 1000.0;
     state.config = config.clone();
     let mut values = layout.values(&state.model);
@@ -342,21 +404,26 @@ pub fn train_full_with_device(
         for &i in &state.training_indices {
             #[cfg(feature = "cuda")]
             let (_, frame) = match &mut cuda {
-                Some(gpu) => {
-                    gpu.frame_gradient(&dataset.frames[i], &loss, state.training_indices.len())?
-                }
-                None => frame_gradient(
+                Some(gpu) => gpu.frame_gradient_with_virial(
+                    &dataset.frames[i],
+                    &loss,
+                    config.virial_loss.as_ref(),
+                    state.training_indices.len(),
+                )?,
+                None => frame_gradient_with_virial(
                     &state.model,
                     &dataset.frames[i],
                     &loss,
+                    config.virial_loss.as_ref(),
                     state.training_indices.len(),
                 )?,
             };
             #[cfg(not(feature = "cuda"))]
-            let (_, frame) = frame_gradient(
+            let (_, frame) = frame_gradient_with_virial(
                 &state.model,
                 &dataset.frames[i],
                 &loss,
+                config.virial_loss.as_ref(),
                 state.training_indices.len(),
             )?;
             for (g, f) in gradient.iter_mut().zip(frame) {
@@ -446,8 +513,20 @@ pub fn train_full_with_device(
         id: dataset.frames[*i].id.clone(),
     };
     let phase = Instant::now();
-    let final_training = metrics(&state.model, dataset, &state.training_indices, &loss)?;
-    let final_validation = metrics(&state.model, dataset, &state.validation_indices, &loss)?;
+    let final_training = metrics(
+        &state.model,
+        dataset,
+        &state.training_indices,
+        &loss,
+        config.virial_loss.as_ref(),
+    )?;
+    let final_validation = metrics(
+        &state.model,
+        dataset,
+        &state.validation_indices,
+        &loss,
+        config.virial_loss.as_ref(),
+    )?;
     timing.assessment_ms += phase.elapsed().as_secs_f64() * 1000.0;
     let derivative_method = if state.execution.is_cpu() {
         "reverse AD over differentiable coordinate-directional tangents; exact mixed parameter-coordinate derivatives"
@@ -462,6 +541,7 @@ pub fn train_full_with_device(
     let report=FullReport {
         scope:"all embedding/fitting weights, biases and timesteps; fixed normalization, geometry settings and atom_energy_bias".into(),
         algorithm:"deterministic full-batch Adam; constant learning rate; last iterate export".into(),
+        loss_contract:state.loss_contract.clone().unwrap_or_else(|| "energy-force-per-atom-v1".into()),
         derivative_method:derivative_method.into(), execution:state.execution.clone(), execution_scope:execution_scope.into(), timing,
         config:config.clone(),step_start:start,step_end:end,parameters:values.len(),parameter_layout_sha256:layout.sha256(),
         dataset_header:dataset.header.clone(),dataset_sha256:dataset.dataset_sha256.clone(),source_sha256:dataset.source_sha256.clone(),

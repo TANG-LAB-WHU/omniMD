@@ -134,9 +134,10 @@ commands, hashes, ranks, metrics and exact execution scope.
 This tiny 3/4-atom case was **slower on CUDA**: feature extraction took 21.37 ms
 versus CPU 5.15 ms; CUDA initialization was another 195.88 ms. This is an
 implementation/parity check, not a speed or chemical-accuracy claim. Feature
-checkpointing, virial-loss optimization and representative large-system
-training performance remain unimplemented or unvalidated. Bounded all-neural-
-parameter CUDA training is documented separately.
+checkpointing and virial-loss optimization remain unimplemented in the readout
+QR mode. Representative large-system training performance remains unvalidated.
+The full-network trainer supports [optional virial loss](VIRIAL_TRAINING.md)
+on CPU and CUDA.
 
 ## Exact features and objective
 
