@@ -14,7 +14,7 @@ This is a progressively implemented subset, not all DeepMD functionality:
 | tanh/linear, explicit residuals and timesteps | Implemented | Implemented |
 | sigmoid/softplus inference | Implemented | Rejected |
 | Final-readout E/F fitting | Implemented, bounded | Implemented: GPU features, CPU QR/assessment |
-| Full supported tanh-network E/F training and Adam restart | Implemented, bounded | [Bounded GPU gradients/Adam, CPU loss/geometry](CUDA_FULL_TRAINING.md) |
+| Full supported tanh-network E/F + optional virial training and Adam restart | Implemented, bounded | [Bounded GPU gradients/Adam, CPU loss/geometry](CUDA_FULL_TRAINING.md) |
 | Arbitrary DeepMD models, attention/spin/hybrid/compression | Not implemented | Not implemented |
 
 Conversion supports a pinned DeepMD 3.1.3 interchange subset and two audited
@@ -23,7 +23,8 @@ See [conversion](CONVERSION.md), [frozen export](FROZEN.md),
 [training scope](FULL_TRAINING.md) and [remaining training work](TRAINING_NEXT.md).
 GPU inference is described in [CUDA_FIT.md](CUDA_FIT.md); full neural-parameter
 training, its exact computation boundary and timings are in
-[CUDA_FULL_TRAINING.md](CUDA_FULL_TRAINING.md).
+[CUDA_FULL_TRAINING.md](CUDA_FULL_TRAINING.md). The optional nine-component
+virial loss and compatibility rules are in [VIRIAL_TRAINING.md](VIRIAL_TRAINING.md).
 
 ## Step 1: Build the CPU baseline
 
@@ -149,7 +150,8 @@ required for the CUDA improvements.
 
 Import/prepare the exact `omnimd-dataset-jsonl-v1` schema through the engine data
 workflow. Native trainers require every selected frame to have E and F labels;
-missing labels are errors. Optional virial labels are assessment only. Preserve
+missing labels are errors. Optional virial labels are assessment-only by default;
+full-network requests can enable [virial supervision](VIRIAL_TRAINING.md). Preserve
 ordered types/units and choose explicit validation IDs or a recorded seed.
 
 Create a request using [TRAINING.md](TRAINING.md) for frozen-hidden readout
@@ -169,7 +171,8 @@ set `"device":"cuda:0"` in a CUDA-enabled build for GPU feature generation with
 CPU QR/assessment; omitted device remains CPU. Full-network requests also accept
 explicit `"cuda:N"` within the tighter [CUDA training bounds](CUDA_FULL_TRAINING.md),
 with GPU mixed derivatives/Adam and CPU loss/geometry/reduction. GPU checkpoints
-use v2 and require the recorded backend/device/runtime identity on resume.
+use v2 for E/F-only or v3 with virial loss, and require the recorded
+backend/device/runtime identity on resume.
 Check held-out results
 before MD. GPU inference can consume a trained native model only if it meets
 CUDA's architecture/size bounds. These trainers do not implement end-to-end

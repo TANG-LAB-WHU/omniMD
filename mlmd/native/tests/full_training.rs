@@ -19,6 +19,7 @@ fn config(steps: u64) -> FullConfig {
         steps,
         energy_weight: 1.0,
         force_weight: 1.0,
+        virial_loss: None,
         energy_scale_ev_per_atom: 0.1,
         force_scale_ev_per_angstrom: 0.1,
         learning_rate: 0.005,

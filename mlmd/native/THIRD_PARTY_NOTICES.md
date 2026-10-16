@@ -182,3 +182,13 @@ https://arxiv.org/abs/1801.03614. Adam and the original se_e2_a references above
 remain applicable. These are implementation choices, not algorithmic novelty.
 Existing NVIDIA runtime terms and approved dependency licenses are unchanged;
 no dependency installation, download or global configuration change occurred.
+
+## Optional virial-loss supervision
+
+The shared loss-seed construction, row-strain directional extension, v3 loss
+contract and analytic/finite-difference verification are independently written
+MIT code. They use the existing DeepPot-SE row virial convention and standard
+chain-rule differentiation; no external training or autodiff source was copied.
+The dimer, triclinic/self-image cases and teacher labels are original synthetic
+fixtures. Existing source references and dependency licenses remain applicable.
+No dependency, model, driver or toolkit download was introduced.

@@ -1,0 +1,271 @@
+{
+  "scope": "Optional all-nine-component per-atom row-strain virial loss for the existing bounded full neural-parameter CPU/CUDA trainer",
+  "date_utc": "2026-10-16",
+  "base_native_commit": "f4dbf62bb4acb97e8f7e12e62de625e08af07a05",
+  "loss_contract": "energy-force-row-virial-per-atom-nine-v1",
+  "equations": {
+    "virial": "W_ab = -dE/d epsilon_ab; r_prime_b = r_b + sum_a r_a epsilon_ab",
+    "loss": "L = L_EF + wV/(9 M) sum_fab ((W_fab-W_target_fab)/(N_f*sV))^2",
+    "direction": "u_b = force_seed_neighbor_b-force_seed_center_b + sum_a full_image_delta_a*virial_seed_ab",
+    "gradient": "a*E_theta - (E_u)_theta; all loss cotangents detached"
+  },
+  "verification": {
+    "default_cpu_tests_passed": 22,
+    "cuda_feature_cpu_tests_passed": 28,
+    "actual_gpu_tests_passed": 2,
+    "cpu_finite_difference_max_abs": 9.436464054601856e-09,
+    "finite_difference_step": 1e-05,
+    "finite_difference_scope": "All 112 parameters; V-only and E/F/V; cluster, triclinic PBC, one-atom periodic self-images",
+    "analytic_checks": [
+      "Closed-form dimer energy, nine virials and fitting-weight virial gradient",
+      "All nine independent affine strain finite differences",
+      "Nonsymmetric tensor row-product orientation",
+      "Unequal atom counts 1/3/4, frame averaging, nonunit scale, zero residual",
+      "Rotation and periodic wrapping invariance",
+      "Antisymmetric target constant loss/zero gradient",
+      "Split metrics match independent objective; validation-label isolation",
+      "v3 exact restart and schema/loss/backend guards; omitted/null V keeps legacy fields",
+      "Actual CLI missing-label/normalization rejection before invalid CUDA device or output creation"
+    ],
+    "build": "Final CUDA-capable release binaries built offline; no new dependency",
+    "commands": [
+      "cargo test --locked --offline --manifest-path mlmd/native/Cargo.toml --no-default-features",
+      "cargo test --locked --offline --manifest-path mlmd/native/Cargo.toml --features cuda",
+      "cargo test --release --locked --offline --manifest-path mlmd/native/Cargo.toml --features cuda --test virial_training -- --ignored --nocapture --test-threads=1",
+      "cargo test --release --locked --offline --manifest-path mlmd/native/Cargo.toml --features cuda --test cuda_full_training all_parameter_mixed_gradients_adam_and_exact_resume -- --ignored --nocapture --test-threads=1",
+      "python mlmd/native/tools/replay_full_training.py --eval-exe mlmd/native/target/release/omnimd-native-eval.exe --train-exe mlmd/native/target/release/omnimd-native-train.exe --device cuda:0 --compare-cpu --virial-weight 1 --virial-scale-ev-per-atom 0.1 --output-dir mlmd/native/fixtures/generated-deepmd/virial-training-01/cli"
+    ],
+    "cpu_post_gpu_checks": "Only an additional CLI negative test, metric assertion and documentation followed GPU release; no production numerical changes"
+  },
+  "gpu_gradient_and_update": {
+    "execution": {
+      "backend": "cuda_hyperdual_f64_v1",
+      "device_info": "NVIDIA GeForce RTX 4090; compute 8.9; FP64; device 0",
+      "driver_version": 13040,
+      "program_sha256": "36793f1f392c7c3a8a13bb6f9dde7b26d810d4e2600cc5cf4c4cb124107f91b9",
+      "visible_device": 0
+    },
+    "resume_2_plus_1_exact": true,
+    "schema": "omnimd-native-full-checkpoint-v3",
+    "two_step_moment_max_abs": 2.6020852139652106e-18,
+    "two_step_parameter_max_abs": 6.938893903907228e-18,
+    "virial_cuda_cpu_gradient_max_abs": 2.6645352591003757e-15,
+    "started_utc": "2026-10-16T11:25:51.530432+00:00",
+    "completed_utc": "2026-10-16T11:25:54.877207+00:00"
+  },
+  "existing_ef_gpu_regression": {
+    "axis2_gradient_max_abs": 8.881784197001252e-16,
+    "cpu_v1_gpu_v2_checkpoint_guard": true,
+    "execution": {
+      "backend": "cuda_hyperdual_f64_v1",
+      "device_info": "NVIDIA GeForce RTX 4090; compute 8.9; FP64; device 0",
+      "driver_version": 13040,
+      "program_sha256": "36793f1f392c7c3a8a13bb6f9dde7b26d810d4e2600cc5cf4c4cb124107f91b9",
+      "visible_device": 0
+    },
+    "gradient_max_abs_vs_cpu_reverse_ad": 7.105427357601002e-15,
+    "gradient_max_abs_vs_finite_difference": 7.542334046206634e-08,
+    "nonfinite_update_preserves_host_snapshot_and_poisons": true,
+    "parameters": 112,
+    "same_device_serialized_resume_exact": true,
+    "scope": "CUDA all neural parameter E/F mixed derivatives and Adam; CPU loss, geometry, reduction and assessment",
+    "two_step_moment_max_abs": 1.6940658945086007e-21,
+    "two_step_parameter_max_abs": 9.020562075079397e-17,
+    "width32_gradient_max_abs": 7.105427357601002e-15
+  },
+  "legacy_ef_checkpoint_compatibility": [
+    {
+      "device": "cpu",
+      "source_checkpoint_schema": "omnimd-native-full-checkpoint-v1",
+      "source_checkpoint_sha256": "c88d5f4466c084f89d7d0033f02a0a38a1a2f6d5a53ee7c88657a7f8bf165b1b",
+      "actual_checkpoint_sha256": "554e5d25afea30dda52f31ec319889261f504a721d1a51e66a4e2536fa9d4dff",
+      "all_checkpoint_fields_equal_historical_300_step_result_except_requested_steps": true,
+      "started_utc": "2026-10-16T11:27:07.274715+00:00",
+      "completed_utc": "2026-10-16T11:27:07.673122+00:00"
+    },
+    {
+      "device": "cuda:0",
+      "source_checkpoint_schema": "omnimd-native-full-checkpoint-v2",
+      "source_checkpoint_sha256": "f1116cf7660335b4cb23f2d2095632d13e2b8fd4c0ace9d89904c93b78132ca9",
+      "actual_checkpoint_sha256": "ba6cc2f61b3d118da541230802d0df4a4f18400f49dc002e6b33e3e263711993",
+      "all_checkpoint_fields_equal_historical_300_step_result_except_requested_steps": true,
+      "started_utc": "2026-10-16T11:27:07.673122+00:00",
+      "completed_utc": "2026-10-16T11:27:08.688300+00:00"
+    }
+  ],
+  "training_cli": {
+    "scope": "full supported tanh network; original synthetic teacher; no physical accuracy claim",
+    "device": "cuda:0",
+    "execution": {
+      "backend": "cuda_hyperdual_f64_v1",
+      "device_info": "NVIDIA GeForce RTX 4090; compute 8.9; FP64; device 0",
+      "driver_version": 13040,
+      "program_sha256": "36793f1f392c7c3a8a13bb6f9dde7b26d810d4e2600cc5cf4c4cb124107f91b9",
+      "visible_device": 0
+    },
+    "execution_scope": "CUDA all-neural-parameter mixed derivatives and Adam; CPU inference/loss cotangents, geometry, stable atom/frame reduction, clipping and assessment",
+    "timing": {
+      "adam_ms": 32.059199999999976,
+      "assessment_ms": 1.3687,
+      "gradient_ms": 1415.2027999999991,
+      "initialization_ms": 198.4576
+    },
+    "cpu_comparison": {
+      "parameter_max_abs": 1.1102230246251565e-15,
+      "moment_max_abs": 3.0767489250793645e-15,
+      "prediction_efv_max_abs": [
+        8.881784197001252e-16,
+        1.3877787807814457e-15,
+        2.220446049250313e-15
+      ],
+      "cpu_timing": {
+        "adam_ms": 1.6278000000000001,
+        "assessment_ms": 1.2903,
+        "gradient_ms": 575.9259999999999,
+        "initialization_ms": 0.28150000000000003
+      },
+      "cuda_timing": {
+        "adam_ms": 32.059199999999976,
+        "assessment_ms": 1.3687,
+        "gradient_ms": 1415.2027999999991,
+        "initialization_ms": 198.4576
+      },
+      "cpu_complete_training_process_ms": 619.0695000113919,
+      "cuda_complete_training_process_ms": 1816.225399990799,
+      "cpu_final_training": {
+        "energy_per_atom_rmse_ev": 0.00023985222935138644,
+        "energy_rmse_ev": 0.0008082343402260522,
+        "force_component_rmse_ev_per_angstrom": 0.0021926515913863395,
+        "frames": 18,
+        "normalized_ef_objective": 0.0004987751071894062,
+        "normalized_total_objective": 0.0005363274380064353,
+        "normalized_virial_objective": 3.755233081702914e-05,
+        "virial_component_rmse_ev": 0.0021468580218177388,
+        "virial_per_atom_component_rmse_ev": 0.0006127995660656848
+      },
+      "cpu_final_validation": {
+        "energy_per_atom_rmse_ev": 0.00042301178705179054,
+        "energy_rmse_ev": 0.0016919756548351389,
+        "force_component_rmse_ev_per_angstrom": 0.0064481401027403976,
+        "frames": 6,
+        "normalized_ef_objective": 0.004014326331674135,
+        "normalized_total_objective": 0.004687722750540854,
+        "normalized_virial_objective": 0.0006733964188667199,
+        "virial_component_rmse_ev": 0.010363751611761214,
+        "virial_per_atom_component_rmse_ev": 0.0025949882829537398
+      }
+    },
+    "checkpoint_schema": "omnimd-native-full-checkpoint-v3",
+    "loss_contract": "energy-force-row-virial-per-atom-nine-v1",
+    "virial_loss": {
+      "weight": 1.0,
+      "scale_ev_per_atom": 0.1
+    },
+    "complete_training_process_ms": 1816.225399990799,
+    "process_timing_scope": "one training subprocess: input IO, initialization, all updates, initial/final assessment, checkpoints, model serialization/reload verification and export; excludes label generation, replay and separate evaluation subprocesses",
+    "data_seed": 20261014,
+    "split_seed": 20261015,
+    "frames": 24,
+    "train_frames": 18,
+    "validation_frames": 6,
+    "parameters": 112,
+    "steps": 300,
+    "initial_training": {
+      "energy_per_atom_rmse_ev": 0.07572476790753267,
+      "energy_rmse_ev": 0.29282298278796637,
+      "force_component_rmse_ev_per_angstrom": 0.2841021659652936,
+      "frames": 18,
+      "normalized_ef_objective": 8.830361483640697,
+      "normalized_total_objective": 9.43353925991739,
+      "normalized_virial_objective": 0.6031777762766932,
+      "virial_component_rmse_ev": 0.2890119185893984,
+      "virial_per_atom_component_rmse_ev": 0.07766452061763422
+    },
+    "final_training": {
+      "energy_per_atom_rmse_ev": 0.0002398522293514058,
+      "energy_rmse_ev": 0.0008082343402261686,
+      "force_component_rmse_ev_per_angstrom": 0.002192651591386284,
+      "frames": 18,
+      "normalized_ef_objective": 0.0004987751071893848,
+      "normalized_total_objective": 0.0005363274380064118,
+      "normalized_virial_objective": 3.755233081702709e-05,
+      "virial_component_rmse_ev": 0.0021468580218176707,
+      "virial_per_atom_component_rmse_ev": 0.0006127995660656682
+    },
+    "initial_validation": {
+      "energy_per_atom_rmse_ev": 0.06033371156403555,
+      "energy_rmse_ev": 0.23612446270426193,
+      "force_component_rmse_ev_per_angstrom": 0.3178073922785384,
+      "frames": 6,
+      "normalized_ef_objective": 10.140334936324335,
+      "normalized_total_objective": 11.186986717484478,
+      "normalized_virial_objective": 1.0466517811601437,
+      "virial_component_rmse_ev": 0.4072473794946535,
+      "virial_per_atom_component_rmse_ev": 0.1023060008582167
+    },
+    "final_validation": {
+      "energy_per_atom_rmse_ev": 0.00042301178705181407,
+      "energy_rmse_ev": 0.0016919756548352339,
+      "force_component_rmse_ev_per_angstrom": 0.00644814010274046,
+      "frames": 6,
+      "normalized_ef_objective": 0.004014326331674214,
+      "normalized_total_objective": 0.004687722750540949,
+      "normalized_virial_objective": 0.0006733964188667353,
+      "virial_component_rmse_ev": 0.010363751611761328,
+      "virial_per_atom_component_rmse_ev": 0.002594988282953769
+    },
+    "parameter_changes_from_initial": {
+      "embedding": {
+        "changed": 56,
+        "delta_l2": 0.4185682432917412,
+        "parameters": 56
+      },
+      "fitting_hidden": {
+        "changed": 48,
+        "delta_l2": 0.2493324815448298,
+        "parameters": 48
+      },
+      "fitting_output": {
+        "changed": 8,
+        "delta_l2": 0.0819521245945395,
+        "parameters": 8
+      }
+    },
+    "resume_150_plus_150_equals_continuous_300": true,
+    "exported_model_max_abs_error_to_teacher": {
+      "energy": 0.003980802994987265,
+      "forces": 0.03627603652319178,
+      "virial": 0.05421540458376484
+    },
+    "native_v1_reload_max_abs_energy_force_virial": [
+      0.0,
+      0.0,
+      0.0
+    ],
+    "sha256": {
+      "dataset.jsonl": "4ace2baedf6896bb3eaea90e7c8dcc700754d06c50841a36e4013d9d998b4515",
+      "initial.json": "407278c6eab122e6dfee2511b3c3fb4c033f58c04819a580ffc0810df3ce7b9a",
+      "teacher.json": "1113e4f1d49c77756703a0b6f3362615699a6d9bd0686cddbc1c103066fa0bc8",
+      "model.json": "a305fa941f8cf6b708f0b078228a1b341653414e597cc2ba5c0c968be44b043a",
+      "report.json": "0373bcb25fd76d4994af227159ea7603603bc2d480194e969fbf5f59638f2b63",
+      "checkpoint.json": "3b19755dd7cc7971f509a623cbb25be5a74854cc09b07fa3b6deda07bbbe2bac",
+      "eval_executable": "7354bd09e44d2e8f700e0c88a8a0ef819ab8aba5ee393e95260d4cb35b18e3c9",
+      "train_executable": "f81d078ba7ca3b4a60c15ea9a8a564c6d1afdf77e180a1bad5c09971311c7691"
+    }
+  },
+  "gpu_release": {
+    "gpu_released_utc": "2026-10-16T11:27:08.688300+00:00",
+    "all_owned_gpu_processes_exited": true
+  },
+  "limitations": [
+    "Fixed normalization, cutoffs, architecture and separate atomic offsets; existing model/resource bounds unchanged",
+    "E+F labels still required for V-only optimization; V labels required on every frame only when enabled",
+    "All nine components used without stress/volume conversion or automatic symmetrization; antisymmetric target component cannot be learned",
+    "Frozen-readout QR remains E/F-only; no generic DeepMD optimizer or physical-accuracy claim",
+    "Small synthetic E/F/V training was slower on CUDA; timings are one bounded fixture run",
+    "Linux CUDA, external-label physical validation and large-model throughput remain unverified"
+  ],
+  "raw_evidence_ignored": "fixtures/generated-deepmd/virial-training-01/",
+  "no_new_dependencies": true,
+  "no_push": true
+}

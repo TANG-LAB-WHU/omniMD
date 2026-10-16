@@ -1,9 +1,10 @@
-//! Exact joint energy/force parameter gradient for tanh se_e2_a networks.
+//! Exact joint energy/force/optional-virial parameter gradient for tanh se_e2_a networks.
 use crate::{
     autodiff::{Dual, Id, Tape},
+    full_loss::{validate_loss, validate_record, LossSeeds, VirialLoss},
     neighbor::Geometry,
-    training::{scales, TrainConfig},
-    training_data::{validate_labels, DatasetFrame},
+    training::TrainConfig,
+    training_data::DatasetFrame,
     Activation, Model, NativePotential, Network, Residual,
 };
 use omnimd_ml_contract::{Error, Potential, Result};
@@ -243,8 +244,18 @@ pub fn frame_gradient(
     loss: &TrainConfig,
     normalizing_frames: usize,
 ) -> Result<(f64, Vec<f64>)> {
-    loss.validate()?;
-    validate_labels(record)?;
+    frame_gradient_with_virial(model, record, loss, None, normalizing_frames)
+}
+/// Adds the full row-strain virial cotangent to the environment direction.
+pub fn frame_gradient_with_virial(
+    model: &Model,
+    record: &DatasetFrame,
+    loss: &TrainConfig,
+    virial: Option<&VirialLoss>,
+    normalizing_frames: usize,
+) -> Result<(f64, Vec<f64>)> {
+    validate_loss(loss, virial)?;
+    validate_record(record, virial)?;
     if normalizing_frames == 0 {
         return Err(Error(
             "gradient normalization requires positive frame count".into(),
@@ -259,19 +270,7 @@ pub fn frame_gradient(
             "full trainer supports at most 64 atoms per frame".into(),
         ));
     }
-    let (es, fs) = scales(loss, normalizing_frames, n);
-    let de = predicted.energy - record.labels.energy.unwrap();
-    let energy_seed = 2.0 * es * es * de;
-    let mut force_seed = vec![[0.0; 3]; n];
-    let mut objective = (de * es).powi(2);
-    for atom in 0..n {
-        for axis in 0..3 {
-            let df =
-                predicted.forces[atom][axis] - record.labels.forces.as_ref().unwrap()[atom][axis];
-            force_seed[atom][axis] = 2.0 * fs * fs * df;
-            objective += (df * fs).powi(2);
-        }
-    }
+    let seeds = LossSeeds::new(&predicted, record, loss, virial, normalizing_frames)?;
     let mut tape = Tape::new();
     let parameter_ids: Vec<_> = layout
         .values(model)
@@ -324,11 +323,7 @@ pub fn frame_gradient(
                     tangent: 0,
                 }; 4];
                 for a in 0..4 {
-                    let tangent = neighbor.map_or(0.0, |q| {
-                        (0..3)
-                            .map(|k| jac[a][k] * (force_seed[q.atom][k] - force_seed[center][k]))
-                            .sum()
-                    });
+                    let tangent = neighbor.map_or(0.0, |q| seeds.tangent(jac[a], q, center));
                     row[a] = tape.dual_constant(r[a], tangent);
                 }
                 let g = embedding[kind][species].forward(&mut tape, &[row[0]]);
@@ -363,10 +358,10 @@ pub fn frame_gradient(
     if (tape.value(total.value) - predicted.energy).abs() > 1e-11 * (1.0 + predicted.energy.abs()) {
         return Err(Error("AD primal disagrees with native inference".into()));
     }
-    let adj = tape.reverse(&[(total.value, energy_seed), (total.tangent, -1.0)])?;
+    let adj = tape.reverse(&[(total.value, seeds.energy), (total.tangent, -1.0)])?;
     let gradient = parameter_ids.iter().map(|id| adj[*id]).collect();
-    if !objective.is_finite() {
+    if !seeds.objective.is_finite() {
         return Err(Error("nonfinite full-network objective".into()));
     }
-    Ok((objective, gradient))
+    Ok((seeds.objective, gradient))
 }

@@ -2,7 +2,8 @@
 
 The `omnimd-native-full-train-v1` request now accepts explicit `"device":"cuda:N"`
 with a CUDA-enabled build. All supported embedding/fitting weights, biases and
-present timesteps receive E/F-loss gradients and Adam updates computed in CUDA
+present timesteps receive E/F and optional [virial-loss](VIRIAL_TRAINING.md)
+gradients and Adam updates computed in CUDA
 float64. The default remains `"cpu"`. This is distinct from the frozen-readout
 feature/CPU-QR mode, and is not an end-to-end GPU training system.
 
@@ -41,13 +42,15 @@ All network copies are independent parameters, including repeated embeddings
 from one-side source models. Normalization, cutoffs, neighbor capacities,
 architecture, type map and separate atomic energy offsets are fixed. Both E and
 F labels remain mandatory even for a zero-weight loss component. Virial labels
-are assessment only. There is no virial loss, automatic normalization/offset
-fitting, mixed precision, minibatching or unsupported-architecture emulation.
+are assessment-only by default; explicit `config.virial_loss` enables the
+[V3 nine-component loss](VIRIAL_TRAINING.md) and requires them on every frame.
+There is no automatic normalization/offset fitting, mixed precision, minibatching
+or unsupported-architecture emulation.
 
 ## Parameter-coordinate mixed derivatives
 
 The loss and scales are unchanged from [FULL_TRAINING.md](FULL_TRAINING.md).
-For detached loss cotangents `a=dL/dE`, `v=dL/dF`, and `F=-grad_r E`:
+For the default E/F case, detached loss cotangents `a=dL/dE`, `v=dL/dF`, and `F=-grad_r E`:
 
 ```text
 grad_theta L = a * grad_theta E - grad_theta (v . grad_r E)
@@ -58,8 +61,10 @@ One CUDA thread owns a central atom and one selected parameter. Each scalar
 carries four components `(value, coordinate_direction, parameter_direction,
 mixed_direction)`. Raw environment rows have parameter/mixed components zero;
 the selected parameter has parameter component one at every occurrence.
-Normalized padding retains its value but has zero coordinate tangent. Periodic
-self-image tangents cancel. Parameters and loss seeds refer to the same current
+Normalized padding retains its value but has zero tangent. Periodic self-image
+force tangents cancel; their optional virial tangents remain. The virial extension
+adds `J*(d*C)` using the full lattice-image displacement, as derived in
+[VIRIAL_TRAINING.md](VIRIAL_TRAINING.md). Parameters and loss seeds refer to the same current
 model snapshot; the loss seeds are not differentiated again.
 
 Addition, multiplication, tanh, residual and trainable timestep operations
@@ -96,7 +101,7 @@ The Rust entry point is `train_full_with_device`; `train_full` still selects CPU
 Low-level `CudaFullTrainer::adam_step` expects an already reduced/clipped batch
 gradient; the normal trainer performs that reduction and clipping exactly once.
 
-CPU checkpoints remain `omnimd-native-full-checkpoint-v1`; their default CPU
+For E/F-only runs, CPU checkpoints remain `omnimd-native-full-checkpoint-v1`; their default CPU
 execution tag is omitted, preserving the existing serialized schema. CUDA
 checkpoints use `omnimd-native-full-checkpoint-v2` and include
 `execution.backend="cuda_hyperdual_f64_v1"`, visible device ordinal, reported
@@ -106,15 +111,18 @@ config, dataset/layout hashes and split indices. A nonzero-step resume must use
 the same backend/device and recorded runtime/program identity. The original
 CPU parser cannot read a GPU v2 checkpoint. To switch backend intentionally,
 start a new optimizer from `model.json`; do not edit checkpoint provenance.
+Enabled virial loss uses v3 on both devices with an immutable loss contract;
+see [virial checkpoint compatibility](VIRIAL_TRAINING.md#checkpoint-compatibility).
 
 `driver_version` is the CUDA API version reported by the driver, not its vendor
 package build number. These checks detect recorded incompatibilities; they do
 not identify a physical board by serial number or authenticate a toolchain.
 Exact resume was verified within the same build, platform and installed runtime;
 cross-build/platform/driver bitwise equality is not promised. Checkpoints are
-not cryptographically signed. The `cuda_hyperdual_f64_v1` backend version also
-covers host loss/reduction/update semantics and must be advanced when those
-numerical semantics change; the PTX hash alone does not cover host code.
+not cryptographically signed. Backend identity together with the checkpoint
+loss contract specifies host numerical semantics. Historical E/F semantics stay
+unchanged; new virial semantics require v3. The PTX hash alone does not cover
+host code.
 
 Model/data/split/bounds/backend/global-step checks precede CUDA creation. PTX
 and runtime identity are checked after context creation but before model upload

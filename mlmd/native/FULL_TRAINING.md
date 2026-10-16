@@ -2,14 +2,16 @@
 
 `omnimd-native-train` now has a second strict request schema,
 `omnimd-native-full-train-v1`. It trains all embedding and fitting matrices,
-biases and present timesteps jointly against energy and force labels using
+biases and present timesteps jointly against energy/force labels and optional
+[virial supervision](VIRIAL_TRAINING.md) using
 CPU float64 Rust. It preserves the existing readout request and inference model
 formats. The engine's `train-native REQUEST.json` wrapper can forward either
 request unchanged to this executable. The optional request field `device`
 defaults to `"cpu"`; a CUDA-enabled build also accepts explicit `"cuda:N"` for
 bounded all-neural-parameter GPU gradients and Adam. See
 [CUDA full training](CUDA_FULL_TRAINING.md) for its CPU/GPU boundary, tighter
-resource limits and v2 checkpoint identity. CPU v1 checkpoints remain compatible.
+resource limits and checkpoint identity. E/F-only CPU v1 and CUDA v2 checkpoints
+remain compatible; enabled virial loss uses v3.
 
 ## Supported scope
 
@@ -63,8 +65,10 @@ trainer, not a claim of production scaling. No new dependency was introduced.
 Run `omnimd-native-train REQUEST.json`. Paths are relative to the request file;
 output must be a new directory with an existing parent. The exact shared
 `omnimd-dataset-jsonl-v1` header/frame/completed contract is reused. Every frame
-must have E and F labels; missing values are errors, not zeros. Optional virial
-labels are used only for assessment. See [TRAINING.md](TRAINING.md) for the wire
+must have E and F labels; missing values are errors, not zeros. Virial labels
+are assessment-only by default. Adding `config.virial_loss` enables the
+[nine-component virial loss](VIRIAL_TRAINING.md) and requires virial labels on
+every frame. See [TRAINING.md](TRAINING.md) for the wire
 contract and strict parsing details.
 
 Seeded selection uses the existing SplitMix64/Fisher-Yates split, rounded
@@ -86,14 +90,17 @@ L = (1/M) sum_f [wE ((E_f-E*_f)/(N_f sE))^2
                  + wF/(3 N_f) sum_q ((F_fq-F*_fq)/sF)^2]
 ```
 
-Weights are finite/nonnegative, with at least one positive. Both scales are
+E/F weights are finite/nonnegative, with at least one positive unless virial
+supervision is enabled. Both E/F scales are
 finite/positive even when their weight is zero. `gradient_clip_norm:null`
 disables clipping. Otherwise the whole accumulated gradient is scaled to the
 specified Euclidean norm before standard Adam moment updates. Learning rate is
 constant; moments are bias-corrected using the global step, with update divisor
-`sqrt(v_hat)+epsilon`. There is no ridge penalty, weight decay or virial loss.
+`sqrt(v_hat)+epsilon`. There is no ridge penalty or weight decay. Optional
+virial supervision adds a separately normalized term; see
+[VIRIAL_TRAINING.md](VIRIAL_TRAINING.md) for its exact formula and v3 restart rules.
 
-## Exact mixed derivatives
+## Exact E/F mixed derivatives
 
 With detached loss seeds `a=2*wE*(E-E*)/(M*N^2*sE^2)` and
 `v_q=2*wF*(F_q-F*_q)/(M*3*N*sF^2)`, use `F=-grad_r E`:
@@ -129,7 +136,7 @@ and set `config.steps` to the number of **additional** updates. Exactly one of
 `initial_model` or `checkpoint` is required. All other configuration fields,
 including checkpoint interval and split specification, must match exactly.
 
-CPU checkpoint schema `omnimd-native-full-checkpoint-v1` stores the last model,
+For E/F-only runs, CPU checkpoint schema `omnimd-native-full-checkpoint-v1` stores the last model,
 original anchor model, first/second moments, global step, configuration,
 dataset SHA, parameter-layout SHA and split indices. Restart checks both model
 schemas, shapes, finite moments/nonnegative second moments, split, exact dataset
