@@ -317,3 +317,5 @@ remaining training limitations.
 Optional native CUDA inference is developed behind the `cuda` Cargo feature;
 CPU remains the default. See [CUDA.md](CUDA.md) for actual GPU/CPU computation
 boundaries, build/runtime requirements, strict limits and verification status.
+
+Opt-in CUDA full-training gradient optimization: [cached reverse accumulation](CUDA_REVERSE_TRAINING.md).

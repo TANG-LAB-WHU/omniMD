@@ -12,6 +12,7 @@ fn model() -> Model {
 }
 fn config(steps: u64) -> FullConfig {
     FullConfig {
+        cuda_gradient: Default::default(),
         split: Split::Seeded {
             seed: 20261015,
             validation_fraction: 0.25,

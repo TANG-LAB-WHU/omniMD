@@ -192,3 +192,7 @@ chain-rule differentiation; no external training or autodiff source was copied.
 The dimer, triclinic/self-image cases and teacher labels are original synthetic
 fixtures. Existing source references and dependency licenses remain applicable.
 No dependency, model, driver or toolkit download was introduced.
+
+The cached CUDA reverse-over-forward kernels, scratch planner and synthetic
+replay are original MIT code implementing standard chain rules; no third-party
+AD or optimizer source was copied and no additional dependency was introduced.

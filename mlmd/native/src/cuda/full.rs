@@ -1,10 +1,13 @@
 //! Bounded exact all-neural-parameter CUDA gradients and elementwise Adam.
 //! CPU geometry, detached loss seeds, deterministic reduction and assessment.
-use super::{PackedModel, Runtime};
+use super::{
+    reverse::{ReversePlan, ReverseResources},
+    PackedModel, Runtime,
+};
 use crate::{
     full_gradient::ParameterLayout,
     full_loss::{validate_loss, validate_record, LossSeeds, VirialLoss},
-    full_training::{Checkpoint, FullConfig, FullExecution},
+    full_training::{Checkpoint, CudaGradient, FullConfig, FullExecution},
     neighbor::Geometry,
     training::TrainConfig,
     training_data::DatasetFrame,
@@ -12,7 +15,7 @@ use crate::{
 };
 use omnimd_ml_contract::{Error, Potential, Result};
 
-fn packed(model: &Model) -> Result<(PackedModel, ParameterLayout, String)> {
+pub(super) fn packed(model: &Model) -> Result<(PackedModel, ParameterLayout, String)> {
     let layout = ParameterLayout::new(model)?;
     let packed = PackedModel::new(model)?;
     if packed.weights.len() > 2048 || packed.slots > 64 {
@@ -115,10 +118,38 @@ pub fn full_work_estimate(model: &Model, atoms: usize) -> Result<FullWorkEstimat
     check_work(atoms, layout.parameters.len(), center_terms(model))
 }
 
+pub fn reverse_resources(model: &Model, atoms: usize) -> Result<ReverseResources> {
+    full_work_estimate(model, atoms)?;
+    let (p, _, s) = packed(model)?;
+    ReversePlan::new(model, &p, &s)?.resources(atoms)
+}
+#[derive(Clone, Copy, Default, Debug, serde::Serialize)]
+pub struct FullGradientProfile {
+    pub frames: usize,
+    pub prediction_and_seeds_ms: f64,
+    pub geometry_ms: f64,
+    pub upload_ms: f64,
+    pub kernels_and_sync_ms: f64,
+    pub download_ms: f64,
+    pub reduction_ms: f64,
+}
+impl FullGradientProfile {
+    pub fn add(&mut self, p: Self) {
+        self.frames += p.frames;
+        self.prediction_and_seeds_ms += p.prediction_and_seeds_ms;
+        self.geometry_ms += p.geometry_ms;
+        self.upload_ms += p.upload_ms;
+        self.kernels_and_sync_ms += p.kernels_and_sync_ms;
+        self.download_ms += p.download_ms;
+        self.reduction_ms += p.reduction_ms;
+    }
+}
 pub struct CudaFullTrainer {
     cpu: NativePotential,
     layout: ParameterLayout,
     runtime: Runtime,
+    reverse: Option<ReversePlan>,
+    profile: FullGradientProfile,
     step: u64,
     maximum_center_terms: u64,
     first: Vec<f64>,
@@ -128,12 +159,25 @@ pub struct CudaFullTrainer {
 }
 impl CudaFullTrainer {
     pub fn new(model: Model, device: i32) -> Result<Self> {
-        Self::build(model, None, device)
+        Self::new_with_gradient(model, device, CudaGradient::Hyperdual)
+    }
+    pub fn new_with_gradient(model: Model, device: i32, gradient: CudaGradient) -> Result<Self> {
+        Self::build(model, None, device, gradient)
     }
     pub(crate) fn restore(state: &Checkpoint, device: i32) -> Result<Self> {
-        Self::build(state.model.clone(), Some(state), device)
+        Self::build(
+            state.model.clone(),
+            Some(state),
+            device,
+            state.config.cuda_gradient,
+        )
     }
-    fn build(model: Model, state: Option<&Checkpoint>, device: i32) -> Result<Self> {
+    fn build(
+        model: Model,
+        state: Option<&Checkpoint>,
+        device: i32,
+        gradient: CudaGradient,
+    ) -> Result<Self> {
         if device < 0 {
             return Err(Error(
                 "CUDA visible device index must be nonnegative".into(),
@@ -151,13 +195,40 @@ impl CudaFullTrainer {
         {
             return Err(Error("invalid CUDA Adam state".into()));
         }
-        let mut runtime =
-            Runtime::with_functions(&source, device, &["full_gradient", "full_adam"], 12)?;
-        let execution = FullExecution::CudaHyperdualF64V1 {
-            visible_device: device,
-            device_info: runtime.device_info.clone(),
-            driver_version: runtime.driver_version,
-            program_sha256: runtime.program_sha256.clone(),
+        let reverse = if gradient == CudaGradient::Reverse {
+            Some(ReversePlan::new(&model, &packed, &source)?)
+        } else {
+            None
+        };
+        let mut runtime = match &reverse {
+            Some(p) => Runtime::with_functions(
+                &p.source,
+                device,
+                &[
+                    "reverse_embed",
+                    "full_adam",
+                    "reverse_fit",
+                    "reverse_embedding_backward",
+                    "reverse_reduce",
+                ],
+                16,
+            )?,
+            None => Runtime::with_functions(&source, device, &["full_gradient", "full_adam"], 12)?,
+        };
+        let execution = if gradient == CudaGradient::Reverse {
+            FullExecution::CudaReverseF64V1 {
+                visible_device: device,
+                device_info: runtime.device_info.clone(),
+                driver_version: runtime.driver_version,
+                program_sha256: runtime.program_sha256.clone(),
+            }
+        } else {
+            FullExecution::CudaHyperdualF64V1 {
+                visible_device: device,
+                device_info: runtime.device_info.clone(),
+                driver_version: runtime.driver_version,
+                program_sha256: runtime.program_sha256.clone(),
+            }
         };
         if let Some(s) = state {
             if s.step > 0 && s.execution != execution {
@@ -169,8 +240,13 @@ impl CudaFullTrainer {
         runtime.upload(4, &packed.slot_types)?;
         runtime.upload(9, &first)?;
         runtime.upload(10, &second)?;
+        if let Some(p) = &reverse {
+            runtime.upload(15, &p.parameter_network)?;
+        }
         let maximum_center_terms = center_terms(&model);
         Ok(Self {
+            reverse,
+            profile: FullGradientProfile::default(),
             maximum_center_terms,
             cpu: NativePotential::new(model)?,
             layout,
@@ -181,6 +257,15 @@ impl CudaFullTrainer {
             execution,
             poisoned: false,
         })
+    }
+    pub fn last_profile(&self) -> FullGradientProfile {
+        self.profile
+    }
+    pub fn reverse_resources(&self, atoms: usize) -> Result<Option<ReverseResources>> {
+        self.reverse
+            .as_ref()
+            .map(|p| p.resources(atoms))
+            .transpose()
     }
     pub fn model(&self) -> &Model {
         self.cpu.model()
@@ -237,8 +322,16 @@ impl CudaFullTrainer {
             ));
         }
         check_work(n, self.layout.parameters.len(), self.maximum_center_terms)?;
+        let resources = self.reverse.as_ref().map(|p| p.resources(n)).transpose()?;
+        self.profile = FullGradientProfile {
+            frames: 1,
+            ..Default::default()
+        };
+        let phase = std::time::Instant::now();
         let predicted = self.cpu.eval(&record.frame)?;
         let seeds = LossSeeds::new(&predicted, record, loss, virial, normalizing_frames)?;
+        self.profile.prediction_and_seeds_ms = phase.elapsed().as_secs_f64() * 1000.;
+        let phase = std::time::Instant::now();
         let model = self.cpu.model();
         let d = &model.descriptor;
         let types = record.frame.type_ids(self.cpu.metadata())?;
@@ -260,10 +353,20 @@ impl CudaFullTrainer {
                 }
             }
         }
+        self.profile.geometry_ms = phase.elapsed().as_secs_f64() * 1000.;
         let p = self.layout.parameters.len();
-        let (atomic_gradient, energy) =
-            self.runtime
-                .full_frame(&rows, &tangent, &types, p, seeds.energy)?;
+        let (atomic_gradient, energy) = match &resources {
+            Some(r) => self
+                .runtime
+                .reverse_frame(&rows, &tangent, &types, p, seeds.energy, r)?,
+            None => self
+                .runtime
+                .full_frame(&rows, &tangent, &types, p, seeds.energy)?,
+        };
+        self.profile.upload_ms = self.runtime.last_timing_ms[0];
+        self.profile.kernels_and_sync_ms = self.runtime.last_timing_ms[1];
+        self.profile.download_ms = self.runtime.last_timing_ms[2];
+        let phase = std::time::Instant::now();
         let primal = energy
             .iter()
             .enumerate()
@@ -285,6 +388,7 @@ impl CudaFullTrainer {
         if gradient.iter().any(|x| !x.is_finite()) {
             return Err(Error("nonfinite reduced CUDA gradient".into()));
         }
+        self.profile.reduction_ms = phase.elapsed().as_secs_f64() * 1000.;
         Ok((seeds.objective, gradient))
     }
     /// Receives the already batch-reduced, clipped gradient. Commits host state
