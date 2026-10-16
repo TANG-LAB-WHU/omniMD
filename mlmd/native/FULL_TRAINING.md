@@ -13,7 +13,12 @@ bounded all-neural-parameter GPU gradients and Adam. See
 resource limits and checkpoint identity. E/F-only CPU v1 and CUDA v2 checkpoints
 remain compatible; enabled virial loss uses v3, opt-in CUDA reverse execution
 uses v4, explicit [minibatching](MINIBATCH_TRAINING.md) uses v5, and explicit
-[learning-rate scheduling](LEARNING_RATE.md) uses v6.
+[learning-rate scheduling](LEARNING_RATE.md) uses v6. Explicit
+[reverse tiling](TILED_TRAINING.md) takes precedence with v7; optional
+[GPU E/F/V prediction and loss seeds](DEVICE_LOSS_TRAINING.md) requires tiling
+and uses v8. CPU loss remains default. The GPU-loss whole-process synthetic
+comparison regressed 605->756 ms for 112 parameters and improved 3506->3061 ms
+for 466 parameters (1.15x); it is an explicit workload choice.
 
 ## Supported scope
 

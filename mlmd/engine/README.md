@@ -94,6 +94,29 @@ requirements without loading a model or probing GPU availability on this host.
 Bounded CUDA full-gradient/Adam training is a later local extension. These inference changes are published on shawn_dev
 as 907481708ae5f3df4228a9fb5d5b1110c39f5e23.
 
+## Native training and optional GPU loss
+
+`omnimd-mlmd train-native REQUEST.json` forwards to the adjacent native trainer.
+Build both binaries when selecting native CUDA training:
+
+```sh
+cargo build --release --locked --offline --manifest-path mlmd/Cargo.toml -p omnimd-mlmd -p omnimd-native --features omnimd-mlmd/native-cuda --bins
+```
+
+CPU training is the default. A valid full-network request with explicit CUDA may
+select `config.cuda_gradient="reverse"`, `config.cuda_tiling` and optional
+`config.cuda_loss="gpu"`. That last option computes tiled E/F/V and detached seeds
+on GPU, reuses primal intermediates and selects v8. Absent or `"cpu"` retains the
+historical CPU-loss path (v7 with tiling). Geometry, reduction/clipping and assessment remain
+CPU work; changing loss mode requires a new optimizer, not a checkpoint edit.
+
+Use [step 23](../GETTING_STARTED.md#23-select-gpu-prediction-and-loss-preparation-explicitly)
+and [the native contract](../native/DEVICE_LOSS_TRAINING.md) for required fields,
+limits and exact restart rules. The final [engine receipt](../evidence/native-device-loss-integrated.json)
+verifies historical v7 and opt-in v8. Synthetic whole-process medians regressed
+605->756 ms for 112 parameters and improved 3506->3061 ms for 466 parameters;
+keep this option explicit. These measurements do not establish general speed.
+
 ## Dataset workflows
 
 See [DATA.md](DATA.md) for explicit DeepMD NPY import, batch predictions and

@@ -339,4 +339,7 @@ v7 restart. Architecture and per-frame bounds remain unchanged.
 
 Optional [GPU prediction and detached loss seeds](DEVICE_LOSS_TRAINING.md) reuse
 primal intermediates within a tile and use explicit v8 restart identity. CPU
-loss remains the default; measured whole-process performance depends on workload.
+loss remains the default. Three-repeat 128-update synthetic whole-process medians
+regressed 604.53->756.03 ms for 112 parameters and improved 3505.78->3060.90 ms
+for 466 parameters (1.15x). Geometry/reduction/assessment stay on CPU; existing
+architecture and per-frame bounds remain. See the [final engine guide](../GETTING_STARTED.md#23-select-gpu-prediction-and-loss-preparation-explicitly).

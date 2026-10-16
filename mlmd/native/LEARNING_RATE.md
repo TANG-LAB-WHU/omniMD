@@ -165,3 +165,7 @@ weights, datasets, checkpoints and raw logs stay ignored.
 
 Tiled reverse CUDA execution takes checkpoint-version precedence (v7), while
 retaining these exact schedule semantics; see [TILED_TRAINING.md](TILED_TRAINING.md).
+
+Optional [GPU prediction/loss preparation](DEVICE_LOSS_TRAINING.md) takes checkpoint
+precedence with v8. The same global-update rate and immutable schedule rules apply;
+loss mode is additionally immutable. Default CPU loss keeps prior v1-v7 selection.

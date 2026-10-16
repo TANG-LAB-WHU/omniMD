@@ -749,7 +749,7 @@ validation frames never enter batches. Smaller batches do not promise full-batch
 convergence, equivalent epoch weighting or a throughput improvement.
 
 Inspect checkpoint `omnimd-native-full-checkpoint-v5` (v6 with an explicit
-learning-rate schedule, v7 with CUDA tiling) and `report.minibatch`:
+learning-rate schedule, v7 with CUDA tiling, v8 with GPU loss) and `report.minibatch`:
 start/end sampler, processed frame count, partial-batch count and size histogram.
 Sampler state describes the next batch and includes seed/order, epoch/cursor,
 permutation and derived RNG state. Resume from that checkpoint with the same
@@ -832,7 +832,7 @@ an atomic snapshot against concurrent mutation; immutable input is required, and
 Linux/macOS execution is not validated here. Failure invalidates the reader and
 stops the invocation; earlier completed checkpoints remain available.
 
-Storage mode is runtime-only: v5/v6/v7 checkpoints do not embed the index or change
+Storage mode is runtime-only: v5/v6/v7/v8 checkpoints do not embed the index or change
 schema when storage mode changes. Resume may switch memory/indexed with the identical raw input, numerical
 backend, split, objective and sampler settings, provided the input satisfies the
 destination mode's bounds. Even whitespace changes alter dataset identity. The
@@ -945,7 +945,7 @@ their existing meanings. This is a native formula, not inferred DeepMD defaults.
 Use `{"kind":"constant"}` for an explicit constant schedule. Omit the field or
 set it to null to retain historical constant behavior and v1-v5 serialization.
 Every explicit schedule, including constant, uses checkpoint v6 unless CUDA
-tiling selects v7 (step 22). Resume requires
+tiling selects v7 (step 22), or GPU loss selects v8 (step 23). Resume requires
 exact base rate, schedule presence/kind/interval/rate, together with existing
 loss/data/backend/sampler identity. Runtime storage/cache choices retain their
 previous compatibility rules. Changing or adding a schedule requires starting a
@@ -1000,8 +1000,9 @@ count, short tail, sampler order, schedule and single Adam update.
 Frames are packed in order, never mixed geometrically or split. A tile uploads
 packed inputs, launches four reverse-gradient kernels, synchronizes and downloads
 atomic derivatives. Stable host reduction retains atom-within-frame then original
-frame order, without tile subtotals. CPU prediction/loss seeds, geometry, reduction,
-clipping, metrics and serialization remain. A failed tile prevents the entire
+frame order, without tile subtotals. With the default CPU loss, prediction/seeds
+remain on CPU; step 23 provides an explicit GPU alternative. Geometry, reduction,
+clipping, metrics and serialization remain CPU work. A failed tile prevents the entire
 batch's Adam/sampler commit and stops training; prior checkpoints remain usable.
 
 Requested limits are 1..32 frames and 1..1024 aggregate atoms per tile. The planner
@@ -1013,8 +1014,9 @@ index/cache/model/report overhead; they are not total VRAM/RSS limits. Supported
 architecture remains at most 2048 parameters, width 32, 64 neighbor slots and
 **64 atoms per frame**. See [the full policy](native/TILED_TRAINING.md).
 
-Tiling selects checkpoint `omnimd-native-full-checkpoint-v7`, including when a
-schedule is present, and executor `cuda_tiled_reverse_f64_v1`. Tile capacities
+Tiling with default CPU loss selects checkpoint `omnimd-native-full-checkpoint-v7`,
+including when a schedule is present, and executor `cuda_tiled_reverse_f64_v1`.
+Explicit GPU loss instead selects v8, as described in step 23. Tile capacities
 are immutable along with existing data/model/loss/sampler/schedule/runtime identity.
 Storage and geometry-cache flags may change on resume. To change capacities or
 switch to framewise execution, start a new optimizer explicitly from the exported
@@ -1047,3 +1049,78 @@ It stops on failure without retry. B's larger boundary/gradient tests and
 three-repeat performance comparisons remain separate and are not repeated here.
 The documented whole-process synthetic ratios do not establish physical accuracy,
 production scaling or speed relative to DeepMD.
+
+## 23. Select GPU prediction and loss preparation explicitly
+
+Build the engine and sibling native trainer with CUDA support using the existing
+workspace/toolchain. Start with a valid full-network request and explicit
+`"device":"cuda:0"`. Within its `config`, use:
+
+```json
+{
+  "cuda_gradient": "reverse",
+  "cuda_tiling": {"max_frames": 16, "max_atoms": 512},
+  "cuda_loss": "gpu"
+}
+```
+
+Run `omnimd-mlmd train-native REQUEST.json` into a new output directory. All other
+required model/data/label/split/loss/optimizer fields remain unchanged. CPU device,
+hyperdual or missing tiling rejects. The default remains absent `cuda_loss` or
+`"cuda_loss":"cpu"`; no atom-count heuristic selects GPU loss. Readout QR is a
+separate route. See [the full contract](native/DEVICE_LOSS_TRAINING.md).
+
+GPU loss computes current E/F/virial, detached residual seeds and mixed derivatives
+using shared tile forward intermediates, then performs Adam after the complete
+optimizer batch. It launches ten kernels and one synchronization per tile. Actual
+batch normalization, partial tails, frame reduction order and learning-rate updates
+remain. CPU still reads/validates data, prepares geometry/scales, reduces/clips
+gradients, evaluates partition metrics and writes checkpoints/exports. The new
+gradient path does not run the old per-frame CPU prediction cross-check; independent
+parity and derivative tests validate its arithmetic.
+
+Confirm backend `cuda_tiled_device_loss_f64_v1`, checkpoint v8 and
+`cuda_gradient_profile.device_prediction_frames` equal to gradient-path frames.
+Host `prediction_and_seeds_ms` is zero because that work is included in GPU
+`kernels_and_sync_ms`; it does not mean zero computation. Inspect
+`cuda_tiling.device_loss` for accounted extra buffers/work and the effective
+capacity. The 64 MiB explicit device/32 MiB host tile budgets exclude total
+VRAM/RSS overhead. Architecture, 64 atoms/frame, and 32-frame/1024-aggregate-atom
+requested tile bounds remain; capacity can be lowered by planning.
+
+v8 binds the loss mode, capacities and existing immutable model/data/loss/sampler/
+schedule/device/driver/PTX identity. Same-backend continuation may change storage
+and geometry-cache flags. It may not switch to CPU loss or silently upgrade v7;
+start a new optimizer from exported `model.json` to change mode. Default CPU loss
+keeps historical v7 identity and numerics. Cross-mode comparisons use tolerances;
+exact restart is limited to the tested same build/runtime/backend.
+
+Performance must be judged end to end. B's separate three-repeat, 128-update
+synthetic medians were:
+
+| Model | CPU loss | GPU loss | Outcome |
+| --- | ---: | ---: | --- |
+| 112 parameters, 3/4 atoms | 604.53 ms | 756.03 ms | Slower; added initialization exceeds the short gradient saving |
+| 466 parameters, 32/64 atoms | 3505.78 ms | 3060.90 ms | 1.15x measured ratio |
+
+Both include startup, assessment and checkpoint/export IO. These are not physical
+accuracy, larger-architecture, DeepMD-relative or general speed guarantees. No
+performance benchmark is repeated by the final integration replay.
+
+[Final engine acceptance](evidence/native-device-loss-integrated.json) uses the
+existing 24-frame fixture: default v7 exactly reproduces its historical state,
+model bytes, metrics and PTX; seven GPU-loss updates differ in parameters/Adam by
+at most 8.89e-16 and partition metrics by 2.23e-16. Step-2 v8 resume switches indexed
+to memory and cache on to off exactly, including model bytes/final metrics.
+Reload E/F/V differences are zero. Missing tiling, loss-mode changes and v7-to-v8
+resume reject. Four host-only checks and the offline release build also passed.
+
+Reserve the GPU, supply the accepted `tiled-integrated-01` directory, and use a
+new output directory:
+
+```text
+python mlmd/scripts/validate_device_loss_integration.py --engine ENGINE_EXE --baseline-work PREVIOUS_TILED_WORK --work NEW_WORK
+```
+
+The script stops on first failure without retry. It performs only the final
+engine comparison/restart checks; native derivative/capacity tests remain separate.

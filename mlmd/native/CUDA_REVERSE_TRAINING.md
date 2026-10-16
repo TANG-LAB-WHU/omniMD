@@ -9,6 +9,12 @@ policy, remain in force. This milestone removes repeated differentiated network
 forwards per parameter; it does not expand supported architectures or dataset
 sizes. Normalization, geometry settings and separate atomic offsets stay fixed.
 
+The execution description below retains CPU prediction/loss seeds by default.
+The separate opt-in [GPU-loss tiled path](DEVICE_LOSS_TRAINING.md) requires
+`cuda_loss="gpu"` and tiling, reuses primal intermediates and binds v8. It has ten
+kernels per tile and distinct performance: tiny whole-process regression,
+medium synthetic improvement. Architecture/resource limits remain unchanged.
+
 ## Usage and restart
 
 Build with `--features cuda`, use an explicit `"device":"cuda:0"`, and add

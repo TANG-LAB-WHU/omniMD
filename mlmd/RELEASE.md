@@ -833,3 +833,56 @@ with reusable intermediates is the next proposed implementation target, subject
 to independent derivative/restart/resource and whole-process checks. Existing
 architecture limits and constrained tile occupancy remain separate gaps. No new
 feature starts before reporting this candidate.
+
+## Local GPU prediction/loss integration
+
+Native source `36ee5cf4cc261437b6dcc03b182073dee72c5cae` is integrated as
+`230279d2adb6151321720f27af20c45252f1f096` on stable
+`f6030da6cef085e37bd2d135878c591218f30b2e`. Explicit `config.cuda_loss="gpu"`
+requires reverse CUDA with tiling. It computes E/F/V and detached residual seeds
+on GPU and reuses primal intermediates for mixed derivatives. Ten kernels execute
+per tile with one synchronization; batch normalization/reduction/Adam semantics
+remain. v8 binds loss mode and prior immutable identity. Absent/CPU loss keeps
+historical v7 state/PTX. Geometry/scalars, gradient reduction/clipping, assessment
+and exports stay on CPU. No dependency, architecture or shared schema expansion.
+
+[Final engine acceptance](evidence/native-device-loss-integrated.json) uses the
+existing 24-frame, 18/6-split synthetic fixture for seven scheduled updates.
+Default CPU loss exactly reproduces the actual old v7 checkpoint, model bytes,
+four metrics and PTX. Opt-in GPU loss has maximum parameter/Adam difference
+8.8817842e-16, maximum partition-metric difference 2.2204461e-16. All 43 gradient
+frames use GPU predictions in 19 tiles/190 kernels; host prediction time is zero
+because work moved into GPU kernel timing. v8 step-2 continuation changes indexed
+to memory and cache on to off, exactly matching final state except additional
+steps/cache flag, exported bytes and final metrics. Reload E/F/V differences are
+zero. Missing tiling, loss-mode changes and v7-to-v8 resume reject before output.
+Four host-only configuration/resource/routing tests and the locked offline build
+passed. No failure/retry occurred. GPU was released at 2026-10-16 15:37:37 UTC
+with no remaining omniMD process.
+
+[B's separate evidence](native/fixtures/device-loss-training-report.json) records
+40 CPU, 57 feature host-only and four GPU tests. Independent maximum differences
+are E/F/V 4.44e-16, detached seeds 8.88e-16 and mixed gradients 4.44e-15; the
+nonconstant-embedding dimer parameter finite-difference error is 4.84e-9. Aggregate
+1024-atom tiles, failure atomicity and boundary/restart cases passed. A did not
+repeat the broad native checks or benchmarks.
+
+Keep GPU loss opt-in. Three alternating 128-update synthetic whole-process medians
+(including initialization, assessment and IO) are 604.53->756.03 ms for 112
+parameters, a regression, and 3505.78->3060.90 ms for 466 parameters, a 1.15x ratio.
+Tiny initialization rises about 329->523 ms; medium kernel/sync and upload costs
+increase as CPU work moves. No physical accuracy, universal acceleration, larger
+architecture or speed relative to DeepMD is claimed.
+
+Publication scope is the 22 native source-commit files plus engine static capability
+metadata, root README/ROADMAP, guide/workflow/matrix/release and engine/native entry
+cross-links, the short final engine replay and its compact receipt. No generated
+weights, datasets, checkpoints, binaries or raw logs are tracked. No HAP material,
+dependency installation or system change. Candidate remains local and unpushed.
+
+Overall limits remain bounded native tanh se_e2_a, 2048 CUDA parameters, width 32,
+64 atoms/frame, requested 32-frame/1024-atom tiles with work/payload planning, CPU
+geometry/reduction/assessment, O(N) index/sampler state and publication hashes.
+Payload budgets are not total-memory caps. Broader models, large physical training,
+Linux CUDA, distributed execution, generic DeepMD training and production chemical
+validation remain unsupported or unverified. No next feature was started.

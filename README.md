@@ -20,8 +20,9 @@ kernel verification and synchronization included. Separately, the native
 216-atom sample measured a CPU/GPU time ratio of 1.155, while its small cases were
 about 8.4 times slower on GPU. These bounded measurements have different scopes;
 they do not establish general acceleration or long-time stability. Local training extensions include CUDA readout features with CPU QR and bounded
-all-neural-parameter E/F gradients and Adam on CUDA. CPU inference, geometry,
-reduction and assessment remain; tiny training cases were slower on CUDA. Runtime/subset requirements
+all-neural-parameter E/F gradients and Adam on CUDA. Geometry, reduction and
+assessment remain CPU work; optional tiled GPU prediction/loss preparation is
+described below. Tiny training cases can be slower on CUDA. Runtime/subset requirements
 are documented under [device selection](mlmd/engine/README.md#explicit-native-cuda-inference).
 The [published CUDA release scope](mlmd/RELEASE.md#published-cuda-release)
 records the code, documentation and compact validation evidence included.
@@ -276,19 +277,20 @@ for cumulative timing fields and the short CPU replay.
 neural-parameter training through optional `config.learning_rate_schedule`:
 explicit constant or exponential staircase, indexed by globally completed Adam
 updates. Absent/null retains constant behavior and historical checkpoint schemas;
-an explicit schedule uses v6 (v7 with tiling) and must remain identical on resume. The
+an explicit schedule uses v6 (v7 with tiling, v8 with GPU loss) and must remain identical on resume. The
 [step-21 guide](mlmd/GETTING_STARTED.md#21-select-an-optimizer-update-learning-rate-schedule)
 and [final CPU engine receipt](mlmd/evidence/native-learning-rate-integrated.json)
 cover boundary continuation, legacy v5 and refusal behavior. No model/atom limit
-or CUDA kernel changes accompany this addition. Bounded multi-frame execution is now available below; larger model support and
-CPU prediction/loss preparation remain gaps described in the
-[roadmap](ROADMAP.md#next-main-bottleneck-cpu-prediction-and-loss-preparation).
+or CUDA kernel changes accompany this addition. Bounded multi-frame execution and optional GPU prediction/loss preparation are
+available below. Larger model support and remaining end-to-end limits are
+described in the [roadmap](ROADMAP.md#remaining-end-to-end-and-model-limits).
 
 [Bounded multi-frame CUDA training](mlmd/native/TILED_TRAINING.md) is enabled with
 explicit reverse CUDA and `config.cuda_tiling={"max_frames":16,"max_atoms":512}`.
-Each tile executes four gradient kernels, preserving per-frame reduction order,
+With default CPU loss, each tile executes four gradient kernels, preserving per-frame reduction order,
 optimizer batches, schedules and one Adam update per batch. Tile capacities bind
-v7 restart identity; absent/null retains framewise execution and v1-v6. Limits
+v7 restart identity with CPU loss (v8 for GPU loss); absent/null tiling retains
+framewise execution and v1-v6. Limits
 are 32 frames / 1024 aggregate atoms per tile, subject to work/payload planning;
 64 atoms per frame, 2048 neural parameters and width 32 remain unchanged.
 [Step 22](mlmd/GETTING_STARTED.md#22-batch-frames-in-bounded-cuda-tiles) explains
@@ -296,3 +298,15 @@ payload limits and diagnostics. [Final engine acceptance](mlmd/evidence/native-t
 records exact framewise equality and storage/cache-switch restart. Separate
 synthetic whole-process medians improved 1071->551 and 4484->3568 ms; these are
 bounded measurements, not physical-model or universal acceleration claims.
+
+Optional [GPU predictions and detached loss seeds](mlmd/native/DEVICE_LOSS_TRAINING.md)
+are enabled with `config.cuda_loss="gpu"` plus reverse CUDA and tiling. This path
+reuses forward intermediates and binds v8 restart identity. Absent or `"cpu"`
+retains the CPU-loss default and historical v7 state/PTX. Geometry, gradient
+reduction/clipping and assessment remain CPU work. The
+[step-23 guide](mlmd/GETTING_STARTED.md#23-select-gpu-prediction-and-loss-preparation-explicitly)
+and [final receipt](mlmd/evidence/native-device-loss-integrated.json) cover CLI
+forwarding, actual v7 compatibility, tolerant cross-mode comparison and exact
+same-backend v8 restart. Three-repeat synthetic whole-process medians were
+604.53->756.03 ms for 112 parameters (slower) and 3505.78->3060.90 ms for 466
+parameters (1.15x). This option is not selected automatically; bounds remain.

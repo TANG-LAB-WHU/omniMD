@@ -91,6 +91,15 @@ Normalization, geometry/type metadata and atomic offsets remain fixed; the
 document lists bounds, independent one-side copies and unsupported activations.
 Both training modes export the same native-v1 model for the steps below.
 
+CPU stays the default. With a CUDA-enabled sibling trainer, full training also
+supports reverse tiling and optional `config.cuda_loss="gpu"` for GPU E/F/V
+predictions and detached seeds. GPU loss requires reverse+tiling and binds v8;
+default CPU loss with tiling keeps v7, and geometry/reduction/assessment remain CPU work.
+Follow [step 23](GETTING_STARTED.md#23-select-gpu-prediction-and-loss-preparation-explicitly)
+for the complete selection/restart rules. Select this per workload: 128-update
+synthetic medians were 605->756 ms (112 parameters, slower) and 3506->3061 ms
+(466 parameters, 1.15x). No architecture or per-frame limit is raised.
+
 ## 4. Minimize at fixed cell
 
     omnimd-mlmd minimize minimize.json new-minimum.jsonl

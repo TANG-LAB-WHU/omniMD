@@ -236,7 +236,7 @@ work. No further feature is started as part of this candidate.
 Optional explicit constant/exponential staircase schedules apply to the supported
 full CPU/CUDA trainers. The globally completed update count determines the next
 rate; no epoch inference or mutable scheduler state is added. Explicit schedules
-use v6 (v7 with tiling) with immutable base/schedule identity, while absent/null preserve legacy
+use v6 (v7 with tiling, v8 with GPU loss) with immutable base/schedule identity, while absent/null preserve legacy
 constant behavior and v1-v5. [Final engine evidence](mlmd/evidence/native-learning-rate-integrated.json)
 records exact decay-boundary continuation and historical-checkpoint compatibility.
 Model/atom/workspace limits, CUDA kernels and PTX remain unchanged.
@@ -261,28 +261,47 @@ records three alternating 128-update whole-process comparisons. Synthetic tiny
 and medium medians decrease 1071->551 ms and 4484->3568 ms. These results do not
 establish physical accuracy, larger-architecture support or universal speedup.
 
-## Next main bottleneck: CPU prediction and loss preparation
+## Delivered: optional tiled GPU prediction and loss preparation
 
-The saved medium tiled profile spends 1016.09 ms in current-model CPU prediction
-and detached loss seeds, out of 1781.06 ms in that run's complete gradient phase
-(about 57%). This is a measured post-tiling sample, not a new A benchmark or a
-median-stage decomposition. Reduction is about 32.54 ms. Transfer/kernel/sync
-costs remain meaningful; the 50-million-term budget reduces requested 512-atom
-capacity to 144, with at most four frames/128 atoms actually packed and 1763 tiles
-for 3840 frames. Architecture and workspace constraints still limit larger work.
+Explicit `cuda_loss="gpu"` computes E/F/V predictions and detached loss seeds on
+GPU, reusing forward values in directional/mixed reverse derivatives. Ten kernels
+and one synchronization execute per tile. v8 binds this arithmetic mode, while
+absent/CPU loss preserves historical v7 state/PTX. Geometry, stable reduction/
+clipping, assessment and publication remain CPU work. See the
+[contract](mlmd/native/DEVICE_LOSS_TRAINING.md) and
+[final engine acceptance](mlmd/evidence/native-device-loss-integrated.json).
 
-The next substantial implementation target should remove repeated CPU neural
-E/F/V prediction from the training hot path by producing predictions and loss
-seeds for a tile on the GPU and reusing appropriate intermediates for gradients.
-Geometry and integrity checks must retain their semantics. This needs independent
-E/F/V, mixed-gradient and Adam comparisons, unchanged loss/sampler/schedule
-semantics, exact same-runtime restart and measured memory/whole-process benefit.
-Profile the result to determine the remaining transfer or occupancy bottleneck;
-do not raise work or architecture limits without a revised validated resource plan.
+The earlier medium tiled CPU prediction bottleneck motivated this implementation;
+its cost moved rather than disappearing. B's three alternating 128-update
+whole-process synthetic medians are 604.53->756.03 ms for 112 parameters (a
+regression) and 3505.78->3060.90 ms for 466 parameters (1.15x). Tiny initialization
+increases from about 329 to 523 ms. On the medium case, GPU kernel/sync and upload
+costs increase while CPU assessment still takes about 446 ms. Keep the option
+explicit; no general speed guarantee or automatic selection follows.
 
-The cache-off resume is a different-duration invocation and cannot by itself
-quantify cache speedup. Large physical models, broader architectures and external
-training quality remain unverified. No further feature or benchmark starts in
+## Remaining end-to-end and model limits
+
+Supported native training remains tanh se_e2_a with fixed normalization, atomic
+offsets, selection, cutoffs and type map. CUDA accepts at most 2048 parameters,
+width 32, 64 selected slots and 64 atoms/frame. Requested tile ceilings of 32
+frames/1024 aggregate atoms can shrink under work/payload planning. The larger
+synthetic case fits at most four frames/128 actual atoms under an effective
+142-atom capacity. These bounds do not establish representative large-model use.
+
+Data validation, geometry/scales, gradient reduction/clipping, assessment and
+export remain CPU work. Indexed metadata/samplers/checkpoints are O(frame count),
+and publication hashes remain O(file bytes). No sharding, prefetch/distributed
+execution, generic DeepMD architecture support, learned normalization/offsets,
+tied one-side embeddings, Linux CUDA acceptance or production chemical validation
+is added. The 64 MiB device/32 MiB tile budgets are explicit payloads, not total
+VRAM or process memory limits.
+
+Whole-process startup, transfers and ten-kernel tile execution are now material
+costs alongside assessment and constrained occupancy. Any later throughput work
+should compare matching workloads with those phases separated, retaining numerical,
+restart, failure and resource guarantees. Cache-off resume timing is a different
+invocation and cannot quantify cache speedup. Larger architectures and physical
+quality require independent acceptance. No new feature or benchmark begins in
 this integration tranche.
 
 ## Publication gate
