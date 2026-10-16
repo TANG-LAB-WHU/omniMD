@@ -12,7 +12,8 @@ bounded all-neural-parameter GPU gradients and Adam. See
 [CUDA full training](CUDA_FULL_TRAINING.md) for its CPU/GPU boundary, tighter
 resource limits and checkpoint identity. E/F-only CPU v1 and CUDA v2 checkpoints
 remain compatible; enabled virial loss uses v3, opt-in CUDA reverse execution
-uses v4, and explicit [minibatching](MINIBATCH_TRAINING.md) uses v5.
+uses v4, explicit [minibatching](MINIBATCH_TRAINING.md) uses v5, and explicit
+[learning-rate scheduling](LEARNING_RATE.md) uses v6.
 
 ## Supported scope
 
@@ -97,7 +98,8 @@ supervision is enabled. Both E/F scales are
 finite/positive even when their weight is zero. `gradient_clip_norm:null`
 disables clipping. Otherwise the whole accumulated gradient is scaled to the
 specified Euclidean norm before standard Adam moment updates. Learning rate is
-constant; moments are bias-corrected using the global step, with update divisor
+constant by default; optional [explicit schedules](LEARNING_RATE.md) use the
+global optimizer-update count. Moments are bias-corrected using the global step, with update divisor
 `sqrt(v_hat)+epsilon`. There is no ridge penalty or weight decay. Optional
 virial supervision adds a separately normalized term; see
 [VIRIAL_TRAINING.md](VIRIAL_TRAINING.md) for its exact formula and v3 restart rules.
@@ -138,7 +140,9 @@ and set `config.steps` to the number of **additional** updates. Exactly one of
 `initial_model` or `checkpoint` is required. All other configuration fields,
 including checkpoint interval and split specification, must match exactly, except
 for the runtime-only CUDA fixed geometry cache flag. Explicit minibatching also
-requires unchanged batch size, seed and order policy.
+requires unchanged batch size, seed and order policy. Explicit learning-rate
+schedules also require unchanged presence, kind, interval and decay rate;
+missing/null schedules retain historical checkpoint formats.
 
 For E/F-only runs, CPU checkpoint schema `omnimd-native-full-checkpoint-v1` stores the last model,
 original anchor model, first/second moments, global step, configuration,

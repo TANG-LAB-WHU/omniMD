@@ -114,7 +114,8 @@ Explicit validation-ID lookup uses a bounded temporary map to avoid quadratic
 lookup when the selected validation set grows.
 
 Storage mode is runtime-only and is not part of optimizer identity. There is no
-checkpoint schema bump: explicit minibatching still uses v5. The index is rebuilt
+checkpoint schema bump for storage mode: explicit minibatching uses v5 unless
+an [explicit learning-rate schedule](LEARNING_RATE.md) selects v6. The index is rebuilt
 and all input validated on every invocation. Resume still requires the exact raw
 dataset hash, same model/loss/backend/split/batch/seed/order and valid sampler state.
 Small supported datasets can switch `memory` to `indexed` and back with identical

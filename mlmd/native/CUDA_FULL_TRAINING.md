@@ -18,7 +18,7 @@ per-parameter network forward replay under the same supported bounds.
 | Current model E/F inference and detached loss cotangents | CPU reference |
 | PBC/image neighbors, normalized environment and displacement Jacobians | CPU |
 | All neural parameter gradients, including force mixed derivatives | CUDA |
-| Atom/frame gradient reduction, global norm/clipping, bias-correction scalars | CPU in stable order |
+| Atom/frame gradient reduction, global norm/clipping, bias-correction and learning-rate scalars | CPU in stable order |
 | Adam first/second moments and parameter updates | CUDA, resident arrays |
 | Candidate validation, checkpoint serialization and metrics | CPU |
 
@@ -48,7 +48,8 @@ architecture, type map and separate atomic energy offsets are fixed. Both E and
 F labels remain mandatory even for a zero-weight loss component. Virial labels
 are assessment-only by default; explicit `config.virial_loss` enables the
 [V3 nine-component loss](VIRIAL_TRAINING.md) and requires them on every frame.
-There is no automatic normalization/offset fitting, mixed precision, minibatching
+Optional [minibatching](MINIBATCH_TRAINING.md) preserves these parameter and
+loss rules. There is no automatic normalization/offset fitting, mixed precision
 or unsupported-architecture emulation.
 
 ## Parameter-coordinate mixed derivatives
@@ -195,3 +196,7 @@ For explicit minibatching, [indexed dataset access](INDEXED_TRAINING.md) can rea
 larger datasets one frame at a time. It preserves the existing memory-mode limits
 and numerical/checkpoint semantics; its own parsing/index bounds and the unchanged
 geometry payload cap are documented separately.
+
+Optional [learning-rate schedules](LEARNING_RATE.md) use global optimizer-update
+counts on both CUDA gradient executors. The host computes the float64 rate and
+passes it to the unchanged Adam kernel; explicit schedules select checkpoint v6.

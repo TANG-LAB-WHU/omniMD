@@ -56,9 +56,11 @@ current batch and before Adam. Zero-gradient parameters still receive the
 usual moment decay. E/F labels remain required; enabling virial loss requires
 all nine labels on every frame, including validation.
 
-`steps` means additional Adam updates, not epochs. The learning rate is constant
-per completed update; Adam bias correction uses the global update count across
-restarts. A short batch receives one update at the same learning rate. There
+`steps` means additional Adam updates, not epochs. The default learning rate is constant;
+[explicit learning-rate schedules](LEARNING_RATE.md) use the global optimizer
+update count, including one count for each short batch. Adam bias correction
+uses the global update count across restarts. A short batch uses the rate for
+its global update without batch-size scaling. There
 is no claim that this has the same trajectory, convergence, or epoch weighting
 as full-batch training. Initial/final training and validation metrics continue
 to use their complete partitions and their full-set denominators. Validation
@@ -71,7 +73,8 @@ remove the 1024-frame in-memory dataset limit or CUDA per-frame work caps.
 
 ## Step 3: portable sampler state and exact restart
 
-Explicit minibatching uses `omnimd-native-full-checkpoint-v5` on all backends,
+Without an explicit learning-rate schedule, minibatching uses
+`omnimd-native-full-checkpoint-v5` on all backends (explicit schedules use v6),
 with the existing explicit E/F or E/F/V loss contract and backend identity.
 The `sampler` object stores algorithm `omnimd-epoch-splitmix64-v1`, seed, order
 mode, zero-based epoch, cursor, absolute dataset-index permutation, and derived

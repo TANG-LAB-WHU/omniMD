@@ -328,3 +328,7 @@ CPU/CUDA E/F/V trainer.
 
 Optional [bounded indexed dataset access](INDEXED_TRAINING.md) supports native
 minibatch random access and exact restart without retaining all decoded frames.
+
+Optional [constant and exponential learning-rate schedules](LEARNING_RATE.md)
+use global optimizer-update counts and exact v6 checkpoint restart. Omitting the
+schedule preserves legacy constant-rate behavior and checkpoint formats.

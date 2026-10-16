@@ -1,0 +1,551 @@
+{
+  "scope": "Explicit native CPU/CUDA full-training constant and exponential staircase learning rates; original synthetic data only; no DeepMD default, physics, convergence or speed equivalence claim",
+  "base_commit": "e0decf3f8e64c8bad10f79323fa036511f2088fa",
+  "formula": "lr(k) = base * decay_rate.powi((k / decay_steps) as i32), integer division; k is globally completed updates before the next update",
+  "default": "absent/null preserves constant behavior and v1-v5 serialization",
+  "explicit_identity": "Some(constant/exponential) selects checkpoint-v6 and remains immutable; no separate mutable scheduler state",
+  "float_limits": "base positive finite; decay_rate finite (0,1]; decay_steps 1..1e9; positive subnormal computed rates accepted, computed zero/nonfinite rejected; no log-space rescue or floor",
+  "tests": {
+    "default": {
+      "passed": 40,
+      "failed": 0,
+      "ignored": 0,
+      "raw_log_sha256": "53c7adff2ceba1a9ab43786ac6649662eb662f2cf1003a50224b3c53e4b2f998"
+    },
+    "cuda-feature": {
+      "passed": 54,
+      "failed": 0,
+      "ignored": 9,
+      "raw_log_sha256": "2a8f78932f2d56758e022e20bdd4d27b2dff5148343c6b076ba87d7c70143275"
+    },
+    "format": "passed cargo fmt --manifest-path mlmd/Cargo.toml -p omnimd-native -- --check",
+    "build": "passed cargo build --release --locked --offline --manifest-path mlmd/native/Cargo.toml --features cuda --bins",
+    "unchanged_cuda_ptx_hashes": {
+      "hyperdual": "36793f1f392c7c3a8a13bb6f9dde7b26d810d4e2600cc5cf4c4cb124107f91b9",
+      "reverse": "382ea3a3eee82218b9ec2d975822a0a0c995d2968b0a158cf2bdbfc852859844"
+    }
+  },
+  "cli": {
+    "successful_runs": 36,
+    "invalid_requests_rejected": 27,
+    "cases": {
+      "cpu": {
+        "device": "cpu",
+        "gradient": "hyperdual",
+        "execution": {
+          "backend": "cpu_reference_v1"
+        },
+        "schedule": {
+          "kind": "exponential",
+          "decay_steps": 2,
+          "decay_rate": 0.5
+        },
+        "expected_update_rates": [
+          0.005,
+          0.005,
+          0.0025,
+          0.0025,
+          0.00125,
+          0.00125,
+          0.000625
+        ],
+        "indexed_memory_exact": true,
+        "minibatch_resume_splits_exact": [
+          1,
+          2,
+          3,
+          4
+        ],
+        "full_batch_resume_splits_exact": [
+          2,
+          3
+        ],
+        "cache_toggle_on_cuda_resume": false,
+        "constant_and_unity_decay_match_legacy_parameters_and_moments_exactly": true,
+        "historical_cpu_checkpoint": {
+          "checkpoint_sha256": "4204a9e27d8f29fdee1c518fe47fa44ce1647946264b68a0d0bc2ec881b47ee9",
+          "all_fields_exact_except_requested_steps": true
+        },
+        "cpu_reference_comparison": null,
+        "runs": {
+          "scheduled": {
+            "first_update": 1,
+            "last_update": 7,
+            "first_rate": 0.005,
+            "last_rate": 0.000625,
+            "checkpoint_sha256": "31490fc49275e944508af3ff6b6a3c161c945a1b132fb2cf780a082e78d2b322"
+          },
+          "scheduled-memory": {
+            "first_update": 1,
+            "last_update": 7,
+            "first_rate": 0.005,
+            "last_rate": 0.000625,
+            "checkpoint_sha256": "31490fc49275e944508af3ff6b6a3c161c945a1b132fb2cf780a082e78d2b322"
+          },
+          "resume-1": {
+            "first_update": 2,
+            "last_update": 7,
+            "first_rate": 0.005,
+            "last_rate": 0.000625,
+            "checkpoint_sha256": "ef376805d91e4da23c24af47c8546bcd0b8350f275f7cd8e67c4c3e75d72c0bf"
+          },
+          "resume-2": {
+            "first_update": 3,
+            "last_update": 7,
+            "first_rate": 0.0025,
+            "last_rate": 0.000625,
+            "checkpoint_sha256": "a67de7661b2e5e9c92b19f99f56c8a0f6dd3fcd78c39ba3ec589bc485004d74d"
+          },
+          "resume-3": {
+            "first_update": 4,
+            "last_update": 7,
+            "first_rate": 0.0025,
+            "last_rate": 0.000625,
+            "checkpoint_sha256": "4841d7a8a9a034f6fb533f3ebb64fccbc5eace9691b78fbe9b4c2d95872b5695"
+          },
+          "resume-4": {
+            "first_update": 5,
+            "last_update": 7,
+            "first_rate": 0.00125,
+            "last_rate": 0.000625,
+            "checkpoint_sha256": "89455be9a1922f244faa7afdc33cdbf790c300913fe48c93bd92c8378c7823b0"
+          },
+          "full-batch": {
+            "first_update": 1,
+            "last_update": 7,
+            "first_rate": 0.005,
+            "last_rate": 0.000625,
+            "checkpoint_sha256": "892c45f5d2ddbacaa2820f7631bba7c90e3a2e76f6c62b3a3977f010d0d6015a"
+          },
+          "full-batch-resume-2": {
+            "first_update": 3,
+            "last_update": 7,
+            "first_rate": 0.0025,
+            "last_rate": 0.000625,
+            "checkpoint_sha256": "e8a1509870b7664e13450ec5dc41e18e057fb580601fcad89c4550a134047ae3"
+          },
+          "full-batch-resume-3": {
+            "first_update": 4,
+            "last_update": 7,
+            "first_rate": 0.0025,
+            "last_rate": 0.000625,
+            "checkpoint_sha256": "f224c2f6f442856c59559e51d18c843c33facd4b09ae4ba9f7829d515e0f08fe"
+          },
+          "legacy": {
+            "first_update": 1,
+            "last_update": 7,
+            "first_rate": 0.005,
+            "last_rate": 0.005,
+            "checkpoint_sha256": "2db0eb5fce297fbc8cffc427876b80d02613149c1a2496be79842943e9daa9e7"
+          },
+          "constant": {
+            "first_update": 1,
+            "last_update": 7,
+            "first_rate": 0.005,
+            "last_rate": 0.005,
+            "checkpoint_sha256": "5a8d7cbc1950562a135da47bdb2d98e4d41a8d7a19a5131ca66a1bcba46ba5c0"
+          },
+          "unity-decay": {
+            "first_update": 1,
+            "last_update": 7,
+            "first_rate": 0.005,
+            "last_rate": 0.005,
+            "checkpoint_sha256": "cd998d5ae6e04a14910ea92b2ffe2b5b7cc54a3f9611d8f89b76a73dc2c4dde6"
+          }
+        },
+        "rejected_before_output_creation": [
+          "zero_interval",
+          "rate_above_one",
+          "zero_rate",
+          "unknown_field",
+          "unknown_kind",
+          "underflow",
+          "changed_schedule",
+          "removed_schedule",
+          "changed_base"
+        ],
+        "raw_acceptance_sha256": "e3411690b2da21164e0c0866af735364826bd7a9a9dd580be1624bbf526b8a1b",
+        "trainer_sha256": "f457583997dad0d05f8019b772be285114e0e81c7885990ab148e2780c2e45d6"
+      },
+      "hyperdual": {
+        "device": "cuda:0",
+        "gradient": "hyperdual",
+        "execution": {
+          "backend": "cuda_hyperdual_f64_v1",
+          "visible_device": 0,
+          "device_info": "NVIDIA GeForce RTX 4090; compute 8.9; FP64; device 0",
+          "driver_version": 13040,
+          "program_sha256": "36793f1f392c7c3a8a13bb6f9dde7b26d810d4e2600cc5cf4c4cb124107f91b9"
+        },
+        "schedule": {
+          "kind": "exponential",
+          "decay_steps": 2,
+          "decay_rate": 0.5
+        },
+        "expected_update_rates": [
+          0.005,
+          0.005,
+          0.0025,
+          0.0025,
+          0.00125,
+          0.00125,
+          0.000625
+        ],
+        "indexed_memory_exact": true,
+        "minibatch_resume_splits_exact": [
+          1,
+          2,
+          3,
+          4
+        ],
+        "full_batch_resume_splits_exact": [
+          2,
+          3
+        ],
+        "cache_toggle_on_cuda_resume": true,
+        "constant_and_unity_decay_match_legacy_parameters_and_moments_exactly": true,
+        "historical_cpu_checkpoint": null,
+        "cpu_reference_comparison": {
+          "scheduled_max_abs_parameters_and_moments": 9.43689570931383e-16,
+          "full-batch_max_abs_parameters_and_moments": 4.440892098500626e-16
+        },
+        "runs": {
+          "scheduled": {
+            "first_update": 1,
+            "last_update": 7,
+            "first_rate": 0.005,
+            "last_rate": 0.000625,
+            "checkpoint_sha256": "ae3d5e0c9fc91f9dfb226de551ad4dfa40bfb42540eded8b836394068f328bc3"
+          },
+          "scheduled-memory": {
+            "first_update": 1,
+            "last_update": 7,
+            "first_rate": 0.005,
+            "last_rate": 0.000625,
+            "checkpoint_sha256": "ae3d5e0c9fc91f9dfb226de551ad4dfa40bfb42540eded8b836394068f328bc3"
+          },
+          "resume-1": {
+            "first_update": 2,
+            "last_update": 7,
+            "first_rate": 0.005,
+            "last_rate": 0.000625,
+            "checkpoint_sha256": "acd4a4a57337c37ccafcac5f211fde60ee80f431e4b526e15a54ed786970f836"
+          },
+          "resume-2": {
+            "first_update": 3,
+            "last_update": 7,
+            "first_rate": 0.0025,
+            "last_rate": 0.000625,
+            "checkpoint_sha256": "a3e9f306cd3c21d8522d4da818e772486e714340304e5a7723cdcbc5d9450d21"
+          },
+          "resume-3": {
+            "first_update": 4,
+            "last_update": 7,
+            "first_rate": 0.0025,
+            "last_rate": 0.000625,
+            "checkpoint_sha256": "443684774145e87054a98f727994e0059c6719ee24414986cd22c30ed958ca99"
+          },
+          "resume-4": {
+            "first_update": 5,
+            "last_update": 7,
+            "first_rate": 0.00125,
+            "last_rate": 0.000625,
+            "checkpoint_sha256": "ce69c35abc8f1722481bc6a46bb1bf746af6acd0923b5642ed76fa8c347858da"
+          },
+          "full-batch": {
+            "first_update": 1,
+            "last_update": 7,
+            "first_rate": 0.005,
+            "last_rate": 0.000625,
+            "checkpoint_sha256": "faa10d479b7bdf3902f06a22fc9d9d2d1f6d9e49d853744d2d2bb2313d079751"
+          },
+          "full-batch-resume-2": {
+            "first_update": 3,
+            "last_update": 7,
+            "first_rate": 0.0025,
+            "last_rate": 0.000625,
+            "checkpoint_sha256": "5fd8a48b660b5c017f8c6db3c0024235299410699ec587954e93c1c716ebc6cd"
+          },
+          "full-batch-resume-3": {
+            "first_update": 4,
+            "last_update": 7,
+            "first_rate": 0.0025,
+            "last_rate": 0.000625,
+            "checkpoint_sha256": "11071efc929c080c4f6f7861fc0b7fd90c9af40647dd019ea6698a948047916a"
+          },
+          "legacy": {
+            "first_update": 1,
+            "last_update": 7,
+            "first_rate": 0.005,
+            "last_rate": 0.005,
+            "checkpoint_sha256": "cf042a780d29b7d10cebddd43952ff2db2d55ac465bc334844e53a443deb6059"
+          },
+          "constant": {
+            "first_update": 1,
+            "last_update": 7,
+            "first_rate": 0.005,
+            "last_rate": 0.005,
+            "checkpoint_sha256": "91dd86c5de588fa0f423ed54ac42aa49d79fb36e8d6810df16120bbc9e298bd9"
+          },
+          "unity-decay": {
+            "first_update": 1,
+            "last_update": 7,
+            "first_rate": 0.005,
+            "last_rate": 0.005,
+            "checkpoint_sha256": "1ffa454924918435d925875bee4658006628674d7728086f7586a1c50ce333c0"
+          }
+        },
+        "rejected_before_output_creation": [
+          "zero_interval",
+          "rate_above_one",
+          "zero_rate",
+          "unknown_field",
+          "unknown_kind",
+          "underflow",
+          "changed_schedule",
+          "removed_schedule",
+          "changed_base"
+        ],
+        "raw_acceptance_sha256": "0fb04bee27197d1f650e9f639d3a7778611082a7c6b5692869beaa1d2b7791c0",
+        "trainer_sha256": "f457583997dad0d05f8019b772be285114e0e81c7885990ab148e2780c2e45d6"
+      },
+      "reverse": {
+        "device": "cuda:0",
+        "gradient": "reverse",
+        "execution": {
+          "backend": "cuda_reverse_f64_v1",
+          "visible_device": 0,
+          "device_info": "NVIDIA GeForce RTX 4090; compute 8.9; FP64; device 0",
+          "driver_version": 13040,
+          "program_sha256": "382ea3a3eee82218b9ec2d975822a0a0c995d2968b0a158cf2bdbfc852859844"
+        },
+        "schedule": {
+          "kind": "exponential",
+          "decay_steps": 2,
+          "decay_rate": 0.5
+        },
+        "expected_update_rates": [
+          0.005,
+          0.005,
+          0.0025,
+          0.0025,
+          0.00125,
+          0.00125,
+          0.000625
+        ],
+        "indexed_memory_exact": true,
+        "minibatch_resume_splits_exact": [
+          1,
+          2,
+          3,
+          4
+        ],
+        "full_batch_resume_splits_exact": [
+          2,
+          3
+        ],
+        "cache_toggle_on_cuda_resume": true,
+        "constant_and_unity_decay_match_legacy_parameters_and_moments_exactly": true,
+        "historical_cpu_checkpoint": null,
+        "cpu_reference_comparison": {
+          "scheduled_max_abs_parameters_and_moments": 8.881784197001252e-16,
+          "full-batch_max_abs_parameters_and_moments": 8.881784197001252e-16
+        },
+        "runs": {
+          "scheduled": {
+            "first_update": 1,
+            "last_update": 7,
+            "first_rate": 0.005,
+            "last_rate": 0.000625,
+            "checkpoint_sha256": "1ca7a7d79a6ff55f4bf1a7a5518b598475e4efc08f5a3af7392cc3ce74a1f716"
+          },
+          "scheduled-memory": {
+            "first_update": 1,
+            "last_update": 7,
+            "first_rate": 0.005,
+            "last_rate": 0.000625,
+            "checkpoint_sha256": "1ca7a7d79a6ff55f4bf1a7a5518b598475e4efc08f5a3af7392cc3ce74a1f716"
+          },
+          "resume-1": {
+            "first_update": 2,
+            "last_update": 7,
+            "first_rate": 0.005,
+            "last_rate": 0.000625,
+            "checkpoint_sha256": "0be4702e3c68cd528cf9e34b4479a132a114986cde18964331e689611363b171"
+          },
+          "resume-2": {
+            "first_update": 3,
+            "last_update": 7,
+            "first_rate": 0.0025,
+            "last_rate": 0.000625,
+            "checkpoint_sha256": "25daac74f42eadf06f3dcfd18f9aa162ca5bee3b00b0b675d7b37dda8856b663"
+          },
+          "resume-3": {
+            "first_update": 4,
+            "last_update": 7,
+            "first_rate": 0.0025,
+            "last_rate": 0.000625,
+            "checkpoint_sha256": "bc06983475815d6c204976135b036e99fb51c2b4dcfadc02964373d81bc2ab2a"
+          },
+          "resume-4": {
+            "first_update": 5,
+            "last_update": 7,
+            "first_rate": 0.00125,
+            "last_rate": 0.000625,
+            "checkpoint_sha256": "790db8109396c52e82b4d0b6c47be3dff964899f513f18b14ff8bf1f4574d291"
+          },
+          "full-batch": {
+            "first_update": 1,
+            "last_update": 7,
+            "first_rate": 0.005,
+            "last_rate": 0.000625,
+            "checkpoint_sha256": "0080b6c2493c632b34c1a277f48a64df721231d5d30c84cb3f27aa7258c599b6"
+          },
+          "full-batch-resume-2": {
+            "first_update": 3,
+            "last_update": 7,
+            "first_rate": 0.0025,
+            "last_rate": 0.000625,
+            "checkpoint_sha256": "fe3054591f57f81c576bd4639c9b1f8019a9a69172db6529228284b4fc083d54"
+          },
+          "full-batch-resume-3": {
+            "first_update": 4,
+            "last_update": 7,
+            "first_rate": 0.0025,
+            "last_rate": 0.000625,
+            "checkpoint_sha256": "3e5b8ce3d57565cd0d2cc20e7a34fa144b4065d679cd354ce20b5a341e66f94a"
+          },
+          "legacy": {
+            "first_update": 1,
+            "last_update": 7,
+            "first_rate": 0.005,
+            "last_rate": 0.005,
+            "checkpoint_sha256": "95efa02c3ab267c53f4741db7466798278583e406fef279ad4779507d2d0b917"
+          },
+          "constant": {
+            "first_update": 1,
+            "last_update": 7,
+            "first_rate": 0.005,
+            "last_rate": 0.005,
+            "checkpoint_sha256": "d083014bcac5c8d8db463571ec662a16296d494e9da1afde6567a83d34fa4244"
+          },
+          "unity-decay": {
+            "first_update": 1,
+            "last_update": 7,
+            "first_rate": 0.005,
+            "last_rate": 0.005,
+            "checkpoint_sha256": "918bd78a169f1ac49e3436bd59bc78809cf69faffdbf37ad4d9518b02f389c83"
+          }
+        },
+        "rejected_before_output_creation": [
+          "zero_interval",
+          "rate_above_one",
+          "zero_rate",
+          "unknown_field",
+          "unknown_kind",
+          "underflow",
+          "changed_schedule",
+          "removed_schedule",
+          "changed_base"
+        ],
+        "raw_acceptance_sha256": "2dbc1936ba3ff1c6d246f58168feca3e9ac9b51585b904c060633718be48e070",
+        "trainer_sha256": "f457583997dad0d05f8019b772be285114e0e81c7885990ab148e2780c2e45d6"
+      }
+    }
+  },
+  "invalid_diagnostics_cpu": [
+    {
+      "case": "zero_interval",
+      "rejected_before_output_creation": true,
+      "diagnostic": "native training failed: exponential learning-rate schedule requires decay_steps in 1..1000000000 and finite decay_rate in (0,1]"
+    },
+    {
+      "case": "rate_above_one",
+      "rejected_before_output_creation": true,
+      "diagnostic": "native training failed: exponential learning-rate schedule requires decay_steps in 1..1000000000 and finite decay_rate in (0,1]"
+    },
+    {
+      "case": "zero_rate",
+      "rejected_before_output_creation": true,
+      "diagnostic": "native training failed: exponential learning-rate schedule requires decay_steps in 1..1000000000 and finite decay_rate in (0,1]"
+    },
+    {
+      "case": "unknown_field",
+      "rejected_before_output_creation": true,
+      "diagnostic": "native training failed: unknown field `decay_rate`, there are no fields"
+    },
+    {
+      "case": "unknown_kind",
+      "rejected_before_output_creation": true,
+      "diagnostic": "native training failed: unknown variant `cosine`, expected `constant` or `exponential`"
+    },
+    {
+      "case": "underflow",
+      "rejected_before_output_creation": true,
+      "diagnostic": "native training failed: learning-rate schedule is nonpositive/nonfinite at completed update 1075 (possible float64 underflow)"
+    },
+    {
+      "case": "changed_schedule",
+      "rejected_before_output_creation": true,
+      "diagnostic": "native training failed: checkpoint schema, dataset hash, immutable configuration, layout or step mismatch"
+    },
+    {
+      "case": "removed_schedule",
+      "rejected_before_output_creation": true,
+      "diagnostic": "native training failed: checkpoint schema, dataset hash, immutable configuration, layout or step mismatch"
+    },
+    {
+      "case": "changed_base",
+      "rejected_before_output_creation": true,
+      "diagnostic": "native training failed: checkpoint schema, dataset hash, immutable configuration, layout or step mismatch"
+    }
+  ],
+  "input_and_replay_sha256": {
+    "trainer": "f457583997dad0d05f8019b772be285114e0e81c7885990ab148e2780c2e45d6",
+    "dataset": "67b56c3905b04f978ac8b9c75a9fe3d1769df557e41a8c48891829432008a4d2",
+    "initial_model": "407278c6eab122e6dfee2511b3c3fb4c033f58c04819a580ffc0810df3ce7b9a",
+    "script": "fdefde389256a417c102fc509f679be296569d42a0c529c9287850f0e1af858a"
+  },
+  "platform": {
+    "os": "Windows-11-10.0.26200-SP0",
+    "machine": "AMD64",
+    "gpu_release": "2026-10-16T14:10:49.476910+00:00"
+  },
+  "remaining_limits": [
+    "staircase schedules only; no warmup, continuous/cosine/adaptive decay or rate floor",
+    "no scheduled loss weights or optimizer changes",
+    "existing supported tanh networks, fixed normalization/atomic offsets, dataset/model/device bounds unchanged",
+    "same-build/platform/runtime exact restart; no cross-platform bitwise guarantee",
+    "CPU loss/geometry/reduction/assessment and host schedule scalars remain in CUDA execution"
+  ],
+  "commands": [
+    "cargo test --locked --offline --manifest-path mlmd/native/Cargo.toml",
+    "cargo test --locked --offline --manifest-path mlmd/native/Cargo.toml --features cuda",
+    "cargo build --release --locked --offline --manifest-path mlmd/native/Cargo.toml --features cuda --bins",
+    "python mlmd/native/tools/replay_learning_rate.py --train-exe mlmd/native/target/release/omnimd-native-train.exe --fixture-dir mlmd/native/fixtures/generated-deepmd/minibatch-cpu-01 --output-dir mlmd/native/fixtures/generated-deepmd/lr-schedule-cpu-01",
+    "python mlmd/native/tools/replay_learning_rate.py --train-exe mlmd/native/target/release/omnimd-native-train.exe --fixture-dir mlmd/native/fixtures/generated-deepmd/minibatch-cpu-01 --output-dir mlmd/native/fixtures/generated-deepmd/lr-schedule-hyperdual-01 --device cuda:0 --cpu-reference mlmd/native/fixtures/generated-deepmd/lr-schedule-cpu-01",
+    "python mlmd/native/tools/replay_learning_rate.py --train-exe mlmd/native/target/release/omnimd-native-train.exe --fixture-dir mlmd/native/fixtures/generated-deepmd/minibatch-cpu-01 --output-dir mlmd/native/fixtures/generated-deepmd/lr-schedule-reverse-01 --device cuda:0 --cuda-gradient reverse --cpu-reference mlmd/native/fixtures/generated-deepmd/lr-schedule-cpu-01"
+  ],
+  "git_normalized_source_sha256": {
+    "mlmd/native/CUDA_FULL_TRAINING.md": "ea2a8d57553068940c4d75f6ff7256626adea4bcc6adb6ef1bb1f9044b0cf3b3",
+    "mlmd/native/FULL_TRAINING.md": "76960cb8a0c57d2144f9d12279d3215e3b65e4605d9ff9ca1318a4c13e969a62",
+    "mlmd/native/INDEXED_TRAINING.md": "a4457118e7be8e32fcd0c2d6c90a06aa87d51bff8b64d46d752e8505853b31fb",
+    "mlmd/native/LEARNING_RATE.md": "b76b81828fcfeb67f256385c2bf7c058af5ea76b5da934af83c085e41b638abc",
+    "mlmd/native/MINIBATCH_TRAINING.md": "213871b90e2c43436d1806d907537db6f93fc6b0b5877136296742fc592543e3",
+    "mlmd/native/README.md": "b12fb2feba30d1202b909967db2cb96cf59c1e00dd531cf2b1320a1ae9558d0b",
+    "mlmd/native/THIRD_PARTY_NOTICES.md": "622c5e8fbaa63a1eeec1288ed4f043933c15810f96f7c8711cc2b8472267ee2b",
+    "mlmd/native/TRAINING_NEXT.md": "6559d622d2c0043804fe1c1520a5f39744f8505800c64166cdbc6934c813851c",
+    "mlmd/native/src/cuda/full.rs": "f13833c4ff7625eb5ee4d8432a141621629e51748155d5507e92547812bc02ba",
+    "mlmd/native/src/full_training.rs": "f29b7001aa13ff09571a44c2f9a20505a765c754f988138b77b9ed35598d0e65",
+    "mlmd/native/src/learning_rate.rs": "c567bf3630ebd5f06f11def4ec619937cccd6e30bcd68ba651655a461ae97b54",
+    "mlmd/native/src/lib.rs": "cbee9503034f282db172b11309c0ea4bc7776e139819422c1b021b572ada90c4",
+    "mlmd/native/tests/cuda_full_training.rs": "73e5bb2f681d1c29f725227033a7b2a6ffef8fc090d3a314ccffb569400995b6",
+    "mlmd/native/tests/cuda_reverse_training.rs": "e5de9b804d8cc9324e6ab5b2c3387aaafd92e98ae6df272754b8449bd0bae94a",
+    "mlmd/native/tests/full_training.rs": "4884feb3dffc05639d3223b145d748d3311e539657f60d9d4a5bef944f82305a",
+    "mlmd/native/tests/indexed_training.rs": "f222ce610b58244d5efa35e09163929455c18ad508093661eaded333db94fc82",
+    "mlmd/native/tests/minibatch_training.rs": "85944e225586d6cb856332607a57f8dee35a4a7520ba595bf6ae211ecbdae23e",
+    "mlmd/native/tests/virial_training.rs": "69014096b9a8e571263f65124090dd71534037ba3ae4281cbda6d8de873ff8f8",
+    "mlmd/native/tools/replay_learning_rate.py": "42cb3df87e15604ab8ba28a0259c91b6620759adbbe91637db3535560cd3e651"
+  },
+  "source_hash_scope": "Git-normalized staged bytes; execution-worktree script and binary hashes are recorded separately"
+}
