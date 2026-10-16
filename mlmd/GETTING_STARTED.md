@@ -9,7 +9,8 @@ features keep QR/assessment on CPU. Bounded full-network CUDA gradients and Adam
 retain CPU geometry, reduction and assessment; see step 13. Prediction/loss seeds
 remain CPU by default, with an explicit tiled GPU option in step 23. The later
 `06439f1` candidate passed the bounded Linux native CUDA check in step 24; its
-runtime and fixture scope do not generalize to other Linux configurations.
+runtime and fixture scope do not generalize to other Linux configurations or
+the later v9 large-frame path in step 25.
 
 All commands below run from the repository root. `omnimd-mlmd` means the binary
 built in step 1, not a globally installed program. Use its full path unless you
@@ -499,8 +500,9 @@ engine CUDA, parameterized ensembles/minimization/training remain unsupported.
 
 Read [the CUDA full-training contract](native/CUDA_FULL_TRAINING.md) and confirm
 its joint bounds before choosing a device: at most 2048 neural parameters,
-width/descriptor width 32, 64 neighbor slots, 64 atoms/frame and the stated work
-budget. Use tanh embedding/hidden layers and a linear output. Both E and F labels
+width/descriptor width 32, 64 neighbor slots, default 64 atoms/frame and the stated
+work budget. Step 25 adds explicit reverse-tiled frame expansion, subject to
+unchanged resource budgets; CPU and untiled training remain at 64 atoms. Use tanh embedding/hidden layers and a linear output. Both E and F labels
 are required. Normalization, geometry settings and atomic offsets remain fixed;
 virial is assessed by default and can be explicitly enabled in the full-network
 loss as described in step 15.
@@ -753,7 +755,8 @@ validation frames never enter batches. Smaller batches do not promise full-batch
 convergence, equivalent epoch weighting or a throughput improvement.
 
 Inspect checkpoint `omnimd-native-full-checkpoint-v5` (v6 with an explicit
-learning-rate schedule, v7 with CUDA tiling, v8 with GPU loss) and `report.minibatch`:
+learning-rate schedule, v7 with CUDA tiling, v8 with GPU loss, v9 with an expanded
+frame ceiling) and `report.minibatch`:
 start/end sampler, processed frame count, partial-batch count and size histogram.
 Sampler state describes the next batch and includes seed/order, epoch/cursor,
 permutation and derived RNG state. Resume from that checkpoint with the same
@@ -814,10 +817,11 @@ coordinate format is introduced.
 
 Review [all parser/resource bounds](native/INDEXED_TRAINING.md) before choosing
 this mode. Indexed input is a regular file up to 16 GiB and 100000 frames, with
-256 KiB records, 256-byte IDs, at most 64 atoms/frame and a 64 MiB retained index
-payload budget. Default memory full training still limits input to 128 MiB and
-1024 frames. Architecture, AD/workspace, per-frame CUDA and geometry-cache limits
-are unchanged. The indexed ceiling itself has not been benchmarked in full.
+256 KiB records, 256-byte IDs and a 64 MiB retained index payload budget. The parser
+has a strict technical ceiling of 256 atoms; training remains at default 64 unless
+explicit reverse-tiled expansion in step 25 is selected and admitted. Default
+memory full training still limits input to 128 MiB and 1024 frames. Architecture,
+AD/workspace and geometry-cache payload limits are unchanged. The indexed ceiling itself has not been benchmarked in full.
 Index, sampler, partitions, report identities and checkpoints remain O(frame
 count); a bounded index is not an O(1)-memory optimizer or a total RAM guarantee.
 
@@ -838,7 +842,7 @@ continuation, not platform mutation-race acceptance. macOS remains unvalidated.
 Failure invalidates the reader and stops the invocation; earlier completed
 checkpoints remain available.
 
-Storage mode is runtime-only: v5/v6/v7/v8 checkpoints do not embed the index or change
+Storage mode is runtime-only: v5/v6/v7/v8/v9 checkpoints do not embed the index or change
 schema when storage mode changes. Resume may switch memory/indexed with the identical raw input, numerical
 backend, split, objective and sampler settings, provided the input satisfies the
 destination mode's bounds. Even whitespace changes alter dataset identity. The
@@ -951,7 +955,8 @@ their existing meanings. This is a native formula, not inferred DeepMD defaults.
 Use `{"kind":"constant"}` for an explicit constant schedule. Omit the field or
 set it to null to retain historical constant behavior and v1-v5 serialization.
 Every explicit schedule, including constant, uses checkpoint v6 unless CUDA
-tiling selects v7 (step 22), or GPU loss selects v8 (step 23). Resume requires
+tiling selects v7 (step 22), GPU loss selects v8 (step 23), or an expanded frame
+ceiling selects v9 (step 25). Resume requires
 exact base rate, schedule presence/kind/interval/rate, together with existing
 loss/data/backend/sampler identity. Runtime storage/cache choices retain their
 previous compatibility rules. Changing or adding a schedule requires starting a
@@ -1018,11 +1023,13 @@ fit rejects before CUDA; no partial frame or silent data truncation is allowed.
 These payload limits exclude context/module/local memory, CPU workspaces, allocator,
 index/cache/model/report overhead; they are not total VRAM/RSS limits. Supported
 architecture remains at most 2048 parameters, width 32, 64 neighbor slots and
-**64 atoms per frame**. See [the full policy](native/TILED_TRAINING.md).
+**64 atoms per frame by default**; step 25 describes an explicit larger ceiling.
+See [the full policy](native/TILED_TRAINING.md).
 
 Tiling with default CPU loss selects checkpoint `omnimd-native-full-checkpoint-v7`,
 including when a schedule is present, and executor `cuda_tiled_reverse_f64_v1`.
-Explicit GPU loss instead selects v8, as described in step 23. Tile capacities
+Explicit GPU loss instead selects v8, as described in step 23. An expanded frame
+ceiling selects v9 in either loss mode (step 25). Tile capacities
 are immutable along with existing data/model/loss/sampler/schedule/runtime identity.
 Storage and geometry-cache flags may change on resume. To change capacities or
 switch to framewise execution, start a new optimizer explicitly from the exported
@@ -1085,14 +1092,16 @@ gradients, evaluates partition metrics and writes checkpoints/exports. The new
 gradient path does not run the old per-frame CPU prediction cross-check; independent
 parity and derivative tests validate its arithmetic.
 
-Confirm backend `cuda_tiled_device_loss_f64_v1`, checkpoint v8 and
+With the default 64-atom ceiling, confirm backend `cuda_tiled_device_loss_f64_v1`,
+checkpoint v8 and
 `cuda_gradient_profile.device_prediction_frames` equal to gradient-path frames.
 Host `prediction_and_seeds_ms` is zero because that work is included in GPU
 `kernels_and_sync_ms`; it does not mean zero computation. Inspect
 `cuda_tiling.device_loss` for accounted extra buffers/work and the effective
 capacity. The 64 MiB explicit device/32 MiB host tile budgets exclude total
-VRAM/RSS overhead. Architecture, 64 atoms/frame, and 32-frame/1024-aggregate-atom
-requested tile bounds remain; capacity can be lowered by planning.
+VRAM/RSS overhead. Architecture and 32-frame/1024-aggregate-atom requested tile
+bounds remain. The default frame ceiling is 64; step 25 describes bounded expansion.
+Actual capacity can be lowered by planning.
 
 v8 binds the loss mode, capacities and existing immutable model/data/loss/sampler/
 schedule/device/driver/PTX identity. Same-backend continuation may change storage
@@ -1169,4 +1178,78 @@ requests. Keep its exact bytes and use a fresh output directory with an authoriz
 GPU window; stop at the first failed GPU stage. This evidence does not validate
 other Linux distributions, bare-metal configurations, ARM64, different drivers,
 production potentials, long MD or the full Windows/CPU test matrix. Existing
-architecture/resource bounds and CPU defaults remain unchanged.
+architecture/resource bounds and CPU defaults remain unchanged. This Linux
+acceptance does not cover the later v9 large-frame path in step 25.
+
+## 25. Opt in to resource-bounded larger training frames
+
+Build the CUDA engine and sibling trainer as in step 23. For a complete
+full-training request with `"device":"cuda:0"`, set:
+
+```json
+{
+  "cuda_gradient": "reverse",
+  "cuda_tiling": {
+    "max_frames": 4,
+    "max_atoms": 512,
+    "max_atoms_per_frame": 256
+  },
+  "cuda_loss": "gpu"
+}
+```
+
+`max_atoms` is the total tile capacity; `max_atoms_per_frame` is a separate
+64..256 ceiling for each physical frame. Omitted or explicit 64 preserves legacy
+configuration, v7/v8 and PTX. CPU full-gradient and untiled CUDA remain limited
+to 64 atoms. Both CPU-loss and GPU-loss reverse-tiled training can use the expanded
+ceiling; both execute gradients and Adam on CUDA. No frame is split or truncated.
+
+Run `omnimd-mlmd train-native REQUEST.json` with a new output directory. Check
+`cuda_tiling.requested`, `effective_max_atoms`, work/payload estimates and
+`cuda_gradient_profile.max_atoms_per_frame`, which reports actual processed
+frame size. A ceiling of 256 is not a guarantee: the original 112-parameter model
+fits 256, while the 466-parameter example has effective GPU-loss capacity 138 and
+rejects a 256-atom frame. The configured ceiling conservatively affects quadratic
+gather work, even when actual frames are smaller.
+
+The 50-million estimated-work, 64 MiB explicit device-buffer, 32 MiB host-tile,
+32-frame/1024-total-atom policies are unchanged. They are not total VRAM/RSS caps.
+The high-level trainer rejects all oversized dataset frames before cache/context
+construction; the low-level batch rejects any oversized selected frame before
+tile allocation/launch. The indexed parser's 256-entry technical ceiling and
+geometry cache do not bypass training admission. CPU neighbors/geometry and the
+GPU force gather still have quadratic frame cost.
+
+A configured ceiling above 64 selects checkpoint v9. GPU loss uses
+`cuda_tiled_device_loss_f64_v2`, whose strided gather writes all E/F/V outputs;
+CPU loss retains `cuda_tiled_reverse_f64_v1` arithmetic with v9 admission identity.
+Frame/tile capacities, loss mode and existing restart identity are immutable.
+Start a new optimizer from an exported model to change them. Same-mode continuation
+may switch memory/indexed access and the geometry-cache flag. This new v9 path
+has Windows acceptance only; step 24's Linux v7/v8 evidence does not cover it.
+
+[Final engine acceptance](evidence/native-large-frame-integrated.json) reused
+8 original 32/128/256-atom frames, with 6 training and 2 validation frames. Four
+updates processed 12 training-frame visits in 6 tiles, with actual maxima of
+256 atoms/frame and 512 atoms/tile. CPU/GPU-loss parameters and Adam moments
+differed by at most 5.56e-17. v9 step-2 to step-4 continuation changed storage/cache
+settings and exactly matched final persisted state, model bytes and metrics;
+reload E/F/V differences were zero. Default 64, effective capacity 138 work capacity and
+changed restart tile capacity rejected before output. Four host-only checks and
+the locked offline release build passed.
+
+The [native contract and separate evidence](native/LARGE_FRAME_TRAINING.md)
+include derivative/capacity checks and one 12-update process per mode: CPU-loss
+CUDA 1554 ms / 4.91 MB peak device-buffer payload; GPU-loss CUDA 1721 ms / 6.19 MB.
+The GPU-loss sample was slower. These are not benchmark medians, total device
+memory measurements or a production speed claim; A did not repeat those checks.
+
+For the short integration replay, reserve a GPU window, use the previously
+accepted original input directory and choose a new output directory:
+
+```text
+python mlmd/scripts/validate_large_frame_integration.py --engine ENGINE_EXE --baseline-work LARGE_FRAME_REPLAY_02 --work NEW_WORK
+```
+
+It stops on the first unexpected failure without retry. Larger models, production
+physical data, new v9 Linux execution and cross-platform restart remain unverified.

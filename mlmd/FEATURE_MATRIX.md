@@ -1,6 +1,6 @@
 # DeepMD feature coverage: reference version 3.1.3
 
-Matrix revision 17, checked 2026-10-16. Previous integrated CUDA runtime:
+Matrix revision 18, checked 2026-10-16. Previous integrated CUDA runtime:
 `9b8d1847f892e32751c73d3262e0245d0efb4cdd`. This includes engine inspection/tutorial,
 native source `b6b7aa7` and C API source `1aee39c`. Implementation and real-runtime
 validation are separate. C API CPU follow-up is now verified in `ce27786`
@@ -14,7 +14,9 @@ comparison and exact same-backend v8 restart. Default CPU-loss PTX is preserved;
 the GPU-loss program has a separate identity. Candidate `06439f1` subsequently
 passed [bounded Linux native CUDA acceptance](LINUX_CUDA_VALIDATION.md), recorded
 in evidence commit `1dc936c`. This adds platform evidence without implementation
-changes; the C API runtime matrix remains separate.
+changes; the C API runtime matrix remains separate. Native large-frame source
+`c7ec6f1` is now integrated on `cfe1680e`: v9 capacity/forwarding/restart acceptance
+is Windows-only. The earlier Linux v7/v8 evidence does not cover this new path.
 
 **omniMD does not implement all DeepMD features.** Native means arithmetic in
 this Rust/CUDA implementation. Delegated means the official external runtime
@@ -50,7 +52,7 @@ is insufficient evidence of compatibility.
 | Model compression / tabulation | Missing | Runtime-dependent, unverified compressed models | [Official compression](https://docs.deepmodeling.com/projects/deepmd/en/v3.1.3/freeze/compress.html) is external |
 | CUDA inference | Partial: NN/descriptor/pullback kernels; CPU geometry and final force/virial reduction | Partial: official TF kernels observed through CUPTI, synchronized per evaluation | [Native](native/CUDA.md), [C API](deepmd/CUDA_VALIDATION.md); no automatic fallback |
 | CUDA cache / profiling | Conservative CPU candidate cache, cooperative per-atom fitting, retained host/device buffers and type uploads, segmented timing | Runtime manages its internal memory/work | [Final integrated evidence](evidence/native-cuda-integrated-fit.json): warmed and whole-MD improvements reported separately, limited to measured cases |
-| Linux native CUDA runtime | Validated on Ubuntu 22.04.5 x86_64 under WSL2, RTX 4090, driver 617.42/NVRTC 12.9.86; one FP64 inference fixture and 24-frame tiled v7/v8 training with exact same-runtime v8 resume | Not part of this native acceptance | [Environment and receipt](LINUX_CUDA_VALIDATION.md); other Linux configurations, cross-platform restore and production models unverified; no performance advantage established |
+| Linux native CUDA runtime | Validated on Ubuntu 22.04.5 x86_64 under WSL2, RTX 4090, driver 617.42/NVRTC 12.9.86; one FP64 inference fixture and 24-frame tiled v7/v8 training with exact same-runtime v8 resume | Not part of this native acceptance | [Environment and receipt](LINUX_CUDA_VALIDATION.md); new large-frame v9, other Linux configurations, cross-platform restore and production models unverified; no performance advantage established |
 | CUDA graphs, multi-GPU, MPI/domain decomposition | Missing | Graph/stream capture rejected; no distributed adapter | Single selected device per fresh worker |
 
 ## Data, training and workflows
@@ -72,16 +74,17 @@ an official `input.json` is not a native training request.
 | External label return | Hash-bound job preparation and E/F/optional-V import; exact geometry/atom/parameter identity; fill missing labels, preserve source order/v2 | [Contract and replay](engine/EXTERNAL_LABELS.md); calculator/provenance declarations unverified; no job submission or automatic training |
 | Readout training | CPU default; optional native CUDA E/F/V feature columns, CPU rank-aware QR and assessment, optional bias | Frozen hidden layers; bounded dense solve; [microcase slower on CUDA](native/fixtures/cuda-readout-report.json); separate full-network route below |
 | Full supported-network training | CPU default; optional bounded CUDA all-neural E/F and optional V gradients and Adam, tanh/linear, checkpoint/restart | CPU geometry/reduction/assessment retained; prediction/loss seeds default CPU with explicit tiled GPU alternative; fixed normalization/cutoff/selection/atomic offsets; independent one-side copies; [CUDA bounds](native/CUDA_FULL_TRAINING.md) |
-| CUDA gradient executor | Hyperdual default; explicit cached reverse accumulation, same shape/work bounds, 64 MiB planned device-buffer payload | [Activation and evidence](native/CUDA_REVERSE_TRAINING.md); full-batch reverse checkpoint v4 (minibatch v5, explicit schedule v6, tiling v7, GPU loss v8), no executor switch on resume; payload excludes driver/context memory |
-| Multi-frame CUDA reverse | Explicit `cuda_tiling`; four gradient kernels per packed tile with default CPU loss, original batch normalization/reduction/Adam boundaries; v7 executor identity | [Contract](native/TILED_TRAINING.md); up to 32 frames/1024 total atoms subject to work/payload planning; 64 atoms/frame and architecture bounds unchanged; CPU geometry remains; GPU prediction/seeds is a separate opt-in below |
-| GPU prediction/loss seeds | Explicit `cuda_loss="gpu"` with reverse+tiling; E/F/V, detached seeds and reused primal intermediates; ten kernels/tile; immutable v8 | [Contract](native/DEVICE_LOSS_TRAINING.md); CPU loss remains default, geometry/scalars/reduction/assessment remain CPU; 128-update tiny synthetic case regressed 605->756 ms, medium improved 3506->3061 ms (1.15x) |
+| CUDA gradient executor | Hyperdual default; explicit cached reverse accumulation, same shape/work bounds, 64 MiB planned device-buffer payload | [Activation and evidence](native/CUDA_REVERSE_TRAINING.md); full-batch reverse checkpoint v4 (minibatch v5, explicit schedule v6, tiling v7, GPU loss v8, expanded frame ceiling v9), no executor switch on resume; payload excludes driver/context memory |
+| Multi-frame CUDA reverse | Explicit `cuda_tiling`; four gradient kernels per packed tile with default CPU loss, original batch normalization/reduction/Adam boundaries; v7 executor identity | [Contract](native/TILED_TRAINING.md); up to 32 frames/1024 total atoms subject to work/payload planning; default 64 atoms/frame, explicit larger ceiling below; architecture bounds unchanged; CPU geometry remains; GPU prediction/seeds is a separate opt-in below |
+| GPU prediction/loss seeds | Explicit `cuda_loss="gpu"` with reverse+tiling; E/F/V, detached seeds and reused primal intermediates; ten kernels/tile; immutable v8 (v9 with expanded frame ceiling) | [Contract](native/DEVICE_LOSS_TRAINING.md); CPU loss remains default, geometry/scalars/reduction/assessment remain CPU; 128-update tiny synthetic case regressed 605->756 ms, medium improved 3506->3061 ms (1.15x) |
+| Larger CUDA training frames | Explicit `cuda_tiling.max_atoms_per_frame=64..256`, default 64; reverse tiling only; v9 for >64, GPU-loss backend v2 | [Contract](native/LARGE_FRAME_TRAINING.md); no work/payload increase; 112-parameter fixture fits 256, 466-parameter example effective capacity 138 rejects 256; CPU/untiled remain 64; new v9 Linux unverified; no speed claim |
 | Fixed training geometry | Explicit CUDA full-training cache, both gradient executors; default false; 64 MiB retained host payload; exact identity checks | [Contract](native/FIXED_GEOMETRY_TRAINING.md); fixed training frames only; cache may toggle on resume; excludes temporary/allocator memory, assessment and current-loss directions |
-| Virial supervision | Optional full-network CPU/CUDA loss on all nine row-strain virial entries per atom; explicit positive weight/scale; loss-bound full-batch CPU/hyperdual v3 or reverse v4; minibatch v5; explicit schedule v6; tiling v7; GPU loss v8 | [Contract](native/VIRIAL_TRAINING.md); E/F labels still required; readout QR remains E/F-only; no stress/volume conversion |
+| Virial supervision | Optional full-network CPU/CUDA loss on all nine row-strain virial entries per atom; explicit positive weight/scale; loss-bound full-batch CPU/hyperdual v3 or reverse v4; minibatch v5; explicit schedule v6; tiling v7; GPU loss v8; expanded frame ceiling v9 | [Contract](native/VIRIAL_TRAINING.md); E/F labels still required; readout QR remains E/F-only; no stress/volume conversion |
 | Split/provenance | Seeded or explicit held-out IDs, dataset/source hashes, validation isolation | No trajectory-independent split guarantee from random frames |
-| Deterministic minibatches | Explicit batch size/seed/order on CPU and both CUDA executors; actual-count tail normalization; v5/v6/v7/v8 next-batch sampler and exact restart | [Contract](native/MINIBATCH_TRAINING.md); full-batch default; memory 1024 frames, explicit indexed access has separate bounds; no convergence equivalence claim |
-| Indexed training input | Explicit indexed v1 JSONL with minibatches; framewise read, offset/ID/line SHA index, whole-file checks before publication; runtime storage-mode switching | [Bounds and evidence](native/INDEXED_TRAINING.md); max 100000 frames/16 GiB input, 256 KiB record, 64 MiB index payload; metadata/sampler O(N), 64 atoms unchanged; maximum ceiling not benchmarked |
+| Deterministic minibatches | Explicit batch size/seed/order on CPU and both CUDA executors; actual-count tail normalization; v5/v6/v7/v8/v9 next-batch sampler and exact restart | [Contract](native/MINIBATCH_TRAINING.md); full-batch default; memory 1024 frames, explicit indexed access has separate bounds; no convergence equivalence claim |
+| Indexed training input | Explicit indexed v1 JSONL with minibatches; framewise read, offset/ID/line SHA index, whole-file checks before publication; runtime storage-mode switching | [Bounds and evidence](native/INDEXED_TRAINING.md); max 100000 frames/16 GiB input, 256 KiB record, 64 MiB index payload; metadata/sampler O(N); default 64 training atoms, explicit bounded expansion to 256; maximum dataset ceiling not benchmarked |
 | Startup validation | One complete validation inside the trainer; reuse returned layout and omit duplicate CLI preflight; two frame passes removed per invocation | [CPU acceptance](evidence/native-indexed-startup-integrated.json); constructor/public validation, per-read hashes and publication whole-file checks retained; overlapping timing fields are diagnostic |
-| Learning-rate schedules | Explicit constant or exponential staircase by globally completed optimizer updates; CPU and both CUDA full trainers; immutable v6 identity (v7 with tiling, v8 with GPU loss) | [Contract](native/LEARNING_RATE.md); absent/null retains constant/v1-v5; no warmup, continuous/adaptive decay, rate floor or scheduled loss weights |
+| Learning-rate schedules | Explicit constant or exponential staircase by globally completed optimizer updates; CPU and both CUDA full trainers; immutable v6 identity (v7 tiling, v8 GPU loss, v9 expanded frame ceiling) | [Contract](native/LEARNING_RATE.md); absent/null retains constant/v1-v5; no warmup, continuous/adaptive decay, rate floor or scheduled loss weights |
 | Generic DeepMD training options | Missing | Sharded/end-to-end GPU/distributed/multi-task training, generic pretrained adaptation and broader architectures |
 | Training monitoring | JSON reports and checkpoints | No TensorBoard integration or live monitoring service |
 | Freeze/export | Native training writes native-v1 JSON, reload checked | No native export into generic official training checkpoints or `.pb` |
@@ -237,6 +240,18 @@ an official `input.json` is not a native training request.
   retry; no source fix or new installation. This documentation integration
   does not rerun tests or broaden model/resource limits.
 
+- Native large-frame source `c7ec6f1` is integrated unchanged on `cfe1680e`.
+  [Final engine receipt](evidence/native-large-frame-integrated.json) records
+  actual 256-atom frames/512-atom tiles, four updates, CPU/GPU-loss parameter/Adam
+  difference 5.55e-17, exact v9 2+2 storage/cache-switch restart and zero reload
+  E/F/V difference. Three refusals, four host-only checks and offline release
+  build passed. B's [separate evidence](native/fixtures/large-frame-training-report.json)
+  covers 32/83/128/256 atoms, independent derivatives, late-frame preflight,
+  historical v8 identity and a 6+6 restart; no broad matrix was rerun by A.
+  Existing budgets remain: the 466-parameter example rejects 256 at effective capacity 138.
+  Separate single-process observations were 1554 ms CPU-loss CUDA and 1721 ms
+  GPU-loss CUDA, not a speed claim. New v9 Linux execution remains unverified.
+
 ## Implementation order and acceptance gates
 
 1. Engine preflight and reproducible executable workflow: delivered in this
@@ -259,9 +274,11 @@ Bounded multi-frame gradients and optional GPU predictions/seeds are implemented
 Remaining CPU work includes data validation/geometry/scalars, stable reduction/
 clipping, assessment and export. Ten kernels per GPU-loss tile, transfers,
 compilation/startup and constrained occupancy still cost time; the tiny benchmark
-regressed. Limits remain 2048 parameters, width 32, 64 atoms/frame and bounded
-tile work/payloads. Larger physical workloads, generic DeepMD architectures,
-Linux configurations beyond the recorded WSL2/container case and distributed/
-CPU-free training remain unsupported or unvalidated.
+regressed. Limits remain 2048 parameters, width 32, default 64 atoms/frame with
+explicit reverse-tiled expansion to at most 256 subject to unchanged tile work/
+payload limits. The 466-parameter example cannot fit 256. Larger physical workloads,
+generic DeepMD architectures, new v9 Linux execution, Linux configurations beyond
+the recorded WSL2/container case and distributed/CPU-free training remain
+unsupported or unvalidated.
 See [the roadmap](../ROADMAP.md#remaining-end-to-end-and-model-limits); no next
 feature is started by this candidate.

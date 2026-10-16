@@ -124,6 +124,17 @@ tiled v7/v8 training with exact same-runtime v8 continuation. C API execution,
 other Linux configurations and cross-platform checkpoint restore were outside
 that check. Use [step 24](../GETTING_STARTED.md#24-use-the-recorded-linux-native-cuda-configuration)
 for the exact environment and limits; no performance advantage is established.
+That Linux check does not cover the subsequent large-frame v9 path.
+
+Explicit `config.cuda_tiling.max_atoms_per_frame=64..256` now admits larger frames
+under unchanged work/payload limits. Default 64 preserves historical v7/v8;
+CPU/untiled training stays 64. Above 64 uses v9, with GPU-loss backend v2 and complete
+strided force/virial gather. The 112-parameter fixture fits 256; the 466-parameter
+example has effective capacity 138 and rejects 256. Use
+[step 25](../GETTING_STARTED.md#25-opt-in-to-resource-bounded-larger-training-frames)
+and the [final receipt](../evidence/native-large-frame-integrated.json) for actual
+256-atom forwarding, exact 2+2 restart and refusals. Capacity expansion does not
+promise speed; new v9 Linux execution remains unverified.
 
 ## Dataset workflows
 

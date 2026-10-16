@@ -1,0 +1,471 @@
+{
+  "schema": "omnimd-large-frame-integration-v1",
+  "status": "passed",
+  "started_utc": "2026-10-16T16:35:41.315917+00:00",
+  "completed_utc": "2026-10-16T16:35:47.016264+00:00",
+  "native_commit": "c7ec6f187e296e0e4066ed4978d11a03a6dd08cd",
+  "source_base": "cfe1680e850815d329110e3c1baa6fda16bcbb75",
+  "scope": "Essential Windows engine forwarding and v9 resume using existing original synthetic input; no broad matrix, derivative or speed benchmark.",
+  "frames": [
+    {
+      "index": 0,
+      "id": "large/0",
+      "atoms": 128
+    },
+    {
+      "index": 1,
+      "id": "large/1",
+      "atoms": 256
+    },
+    {
+      "index": 2,
+      "id": "large/2",
+      "atoms": 32
+    },
+    {
+      "index": 3,
+      "id": "large/3",
+      "atoms": 128
+    },
+    {
+      "index": 4,
+      "id": "large/4",
+      "atoms": 256
+    },
+    {
+      "index": 5,
+      "id": "large/5",
+      "atoms": 128
+    },
+    {
+      "index": 6,
+      "id": "large/6",
+      "atoms": 128
+    },
+    {
+      "index": 7,
+      "id": "large/7",
+      "atoms": 256
+    }
+  ],
+  "training_frames": 6,
+  "validation_ids": [
+    "large/6",
+    "large/7"
+  ],
+  "optimizer_updates": 4,
+  "cross_mode_parameters_moments_max_abs": 5.551115123125783e-17,
+  "partition_metrics_max_abs_differences": {
+    "initial_training": 0.0,
+    "final_training": 5.093148125467906e-15,
+    "initial_validation": 0.0,
+    "final_validation": 1.5182299861749016e-14
+  },
+  "comparison_tolerance": 1e-10,
+  "v9_step_2_to_4_resume_exact_except_steps_and_cache_flag": true,
+  "resume_model_bytes_and_final_metrics_exact": true,
+  "rejected_before_output": [
+    "default64",
+    "466-parameter effective138 work capacity",
+    "changed tile capacity on resume"
+  ],
+  "runs": {
+    "cpu-loss-v9": {
+      "schema": "omnimd-native-full-checkpoint-v9",
+      "execution": {
+        "backend": "cuda_tiled_reverse_f64_v1",
+        "visible_device": 0,
+        "device_info": "NVIDIA GeForce RTX 4090; compute 8.9; FP64; device 0",
+        "driver_version": 13040,
+        "program_sha256": "ac8c9019b07549ac68542bcedb83f50f26d06637c98a801bb61a5eb22bef308a"
+      },
+      "profile": {
+        "device_prediction_frames": 0,
+        "download_ms": 0.6808,
+        "frames": 12,
+        "geometry_ms": 0.24609999999999999,
+        "kernel_launches": 24,
+        "kernels_and_sync_ms": 1.3154,
+        "max_atoms_per_frame": 256,
+        "max_atoms_per_launch": 512,
+        "max_frames_per_launch": 3,
+        "peak_device_buffer_bytes": 4905404,
+        "peak_host_tile_payload_bytes": 995232,
+        "prediction_and_seeds_ms": 8.4783,
+        "reduction_ms": 0.0832,
+        "synchronizations": 6,
+        "tiles": 6,
+        "upload_ms": 1.2953999999999999
+      },
+      "resources": {
+        "device_at_capacity": {
+          "atoms": 512,
+          "cache_bytes": 2924544,
+          "descriptor_adjoint_bytes": 65536,
+          "peak_device_buffer_bytes": 4905404,
+          "policy_limit_bytes": 67108864,
+          "slot_gradient_bytes": 917504
+        },
+        "effective_max_atoms": 512,
+        "estimated_scalar_terms_at_capacity": 14336000,
+        "host_tile_payload_at_capacity_bytes": 995232,
+        "host_tile_payload_policy_limit_bytes": 33554432,
+        "maximum_center_terms": 250,
+        "requested": {
+          "max_atoms": 512,
+          "max_atoms_per_frame": 256,
+          "max_frames": 4
+        },
+        "scalar_work_policy_limit": 50000000
+      },
+      "minibatch": {
+        "batch_size_counts": {
+          "2": 2,
+          "4": 2
+        },
+        "end": {
+          "algorithm": "omnimd-epoch-splitmix64-v1",
+          "cursor": 0,
+          "epoch": 2,
+          "order": [
+            3,
+            0,
+            1,
+            5,
+            4,
+            2
+          ],
+          "order_mode": "shuffle_each_epoch",
+          "rng_state": 13079122236629260108,
+          "seed": 20261016
+        },
+        "frames_processed": 12,
+        "normalization": "arithmetic mean of actual batch frames; unchanged per-frame atom/component scales; no cross-epoch fill or drop",
+        "partial_batches": 2,
+        "start": {
+          "algorithm": "omnimd-epoch-splitmix64-v1",
+          "cursor": 0,
+          "epoch": 0,
+          "order": [
+            5,
+            2,
+            1,
+            4,
+            3,
+            0
+          ],
+          "order_mode": "shuffle_each_epoch",
+          "rng_state": 6228549579597127732,
+          "seed": 20261016
+        }
+      },
+      "learning_rate": {
+        "base_rate": 0.003,
+        "contract": "omnimd-optimizer-update-learning-rate-v1",
+        "first_rate": 0.003,
+        "first_update": 1,
+        "last_rate": 0.0024000000000000002,
+        "last_update": 4,
+        "schedule": {
+          "decay_rate": 0.8,
+          "decay_steps": 3,
+          "kind": "exponential"
+        }
+      },
+      "reload_max_abs_energy_force_virial": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "model_sha256": "2f45f5825cae2ecefd74d257775da116332476527adff0e1f61512b0a67e3469",
+      "checkpoint_sha256": "48374e4d90fa762b55ff092bdb8c82a5600cbec378629f3a04a205ec9e5a6f52"
+    },
+    "gpu-loss-v9": {
+      "schema": "omnimd-native-full-checkpoint-v9",
+      "execution": {
+        "backend": "cuda_tiled_device_loss_f64_v2",
+        "visible_device": 0,
+        "device_info": "NVIDIA GeForce RTX 4090; compute 8.9; FP64; device 0",
+        "driver_version": 13040,
+        "program_sha256": "619459caa412a2917c57c4377ee0523845b13b798a2bf2bd1166466402dd4e6d"
+      },
+      "profile": {
+        "device_prediction_frames": 12,
+        "download_ms": 0.679,
+        "frames": 12,
+        "geometry_ms": 0.6476,
+        "kernel_launches": 60,
+        "kernels_and_sync_ms": 11.5685,
+        "max_atoms_per_frame": 256,
+        "max_atoms_per_launch": 512,
+        "max_frames_per_launch": 3,
+        "peak_device_buffer_bytes": 6190356,
+        "peak_host_tile_payload_bytes": 1755624,
+        "prediction_and_seeds_ms": 0.0,
+        "reduction_ms": 0.0721,
+        "synchronizations": 6,
+        "tiles": 6,
+        "upload_ms": 4.7878
+      },
+      "resources": {
+        "device_at_capacity": {
+          "atoms": 512,
+          "cache_bytes": 2924544,
+          "descriptor_adjoint_bytes": 65536,
+          "peak_device_buffer_bytes": 6190636,
+          "policy_limit_bytes": 67108864,
+          "slot_gradient_bytes": 917504
+        },
+        "device_loss": {
+          "estimated_extra_terms_per_atom": 13220,
+          "extra_device_bytes": 1285232,
+          "extra_host_reserved_bytes": 1318048
+        },
+        "effective_max_atoms": 512,
+        "estimated_scalar_terms_at_capacity": 21104640,
+        "host_tile_payload_at_capacity_bytes": 2313280,
+        "host_tile_payload_policy_limit_bytes": 33554432,
+        "maximum_center_terms": 250,
+        "requested": {
+          "max_atoms": 512,
+          "max_atoms_per_frame": 256,
+          "max_frames": 4
+        },
+        "scalar_work_policy_limit": 50000000
+      },
+      "minibatch": {
+        "batch_size_counts": {
+          "2": 2,
+          "4": 2
+        },
+        "end": {
+          "algorithm": "omnimd-epoch-splitmix64-v1",
+          "cursor": 0,
+          "epoch": 2,
+          "order": [
+            3,
+            0,
+            1,
+            5,
+            4,
+            2
+          ],
+          "order_mode": "shuffle_each_epoch",
+          "rng_state": 13079122236629260108,
+          "seed": 20261016
+        },
+        "frames_processed": 12,
+        "normalization": "arithmetic mean of actual batch frames; unchanged per-frame atom/component scales; no cross-epoch fill or drop",
+        "partial_batches": 2,
+        "start": {
+          "algorithm": "omnimd-epoch-splitmix64-v1",
+          "cursor": 0,
+          "epoch": 0,
+          "order": [
+            5,
+            2,
+            1,
+            4,
+            3,
+            0
+          ],
+          "order_mode": "shuffle_each_epoch",
+          "rng_state": 6228549579597127732,
+          "seed": 20261016
+        }
+      },
+      "learning_rate": {
+        "base_rate": 0.003,
+        "contract": "omnimd-optimizer-update-learning-rate-v1",
+        "first_rate": 0.003,
+        "first_update": 1,
+        "last_rate": 0.0024000000000000002,
+        "last_update": 4,
+        "schedule": {
+          "decay_rate": 0.8,
+          "decay_steps": 3,
+          "kind": "exponential"
+        }
+      },
+      "reload_max_abs_energy_force_virial": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "model_sha256": "146e362ecef56b7d505036383c131059efa419a4e997b08f0cad49973840bf06",
+      "checkpoint_sha256": "6b3bc6baad6834afe69d418d32d0c6c77217ec9a31963bb9000955612926c22b"
+    },
+    "resume-v9-memory-cache-off": {
+      "schema": "omnimd-native-full-checkpoint-v9",
+      "execution": {
+        "backend": "cuda_tiled_device_loss_f64_v2",
+        "visible_device": 0,
+        "device_info": "NVIDIA GeForce RTX 4090; compute 8.9; FP64; device 0",
+        "driver_version": 13040,
+        "program_sha256": "619459caa412a2917c57c4377ee0523845b13b798a2bf2bd1166466402dd4e6d"
+      },
+      "profile": {
+        "device_prediction_frames": 6,
+        "download_ms": 0.3644,
+        "frames": 6,
+        "geometry_ms": 153.39460000000003,
+        "kernel_launches": 30,
+        "kernels_and_sync_ms": 5.740399999999999,
+        "max_atoms_per_frame": 256,
+        "max_atoms_per_launch": 512,
+        "max_frames_per_launch": 3,
+        "peak_device_buffer_bytes": 6190356,
+        "peak_host_tile_payload_bytes": 1755624,
+        "prediction_and_seeds_ms": 0.0,
+        "reduction_ms": 0.0331,
+        "synchronizations": 3,
+        "tiles": 3,
+        "upload_ms": 1.4905000000000002
+      },
+      "resources": {
+        "device_at_capacity": {
+          "atoms": 512,
+          "cache_bytes": 2924544,
+          "descriptor_adjoint_bytes": 65536,
+          "peak_device_buffer_bytes": 6190636,
+          "policy_limit_bytes": 67108864,
+          "slot_gradient_bytes": 917504
+        },
+        "device_loss": {
+          "estimated_extra_terms_per_atom": 13220,
+          "extra_device_bytes": 1285232,
+          "extra_host_reserved_bytes": 1318048
+        },
+        "effective_max_atoms": 512,
+        "estimated_scalar_terms_at_capacity": 21104640,
+        "host_tile_payload_at_capacity_bytes": 2313280,
+        "host_tile_payload_policy_limit_bytes": 33554432,
+        "maximum_center_terms": 250,
+        "requested": {
+          "max_atoms": 512,
+          "max_atoms_per_frame": 256,
+          "max_frames": 4
+        },
+        "scalar_work_policy_limit": 50000000
+      },
+      "minibatch": {
+        "batch_size_counts": {
+          "2": 1,
+          "4": 1
+        },
+        "end": {
+          "algorithm": "omnimd-epoch-splitmix64-v1",
+          "cursor": 0,
+          "epoch": 2,
+          "order": [
+            3,
+            0,
+            1,
+            5,
+            4,
+            2
+          ],
+          "order_mode": "shuffle_each_epoch",
+          "rng_state": 13079122236629260108,
+          "seed": 20261016
+        },
+        "frames_processed": 6,
+        "normalization": "arithmetic mean of actual batch frames; unchanged per-frame atom/component scales; no cross-epoch fill or drop",
+        "partial_batches": 1,
+        "start": {
+          "algorithm": "omnimd-epoch-splitmix64-v1",
+          "cursor": 0,
+          "epoch": 1,
+          "order": [
+            4,
+            0,
+            5,
+            3,
+            1,
+            2
+          ],
+          "order_mode": "shuffle_each_epoch",
+          "rng_state": 10978428787293146670,
+          "seed": 20261016
+        }
+      },
+      "learning_rate": {
+        "base_rate": 0.003,
+        "contract": "omnimd-optimizer-update-learning-rate-v1",
+        "first_rate": 0.003,
+        "first_update": 3,
+        "last_rate": 0.0024000000000000002,
+        "last_update": 4,
+        "schedule": {
+          "decay_rate": 0.8,
+          "decay_steps": 3,
+          "kind": "exponential"
+        }
+      },
+      "reload_max_abs_energy_force_virial": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "model_sha256": "146e362ecef56b7d505036383c131059efa419a4e997b08f0cad49973840bf06",
+      "checkpoint_sha256": "415b8da22f884f0cab7f1d018a5b63d38b82e1400cc14b81dd97bcfc6d990eb9"
+    }
+  },
+  "source_sha256": {
+    "replay_large_frame_training.py": "23e1ddf738c6b9bf5d453bbd95d1b7f0c72d198d1bdb3d9d4d5926fb00514632",
+    "teacher.json": "1113e4f1d49c77756703a0b6f3362615699a6d9bd0686cddbc1c103066fa0bc8"
+  },
+  "sha256": {
+    "engine": "036675880dd8f21455092a83a75b9caea43b80869a87eadfabac41436ea7b1c6",
+    "trainer": "7b0c2d99f1b9418c55caf18dc46fa82cbee218da2b24d421386f67c9d19827e8",
+    "script": "8daed75529e84e4e7fc69e2fe117127ef942b2cdc729c897000d2a21a0661087",
+    "json_helper": "95be1cfcf9a0e447c69da61b859cc696de344ef0c306237646d732b1e7a63cf4",
+    "comparison_helper": "ea78fe6ad8474a55a7d6dc85869da2ac9383b9a2616db37af20deb7d4f3df3b8",
+    "dataset": "051ad1506b261e3450145a18a2f65951bc0b0e547319094b276e7d816368be4a",
+    "initial_model": "407278c6eab122e6dfee2511b3c3fb4c033f58c04819a580ffc0810df3ce7b9a",
+    "medium_model": "a1946cf0d5480c572a82678fd1af13cd3b75dbde0ac25b1b93039c8cc352b443"
+  },
+  "checks": [
+    {
+      "label": "capabilities",
+      "exit_code": 0
+    },
+    {
+      "label": "reject-default-frame-limit",
+      "exit_code": 1
+    },
+    {
+      "label": "reject-medium-work-budget",
+      "exit_code": 1
+    },
+    {
+      "label": "cpu-loss-v9",
+      "exit_code": 0
+    },
+    {
+      "label": "gpu-loss-v9",
+      "exit_code": 0
+    },
+    {
+      "label": "resume-v9-memory-cache-off",
+      "exit_code": 0
+    },
+    {
+      "label": "reject-changed-tile-capacity",
+      "exit_code": 1
+    }
+  ],
+  "linux_scope": "Previous06439f1 Linux v7/v8 evidence unchanged; new v9 large-frame execution unverified.",
+  "host_only_checks": {
+    "native_large_frame_admission": 1,
+    "engine_routing": 3,
+    "total": 4,
+    "status": "passed"
+  },
+  "build": "Locked offline release engine/native bins with CUDA feature; no dependency download.",
+  "gpu_window": {
+    "released_utc": "2026-10-16T16:35:47.0583319Z",
+    "active_omnimd_processes": 0
+  },
+  "separate_native_evidence": "native/fixtures/large-frame-training-report.json; broad derivatives/capacity/default-v8 checks and12-update process measurements not repeated by A."
+}

@@ -134,3 +134,8 @@ The next opt-in infrastructure step is the [fixed training-frame geometry cache]
 The optional [tiled reverse executor](TILED_TRAINING.md) packs multiple independent
 frames per launch. It retains the original optimizer/loss/sampler semantics and
 uses a separate v7 backend identity; omitted tiling preserves this framewise path.
+
+An explicit [larger-frame ceiling](LARGE_FRAME_TRAINING.md) takes checkpoint
+precedence with v9 for reverse tiling. Default 64 and this untiled path retain
+their old limits/identities. GPU loss above 64 uses backend v2; unchanged budgets
+can reject256 even for a supported architecture. New v9 Linux remains unverified.

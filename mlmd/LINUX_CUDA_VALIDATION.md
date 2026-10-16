@@ -8,6 +8,11 @@ change was needed. This evidence commit changes documentation and replay assets
 only. The [receipt](evidence/native-linux-cuda.json) includes executable, input,
 request and CUDA program hashes.
 
+The later large-frame commit `c7ec6f1` introduces explicit >64-atom training,
+v9 checkpoints and GPU-loss backend v2. Those changes were not present in this
+Linux candidate and are not validated by this receipt. See
+[the separate Windows large-frame scope](native/LARGE_FRAME_TRAINING.md).
+
 ## Runtime and build
 
 | Component | Observed value |

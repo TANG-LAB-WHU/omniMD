@@ -32,7 +32,8 @@ Ubuntu 22.04.5 x86_64 under WSL2, the official cached DeepMD CUDA image, RTX 409
 driver 617.42 and NVRTC 12.9.86. This covers one FP64 inference fixture, 24-frame
 tiled E/F/V training and exact same-runtime v8 continuation. The small v8 run
 was slower than v7; no speed or broader-platform claim follows. C API execution
-and cross-platform checkpoint restore were outside this acceptance.
+and cross-platform checkpoint restore were outside this acceptance. The later
+v9 large-frame path below is not covered by this Linux validation.
 
 This local branch additionally includes a conservative native CUDA neighbor
 candidate cache, with final-version timing, MD and restart acceptance. It reduces
@@ -268,7 +269,8 @@ and [final integration evidence](mlmd/evidence/native-indexed-integrated.json)
 record exact CPU/CUDA state, metrics and storage/cache-switch continuation.
 The separate 2051-frame, 128.19-MiB boundary case is deliberately whitespace
 padded; its measured 12.83-MiB Windows peak working set is not a physical-data
-throughput benchmark. The 64-atom and geometry-cache bounds remain unchanged.
+throughput benchmark. That indexed milestone preserved the default 64-atom and
+geometry-cache bounds; the later explicit large-frame option is described below.
 
 The [startup validation consolidation](mlmd/native/INDEXED_TRAINING.md#startup-validation-consolidation)
 removes two duplicate frame-validation passes per full-training CLI invocation.
@@ -284,7 +286,8 @@ for cumulative timing fields and the short CPU replay.
 neural-parameter training through optional `config.learning_rate_schedule`:
 explicit constant or exponential staircase, indexed by globally completed Adam
 updates. Absent/null retains constant behavior and historical checkpoint schemas;
-an explicit schedule uses v6 (v7 with tiling, v8 with GPU loss) and must remain identical on resume. The
+an explicit schedule uses v6 (v7 with tiling, v8 with GPU loss, v9 with an expanded
+frame ceiling) and must remain identical on resume. The
 [step-21 guide](mlmd/GETTING_STARTED.md#21-select-an-optimizer-update-learning-rate-schedule)
 and [final CPU engine receipt](mlmd/evidence/native-learning-rate-integrated.json)
 cover boundary continuation, legacy v5 and refusal behavior. No model/atom limit
@@ -299,7 +302,8 @@ optimizer batches, schedules and one Adam update per batch. Tile capacities bind
 v7 restart identity with CPU loss (v8 for GPU loss); absent/null tiling retains
 framewise execution and v1-v6. Limits
 are 32 frames / 1024 aggregate atoms per tile, subject to work/payload planning;
-64 atoms per frame, 2048 neural parameters and width 32 remain unchanged.
+the default is 64 atoms per frame, with explicit bounded expansion described
+below. The 2048 neural-parameter and width-32 limits remain unchanged.
 [Step 22](mlmd/GETTING_STARTED.md#22-batch-frames-in-bounded-cuda-tiles) explains
 payload limits and diagnostics. [Final engine acceptance](mlmd/evidence/native-tiled-integrated.json)
 records exact framewise equality and storage/cache-switch restart. Separate
@@ -317,3 +321,17 @@ forwarding, actual v7 compatibility, tolerant cross-mode comparison and exact
 same-backend v8 restart. Three-repeat synthetic whole-process medians were
 604.53->756.03 ms for 112 parameters (slower) and 3505.78->3060.90 ms for 466
 parameters (1.15x). This option is not selected automatically; bounds remain.
+
+[Resource-bounded larger training frames](mlmd/native/LARGE_FRAME_TRAINING.md)
+use explicit `config.cuda_tiling.max_atoms_per_frame=256` with reverse CUDA.
+Default/explicit 64 preserves prior v7/v8 behavior; CPU and untiled training stay
+at 64. Above 64 selects v9, with GPU-loss backend v2 and complete strided force/
+virial output coverage. Work and payload budgets are unchanged: the 112-parameter
+fixture fits 256 atoms, but the 466-parameter example has effective capacity 138
+and rejects 256. This is not a blanket 256-atom guarantee or a speed claim.
+[Step 25](mlmd/GETTING_STARTED.md#25-opt-in-to-resource-bounded-larger-training-frames)
+and the [final engine receipt](mlmd/evidence/native-large-frame-integrated.json)
+record real 256-atom frames, exact v9 continuation and refusals. B's separate
+12-update process observations were CPU-loss CUDA 1554 ms and GPU-loss CUDA
+1721 ms; both still retain CPU geometry/reduction/assessment. New v9 Linux
+execution remains unverified.

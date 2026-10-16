@@ -120,7 +120,8 @@ with executable commands; pending branch work is not counted as integrated.
   shared atomic/tensor outputs remain unsupported. New C API GPU batch/parameter
   acceptance remains unverified. Native CUDA now has bounded
   [Linux x86_64/WSL2 acceptance](mlmd/LINUX_CUDA_VALIDATION.md); other Linux
-  configurations and cross-platform checkpoint restore remain unverified.
+  configurations, new large-frame v9 execution and cross-platform checkpoint
+  restore remain unverified.
 - NPT, constraints, domain decomposition, broader classical coupling and external
   MD ecosystem adapters remain separate simulation gaps. Physical accuracy and
   production stability have not been established by the software fixtures.
@@ -238,7 +239,8 @@ work. No further feature is started as part of this candidate.
 Optional explicit constant/exponential staircase schedules apply to the supported
 full CPU/CUDA trainers. The globally completed update count determines the next
 rate; no epoch inference or mutable scheduler state is added. Explicit schedules
-use v6 (v7 with tiling, v8 with GPU loss) with immutable base/schedule identity, while absent/null preserve legacy
+use v6 (v7 with tiling, v8 with GPU loss, v9 with an expanded frame ceiling)
+with immutable base/schedule identity, while absent/null preserve legacy
 constant behavior and v1-v5. [Final engine evidence](mlmd/evidence/native-learning-rate-integrated.json)
 records exact decay-boundary continuation and historical-checkpoint compatibility.
 Model/atom/workspace limits, CUDA kernels and PTX remain unchanged.
@@ -254,8 +256,9 @@ framewise state/metrics, storage/cache-switch continuation and refusal checks.
 
 This milestone batches the existing supported models; it does not expand them.
 Requested capacities up to 32 frames/1024 aggregate atoms are reduced by checked
-work and payload budgets. Limits remain 64 atoms per frame, 2048 parameters,
-width 32 and 64 neighbor slots. Explicit device buffers are capped at 64 MiB and
+work and payload budgets. That milestone retained 64 atoms per frame, 2048
+parameters, width 32 and 64 neighbor slots. A later explicit frame expansion is
+documented below. Explicit device buffers are capped at 64 MiB and
 host tile payload at 32 MiB, with documented exclusions from total memory.
 
 [Separate native evidence](mlmd/native/fixtures/tiled-training-report.json)
@@ -281,14 +284,34 @@ increases from about 329 to 523 ms. On the medium case, GPU kernel/sync and uplo
 costs increase while CPU assessment still takes about 446 ms. Keep the option
 explicit; no general speed guarantee or automatic selection follows.
 
+## Delivered: explicit resource-bounded larger frames
+
+`cuda_tiling.max_atoms_per_frame` accepts 64..256 with default 64. Larger ceilings
+require reverse CUDA tiling and select v9; GPU-loss execution uses backend v2.
+The strided gather covers every force/virial output of actual large Frames.
+High-level admission checks all dataset sizes before cache/context construction;
+the low-level batch checks sizes before any tile allocation/launch. Frames are
+not split or truncated. Default v7/v8 identities and CPU/untiled bounds remain.
+
+[Final engine evidence](mlmd/evidence/native-large-frame-integrated.json) verifies
+four scheduled updates on 32/128/256-atom inputs, six training/two validation
+frames, exact 2+2 continuation across storage/cache changes and resource refusals.
+B's separate independent derivative/capacity checks and 12-update measurements
+are recorded in the [native contract](mlmd/native/LARGE_FRAME_TRAINING.md).
+The process observations were 1554 ms CPU-loss CUDA and 1721 ms GPU-loss CUDA;
+this delivery expands admitted capacity, not demonstrated throughput.
+
 ## Remaining end-to-end and model limits
 
 Supported native training remains tanh se_e2_a with fixed normalization, atomic
 offsets, selection, cutoffs and type map. CUDA accepts at most 2048 parameters,
-width 32, 64 selected slots and 64 atoms/frame. Requested tile ceilings of 32
-frames/1024 aggregate atoms can shrink under work/payload planning. The larger
-synthetic case fits at most four frames/128 actual atoms under an effective
-142-atom capacity. These bounds do not establish representative large-model use.
+width 32 and 64 selected slots. Frames default to 64 atoms; explicit reverse
+tiling admits up to 256 only when unchanged resource budgets permit it. Requested
+tile ceilings of 32 frames/1024 aggregate atoms can shrink under work/payload
+planning. The 112-parameter fixture fits 256, while the 466-parameter GPU-loss
+example has effective capacity 138 with the expanded ceiling and rejects 256.
+The configured ceiling contributes conservatively to quadratic gather work even
+for smaller actual frames. These bounds do not establish representative large-model use.
 
 Data validation, geometry/scales, gradient reduction/clipping, assessment and
 export remain CPU work. Indexed metadata/samplers/checkpoints are O(frame count),
@@ -297,7 +320,8 @@ execution, generic DeepMD architecture support, learned normalization/offsets,
 tied one-side embeddings or production chemical validation is added. The
 [Linux acceptance](mlmd/LINUX_CUDA_VALIDATION.md) covers only the recorded
 Ubuntu x86_64/WSL2 container, RTX 4090 and small synthetic inference/training
-cases; it does not cover other Linux configurations or cross-platform restart.
+v7/v8 cases; it does not cover new large-frame v9 execution, other Linux
+configurations or cross-platform restart.
 The 64 MiB device/32 MiB tile budgets are explicit payloads, not total VRAM or
 process memory limits.
 

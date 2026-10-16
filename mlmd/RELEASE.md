@@ -922,3 +922,44 @@ large physical training and production accuracy were outside this acceptance.
 CPU geometry/reduction/assessment and existing architecture/payload bounds remain.
 No generated trained weights, checkpoints, executables, raw logs or HAP material
 are included; the only dataset added is the small original replay fixture.
+
+## Local bounded large-frame training integration
+
+Native-only source `c7ec6f187e296e0e4066ed4978d11a03a6dd08cd` is integrated
+unchanged on `cfe1680e850815d329110e3c1baa6fda16bcbb75`. Explicit reverse tiling
+accepts `max_atoms_per_frame=64..256`, subject to unchanged work/payload limits.
+Default/explicit 64 keeps historical configuration/PTX and v7/v8. CPU/untiled
+training remains 64. Above 64 selects v9; GPU loss uses backend v2 with strided
+coverage of every force/virial output. Whole-dataset and whole-batch preflight
+prevent oversize frames from reaching cache/context or tile allocation/launch
+at their respective API levels. No shared contract or dependency changed.
+
+[Final engine evidence](evidence/native-large-frame-integrated.json) records
+8 original 32/128/256-atom frames (6 train/2 validation), four scheduled updates,
+12 gradient-frame visits and 6 tiles, reaching 256 atoms/frame and 512 atoms/tile.
+CPU/GPU-loss parameter/Adam difference was 5.5511151e-17; maximum partition-metric
+difference was 1.5182300e-14. GPU loss recorded 12 device-predicted frames and 60
+gradient kernels. Exact v9 step-2 to step-4 continuation changed indexed-to-memory
+and cache-on-to-off while preserving final state (except requested steps/cache),
+model bytes and final metrics. Reload E/F/V differences were zero. Default 64,
+466-parameter effective capacity 138 capacity and changed restart tile capacity rejected
+before output. Four host-only checks and the locked offline release build passed.
+No unexpected failure/retry occurred; GPU was released at 2026-10-16 16:35:47 UTC
+with no remaining omniMD process. A did not repeat B's broad matrix or benchmark.
+
+B's [separate native evidence](native/fixtures/large-frame-training-report.json)
+covers 32/83/128/256 atoms, independent derivatives/finite differences, late-frame
+preflight, old v8 state/PTX compatibility and exact 6+6 continuation. Single-process
+12-update observations were CPU-loss CUDA 1554 ms versus GPU-loss CUDA 1721 ms,
+with 4.91/6.19 MB explicit device-buffer peaks. GPU loss was slower; these are not
+benchmark medians or total-memory caps. A configured 256 ceiling does not guarantee
+admission: the 466-parameter example is limited to 138 atoms by work accounting.
+
+Publication scope is the 22 native source-commit files plus engine static capability
+metadata, entry/usage/matrix/roadmap/release cross-links, the short engine acceptance
+script and compact receipt. Generated weights, datasets, checkpoints, binaries
+and raw logs remain ignored. No HAP material, installation or system change.
+Candidate stays local and unpushed. Prior `06439f1` Linux v7/v8 evidence remains valid
+for its recorded candidate only; new v9 Linux execution is unverified. Wider
+architectures, production physical data and general throughput remain open.
+No further feature started in this integration.

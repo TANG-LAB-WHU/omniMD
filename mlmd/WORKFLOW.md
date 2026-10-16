@@ -98,7 +98,12 @@ default CPU loss with tiling keeps v7, and geometry/reduction/assessment remain 
 Follow [step 23](GETTING_STARTED.md#23-select-gpu-prediction-and-loss-preparation-explicitly)
 for the complete selection/restart rules. Select this per workload: 128-update
 synthetic medians were 605->756 ms (112 parameters, slower) and 3506->3061 ms
-(466 parameters, 1.15x). No architecture or per-frame limit is raised.
+(466 parameters, 1.15x). That GPU-loss option alone does not raise limits.
+For larger physical frames, [step 25](GETTING_STARTED.md#25-opt-in-to-resource-bounded-larger-training-frames)
+adds explicit `cuda_tiling.max_atoms_per_frame=64..256`; >64 selects v9 and
+GPU-loss backend v2. Default 64 and CPU/untiled limits remain. Unchanged work/payload
+budgets can reject frames below the configured ceiling: the 466-parameter example
+fits only 138 atoms and rejects 256. New v9 Linux execution remains unverified.
 
 ## 4. Minimize at fixed cell
 

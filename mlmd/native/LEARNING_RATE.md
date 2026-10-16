@@ -169,3 +169,8 @@ retaining these exact schedule semantics; see [TILED_TRAINING.md](TILED_TRAINING
 Optional [GPU prediction/loss preparation](DEVICE_LOSS_TRAINING.md) takes checkpoint
 precedence with v8. The same global-update rate and immutable schedule rules apply;
 loss mode is additionally immutable. Default CPU loss keeps prior v1-v7 selection.
+
+Explicit [large-frame reverse tiling](LARGE_FRAME_TRAINING.md) takes precedence
+with v9 when the configured frame ceiling exceeds 64. This does not change the
+update-indexed rate formula or immutable schedule identity. Default 64 retains
+prior v1-v8 selection.
