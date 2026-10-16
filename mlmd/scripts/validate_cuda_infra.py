@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Bounded final native CUDA cache acceptance; explicit GPU window required."""
+"""Bounded final native CUDA integration acceptance; explicit GPU window required."""
 import argparse
 from copy import deepcopy
 from datetime import datetime, timezone
@@ -63,6 +63,9 @@ def main():
     for flag in flags:
         parser.add_argument('--'+flag, type=Path, required=True)
     parser.add_argument('--run-gpu', action='store_true')
+    parser.add_argument('--source-commit', default='bdf604875434acf99c4ba4d2ca690382d030a53d')
+    parser.add_argument('--native-source-commit', default='b6f36dd2ed5efb78e4184ba61854a06eb27285a0')
+    parser.add_argument('--baseline-commit', default='a74804d8cbba86c1a2563dbbca6444059e740903')
     args = parser.parse_args()
     require(args.run_gpu, 'Requires --run-gpu and a coordinator-granted exclusive window')
     paths = {name: getattr(args, name.replace('-', '_')).resolve(strict=True)
@@ -71,9 +74,9 @@ def main():
     work.mkdir(parents=True, exist_ok=True)
     require(not (work/'plan.json').exists(), 'Use a new acceptance output directory')
     hashes = {key: sha(path) for key, path in paths.items()}
-    plan = {'source_commit': 'bdf604875434acf99c4ba4d2ca690382d030a53d',
-            'native_source_commit': 'b6f36dd2ed5efb78e4184ba61854a06eb27285a0',
-            'baseline_commit': 'a74804d8cbba86c1a2563dbbca6444059e740903',
+    plan = {'source_commit': args.source_commit,
+            'native_source_commit': args.native_source_commit,
+            'baseline_commit': args.baseline_commit,
             'sha256': hashes, 'script_sha256': sha(Path(__file__)),
             'started_utc': datetime.now(timezone.utc).isoformat()}
     write(work/'plan.json', plan)
@@ -168,6 +171,7 @@ def main():
     md_report = {'atoms': 192, 'steps': 20, 'timestep_fs': .1, 'ensemble': 'nve',
         'checkpoint_every': 10, 'sample_every': 1,
         'whole_process_ms': {name: value[3] for name, value in runs.items()},
+        'whole_process_steps_per_second': {name: 20_000/value[3] for name, value in runs.items()},
         'final_cpu_vs_final_cuda_max_abs_error': compare_md(cpu[2], gpu[2]),
         'old_cuda_vs_final_cuda_max_abs_error': compare_md(old[2], gpu[2]),
         'max_energy_drift_ev': {name: value[1][-1]['max_absolute_energy_drift_ev'] for name,value in runs.items()},
@@ -206,7 +210,7 @@ def main():
         require(sha(path) == hashes[key], 'input or executable changed during acceptance: '+key)
     report.update(status='passed', completed_utc=datetime.now(timezone.utc).isoformat(),
         limitations=['Single bounded run; five warmed evaluations per timing case, means only; no distribution estimate.',
-          'Baseline checker adds only host timers; final CPU algorithm is unchanged and does not share the CUDA neighbor cache.',
+          'Both compared binaries use release builds; final CPU algorithm is unchanged and does not share the CUDA neighbor cache.',
           'CUDA construction and first evaluation are separately timed, not machine-cold measurements.',
           'Whole MD process includes startup, model loading/compilation, JSON output and checkpoint fsync.',
           'Normal desktop graphics were not stopped or controlled; no general speedup or physical-accuracy claim.',
