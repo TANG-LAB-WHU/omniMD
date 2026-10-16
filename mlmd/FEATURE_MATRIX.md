@@ -1,6 +1,6 @@
 # DeepMD feature coverage: reference version 3.1.3
 
-Matrix revision 12, checked 2026-10-16. Previous integrated CUDA runtime:
+Matrix revision 13, checked 2026-10-16. Previous integrated CUDA runtime:
 `9b8d1847f892e32751c73d3262e0245d0efb4cdd`. This includes engine inspection/tutorial,
 native source `b6b7aa7` and C API source `1aee39c`. Implementation and real-runtime
 validation are separate. C API CPU follow-up is now verified in `ce27786`
@@ -8,6 +8,8 @@ validation are separate. C API CPU follow-up is now verified in `ce27786`
 release. Recorded C API CPU tests use 3.1.3; recorded C API CUDA tests use 3.1.0.
 The native model format version, DeepMD package version, C API version and frozen
 graph version are different identifiers.
+Current local startup source `cdf66b4` is integrated as `958b362` on `798d2d4`;
+its final acceptance is CPU-only and does not refresh previous GPU evidence.
 
 **omniMD does not implement all DeepMD features.** Native means arithmetic in
 this Rust/CUDA implementation. Delegated means the official external runtime
@@ -70,6 +72,7 @@ an official `input.json` is not a native training request.
 | Split/provenance | Seeded or explicit held-out IDs, dataset/source hashes, validation isolation | No trajectory-independent split guarantee from random frames |
 | Deterministic minibatches | Explicit batch size/seed/order on CPU and both CUDA executors; actual-count tail normalization; v5 next-batch sampler and exact restart | [Contract](native/MINIBATCH_TRAINING.md); full-batch default; memory 1024 frames, explicit indexed access has separate bounds; no convergence equivalence claim |
 | Indexed training input | Explicit indexed v1 JSONL with minibatches; framewise read, offset/ID/line SHA index, whole-file checks before publication; runtime storage-mode switching | [Bounds and evidence](native/INDEXED_TRAINING.md); max 100000 frames/16 GiB input, 256 KiB record, 64 MiB index payload; metadata/sampler O(N), 64 atoms unchanged; maximum ceiling not benchmarked |
+| Startup validation | One complete validation inside the trainer; reuse returned layout and omit duplicate CLI preflight; two frame passes removed per invocation | [CPU acceptance](evidence/native-indexed-startup-integrated.json); constructor/public validation, per-read hashes and publication whole-file checks retained; overlapping timing fields are diagnostic |
 | Generic DeepMD training options | Missing | Sharded/end-to-end GPU/distributed/multi-task training, learning-rate schedules, generic pretrained adaptation and broader architectures |
 | Training monitoring | JSON reports and checkpoints | No TensorBoard integration or live monitoring service |
 | Freeze/export | Native training writes native-v1 JSON, reload checked | No native export into generic official training checkpoints or `.pb` |
@@ -170,6 +173,17 @@ an official `input.json` is not a native training request.
   separately covers both CUDA executors and the deliberately padded 2051-frame
   boundary input. That is not representative physical throughput; 100000 frames /
   16 GiB is the enforced ceiling, not a fully benchmarked operating point.
+
+- Native startup source `cdf66b4` is integrated as `958b362` on `798d2d4`.
+  [Final CPU CLI acceptance](evidence/native-indexed-startup-integrated.json)
+  records fresh seven-update and old-checkpoint step-6-to-7 runs: exact checkpoint
+  contents, exported model bytes, four partition metrics and sampler, with zero
+  reload difference. Each removes 48 reads on 24 frames; whole-file counts remain
+  nine and three. Default-memory equality and three pre-output refusals pass.
+  Nine focused CPU checks and the offline release build pass. No GPU was used.
+  [Separate native timing evidence](native/fixtures/indexed-startup-report.json)
+  uses three alternating repeats with warm filesystem cache on deliberately
+  padded 2051-frame input; these measurements are not general throughput claims.
 
 ## Implementation order and acceptance gates
 

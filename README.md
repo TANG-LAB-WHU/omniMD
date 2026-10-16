@@ -260,3 +260,13 @@ record exact CPU/CUDA state, metrics and storage/cache-switch continuation.
 The separate 2051-frame, 128.19-MiB boundary case is deliberately whitespace
 padded; its measured 12.83-MiB Windows peak working set is not a physical-data
 throughput benchmark. The 64-atom and geometry-cache bounds remain unchanged.
+
+The [startup validation consolidation](mlmd/native/INDEXED_TRAINING.md#startup-validation-consolidation)
+removes two duplicate frame-validation passes per full-training CLI invocation.
+Public validation, per-read hashes and publication whole-file checks remain.
+[CPU-only final acceptance](mlmd/evidence/native-indexed-startup-integrated.json)
+records fresh and historical-checkpoint continuation, default-memory equality,
+48 fewer reads per 24-frame invocation, unchanged hash counts, exact checkpoint
+contents/model bytes/metrics and zero reload difference. This tranche adds no GPU
+runtime validation or capacity change. See [step 20](mlmd/GETTING_STARTED.md#20-interpret-startup-validation-and-io-counters)
+for cumulative timing fields and the short CPU replay.

@@ -202,22 +202,34 @@ not representative physical throughput or a universal RAM bound. The full indexe
 ceiling and other-platform execution remain unvalidated. Constant learning rate,
 no sharding/distributed training and unchanged per-frame model limits remain.
 
-## Next bounded mainline improvement: remove confirmed duplicate startup validation
+## Delivered: consolidate confirmed duplicate startup validation
 
-First trace repeated frame decoding and semantic validation during indexed open,
-checkpoint start/resume, device preflight and trainer entry. If the same validated
-session is processed repeatedly with identical model/configuration, consolidate
-only that confirmed duplicate work using an internal validated-session boundary.
-Bind it to the retained dataset handle/hash, model and immutable training settings;
-public library entrypoints must retain their validation guarantees.
+The full trainer reuses the parameter layout returned by its complete checkpoint
+and device validation; the CLI no longer repeats that validation immediately
+before entry. This removes two frame passes per CLI invocation. The public
+constructor/validator and trainer entry still validate independently. No token
+or cross-call cache is introduced: public state may change between invocations.
+Per-read hashes and every publication whole-file verification remain unchanged.
 
-Keep per-frame hash/identity checks and all required whole-file verifications
-before checkpoints, after metrics and before model/report publication. An earlier
-digest cannot replace a distinct integrity boundary. Use focused call-count tests,
-mutation failures, exact state/metrics and bidirectional access-mode restart to
-verify any change. Existing IO timings do not prove which checks are redundant,
-and the padded case cannot establish a production speedup. No implementation of
-this follow-up begins in this tranche; stop if profiling finds no duplicate work.
+[CPU-only final acceptance](mlmd/evidence/native-indexed-startup-integrated.json)
+records fresh seven-update and historical step-6-to-7 indexed runs with exact
+checkpoint contents, model bytes, initial/final metrics and sampler. Each saves
+48 frame reads on the existing 24-frame input; whole-file checks remain 9 and 3.
+Default-memory comparison and three pre-output refusals also pass. Nine focused
+CPU checks and the locked offline release build passed; no GPU ran this tranche.
+
+[Separate native timing evidence](mlmd/native/fixtures/indexed-startup-report.json)
+uses three alternating comparisons on the deliberately whitespace-padded
+2051-frame input with warm filesystem cache. Fresh/resumed complete-process
+medians decrease from 2127.12/1518.39 ms to 1860.17/1261.83 ms. This bounded parsing/
+IO result is not a physical-training, cold-disk or general GPU throughput claim.
+
+Remaining costs include the initial strict scan, constructor validation on fresh
+runs, trainer validation, full initial/final assessments, reload verification and
+O(file bytes) publication hashes. Metadata/sampler/checkpoints remain O(N).
+Sharding/prefetch, learning-rate schedules, broader architectures, larger models,
+distributed execution and other-platform acceptance remain separate substantial
+work. No further feature is started as part of this candidate.
 
 ## Publication gate
 

@@ -1,0 +1,122 @@
+{
+  "schema": "omnimd-indexed-startup-integration-v1",
+  "status": "passed",
+  "started_utc": "2026-10-16T13:58:03.722017+00:00",
+  "completed_utc": "2026-10-16T13:58:04.485259+00:00",
+  "source_native_commit": "cdf66b43e8899466d4c4cb4fb23a9c874af66a57",
+  "integrated_native_commit": "958b362cd3fab0d22ac2c543ccd6503a8bbe30df",
+  "source_base": "798d2d496dee1471539a43418c31abe66f3e4ab0",
+  "scope": "CPU-only short 24-frame synthetic CLI integration; no GPU, capacity or timing benchmark. Single-run timing fields are diagnostic only.",
+  "device": "cpu",
+  "cuda_used": false,
+  "frames": 24,
+  "training_frames": 18,
+  "validation_frames": 6,
+  "checkpoint_schema": "omnimd-native-full-checkpoint-v5",
+  "scenarios": {
+    "fresh": {
+      "all_checkpoint_fields_exact": true,
+      "model_bytes_exact": true,
+      "all_four_partition_metrics_and_minibatch_exact": true,
+      "frame_reads_before": 211,
+      "frame_reads_after": 163,
+      "saved_frame_reads": 48,
+      "startup_frame_reads": 72,
+      "whole_file_checks_before": 9,
+      "whole_file_checks_after": 9,
+      "startup_timing": {
+        "before_first_update_ms": 20.6109,
+        "before_trainer_ms": 19.3,
+        "dataset_open_ms": 8.396,
+        "state_preparation_ms": 4.6962
+      },
+      "trainer_startup_ms": 1.3109,
+      "reload_max_abs_energy_force_virial": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "baseline_checkpoint_sha256": "bfef7f1ba61246c98d16b84a5857da4d6dd5b268337810877ceba375cd50d226",
+      "candidate_checkpoint_sha256": "bfef7f1ba61246c98d16b84a5857da4d6dd5b268337810877ceba375cd50d226"
+    },
+    "resumed": {
+      "all_checkpoint_fields_exact": true,
+      "model_bytes_exact": true,
+      "all_four_partition_metrics_and_minibatch_exact": true,
+      "frame_reads_before": 151,
+      "frame_reads_after": 103,
+      "saved_frame_reads": 48,
+      "startup_frame_reads": 48,
+      "whole_file_checks_before": 3,
+      "whole_file_checks_after": 3,
+      "startup_timing": {
+        "before_first_update_ms": 7.6041,
+        "before_trainer_ms": 6.2051,
+        "dataset_open_ms": 0.3206,
+        "state_preparation_ms": 0.3247
+      },
+      "trainer_startup_ms": 1.399,
+      "reload_max_abs_energy_force_virial": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "baseline_checkpoint_sha256": "3baf638fdcbca6621cb5c4e8f8d4182f1ff4d2ba3683db5798808853693001ee",
+      "candidate_checkpoint_sha256": "3baf638fdcbca6621cb5c4e8f8d4182f1ff4d2ba3683db5798808853693001ee"
+    }
+  },
+  "default_memory_all_checkpoint_fields_model_bytes_and_four_metrics_exact": true,
+  "rejected_before_output": [
+    "zero steps",
+    "CPU geometry cache",
+    "malformed checkpoint moments"
+  ],
+  "source_sha256": {
+    "replay_full_training.py": "12067135c9b176aad6d24ab7d65081340b85e68825bbaf2a37ec809356cf48bc",
+    "teacher.json": "1113e4f1d49c77756703a0b6f3362615699a6d9bd0686cddbc1c103066fa0bc8"
+  },
+  "sha256": {
+    "engine": "508e33846fbbd6df25bf1ef40bfeafd834f844aa4b640883a25d8bf49cf850f4",
+    "trainer": "9c95a9a57ff72d573d9de2000dd416860a3f035664f8a8712e23efdb63f500a9",
+    "script": "95be1cfcf9a0e447c69da61b859cc696de344ef0c306237646d732b1e7a63cf4",
+    "dataset": "5669b8e833b0a409e08b328dc3cf9ef9dfebb52d32f8b8495a75d9342b07902a",
+    "initial_model": "407278c6eab122e6dfee2511b3c3fb4c033f58c04819a580ffc0810df3ce7b9a",
+    "model": "ff5463273532275a1bed13965ed3fd41d5fa786288a104d239cd5abb38a1fc18",
+    "historical_step_6": "4401ef636f7584648a91c7168672d6c88f132c72f302ba673243799ee20372ef"
+  },
+  "checks": [
+    {
+      "label": "fresh",
+      "exit_code": 0
+    },
+    {
+      "label": "resumed",
+      "exit_code": 0
+    },
+    {
+      "label": "default-memory",
+      "exit_code": 0
+    },
+    {
+      "label": "rejected-zero-steps",
+      "exit_code": 1
+    },
+    {
+      "label": "rejected-cpu-cache",
+      "exit_code": 1
+    },
+    {
+      "label": "rejected-moments",
+      "exit_code": 1
+    }
+  ],
+  "host_only_checks": {
+    "indexed_training_regressions": 3,
+    "indexed_mutation_and_integrity": 3,
+    "engine_routing": 3,
+    "total": 9,
+    "status": "passed"
+  },
+  "build": "Locked offline release engine and native bins with optional native-cuda feature compiled; all invocations select CPU. No CUDA context or dependency download.",
+  "native_comparison_scope": "Separate native/fixtures/indexed-startup-report.json: three alternating runs per case, warm filesystem cache, 2051 whitespace-padded synthetic frames. Not repeated in A integration; no general speedup claim."
+}

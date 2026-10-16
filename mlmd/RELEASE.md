@@ -678,3 +678,53 @@ checkpoints, binaries and raw logs remain outside Git. Work remains local and
 unpushed with no HAP input or system changes. The next proposed work is measuring
 and removing only confirmed duplicate indexed startup validation, preserving all
 integrity/publication checks; no follow-up implementation starts in this tranche.
+
+## Local indexed startup integration
+
+Native source `cdf66b43e8899466d4c4cb4fb23a9c874af66a57` is integrated as
+`958b362cd3fab0d22ac2c543ccd6503a8bbe30df` on stable
+`798d2d496dee1471539a43418c31abe66f3e4ab0`. The trainer now reuses the layout
+returned by its complete checkpoint/device validation, and the CLI removes its
+immediately preceding duplicate validation. Public constructor and validator
+retain their checks; trainer entry validates before CUDA setup or save callbacks.
+There is no token or cache across calls. Every line identity/hash and every
+publication whole-file hash remains. No request/dataset/model/checkpoint schema,
+optimizer identity, resource ceiling, dependency or GPU kernel changes.
+
+Reports add cumulative startup timings and an indexed frame-read counter at the
+first-update boundary. Initial partition assessments are included in trainer
+startup. Existing initialization timing stops before assessments. Cumulative
+fields overlap and exclude process launch; they must not be summed indiscriminately.
+See [step 20](GETTING_STARTED.md#20-interpret-startup-validation-and-io-counters).
+
+[Final integrated CPU receipt](evidence/native-indexed-startup-integrated.json)
+records three successful paths on existing 24-frame synthetic input: fresh seven
+updates, historical step-6-to-7 continuation, and default memory. Fresh and resume
+checkpoint contents, model bytes, four initial/final partition metrics and sampler
+exactly match the saved pre-change outputs. Default memory agrees exactly; reload
+E/F/V differences are zero. Frame reads fall 211 to 163 and 151 to 103, respectively;
+whole-file verification counts remain nine and three. Startup frame reads are 72
+and 48, excluding index construction. Zero steps, CPU geometry cache and malformed
+resumed Adam moments reject before output. Nine focused CPU tests and the locked
+offline release build passed. CUDA support was compiled but no CUDA context or
+GPU test ran in this tranche. Existing GPU evidence remains historical.
+
+[B's separate comparison](native/fixtures/indexed-startup-report.json) uses three
+alternating baseline/candidate repeats with warm filesystem cache on the existing
+2051-frame, 134414893-byte whitespace-padded synthetic input. Fresh startup median
+945.07 -> 687.19 ms and process 2127.12 -> 1860.17 ms; resumed invocation startup
+819.30 -> 557.27 ms and process 1518.39 -> 1261.83 ms. Each invocation saves 4102
+logical frame reads while retaining four/three whole-file checks. The baseline
+contains identical timing instrumentation and the original duplicate call chain.
+This parsing/IO case does not establish physical-data, cold-disk, Linux or general
+GPU training speed. The large comparison was not repeated by A. B records 35
+default CPU tests and 49 feature-enabled CPU tests, with nine GPU tests ignored.
+
+Publication scope for this tranche is six native files (trainer implementation,
+CLI timing, indexed regression, replay, documentation and compact evidence), root
+README/ROADMAP, the MLMD guide/feature matrix/release note, one short CPU-only
+integration script and its compact receipt. No engine behavior/shared interface
+changes occur. Generated datasets, models, checkpoints, binaries and raw logs
+remain outside Git. This candidate is local and unpushed, contains no HAP material,
+and makes no system changes. No further feature starts before the consolidated
+capability/gap report.

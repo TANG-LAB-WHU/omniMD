@@ -864,3 +864,49 @@ python mlmd/scripts/validate_indexed_integration.py --engine ENGINE_EXE --baseli
 ```
 
 It stops on failure without retry and does not regenerate the padded capacity case.
+
+## 20. Interpret startup validation and IO counters
+
+Requests and checkpoints are unchanged. The trainer now retains the parameter
+layout from its own complete validation, and the CLI avoids repeating that
+validation immediately before entry. Public constructor and library validation
+remain independent; there is no validation cache across calls. Indexed startup
+still scans the file and checks frames. Every accessed line hash and every
+checkpoint/publication whole-file hash remains required.
+
+Full-training `report.json` now includes `startup_timing`:
+
+| Field | Boundary |
+| --- | --- |
+| `dataset_open_ms` | Initial strict reader/index scan |
+| `state_preparation_ms` | Initial model parsing and constructor validation, or checkpoint parsing on resume |
+| `before_trainer_ms` | Cumulative CLI time through trainer entry; includes the preceding phases |
+| `before_first_update_ms` | `before_trainer_ms + timing.startup_ms`; excludes process launch |
+
+`timing.startup_ms` spans trainer validation, initialization and initial complete
+train/validation assessments, ending before the first update. Existing
+`timing.initialization_ms` ends before those assessments. These phases overlap;
+do not sum all timing fields. Indexed-only `timing.startup_frame_reads` is the
+cumulative logical read counter at the first-update boundary, including any
+previous caller reads but excluding index construction. Timings/counters are
+diagnostics, not checkpoint identity, physical accuracy or total memory measures.
+
+[Final CPU integration](evidence/native-indexed-startup-integrated.json) reuses the
+existing 24-frame input and saved pre-change outputs. Fresh seven-update frame
+reads fall 211 to 163, with nine whole-file checks. Historical step-6-to-7 reads
+fall 151 to 103, with three whole-file checks. Startup read counts are 72 and 48.
+Checkpoint contents, model bytes, all four partition metrics and sampler match;
+reload E/F/V differences are zero. Default memory agrees exactly. Zero updates,
+CPU geometry cache and malformed resumed Adam moments reject before output.
+
+Run this short acceptance with the prior `indexed-integrated-01` directory
+containing `cpu-indexed` and `final-engine-cpu` outputs, and a new output directory:
+
+```text
+python mlmd/scripts/validate_indexed_startup_integration.py --engine ENGINE_EXE --baseline-work PREVIOUS_INDEXED_WORK --work NEW_WORK
+```
+
+This replay explicitly selects CPU and hides CUDA devices. It runs no GPU or
+performance benchmark. The [separate native comparison](native/INDEXED_TRAINING.md#startup-validation-consolidation)
+uses three alternating repeats with warm filesystem cache on 2051 deliberately
+whitespace-padded frames; its timings cannot establish production throughput.
