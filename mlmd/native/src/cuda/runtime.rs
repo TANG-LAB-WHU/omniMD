@@ -382,6 +382,44 @@ impl Runtime {
             "cuMemcpyDtoH_v2",
         )
     }
+    /// Select one final-readout basis coefficient in private training weights.
+    /// Both indices refer to the resident packed weight array. No graph/model
+    /// reload or host-wide weight copy is necessary.
+    pub(super) fn select_readout_basis(
+        &mut self,
+        previous: Option<usize>,
+        next: usize,
+    ) -> Result<()> {
+        let count = self.buffers[1].1 / std::mem::size_of::<f64>();
+        if next >= count || previous.is_some_and(|p| p >= count) {
+            return Err(Error(
+                "readout basis weight index outside resident buffer".into(),
+            ));
+        }
+        if previous == Some(next) {
+            return Ok(());
+        }
+        let _current = unsafe { Current::enter(self.api, self.context)? };
+        let copy = |offset: usize, values: &[f64]| unsafe {
+            check(
+                (self.api.h2d)(
+                    self.buffers[1].0 + (offset * 8) as u64,
+                    values.as_ptr() as *const c_void,
+                    std::mem::size_of_val(values),
+                ),
+                "cuMemcpyHtoD_v2(readout basis)",
+            )
+        };
+        if previous.is_some_and(|p| p.checked_add(1) == Some(next)) {
+            copy(previous.unwrap(), &[0.0, 1.0])?;
+        } else {
+            if let Some(previous) = previous {
+                copy(previous, &[0.0])?;
+            }
+            copy(next, &[1.0])?;
+        }
+        Ok(())
+    }
     pub fn evaluate(
         &mut self,
         rows: &[f64],

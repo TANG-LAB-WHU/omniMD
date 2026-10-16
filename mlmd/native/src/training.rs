@@ -7,7 +7,84 @@ use crate::{
 };
 use omnimd_ml_contract::{Error, Potential, Result};
 use serde::{Deserialize, Serialize};
-use std::collections::{BTreeMap, HashSet};
+use std::{
+    collections::{BTreeMap, HashSet},
+    time::Instant,
+};
+
+/// Explicit execution choice; never silently falls back to CPU.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(try_from = "String", into = "String")]
+pub enum TrainingDevice {
+    #[default]
+    Cpu,
+    Cuda {
+        visible_device: i32,
+    },
+}
+impl TryFrom<String> for TrainingDevice {
+    type Error = String;
+    fn try_from(value: String) -> std::result::Result<Self, Self::Error> {
+        if value == "cpu" {
+            return Ok(Self::Cpu);
+        }
+        if let Some(index) = value.strip_prefix("cuda:") {
+            if !index.is_empty() && index.bytes().all(|b| b.is_ascii_digit()) {
+                if let Ok(visible_device) = index.parse::<i32>() {
+                    return Ok(Self::Cuda { visible_device });
+                }
+            }
+        }
+        Err("device must be cpu or cuda:N with a nonnegative visible device index".into())
+    }
+}
+impl From<TrainingDevice> for String {
+    fn from(device: TrainingDevice) -> Self {
+        match device {
+            TrainingDevice::Cpu => "cpu".into(),
+            TrainingDevice::Cuda { visible_device } => format!("cuda:{visible_device}"),
+        }
+    }
+}
+impl TrainingDevice {
+    pub fn validate_readout(self) -> Result<()> {
+        if let Self::Cuda { visible_device } = self {
+            if visible_device < 0 {
+                return Err(Error(
+                    "CUDA visible device index must be nonnegative".into(),
+                ));
+            }
+            #[cfg(not(feature = "cuda"))]
+            return Err(Error(
+                "CUDA readout training requires a build with --features cuda; no CPU fallback"
+                    .into(),
+            ));
+        }
+        Ok(())
+    }
+    pub fn validate_full(self) -> Result<()> {
+        if self != Self::Cpu {
+            return Err(Error("full-network training supports device cpu only; CUDA supports frozen-readout features only".into()));
+        }
+        Ok(())
+    }
+}
+
+#[derive(Debug, Serialize)]
+pub struct ReadoutExecution {
+    pub requested_device: TrainingDevice,
+    pub feature_backend: String,
+    pub feature_device_info: String,
+    pub solver_device: String,
+    pub assessment_device: String,
+    pub training_frames: usize,
+    pub columns_per_frame: usize,
+    pub initialization_ms: f64,
+    pub feature_generation_ms: f64,
+    pub reference_prediction_ms: f64,
+    pub linear_solve_ms: f64,
+    pub assessment_ms: f64,
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "mode", rename_all = "snake_case", deny_unknown_fields)]
@@ -73,6 +150,7 @@ pub struct TrainReport {
     pub scope: String,
     pub algorithm: String,
     pub feature_method: String,
+    pub execution: ReadoutExecution,
     pub config: TrainConfig,
     pub dataset_header: DatasetHeader,
     pub dataset_sha256: String,
@@ -225,6 +303,18 @@ pub(crate) fn metrics(
 }
 
 pub fn train(initial: &Model, dataset: &Dataset, config: &TrainConfig) -> Result<TrainOutcome> {
+    train_with_device(initial, dataset, config, TrainingDevice::Cpu)
+}
+
+/// CUDA executes analytic feature extraction only; QR and metrics stay CPU.
+pub fn train_with_device(
+    initial: &Model,
+    dataset: &Dataset,
+    config: &TrainConfig,
+    device: TrainingDevice,
+) -> Result<TrainOutcome> {
+    let initialization = Instant::now();
+    device.validate_readout()?;
     config.validate()?;
     let metadata = initial.validate()?;
     if dataset.header.type_map != initial.type_map {
@@ -234,6 +324,7 @@ pub fn train(initial: &Model, dataset: &Dataset, config: &TrainConfig) -> Result
     }
     let mut ids = HashSet::new();
     for (index, frame) in dataset.frames.iter().enumerate() {
+        frame.frame.validate()?;
         frame.frame.type_ids(&metadata)?;
         validate_labels(frame)?;
         if frame.index != index as u64 || frame.id.is_empty() || !ids.insert(&frame.id) {
@@ -258,13 +349,62 @@ pub fn train(initial: &Model, dataset: &Dataset, config: &TrainConfig) -> Result
             "small readout trainer design exceeds four million entries".into(),
         ));
     }
+    // All data, split and design bounds above are checked before driver creation.
+    #[cfg(feature = "cuda")]
+    let mut cuda = if let TrainingDevice::Cuda { visible_device } = device {
+        if dataset
+            .frames
+            .iter()
+            .any(|f| f.frame.positions.len() > 2048)
+        {
+            return Err(Error(
+                "CUDA subset supports at most 2048 atoms per frame".into(),
+            ));
+        }
+        Some(crate::cuda::CudaReadoutBasis::new(
+            initial,
+            config.fit_bias,
+            visible_device,
+        )?)
+    } else {
+        None
+    };
+    let mut execution = ReadoutExecution {
+        requested_device: device,
+        feature_backend: "native-cpu-analytic-readout".into(),
+        feature_device_info: "CPU float64".into(),
+        solver_device: "cpu".into(),
+        assessment_device: "cpu".into(),
+        training_frames: training.len(),
+        columns_per_frame: p,
+        initialization_ms: initialization.elapsed().as_secs_f64() * 1000.0,
+        feature_generation_ms: 0.0,
+        reference_prediction_ms: 0.0,
+        linear_solve_ms: 0.0,
+        assessment_ms: 0.0,
+    };
+    #[cfg(feature = "cuda")]
+    if let Some(gpu) = &cuda {
+        execution.feature_backend = "native-cuda-analytic-readout".into();
+        execution.feature_device_info = gpu.device_info().into();
+    }
     let mut a = Vec::with_capacity(rows + p);
     let mut b = Vec::with_capacity(rows + p);
     let mut original = NativePotential::new(initial.clone())?;
     for &i in &training {
         let record = &dataset.frames[i];
+        let phase = Instant::now();
+        #[cfg(feature = "cuda")]
+        let feature = match &mut cuda {
+            Some(gpu) => gpu.features(&record.frame)?,
+            None => basis.features(&record.frame)?,
+        };
+        #[cfg(not(feature = "cuda"))]
         let feature = basis.features(&record.frame)?;
+        execution.feature_generation_ms += phase.elapsed().as_secs_f64() * 1000.0;
+        let phase = Instant::now();
         let prediction = original.eval(&record.frame)?;
+        execution.reference_prediction_ms += phase.elapsed().as_secs_f64() * 1000.0;
         let n = record.frame.positions.len();
         let (es, fs) = scales(config, training.len(), n);
         a.push(feature.columns.iter().map(|c| c.energy * es).collect());
@@ -286,6 +426,7 @@ pub fn train(initial: &Model, dataset: &Dataset, config: &TrainConfig) -> Result
             }
         }
     }
+    let phase = Instant::now();
     let data_solution = least_squares::solve(a.clone(), b.clone(), config.rank_rtol)?;
     let data_rank = data_solution.rank;
     let solution = if config.ridge_inverse_ev2 > 0.0 {
@@ -299,6 +440,7 @@ pub fn train(initial: &Model, dataset: &Dataset, config: &TrainConfig) -> Result
     } else {
         data_solution
     };
+    execution.linear_solve_ms = phase.elapsed().as_secs_f64() * 1000.0;
     let coefficients: Vec<_> = basis
         .initial_coefficients
         .iter()
@@ -316,21 +458,24 @@ pub fn train(initial: &Model, dataset: &Dataset, config: &TrainConfig) -> Result
             id: record.id.clone(),
         }
     }
+    let phase = Instant::now();
+    let initial_training = metrics(initial, dataset, &training, config)?;
+    let final_training = metrics(&model, dataset, &training, config)?;
+    let initial_validation = metrics(initial, dataset, &validation, config)?;
+    let final_validation = metrics(&model, dataset, &validation, config)?;
+    execution.assessment_ms = phase.elapsed().as_secs_f64() * 1000.0;
     let report=TrainReport {
         scope:"frozen descriptor and hidden layers; final affine readout only".into(),
         algorithm:"column-pivoted Householder QR; update from initial coefficients".into(),
         feature_method:"analytic one-hot readout basis; no finite-difference parameter gradients".into(),
-        config:config.clone(), dataset_header:dataset.header.clone(), dataset_sha256:dataset.dataset_sha256.clone(),
+        execution, config:config.clone(), dataset_header:dataset.header.clone(), dataset_sha256:dataset.dataset_sha256.clone(),
         source_sha256:dataset.source_sha256.clone(),
         training_frames:training.iter().map(|i| identity(&dataset.frames[*i])).collect(),
         validation_frames:validation.iter().map(|i| identity(&dataset.frames[*i])).collect(),
         parameters:basis.parameters, data_rank, solve_rank:solution.rank,
         rank_policy:"relative to leading pivot norm; zero free pivoted updates (basic, not minimum-norm solution)".into(),
         ridge_penalty,
-        initial_training:metrics(initial,dataset,&training,config)?,
-        final_training:metrics(&model,dataset,&training,config)?,
-        initial_validation:metrics(initial,dataset,&validation,config)?,
-        final_validation:metrics(&model,dataset,&validation,config)?,
+        initial_training, final_training, initial_validation, final_validation,
     };
     Ok(TrainOutcome { model, report })
 }
