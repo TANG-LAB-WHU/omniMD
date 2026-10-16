@@ -1,4 +1,6 @@
 //! Minimal dynamic NVIDIA Driver/NVRTC bindings. No link-time CUDA dependency.
+#[path = "device_runtime.rs"]
+mod device_loss;
 use omnimd_ml_contract::{Error, Result};
 use std::{
     ffi::{c_char, c_void, CStr, CString},

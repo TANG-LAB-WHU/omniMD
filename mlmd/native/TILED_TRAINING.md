@@ -5,6 +5,9 @@ with the existing reverse CUDA algorithm. This is actual kernel batching: one
 tile uploads packed inputs once, launches four reverse kernels, synchronizes once
 and downloads atomic derivatives once. It does not alter the optimizer batch,
 loss formulas, sampler order or learning-rate schedule. CPU remains the default.
+This page describes tiled CPU prediction/seeds (v7). Optional
+[GPU prediction/seeds](DEVICE_LOSS_TRAINING.md) reuse primal intermediates, launch
+ten kernels per tile and select a distinct v8 identity under unchanged bounds.
 
 ## Request and compatibility
 

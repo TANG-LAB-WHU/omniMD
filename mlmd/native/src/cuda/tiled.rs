@@ -6,6 +6,8 @@ const HOST_LIMIT: usize = 32 * 1024 * 1024;
 
 #[derive(Clone, Debug, serde::Serialize)]
 pub struct TiledResources {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub device_loss: Option<super::device_loss::DeviceLossResources>,
     pub requested: CudaTiling,
     pub effective_max_atoms: usize,
     pub maximum_center_terms: u64,
@@ -22,7 +24,12 @@ struct Boundary {
     objective: f64,
     dataset_index: usize,
 }
-fn host_bytes(atoms: usize, slots: usize, parameters: usize, frames: usize) -> Result<usize> {
+pub(super) fn host_bytes(
+    atoms: usize,
+    slots: usize,
+    parameters: usize,
+    frames: usize,
+) -> Result<usize> {
     let per_atom = slots
         .checked_mul(64)
         .and_then(|x| parameters.checked_mul(8).and_then(|p| x.checked_add(p)))
@@ -66,6 +73,7 @@ pub(super) fn plan_resources(
         }
         if let Ok(device) = plan.tiled_resources(n) {
             return Ok(TiledResources {
+                device_loss: None,
                 requested: config.clone(),
                 effective_max_atoms: n,
                 maximum_center_terms: terms,
@@ -133,7 +141,11 @@ impl CudaFullTrainer {
             ));
         }
         self.profile = FullGradientProfile::default();
-        let result = self.batch_gradient(dataset, indices, loss, virial);
+        let result = if self.device_loss {
+            self.device_batch_gradient(dataset, indices, loss, virial)
+        } else {
+            self.batch_gradient(dataset, indices, loss, virial)
+        };
         if result.is_err() {
             self.poisoned = true;
         }

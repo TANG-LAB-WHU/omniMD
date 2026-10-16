@@ -14,7 +14,7 @@ This is a progressively implemented subset, not all DeepMD functionality:
 | tanh/linear, explicit residuals and timesteps | Implemented | Implemented |
 | sigmoid/softplus inference | Implemented | Rejected |
 | Final-readout E/F fitting | Implemented, bounded | Implemented: GPU features, CPU QR/assessment |
-| Full supported tanh-network E/F + optional virial training and Adam restart | Implemented, bounded | [Bounded GPU gradients/Adam, CPU loss/geometry](CUDA_FULL_TRAINING.md) |
+| Full supported tanh-network E/F + optional virial training and Adam restart | Implemented, bounded | [Bounded GPU gradients/Adam; optional GPU loss](DEVICE_LOSS_TRAINING.md) |
 | Arbitrary DeepMD models, attention/spin/hybrid/compression | Not implemented | Not implemented |
 
 Conversion supports a pinned DeepMD 3.1.3 interchange subset and two audited
@@ -336,3 +336,7 @@ schedule preserves legacy constant-rate behavior and checkpoint formats.
 Optional [bounded multi-frame CUDA training](TILED_TRAINING.md) batches independent
 frames through the reverse kernels while preserving optimizer batches and exact
 v7 restart. Architecture and per-frame bounds remain unchanged.
+
+Optional [GPU prediction and detached loss seeds](DEVICE_LOSS_TRAINING.md) reuse
+primal intermediates within a tile and use explicit v8 restart identity. CPU
+loss remains the default; measured whole-process performance depends on workload.

@@ -28,6 +28,19 @@ impl CudaGradient {
         *self == Self::Hyperdual
     }
 }
+/// Prediction/seed arithmetic is an explicit immutable execution choice.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum CudaLoss {
+    #[default]
+    Cpu,
+    Gpu,
+}
+impl CudaLoss {
+    fn is_default(&self) -> bool {
+        *self == Self::Cpu
+    }
+}
 /// Execution chunks only; never changes minibatch normalization or Adam steps.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -54,7 +67,7 @@ const VIRIAL_LOSS_CONTRACT: &str = "energy-force-row-virial-per-atom-nine-v1";
 /// v1/v2 serialization stay unchanged. Opt-in reverse execution uses v4;
 /// explicit minibatch sampling uses v5 on every backend; an explicit learning-rate
 /// schedule uses v6. Tiled reverse execution takes precedence with v7; absent
-/// schedules/tiling preserve older schemas.
+/// schedules/tiling preserve older schemas. Device loss uses v8 with its own arithmetic identity.
 /// PTX hashing alone does not cover host loss semantics.
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "backend", rename_all = "snake_case", deny_unknown_fields)]
@@ -68,6 +81,12 @@ pub enum FullExecution {
         program_sha256: String,
     },
     CudaReverseF64V1 {
+        visible_device: i32,
+        device_info: String,
+        driver_version: i32,
+        program_sha256: String,
+    },
+    CudaTiledDeviceLossF64V1 {
         visible_device: i32,
         device_info: String,
         driver_version: i32,
@@ -113,6 +132,8 @@ pub struct FullConfig {
     pub cuda_gradient: CudaGradient,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub cuda_tiling: Option<CudaTiling>,
+    #[serde(default, skip_serializing_if = "CudaLoss::is_default")]
+    pub cuda_loss: CudaLoss,
     pub split: Split,
     /// Additional updates in this invocation, including after restart.
     pub steps: u64,
@@ -176,6 +197,11 @@ impl FullConfig {
                     "cuda_tiling requires cuda_gradient reverse; no fallback".into(),
                 ));
             }
+        }
+        if self.cuda_loss == CudaLoss::Gpu && self.cuda_tiling.is_none() {
+            return Err(Error(
+                "cuda_loss gpu requires explicit reverse cuda_tiling; no fallback".into(),
+            ));
         }
         if self.steps == 0
             || self.steps > 100_000
@@ -275,7 +301,9 @@ pub struct FullOutcome {
 }
 
 fn checkpoint_schema(execution: &FullExecution, config: &FullConfig) -> &'static str {
-    if config.cuda_tiling.is_some() {
+    if config.cuda_loss == CudaLoss::Gpu {
+        "omnimd-native-full-checkpoint-v8"
+    } else if config.cuda_tiling.is_some() {
         "omnimd-native-full-checkpoint-v7"
     } else if config.learning_rate_schedule.is_some() {
         "omnimd-native-full-checkpoint-v6"
@@ -494,6 +522,18 @@ impl Checkpoint {
                 ) => {
                     config.cuda_gradient == CudaGradient::Reverse
                         && config.cuda_tiling.is_some()
+                        && config.cuda_loss == CudaLoss::Cpu
+                        && *visible_device == requested
+                }
+                (
+                    FullExecution::CudaTiledDeviceLossF64V1 { visible_device, .. },
+                    TrainingDevice::Cuda {
+                        visible_device: requested,
+                    },
+                ) => {
+                    config.cuda_gradient == CudaGradient::Reverse
+                        && config.cuda_tiling.is_some()
+                        && config.cuda_loss == CudaLoss::Gpu
                         && *visible_device == requested
                 }
                 _ => false,
@@ -511,7 +551,11 @@ impl Checkpoint {
                 crate::cuda::reverse_resources(&self.model, atoms)?;
             }
             if let Some(c) = &config.cuda_tiling {
-                let r = crate::cuda::tiled_resources(&self.model, c)?;
+                let r = if config.cuda_loss == CudaLoss::Gpu {
+                    crate::cuda::device_loss_resources(&self.model, c)?
+                } else {
+                    crate::cuda::tiled_resources(&self.model, c)?
+                };
                 if atoms > r.effective_max_atoms {
                     return Err(Error(format!(
                         "CUDA tile cannot fit largest frame ({atoms} atoms; effective capacity {})",
@@ -855,14 +899,18 @@ pub fn train_full_with_device(
         config.virial_loss.as_ref(),
     )?;
     timing.assessment_ms += phase.elapsed().as_secs_f64() * 1000.0;
-    let derivative_method = if config.cuda_gradient == CudaGradient::Reverse {
+    let derivative_method = if config.cuda_loss == CudaLoss::Gpu {
+        "CUDA primal forward cache, E/F/V prediction and detached loss seeds; cached directional propagation and mixed reverse derivatives"
+    } else if config.cuda_gradient == CudaGradient::Reverse {
         "CUDA cached forward duals with explicit reverse accumulation; exact mixed derivatives, no per-parameter forward replay"
     } else if state.execution.is_cpu() {
         "reverse AD over differentiable coordinate-directional tangents; exact mixed parameter-coordinate derivatives"
     } else {
         "CUDA forward parameter/coordinate hyperduals; exact mixed derivatives, no finite differences"
     };
-    let execution_scope = if state.execution.is_cpu() {
+    let execution_scope = if config.cuda_loss == CudaLoss::Gpu {
+        "CUDA tiled E/F/V prediction, detached loss cotangents, cached mixed derivatives and Adam; CPU geometry, normalization scalars, stable atom/frame reduction, clipping and assessment"
+    } else if state.execution.is_cpu() {
         "CPU float64 reference"
     } else {
         "CUDA all-neural-parameter mixed derivatives and Adam; CPU inference/loss cotangents, geometry, stable atom/frame reduction, clipping and assessment"

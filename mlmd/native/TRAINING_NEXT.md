@@ -15,8 +15,9 @@ CUDA offers the existing hyperdual reference and
 [fixed geometry reuse](FIXED_GEOMETRY_TRAINING.md) and
 [bounded multi-frame kernel execution](TILED_TRAINING.md). All neural weights, biases and
 present timesteps train; normalization, atomic offsets, architecture and type
-mapping remain fixed. GPU gradients/Adam still use CPU loss cotangents, geometry,
-stable reduction/clipping, schedule scalars and assessment.
+mapping remain fixed. An explicit [GPU prediction/seed path](DEVICE_LOSS_TRAINING.md)
+reuses primal intermediates within a tile. CPU loss remains the default. Geometry,
+stable reduction/clipping, schedule scalars and assessment remain on CPU.
 
 Remaining work includes larger-model memory/performance, randomized initialization,
 normalization-statistics and offset estimation, tied one-side embeddings, other
@@ -30,7 +31,8 @@ can initialize a new optimizer only when they satisfy the documented subset and
 resource bounds. Source framework aliases are not preserved as tied parameters.
 Historical missing-schedule v1-v5 checkpoints remain supported; explicit schedule
 v6 retains applicable backend, loss and sampler checks. Tiled reverse execution
-uses v7 with immutable capacities and its own backend/program identity.
+uses v7 with immutable capacities and its own backend/program identity. Optional
+GPU prediction/seeds takes precedence with a separate v8 execution identity.
 
 Original synthetic teacher tests establish implementation behavior. They do not
 establish chemical accuracy, extrapolation, stable production MD, algorithmic
