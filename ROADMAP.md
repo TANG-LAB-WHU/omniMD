@@ -125,9 +125,10 @@ with executable commands; pending branch work is not counted as integrated.
 - NPT, constraints, domain decomposition, broader classical coupling and external
   MD ecosystem adapters remain separate simulation gaps. Physical accuracy and
   production stability have not been established. The
-  [physical-label pilot](mlmd/PHYSICAL_DATA_VALIDATION.md) demonstrated pipeline
-  feasibility but worsened held-out force error; that model is unsuitable for
-  scientific acceptance or production use.
+  [physical-label pilot and diagnosis](mlmd/PHYSICAL_DATA_VALIDATION.md) demonstrate
+  pipeline feasibility and a loss-weight tradeoff. Both fitted models remain
+  unsuitable for scientific acceptance; the 43 diagnostic-validation frames are
+  not an untouched final test.
 
 ## Delivered: optional reverse CUDA joint gradients
 
@@ -304,21 +305,29 @@ are recorded in the [native contract](mlmd/native/LARGE_FRAME_TRAINING.md).
 The process observations were 1554 ms CPU-loss CUDA and 1721 ms GPU-loss CUDA;
 this delivery expands admitted capacity, not demonstrated throughput.
 
-## Physical-label pilot: pipeline passed, model quality unsuitable
+## Physical-label diagnosis: measured loss tradeoff, model quality unsuitable
 
-The unchanged `8167a4a` candidate completed 1,000 GPU updates with published
-MN15/6-31G** E/F labels from the official DeepMD `nopbc` example: 531 neural
-parameters, 168 training and 43 index-held-out frames, 7-10 atoms/frame. Held-out
-energy/atom RMSE improved 0.569513->0.455950 eV/atom, but force RMSE worsened
-3.933565->4.164336 eV/angstrom; training force error worsened as well. The
-[recorded experiment](mlmd/PHYSICAL_DATA_VALIDATION.md) demonstrates bounded data/
-training/export feasibility and tested inference consistency, not model quality.
+The unchanged `8167a4a` runtime completed the original physical-label fit and one
+controlled comparison: same 531-parameter model, initialization, split and 1,000
+updates, with only `energy_weight` changed from 1 to 0.1. Validation force RMSE
+was 3.933565 initially, 4.164336 after the original fit and 3.707381 eV/angstrom
+after the comparison. Validation E/atom RMSE was 0.569513/0.455950/0.523472 eV/atom.
+Force improvement accompanies less energy progress; new training total-energy
+RMSE worsened from initial 6.626241 to 6.650750 eV. Both models remain unsuitable.
 
-Original trajectory identities are unavailable, so the split does not establish
-independent-trajectory accuracy or transferability. No physical virial labels
-exist. The Linux run used the default 64-atom ceiling and v8, not the new
-large-frame/v9 path. Follow-up diagnosis is separate from this fixed baseline; this documentation integration
-adds no new experiment, tuning result, causal explanation or performance claim.
+A two-update CPU/CUDA comparison of 531 parameters and Adam state differed by
+about 1.11e-16 at most over 16 frame visits. It supports limited numerical
+consistency, not absence of shared defects or full 1,000-update agreement.
+Normalization was unchanged and its independent effect was not tested. Clipping
+settings were unchanged, but clipping frequency under the changed loss was not
+measured. No implementation fix is established by this evidence.
+
+The [recorded diagnosis](mlmd/PHYSICAL_DATA_VALIDATION.md#bounded-training-diagnosis)
+retains both fits, their losses and all composition groups. The 43 index-held-out
+frames are now diagnostic validation, not an untouched final test. Original
+trajectory identities remain unavailable. There are no physical virial labels,
+transferability or production-quality claims. This Linux default-limit/v8 case
+does not validate v9; integration adds no new experiment or feature.
 
 ## Remaining end-to-end and model limits
 

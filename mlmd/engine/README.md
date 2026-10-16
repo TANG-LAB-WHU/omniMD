@@ -136,14 +136,15 @@ and the [final receipt](../evidence/native-large-frame-integrated.json) for actu
 256-atom forwarding, exact 2+2 restart and refusals. Capacity expansion does not
 promise speed; new v9 Linux execution remains unverified.
 
-The [physical-label pilot](../PHYSICAL_DATA_VALIDATION.md) completed the training/
-export pipeline on 168 training and 43 index-held-out `nopbc` frames, but model
-quality was unsuitable: held-out E/atom RMSE improved 0.569513->0.455950 eV/atom
-while force RMSE worsened 3.933565->4.164336 eV/angstrom. Numerical CPU/GPU parity
-is distinct from physical-label accuracy. This Linux run used 7-10-atom frames
-with the default 64-atom ceiling and v8; it provides no new v9 coverage or
-scientific acceptance. See
-[step 26](../GETTING_STARTED.md#26-interpret-the-physical-label-pilot-and-its-negative-result).
+The [physical-label pilot and diagnosis](../PHYSICAL_DATA_VALIDATION.md#bounded-training-diagnosis)
+show a loss-weight tradeoff, not scientific acceptance. Changing only energy
+weight 1->0.1 improved validation force RMSE 4.164336->3.707381 eV/angstrom but
+worsened E/atom RMSE 0.455950->0.523472 eV/atom. Training total-E RMSE rose above
+initialization, 6.626241->6.650750 eV. Both models remain unsuitable, and the
+43 diagnostic-validation frames are not an untouched final test. Two-step
+CPU/GPU optimizer agreement does not prove full-trajectory or defect-free
+execution. This 7-10-atom v8 case provides no v9 validation. See
+[step 26](../GETTING_STARTED.md#26-interpret-the-physical-label-pilot-and-controlled-diagnosis).
 
 ## Dataset workflows
 

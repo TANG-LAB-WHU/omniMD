@@ -5,14 +5,19 @@ from upstream main 761b2484feee132426183c9b66ff2b126d1f7c4a and adds a separate
 CPU MLIP workspace with one fallible, explicit-unit, float64 E/F/virial contract.
 It is an initial software delivery, not a physical model or a performance claim.
 
-The [physical-label training pilot](mlmd/PHYSICAL_DATA_VALIDATION.md) completed
-1,000 native GPU updates on the official DeepMD `nopbc` example (168 training /
-43 index-held-out frames, 531 parameters). **Pipeline feasibility passed; the
-resulting model is unsuitable for scientific acceptance or production use.**
-Held-out energy/atom RMSE improved 0.569513->0.455950 eV/atom, while force RMSE
-worsened 3.933565->4.164336 eV/angstrom. CPU/GPU inference agreement does not
-establish label accuracy. Only 7-10-atom default-limit/v8 frames were exercised;
-this result does not validate the later large-frame/v9 path.
+The [physical-label pilot and controlled diagnosis](mlmd/PHYSICAL_DATA_VALIDATION.md)
+used official DeepMD `nopbc` labels, 168 training / 43 diagnostic-validation frames
+and a 531-parameter model. **Pipeline feasibility passed; both trained models
+remain unsuitable for scientific acceptance or production use.** The original
+1,000-update fit worsened validation force RMSE from 3.933565 to 4.164336 eV/angstrom.
+Changing only `energy_weight` from 1 to 0.1 reduced it to 3.707381, but validation
+energy/atom RMSE was 0.523472 versus 0.455950 eV/atom for the original fit
+(initial 0.569513 eV/atom).
+New training total-energy RMSE also worsened versus initialization:
+6.626241->6.650750 eV. This demonstrates a loss-weight tradeoff. The 43 frames
+have been used for diagnosis; there is no untouched final test. Only 7-10-atom
+v8 frames were exercised, and two-step CPU/GPU optimizer consistency does not
+prove agreement over all 1,000 updates or validate the new v9 path.
 
 The CPU baseline was published as fce0af9f6a49592a48c13883dfc3aa0d3eb4a28e.
 The [CUDA release 9074817](https://github.com/TANG-LAB-WHU/omniMD/commit/907481708ae5f3df4228a9fb5d5b1110c39f5e23)

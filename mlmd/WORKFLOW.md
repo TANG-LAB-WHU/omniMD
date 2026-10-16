@@ -106,12 +106,14 @@ GPU-loss backend v2. Default 64 and CPU/untiled limits remain. Unchanged work/pa
 budgets can reject frames below the configured ceiling: the 466-parameter example
 fits only 138 atoms and rejects 256. New v9 Linux execution remains unverified.
 
-The [physical-label pilot](PHYSICAL_DATA_VALIDATION.md) illustrates that distinction:
-1,000 GPU updates completed on 168 training/43 index-held-out physical-label frames,
-but held-out force RMSE worsened 3.933565->4.164336 eV/angstrom while energy/atom
-RMSE improved 0.569513->0.455950 eV/atom. That exported model is unsuitable for
-scientific minimization or MD. Its three-frame CPU/GPU parity and successful
-export do not establish physical accuracy. See [step 26](GETTING_STARTED.md#26-interpret-the-physical-label-pilot-and-its-negative-result).
+The [physical-label pilot and diagnosis](PHYSICAL_DATA_VALIDATION.md#bounded-training-diagnosis)
+illustrate that distinction. With the same initial model/split/1,000 steps, energy
+weight 1->0.1 improved validation force RMSE 4.164336->3.707381 eV/angstrom, while
+E/atom RMSE worsened 0.455950->0.523472 eV/atom. New training total-energy RMSE
+6.650750 eV also exceeds initial 6.626241 eV. Both models remain unsuitable for
+scientific minimization or MD. The 43 diagnostic-validation frames are no longer
+an untouched test. Two-step optimizer parity is limited numerical evidence;
+see [step 26](GETTING_STARTED.md#26-interpret-the-physical-label-pilot-and-controlled-diagnosis).
 
 ## 4. Minimize at fixed cell
 

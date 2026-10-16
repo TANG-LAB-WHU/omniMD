@@ -996,3 +996,39 @@ checkpoints and raw logs remain task-local and are not added to Git. This
 integration retains the recorded negative baseline without diagnosing its cause
 or duplicating the separate fixed-split follow-up. No HAP material or system
 change is included; the coherent candidate remains local and unpushed.
+
+## Local controlled physical-label diagnosis
+
+Diagnosis source `bd82b250769f3b6f05339e2af69f0801ec035306`, based on `fd19b9f`,
+is integrated as `0338e57`. Its report/index/receipt are retained unchanged;
+entry documentation now includes the full comparison and validation boundary.
+Runtime remains the tested `8167a4a`; this integration adds no code, tests,
+training, feature, dependency or public push.
+
+The only numerical configuration change was `energy_weight: 1 -> 0.1`; both fits
+use the same initial model, 168/43 split, 531 neural parameters and 1,000 updates.
+Validation E/atom RMSE was initial/original/new 0.569513/0.455950/0.523472 eV/atom;
+force RMSE was 3.933565/4.164336/3.707381 eV/angstrom. Training E/atom RMSE was
+0.775821/0.593012/0.765865 eV/atom, force RMSE 6.970691/7.170289/6.619143
+eV/angstrom, and total-E RMSE 6.626241/5.099892/6.650750 eV. The new total-energy training error worsens
+versus initialization. All composition groups remain in the
+[report](PHYSICAL_DATA_VALIDATION.md#bounded-training-diagnosis) and
+[diagnosis receipt](evidence/physical-nopbc-diagnosis.json).
+
+The result supports a loss-weight tradeoff; both models remain unsuitable for
+scientific acceptance or production. The 43 index-held-out frames are now used
+for diagnostic validation, not an untouched final test. Normalization was fixed;
+its independent effect was not tested. Clipping threshold was fixed, but changing
+the loss may alter clipping behavior, whose frequency was not measured.
+
+A two-update comparison of 531 CPU/GPU parameters and Adam state over 16 frame
+visits had maximum difference about 1.11e-16. It supports limited numerical
+consistency, not agreement throughout 1,000 updates or exclusion of shared bugs.
+New-model three-frame E/F/V inference differences were 0/8.88e-16/4.44e-16;
+reload differences were zero. No physical virial labels or v9 execution were
+included. The Linux case remains default-limit/v8 with 7-10 atoms/frame.
+
+Static checks cover the recorded request differences, retained baseline metrics,
+diagnostic evidence hashes and document links. Downloaded data, models, helpers,
+checkpoints and raw logs remain task-local. No further diagnosis or compute was
+performed here; the coherent candidate remains local and unpushed.

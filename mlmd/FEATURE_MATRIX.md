@@ -1,6 +1,6 @@
 # DeepMD feature coverage: reference version 3.1.3
 
-Matrix revision 19, checked 2026-10-16. Previous integrated CUDA runtime:
+Matrix revision 20, checked 2026-10-16. Previous integrated CUDA runtime:
 `9b8d1847f892e32751c73d3262e0245d0efb4cdd`. This includes engine inspection/tutorial,
 native source `b6b7aa7` and C API source `1aee39c`. Implementation and real-runtime
 validation are separate. C API CPU follow-up is now verified in `ce27786`
@@ -17,9 +17,11 @@ in evidence commit `1dc936c`. This adds platform evidence without implementation
 changes; the C API runtime matrix remains separate. Native large-frame source
 `c7ec6f1` is now integrated on `cfe1680e`: v9 capacity/forwarding/restart acceptance
 is Windows-only. The earlier Linux v7/v8 evidence does not cover this new path.
-Physical-label evidence `fd19b9f` records a later run of unchanged `8167a4a`:
-**pipeline feasibility passed, model quality unsuitable**. Held-out force error
-worsened; neither scientific acceptance nor new v9 Linux validation follows.
+Physical-label evidence `fd19b9f` and diagnosis source `bd82b25` (integrated as
+`0338e57`) record unchanged runtime `8167a4a`. **Pipeline feasibility passed;
+both models remain unsuitable.** Lower energy weight improves force error with
+an energy tradeoff. The 43 frames are diagnostic validation, not a final test;
+neither scientific acceptance nor new v9 Linux validation follows.
 
 **omniMD does not implement all DeepMD features.** Native means arithmetic in
 this Rust/CUDA implementation. Delegated means the official external runtime
@@ -91,7 +93,7 @@ an official `input.json` is not a native training request.
 | Generic DeepMD training options | Missing | Sharded/end-to-end GPU/distributed/multi-task training, generic pretrained adaptation and broader architectures |
 | Training monitoring | JSON reports and checkpoints | No TensorBoard integration or live monitoring service |
 | Freeze/export | Native training writes native-v1 JSON, reload checked | No native export into generic official training checkpoints or `.pb` |
-| Physical-label training pilot | Completed 1,000 GPU updates on official `nopbc` quantum-chemical E/F labels; 531 parameters, 168 train/43 index-held-out frames; export and three-frame CPU/GPU inference parity passed | [Negative result](PHYSICAL_DATA_VALIDATION.md): held-out E/atom RMSE 0.569513->0.455950 eV/atom, F 3.933565->4.164336 eV/angstrom worsened; model unsuitable; no scientific acceptance, independent-trajectory or physical-virial validation; only 7-10 atoms/frame, default 64-atom ceiling, v8 |
+| Physical-label pilot and diagnosis | Original 1,000-update fit plus one comparison changing only energy weight 1->0.1; same 531 parameters, initialization and 168 train/43 diagnostic-validation split; two-step CPU/GPU optimizer consistency checked | [Measured tradeoff](PHYSICAL_DATA_VALIDATION.md#bounded-training-diagnosis): validation F 3.933565 initial / 4.164336 original / 3.707381 new eV/angstrom; E/atom 0.569513 / 0.455950 / 0.523472 eV/atom; new training total-E RMSE 6.650750 exceeds initial 6.626241 eV; models unsuitable, no untouched final test or v9 validation |
 | Model information | `capabilities` static and GPU-free; `model-info` loads selected model | Metadata does not prove graph architecture, training units or GPU execution |
 | Geometry minimization | Fixed-cell Armijo steepest descent, explicit force/energy criteria, geometry-only exports | Cell relaxation, other minimizers and production convergence validation |
 | MD | Actual omniMD System, NVE Verlet and CSVR NVT, combined evaluation cache, exact same-environment restart | Fixed parameters added for CPU C API; PT restart is numerical, not bitwise, due to runtime first-call roundoff. NPT/constraints/domain decomposition/classical mixing remain missing |
@@ -256,17 +258,22 @@ an official `input.json` is not a native training request.
   Separate single-process observations were 1554 ms CPU-loss CUDA and 1721 ms
   GPU-loss CUDA, not a speed claim. New v9 Linux execution remains unverified.
 
-- Physical-label evidence commit `fd19b9f` adds documentation/receipt only for
-  unchanged runtime `8167a4a`. Published Gaussian 16 MN15/6-31G** labels from
-  official `nopbc`, a fixed 168/43 index split and a 531-parameter model were used
-  for 1,000 GPU updates under Linux/WSL2. Held-out E/atom RMSE decreased
-  0.569513->0.455950 eV/atom, but force RMSE increased 3.933565->4.164336
-  eV/angstrom. Training force error also increased. Pipeline, export/reload and
-  three-frame CPU/GPU inference consistency passed; model quality is unsuitable
-  for scientific acceptance. No physical virial labels, trajectory-independent
-  split, new v9 coverage or speed claim. See [provenance and metrics](PHYSICAL_DATA_VALIDATION.md)
-  and [receipt](evidence/physical-nopbc-training.json). This integration does not
-  repeat the run or diagnose its cause.
+- Physical-label evidence `fd19b9f` retains the original 1,000-update result with
+  published Gaussian 16 MN15/6-31G** labels: improved energy, worsening forces.
+  Diagnosis source `bd82b25`, integrated as `0338e57`, compares the same initial
+  model/data/split/steps with only energy weight 1->0.1. Validation E/atom RMSE is
+  initial/original/new 0.569513/0.455950/0.523472 eV/atom; force RMSE is
+  3.933565/4.164336/3.707381 eV/angstrom. New training total-E RMSE worsens versus
+  initialization, 6.626241->6.650750 eV. This is a loss-weight tradeoff, not
+  scientific acceptance. The 43 frames are diagnostic validation, with no
+  untouched final test. [Full report](PHYSICAL_DATA_VALIDATION.md#bounded-training-diagnosis)
+  and [receipt](evidence/physical-nopbc-diagnosis.json) retain every composition.
+- The separate two-update comparison checks all 531 parameters and Adam moments
+  across CPU/CUDA, maximum difference about 1.11e-16 over 16 frame visits. It does
+  not establish full-trajectory equivalence or rule out shared defects. New-model
+  three-frame inference E/F/V differences are 0/8.88e-16/4.44e-16, reload zero;
+  these are not physical-accuracy measurements. Only the default 64-atom ceiling/v8 with 7-10 atoms
+  per frame was exercised. No new tests, training or implementation changes in integration.
 
 ## Implementation order and acceptance gates
 
@@ -296,7 +303,8 @@ payload limits. The 466-parameter example cannot fit 256. Larger physical worklo
 generic DeepMD architectures, new v9 Linux execution, Linux configurations beyond
 the recorded WSL2/container case and distributed/CPU-free training remain
 unsupported or unvalidated.
-The physical-label pilot adds pipeline evidence but its worsening force error
-leaves model quality unsuitable; this is not a scientific acceptance milestone.
+The physical-label pilot and comparison add pipeline and loss-tradeoff evidence,
+but both models remain unsuitable. Diagnostic validation is not a final test;
+this is not a scientific acceptance milestone.
 See [the roadmap](../ROADMAP.md#remaining-end-to-end-and-model-limits); no next
 feature is started by this candidate.
