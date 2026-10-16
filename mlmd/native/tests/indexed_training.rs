@@ -493,6 +493,7 @@ fn tiled_indexed_scheduled_resume_and_cache_toggle_are_exact() {
     c.cuda_gradient = CudaGradient::Reverse;
     c.fixed_geometry_cache = true;
     c.cuda_tiling = Some(CudaTiling {
+        max_atoms_per_frame: 64,
         max_frames: 2,
         max_atoms: 7,
     });
@@ -591,6 +592,7 @@ fn device_loss_indexed_scheduled_resume_is_exact() {
     c.cuda_loss = CudaLoss::Gpu;
     c.fixed_geometry_cache = true;
     c.cuda_tiling = Some(CudaTiling {
+        max_atoms_per_frame: 64,
         max_frames: 2,
         max_atoms: 7,
     });

@@ -1,4 +1,5 @@
 //! Bounded random access to the existing JSONL wire format; no on-disk sidecar.
+use crate::full_training::CUDA_MAX_FRAME_ATOMS;
 use crate::training_data::{
     private, validate_labels, DatasetAccess, DatasetFrame, DatasetHeader, Labels,
 };
@@ -43,7 +44,9 @@ where
             let mut v = Vec::new();
             while let Some(x) = seq.next_element()? {
                 if v.len() == N {
-                    return Err(de::Error::custom("indexed record array bound exceeded"));
+                    return Err(de::Error::custom(format!(
+                        "indexed record array bound exceeded (maximum {N})"
+                    )));
                 }
                 v.push(x);
             }
@@ -74,9 +77,9 @@ fn bounded_string<'de, D: Deserializer<'de>, const N: usize>(
 #[derive(Deserialize)]
 #[serde(remote = "Frame", deny_unknown_fields)]
 struct BoundedFrame {
-    #[serde(deserialize_with = "bounded_vec::<_,_,64>")]
+    #[serde(deserialize_with = "bounded_vec::<_,_,CUDA_MAX_FRAME_ATOMS>")]
     positions: Vec<[f64; 3]>,
-    #[serde(deserialize_with = "bounded_vec::<_,_,64>")]
+    #[serde(deserialize_with = "bounded_vec::<_,_,CUDA_MAX_FRAME_ATOMS>")]
     species: Vec<String>,
     cell: Option<[[f64; 3]; 3]>,
     units: Units,
@@ -85,7 +88,9 @@ fn bounded_forces<'de, D: Deserializer<'de>>(
     d: D,
 ) -> std::result::Result<Option<Vec<[f64; 3]>>, D::Error> {
     #[derive(Deserialize)]
-    struct Forces(#[serde(deserialize_with = "bounded_vec::<_,_,64>")] Vec<[f64; 3]>);
+    struct Forces(
+        #[serde(deserialize_with = "bounded_vec::<_,_,CUDA_MAX_FRAME_ATOMS>")] Vec<[f64; 3]>,
+    );
     Ok(Option::<Forces>::deserialize(d)?.map(|v| v.0))
 }
 #[derive(Deserialize)]
@@ -321,8 +326,8 @@ impl IndexedDataset {
                     }
                     data.frame.type_ids(&metadata)?;
                     validate_labels(&data)?;
-                    if data.frame.positions.len() > 64 {
-                        return Err(fail("indexed training supports at most 64 atoms/frame"));
+                    if data.frame.positions.len() > crate::full_training::CUDA_MAX_FRAME_ATOMS {
+                        return Err(fail("indexed reader supports at most 256 atoms/frame; trainer mode may impose a smaller limit"));
                     }
                     peak_decoded = peak_decoded.max(decoded_bytes(&data));
                     id_bytes += data.id.len();

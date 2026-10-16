@@ -122,3 +122,8 @@ For explicit minibatching, [indexed dataset access](INDEXED_TRAINING.md) can rea
 larger datasets one frame at a time. It preserves the existing memory-mode limits
 and numerical/checkpoint semantics; its own parsing/index bounds and the unchanged
 geometry payload cap are documented separately.
+
+The cache also supports explicit [128/256-atom tiled CUDA frames](LARGE_FRAME_TRAINING.md)
+within its unchanged 64 MiB payload budget. Trainer admission and total tile
+budgets are checked separately before cache construction; parser/cache support
+does not enlarge the default 64-atom training mode.

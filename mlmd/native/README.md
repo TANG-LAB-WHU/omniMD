@@ -344,3 +344,8 @@ loss remains the default. Three-repeat 128-update synthetic whole-process median
 regressed 604.53->756.03 ms for 112 parameters and improved 3505.78->3060.90 ms
 for 466 parameters (1.15x). Geometry/reduction/assessment stay on CPU; existing
 architecture and per-frame bounds remain. See the [final engine guide](../GETTING_STARTED.md#23-select-gpu-prediction-and-loss-preparation-explicitly).
+
+Optional [larger-frame CUDA training](LARGE_FRAME_TRAINING.md) supports an explicit
+per-frame ceiling up to 256 under unchanged total tile/workspace/work budgets.
+Default CPU/untiled and default tiled training retain 64 atoms; expanded tiled
+runs use v9 restart identity and fail if the selected model/frame cannot fit.

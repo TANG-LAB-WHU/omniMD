@@ -18,7 +18,10 @@ uses v4, explicit [minibatching](MINIBATCH_TRAINING.md) uses v5, and explicit
 [GPU E/F/V prediction and loss seeds](DEVICE_LOSS_TRAINING.md) requires tiling
 and uses v8. CPU loss remains default. The GPU-loss whole-process synthetic
 comparison regressed 605->756 ms for 112 parameters and improved 3506->3061 ms
-for 466 parameters (1.15x); it is an explicit workload choice.
+for 466 parameters (1.15x); it is an explicit workload choice. Optional
+[larger-frame tiled CUDA training](LARGE_FRAME_TRAINING.md) admits up to 256 atoms
+under unchanged resource budgets and selects v9. CPU full-gradient and default
+CUDA modes retain their existing 64-atom frame limit.
 
 ## Supported scope
 

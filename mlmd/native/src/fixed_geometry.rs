@@ -222,8 +222,8 @@ pub(crate) fn estimate(m: &Model, d: &dyn DatasetAccess, indices: &[usize]) -> R
     let slots = m.descriptor.sel.iter().sum::<usize>();
     for &i in indices {
         let n = d.atoms(i)?;
-        if n == 0 || n > 64 {
-            return Err(Error("fixed geometry requires 1..64 atoms/frame".into()));
+        if n == 0 || n > crate::full_training::CUDA_MAX_FRAME_ATOMS {
+            return Err(Error("fixed geometry requires 1..256 atoms/frame".into()));
         }
         total = add(total, product(n, size_of::<[u64; 3]>() + size_of::<i32>())?)?;
         total = add(

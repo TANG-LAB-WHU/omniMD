@@ -28,7 +28,7 @@ the default CPU-loss path; geometry/reduction/assessment remain on CPU in both.
 CUDA full training requires tanh in every embedding/hidden layer, a linear
 fitting output, native-v1 validation, and the following joint limits: 2048 neural
 parameters, every network width and descriptor input width at most 32,
-`sum(sel)<=64`, at most 64 atoms/frame, 1024 frames, eight types and eight layers
+`sum(sel)<=64`, at most 64 atoms/frame by default, 1024 frames, eight types and eight layers
 per network. Descriptor width is `embedding_width * axis_neuron`, so bounding
 just embedding width is insufficient. Existing 128 MiB dataset and 16 MiB
 record limits also apply. Unsupported cases fail explicitly; they do not fall
@@ -211,3 +211,8 @@ Optional [multi-frame reverse tiling](TILED_TRAINING.md) reduces per-frame trans
 and kernel launches under explicit aggregate work and memory budgets. It uses v7
 checkpoints, including when a learning-rate schedule is present; other executors
 retain their existing checkpoint versions.
+
+Optional [larger-frame tiled reverse execution](LARGE_FRAME_TRAINING.md) admits
+up to 256 atoms/frame when the unchanged total work and payload budgets allow.
+It requires an explicit frame ceiling and v9 checkpoint; CPU and untiled CUDA
+limits stay at 64. The original bounds/results above describe the default path.

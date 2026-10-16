@@ -49,7 +49,9 @@ full training keeps its 1024-frame limit. Indexed mode explicitly supports up
 to 100000 frames and 16 GiB of input, with stricter parsing bounds below. The
 acceptance case actually crosses both old limits; the full 100000-frame/16-GiB
 ceiling has not been benchmarked. Model architecture, parameter, neighbor-slot,
-AD/workspace, CUDA work caps and the 64-atoms-per-frame bound are unchanged.
+AD/workspace and CUDA work caps are unchanged. The parser now admits up to 256
+atoms for explicit [larger-frame CUDA training](LARGE_FRAME_TRAINING.md); default
+training still enforces 64 atoms/frame independently of parser acceptance.
 
 ## Step 2: build a bounded index
 
@@ -69,7 +71,7 @@ unit representation. The indexed subset has these explicit bounds:
 | File | regular file, at most 16 GiB |
 | Frames | 100000 |
 | Input record, including newline | 256 KiB, checked while reading |
-| Positions, species, force vectors | at most 64 atoms; shape/labels must agree |
+| Positions, species, force vectors | at most 256 atoms; shape/labels and configured training limit must agree |
 | Frame ID | 256 UTF-8 bytes |
 | Header type map | 118 entries, still validated as unique chemical symbols |
 | Header source text | 64 KiB |

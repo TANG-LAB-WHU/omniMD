@@ -47,12 +47,27 @@ impl CudaLoss {
 pub struct CudaTiling {
     pub max_frames: usize,
     pub max_atoms: usize,
+    #[serde(
+        default = "default_frame_atoms",
+        skip_serializing_if = "is_default_frame_atoms"
+    )]
+    pub max_atoms_per_frame: usize,
+}
+pub const CUDA_MAX_FRAME_ATOMS: usize = 256;
+fn default_frame_atoms() -> usize {
+    64
+}
+fn is_default_frame_atoms(n: &usize) -> bool {
+    *n == 64
 }
 impl CudaTiling {
     pub fn validate(&self) -> Result<()> {
-        if !(1..=32).contains(&self.max_frames) || !(1..=1024).contains(&self.max_atoms) {
+        if !(1..=32).contains(&self.max_frames)
+            || !(1..=1024).contains(&self.max_atoms)
+            || !(64..=CUDA_MAX_FRAME_ATOMS).contains(&self.max_atoms_per_frame)
+        {
             return Err(Error(
-                "CUDA tiling requires max_frames in 1..32 and max_atoms in 1..1024".into(),
+                "CUDA tiling requires max_frames in 1..32, max_atoms in 1..1024 and max_atoms_per_frame in 64..256".into(),
             ));
         }
         Ok(())
@@ -68,6 +83,7 @@ const VIRIAL_LOSS_CONTRACT: &str = "energy-force-row-virial-per-atom-nine-v1";
 /// explicit minibatch sampling uses v5 on every backend; an explicit learning-rate
 /// schedule uses v6. Tiled reverse execution takes precedence with v7; absent
 /// schedules/tiling preserve older schemas. Device loss uses v8 with its own arithmetic identity.
+/// Opt-in larger frames select v9; default limits preserve previous schemas.
 /// PTX hashing alone does not cover host loss semantics.
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "backend", rename_all = "snake_case", deny_unknown_fields)]
@@ -81,6 +97,12 @@ pub enum FullExecution {
         program_sha256: String,
     },
     CudaReverseF64V1 {
+        visible_device: i32,
+        device_info: String,
+        driver_version: i32,
+        program_sha256: String,
+    },
+    CudaTiledDeviceLossF64V2 {
         visible_device: i32,
         device_info: String,
         driver_version: i32,
@@ -154,6 +176,11 @@ pub struct FullConfig {
     pub checkpoint_every: u64,
 }
 impl FullConfig {
+    pub fn max_frame_atoms(&self) -> usize {
+        self.cuda_tiling
+            .as_ref()
+            .map_or(64, |t| t.max_atoms_per_frame)
+    }
     /// Rate for the next update after completed_updates globally committed updates.
     pub fn learning_rate_at(&self, completed_updates: u64) -> Result<f64> {
         self.learning_rate_schedule
@@ -301,7 +328,9 @@ pub struct FullOutcome {
 }
 
 fn checkpoint_schema(execution: &FullExecution, config: &FullConfig) -> &'static str {
-    if config.cuda_loss == CudaLoss::Gpu {
+    if config.max_frame_atoms() > 64 {
+        "omnimd-native-full-checkpoint-v9"
+    } else if config.cuda_loss == CudaLoss::Gpu {
         "omnimd-native-full-checkpoint-v8"
     } else if config.cuda_tiling.is_some() {
         "omnimd-native-full-checkpoint-v7"
@@ -382,6 +411,7 @@ fn validate_dataset(
     model: &Model,
     dataset: &dyn DatasetAccess,
     virial: Option<&VirialLoss>,
+    max_atoms: usize,
 ) -> Result<()> {
     let metadata = model.validate()?;
     if dataset.header().type_map != model.type_map {
@@ -403,10 +433,10 @@ fn validate_dataset(
         let record = dataset.frame(i)?;
         record.frame.type_ids(&metadata)?;
         validate_record(&record, virial)?;
-        if record.frame.positions.len() > 64 {
-            return Err(Error(
-                "full trainer supports at most 64 atoms per frame".into(),
-            ));
+        if record.frame.positions.len() > max_atoms {
+            return Err(Error(format!(
+                "full trainer frame exceeds configured atom limit {max_atoms}"
+            )));
         }
         if record.index != i as u64
             || record.id.is_empty()
@@ -426,7 +456,12 @@ impl Checkpoint {
                 "indexed dataset requires explicit minibatch configuration".into(),
             ));
         }
-        validate_dataset(model, dataset, config.virial_loss.as_ref())?;
+        validate_dataset(
+            model,
+            dataset,
+            config.virial_loss.as_ref(),
+            config.max_frame_atoms(),
+        )?;
         let layout = ParameterLayout::new(model)?;
         let (training_indices, validation_indices) = partition(dataset, &config.split)?;
         validate_virial_scales(
@@ -534,6 +569,19 @@ impl Checkpoint {
                     config.cuda_gradient == CudaGradient::Reverse
                         && config.cuda_tiling.is_some()
                         && config.cuda_loss == CudaLoss::Gpu
+                        && config.max_frame_atoms() == 64
+                        && *visible_device == requested
+                }
+                (
+                    FullExecution::CudaTiledDeviceLossF64V2 { visible_device, .. },
+                    TrainingDevice::Cuda {
+                        visible_device: requested,
+                    },
+                ) => {
+                    config.cuda_gradient == CudaGradient::Reverse
+                        && config.cuda_tiling.is_some()
+                        && config.cuda_loss == CudaLoss::Gpu
+                        && config.max_frame_atoms() > 64
                         && *visible_device == requested
                 }
                 _ => false,
@@ -546,10 +594,6 @@ impl Checkpoint {
         if matches!(device, TrainingDevice::Cuda { .. }) {
             let atoms = (0..dataset.len())
                 .try_fold(0usize, |n, i| Ok::<_, Error>(n.max(dataset.atoms(i)?)))?;
-            crate::cuda::full_work_estimate(&self.model, atoms)?;
-            if config.cuda_gradient == CudaGradient::Reverse {
-                crate::cuda::reverse_resources(&self.model, atoms)?;
-            }
             if let Some(c) = &config.cuda_tiling {
                 let r = if config.cuda_loss == CudaLoss::Gpu {
                     crate::cuda::device_loss_resources(&self.model, c)?
@@ -561,6 +605,11 @@ impl Checkpoint {
                         "CUDA tile cannot fit largest frame ({atoms} atoms; effective capacity {})",
                         r.effective_max_atoms
                     )));
+                }
+            } else {
+                crate::cuda::full_work_estimate(&self.model, atoms)?;
+                if config.cuda_gradient == CudaGradient::Reverse {
+                    crate::cuda::reverse_resources(&self.model, atoms)?;
                 }
             }
         }
@@ -578,7 +627,12 @@ impl Checkpoint {
                 "indexed dataset requires explicit minibatch configuration".into(),
             ));
         }
-        validate_dataset(&self.model, dataset, config.virial_loss.as_ref())?;
+        validate_dataset(
+            &self.model,
+            dataset,
+            config.virial_loss.as_ref(),
+            config.max_frame_atoms(),
+        )?;
         let layout = ParameterLayout::new(&self.model)?;
         let initial_layout = ParameterLayout::new(&self.initial_model)?;
         let schema = checkpoint_schema(&self.execution, &self.config);

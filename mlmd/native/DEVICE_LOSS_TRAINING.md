@@ -130,7 +130,10 @@ platforms or builds. PTX identity alone does not identify all host code.
 
 The architecture and tile policies are unchanged: at most 2048 neural parameters,
 widths at most 32, 64 selected slots, eight types, eight layers per network,
-**64 atoms per frame**, and requested tiles of 1..32 frames / 1..1024 atoms.
+**64 atoms per frame by default**, and requested tiles of 1..32 frames / 1..1024 atoms.
+The explicit [larger-frame path](LARGE_FRAME_TRAINING.md) supports up to 256 when
+budgets permit, with a strided gather and distinct v9/backend-v2 identity.
+This page describes the default 64-atom v8 path.
 The planner may lower effective capacity. No frame is split or truncated.
 
 The policies remain 50 million estimated scalar terms, 64 MiB explicit device

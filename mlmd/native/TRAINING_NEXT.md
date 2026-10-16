@@ -33,6 +33,10 @@ Historical missing-schedule v1-v5 checkpoints remain supported; explicit schedul
 v6 retains applicable backend, loss and sampler checks. Tiled reverse execution
 uses v7 with immutable capacities and its own backend/program identity. Optional
 GPU prediction/seeds takes precedence with a separate v8 execution identity.
+Explicit [larger-frame CUDA training](LARGE_FRAME_TRAINING.md) supports up to 256
+atoms/frame only when unchanged work/payload budgets permit and selects v9.
+CPU/untiled/default tiled modes remain at 64; larger models may hit the work
+limit below 256. GPU gather and CPU geometry retain quadratic frame costs.
 
 Original synthetic teacher tests establish implementation behavior. They do not
 establish chemical accuracy, extrapolation, stable production MD, algorithmic

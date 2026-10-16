@@ -115,11 +115,19 @@ fn center_terms(model: &Model) -> u64 {
         .unwrap()
 }
 fn check_work(atoms: usize, parameters: usize, terms: u64) -> Result<FullWorkEstimate> {
+    check_work_bound(atoms, parameters, terms, 64)
+}
+fn check_work_bound(
+    atoms: usize,
+    parameters: usize,
+    terms: u64,
+    frame_bound: usize,
+) -> Result<FullWorkEstimate> {
     let estimate = (atoms as u64)
         .checked_mul(parameters as u64)
         .and_then(|n| n.checked_mul(terms));
-    if atoms == 0 || atoms > 64 || estimate.is_none_or(|n| n > WORK_LIMIT) {
-        return Err(Error(format!("CUDA full-gradient work budget rejected: atoms={atoms} (1..64), parameters={parameters}, max_center_terms={terms}, estimated_terms={estimate:?}, limit={WORK_LIMIT}; no truncation or fallback")));
+    if atoms == 0 || atoms > frame_bound || estimate.is_none_or(|n| n > WORK_LIMIT) {
+        return Err(Error(format!("CUDA full-gradient work budget rejected: atoms={atoms} (1..{frame_bound}), parameters={parameters}, max_center_terms={terms}, estimated_terms={estimate:?}, limit={WORK_LIMIT}; no truncation or fallback")));
     }
     Ok(FullWorkEstimate {
         atoms,
@@ -143,6 +151,7 @@ pub fn reverse_resources(model: &Model, atoms: usize) -> Result<ReverseResources
 #[derive(Clone, Copy, Default, Debug, serde::Serialize)]
 pub struct FullGradientProfile {
     pub frames: usize,
+    pub max_atoms_per_frame: usize,
     pub device_prediction_frames: usize,
     pub tiles: usize,
     pub kernel_launches: usize,
@@ -161,6 +170,7 @@ pub struct FullGradientProfile {
 impl FullGradientProfile {
     pub fn add(&mut self, p: Self) {
         self.frames += p.frames;
+        self.max_atoms_per_frame = self.max_atoms_per_frame.max(p.max_atoms_per_frame);
         self.device_prediction_frames += p.device_prediction_frames;
         self.tiles += p.tiles;
         self.kernel_launches += p.kernel_launches;
@@ -281,10 +291,19 @@ impl CudaFullTrainer {
                 }
             })
             .transpose()?;
+        let large_frame = tiling.is_some_and(|t| t.max_atoms_per_frame > 64);
         let tiled_source = if tiled.is_some() {
             let source = reverse.as_ref().unwrap().tiled_source()?;
             Some(if loss == CudaLoss::Gpu {
-                format!("{source}\n{}", include_str!("device_loss_kernels.cu"))
+                format!(
+                    "{source}\n{}{}",
+                    include_str!("device_loss_kernels.cu"),
+                    if large_frame {
+                        include_str!("large_frame_kernels.cu")
+                    } else {
+                        ""
+                    }
+                )
             } else {
                 source
             })
@@ -302,7 +321,11 @@ impl CudaFullTrainer {
                     "full_adam",
                     "loss_primal_fit",
                     "loss_edge_gradient",
-                    "loss_predictions",
+                    if large_frame {
+                        "loss_predictions_large"
+                    } else {
+                        "loss_predictions"
+                    },
                     "loss_seeds",
                     "loss_directions",
                     "loss_dual_embed",
@@ -331,7 +354,14 @@ impl CudaFullTrainer {
                 }
             }
         };
-        let execution = if loss == CudaLoss::Gpu {
+        let execution = if loss == CudaLoss::Gpu && large_frame {
+            FullExecution::CudaTiledDeviceLossF64V2 {
+                visible_device: device,
+                device_info: runtime.device_info.clone(),
+                driver_version: runtime.driver_version,
+                program_sha256: runtime.program_sha256.clone(),
+            }
+        } else if loss == CudaLoss::Gpu {
             FullExecution::CudaTiledDeviceLossF64V1 {
                 visible_device: device,
                 device_info: runtime.device_info.clone(),
@@ -406,6 +436,17 @@ impl CudaFullTrainer {
             return Err(Error(
                 "fixed geometry cache already attached; recreate trainer".into(),
             ));
+        }
+        if self.tiled.is_some() {
+            self.preflight_tiled_batch(dataset, indices)?;
+        } else {
+            for &i in indices {
+                check_work(
+                    crate::training_data::DatasetAccess::atoms(dataset, i)?,
+                    self.layout.parameters.len(),
+                    self.maximum_center_terms,
+                )?;
+            }
         }
         let cache = FixedGeometryCache::new(self.cpu.model(), dataset, indices)?;
         self.attach_fixed_geometry_cache(Some(cache))
@@ -495,6 +536,7 @@ impl CudaFullTrainer {
         let resources = self.reverse.as_ref().map(|p| p.resources(n)).transpose()?;
         self.profile = FullGradientProfile {
             frames: 1,
+            max_atoms_per_frame: n,
             tiles: 1,
             kernel_launches: if self.reverse.is_some() { 4 } else { 1 },
             synchronizations: 1,

@@ -87,7 +87,9 @@ poison the trainer. Earlier completed checkpoints remain usable.
 
 No model architecture bound is raised. The supported family still has at most
 2048 neural parameters, widths at most 32, 64 selected neighbor slots, eight types
-and eight layers per network, and **64 atoms per frame**. Unsupported models fail
+and eight layers per network, and **64 atoms per frame by default**. Optional
+[larger-frame execution](LARGE_FRAME_TRAINING.md) explicitly admits up to 256 with
+revised gather coverage/accounting and v9 identity under unchanged tile budgets. Unsupported models fail
 explicitly. Normalization, type mapping, descriptor settings and atomic offsets
 remain fixed.
 

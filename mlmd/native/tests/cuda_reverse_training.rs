@@ -634,6 +634,7 @@ fn tiled_configuration_schema_and_resource_guards_without_driver() {
         .get("cuda_tiling")
         .is_none());
     c.cuda_tiling = Some(CudaTiling {
+        max_atoms_per_frame: 64,
         max_frames: 2,
         max_atoms: 7,
     });
@@ -670,6 +671,7 @@ fn tiled_configuration_schema_and_resource_guards_without_driver() {
     let r = omnimd_native::cuda::tiled_resources(
         &medium(),
         &CudaTiling {
+            max_atoms_per_frame: 64,
             max_frames: 32,
             max_atoms: 1024,
         },
@@ -692,14 +694,17 @@ fn tiled_gradients_grouping_reuse_adam_and_failure_atomicity() {
     let mut observations = Vec::new();
     for caps in [
         CudaTiling {
+            max_atoms_per_frame: 64,
             max_frames: 1,
             max_atoms: 64,
         },
         CudaTiling {
+            max_atoms_per_frame: 64,
             max_frames: 2,
             max_atoms: 7,
         },
         CudaTiling {
+            max_atoms_per_frame: 64,
             max_frames: 32,
             max_atoms: 1024,
         },
@@ -783,6 +788,7 @@ fn tiled_gradients_grouping_reuse_adam_and_failure_atomicity() {
         m.clone(),
         0,
         &CudaTiling {
+            max_atoms_per_frame: 64,
             max_frames: 1,
             max_atoms: 64,
         },
@@ -837,6 +843,7 @@ fn tiled_aggregate_1024_atom_capacity_and_partial_tail() {
         m,
         0,
         &CudaTiling {
+            max_atoms_per_frame: 64,
             max_frames: 32,
             max_atoms: 1024,
         },
@@ -881,6 +888,7 @@ fn device_loss_configuration_and_budget_guards_without_driver() {
     c.cuda_loss = CudaLoss::Gpu;
     assert!(Checkpoint::start(&m, &d, &c).is_err());
     c.cuda_tiling = Some(CudaTiling {
+        max_atoms_per_frame: 64,
         max_frames: 16,
         max_atoms: 512,
     });
@@ -912,6 +920,7 @@ fn device_loss_configuration_and_budget_guards_without_driver() {
 fn device_loss_predictions_seeds_and_cached_gradients() {
     use omnimd_native::full_training::{CudaLoss, CudaTiling};
     let caps = CudaTiling {
+        max_atoms_per_frame: 64,
         max_frames: 32,
         max_atoms: 1024,
     };
@@ -1092,6 +1101,7 @@ fn device_loss_analytic_embedding_path_zero_loss_and_failure() {
         },
     }];
     let caps = CudaTiling {
+        max_atoms_per_frame: 64,
         max_frames: 4,
         max_atoms: 64,
     };
@@ -1162,6 +1172,7 @@ fn device_loss_analytic_embedding_path_zero_loss_and_failure() {
         model(),
         0,
         &CudaTiling {
+            max_atoms_per_frame: 64,
             max_frames: 1,
             max_atoms: 64,
         },
@@ -1207,6 +1218,7 @@ fn device_loss_large_tile_reuse_clipped_updates_and_boundaries() {
         })
         .collect();
     let caps = CudaTiling {
+        max_atoms_per_frame: 64,
         max_frames: 32,
         max_atoms: 1024,
     };

@@ -243,3 +243,12 @@ verification are independently written MIT code. They use the existing chain
 rule, row-strain virial and Adam formulas. No external GPU training source or
 new dependency was incorporated. Original synthetic fixtures and the existing
 mathematical/NVIDIA runtime notices remain applicable.
+
+## Bounded larger-frame CUDA training
+
+The explicit frame admission, strided gather, v9 compatibility checks, resource
+accounting and periodic synthetic test/replay recipes are original MIT code.
+They extend the existing FP64 arithmetic and mathematical references without
+copying external training kernels or introducing dependencies. The 32-atom
+perturbed O/H motif and its 128/256-atom periodic replicas are synthetic software
+fixtures, not private structures or physically validated potentials.

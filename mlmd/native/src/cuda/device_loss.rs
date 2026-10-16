@@ -100,7 +100,8 @@ pub(super) fn plan_resources(
     let slots = model.descriptor.sel.iter().sum::<usize>();
     let width = model.descriptor.embedding[0][0].output_size();
     // Additional first-order forward/reverse and bounded per-frame deterministic gather.
-    let extra_work = 2 * center_terms(model) + (64 * slots * 3 + slots * 27) as u64;
+    let extra_work =
+        2 * center_terms(model) + (config.max_atoms_per_frame * slots * 3 + slots * 27) as u64;
     let per_atom = (p as u64) * center_terms(model) + extra_work;
     let cap = base
         .effective_max_atoms
@@ -163,13 +164,19 @@ impl CudaFullTrainer {
         }
         let cap = self.tiled.as_ref().unwrap().clone();
         let p = self.layout.parameters.len();
+        self.preflight_tiled_batch(dataset, indices)?;
         let mut tile = DeviceTile::new(&cap, self.cpu.model().descriptor.sel.iter().sum());
         let mut gradient = vec![0.; p];
         let mut frame_gradient = vec![0.; p];
         let mut objective = 0.;
         for &index in indices {
             let n = dataset.atoms(index)?;
-            check_work(n, p, self.maximum_center_terms)?;
+            check_work_bound(
+                n,
+                p,
+                self.maximum_center_terms,
+                cap.requested.max_atoms_per_frame,
+            )?;
             if n > cap.effective_max_atoms {
                 return Err(Error(format!(
                     "GPU loss tile cannot fit frame {index} with {n} atoms"
@@ -323,7 +330,7 @@ impl CudaFullTrainer {
             let end = range[1] as usize;
             if begin >= end
                 || end > n
-                || end - begin > 64
+                || end - begin > cap.requested.max_atoms_per_frame
                 || (i == 0 && begin != 0)
                 || (i > 0 && range[0] != tile.bounds[2 * i - 1])
                 || (i + 1 == f && end != n)
@@ -366,6 +373,13 @@ impl CudaFullTrainer {
         if resident > cap.device_at_capacity.peak_device_buffer_bytes {
             return Err(Error("GPU loss resident device payload exceeded".into()));
         }
+        self.profile.max_atoms_per_frame = self.profile.max_atoms_per_frame.max(
+            tile.bounds
+                .chunks_exact(2)
+                .map(|b| (b[1] - b[0]) as usize)
+                .max()
+                .unwrap_or(0),
+        );
         self.profile.frames += f;
         self.profile.device_prediction_frames += f;
         self.profile.tiles += 1;

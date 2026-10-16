@@ -1,0 +1,640 @@
+{
+  "schema": "omnimd-native-large-frame-training-evidence-v1",
+  "created_utc": "2026-10-16T16:28:21.179781+00:00",
+  "base_commit": "cfe1680e850815d329110e3c1baa6fda16bcbb75",
+  "branch": "mlmd/native-large-frame",
+  "scope": "Explicit bounded reverse CUDA frames up to 256 atoms; original synthetic verification only. CPU/untiled/default tiled bound64 unchanged.",
+  "design": {
+    "request_field": "config.cuda_tiling.max_atoms_per_frame",
+    "default": 64,
+    "expanded_checkpoint": "omnimd-native-full-checkpoint-v9",
+    "expanded_gpu_loss_backend": "cuda_tiled_device_loss_f64_v2",
+    "cpu_loss_kernel_identity": "cuda_tiled_reverse_f64_v1 unchanged",
+    "old_fixed_boundary": "256 prediction-gather threads wrote one of 1+3*N+9 outputs each; large frames require strided complete output coverage.",
+    "gather": "256 threads/frame, per-output loop stride blockDim.x; original edge sum order and physical owner/frame boundaries.",
+    "unchanged_policies": {
+      "max_tile_frames": 32,
+      "max_tile_atoms": 1024,
+      "device_buffer_bytes": 67108864,
+      "host_tile_payload_bytes": 33554432,
+      "estimated_scalar_terms": 50000000
+    },
+    "budget_exclusions": "Not total VRAM/RSS. Excludes context/module/kernel local memory, allocator, CPU preparing frame, model/optimizer/index/cache/report/checkpoint; cache/index have separate existing limits.",
+    "allowed_inclusive_range": [
+      64,
+      256
+    ]
+  },
+  "verification": {
+    "cuda_feature_without_gpu_tests_passed": 58,
+    "actual_gpu_focused_tests_passed": 1,
+    "gpu_checks": [
+      {
+        "eight_parameter_cpu_loss_finite_difference_max_abs": 1.9550000507351228e-10,
+        "execution": {
+          "backend": "cuda_tiled_reverse_f64_v1",
+          "device_info": "NVIDIA GeForce RTX 4090; compute 8.9; FP64; device 0",
+          "driver_version": 13040,
+          "program_sha256": "ac8c9019b07549ac68542bcedb83f50f26d06637c98a801bb61a5eb22bef308a",
+          "visible_device": 0
+        },
+        "gradient_vs_cpu_loss_max_abs": 8.881784197001252e-16,
+        "late_oversize_rejected_before_any_tile": true,
+        "mixed_tile_profile": {
+          "device_prediction_frames": 3,
+          "download_ms": 0.1867,
+          "frames": 3,
+          "geometry_ms": 69.1103,
+          "kernel_launches": 10,
+          "kernels_and_sync_ms": 2.4705,
+          "max_atoms_per_frame": 256,
+          "max_atoms_per_launch": 467,
+          "max_frames_per_launch": 3,
+          "peak_device_buffer_bytes": 5645860,
+          "peak_host_tile_payload_bytes": 3271424,
+          "prediction_and_seeds_ms": 0.0,
+          "reduction_ms": 0.016399999999999998,
+          "synchronizations": 1,
+          "tiles": 1,
+          "upload_ms": 1.0509
+        },
+        "normalized_gradient_vs_32_atom_cpu_ad_max_abs": 5.329070518200751e-15,
+        "prediction_max_abs": 7.105427357601002e-15,
+        "tested_frame_atoms": [
+          256,
+          128,
+          83,
+          32
+        ]
+      }
+    ],
+    "successful_training_processes": 5,
+    "invalid_cli_requests_rejected": 9,
+    "cpu_only_bins_compile_passed": true,
+    "format_and_staged_whitespace_checks_passed": true
+  },
+  "whole_process_replay": {
+    "scope": "original synthetic bounded larger-frame acceptance; one observed process run per mode, no speedup claim",
+    "frames": [
+      128,
+      256,
+      32,
+      128,
+      256,
+      128,
+      128,
+      256
+    ],
+    "train_frames": 6,
+    "validation_frames": 2,
+    "steps": 12,
+    "processed_frames": 36,
+    "runs": [
+      {
+        "label": "large-cpu-loss",
+        "process": {
+          "process_ms": 1554.2436999967322,
+          "peak_working_set_bytes": 138911744
+        },
+        "timing": {
+          "adam_ms": 1.3503,
+          "assessment_ms": 452.997,
+          "gradient_ms": 33.216499999999996,
+          "initialization_ms": 476.3033,
+          "startup_frame_reads": 30,
+          "startup_ms": 701.4525
+        },
+        "profile": {
+          "device_prediction_frames": 0,
+          "download_ms": 1.4918,
+          "frames": 36,
+          "geometry_ms": 0.575,
+          "kernel_launches": 72,
+          "kernels_and_sync_ms": 2.1375,
+          "max_atoms_per_frame": 256,
+          "max_atoms_per_launch": 512,
+          "max_frames_per_launch": 3,
+          "peak_device_buffer_bytes": 4905404,
+          "peak_host_tile_payload_bytes": 995232,
+          "prediction_and_seeds_ms": 22.956699999999998,
+          "reduction_ms": 0.2099,
+          "synchronizations": 18,
+          "tiles": 18,
+          "upload_ms": 2.4139999999999997
+        },
+        "execution": {
+          "backend": "cuda_tiled_reverse_f64_v1",
+          "device_info": "NVIDIA GeForce RTX 4090; compute 8.9; FP64; device 0",
+          "driver_version": 13040,
+          "program_sha256": "ac8c9019b07549ac68542bcedb83f50f26d06637c98a801bb61a5eb22bef308a",
+          "visible_device": 0
+        },
+        "resources": {
+          "device_at_capacity": {
+            "atoms": 512,
+            "cache_bytes": 2924544,
+            "descriptor_adjoint_bytes": 65536,
+            "peak_device_buffer_bytes": 4905404,
+            "policy_limit_bytes": 67108864,
+            "slot_gradient_bytes": 917504
+          },
+          "effective_max_atoms": 512,
+          "estimated_scalar_terms_at_capacity": 14336000,
+          "host_tile_payload_at_capacity_bytes": 995232,
+          "host_tile_payload_policy_limit_bytes": 33554432,
+          "maximum_center_terms": 250,
+          "requested": {
+            "max_atoms": 512,
+            "max_atoms_per_frame": 256,
+            "max_frames": 4
+          },
+          "scalar_work_policy_limit": 50000000
+        },
+        "geometry_cache": {
+          "build_ms": 153.7264,
+          "frames": 6,
+          "geometry_sha256": "5b85a83a3b9ba150e18dd73692d5abde823cc75dc1575ed0b1e9f1306ed6ea4e",
+          "hits": 36,
+          "padded_slots": 14848,
+          "policy_limit_bytes": 67108864,
+          "retained_payload_bytes": 3115722
+        },
+        "dataset_access": {
+          "duplicate_check_scratch_bytes": 128,
+          "file_bytes": 175142,
+          "frame_read_ms": 8.172900000000002,
+          "frame_reads": 82,
+          "frames": 8,
+          "frames_decoded_per_read": 1,
+          "index_build_ms": 1.1111,
+          "index_payload_bytes": 19626,
+          "index_payload_limit_bytes": 67108864,
+          "integrity_verification_ms": 0.38,
+          "integrity_verifications": 4,
+          "io_buffer_bytes": 65536,
+          "largest_record_bytes": 33776,
+          "mode": "indexed_jsonl_v1",
+          "parser_record_limit_bytes": 262144,
+          "peak_decoded_frame_payload_bytes": 18975,
+          "record_buffer_peak_capacity_bytes": 33776
+        }
+      },
+      {
+        "label": "large-gpu-loss",
+        "process": {
+          "process_ms": 1721.332600020105,
+          "peak_working_set_bytes": 139915264
+        },
+        "timing": {
+          "adam_ms": 1.3335,
+          "assessment_ms": 459.9082,
+          "gradient_ms": 51.04820000000001,
+          "initialization_ms": 694.5742,
+          "startup_frame_reads": 30,
+          "startup_ms": 925.5543
+        },
+        "profile": {
+          "device_prediction_frames": 36,
+          "download_ms": 2.2485,
+          "frames": 36,
+          "geometry_ms": 2.4553000000000003,
+          "kernel_launches": 180,
+          "kernels_and_sync_ms": 34.397600000000004,
+          "max_atoms_per_frame": 256,
+          "max_atoms_per_launch": 512,
+          "max_frames_per_launch": 3,
+          "peak_device_buffer_bytes": 6190356,
+          "peak_host_tile_payload_bytes": 1755624,
+          "prediction_and_seeds_ms": 0.0,
+          "reduction_ms": 0.23970000000000002,
+          "synchronizations": 18,
+          "tiles": 18,
+          "upload_ms": 6.5457
+        },
+        "execution": {
+          "backend": "cuda_tiled_device_loss_f64_v2",
+          "device_info": "NVIDIA GeForce RTX 4090; compute 8.9; FP64; device 0",
+          "driver_version": 13040,
+          "program_sha256": "619459caa412a2917c57c4377ee0523845b13b798a2bf2bd1166466402dd4e6d",
+          "visible_device": 0
+        },
+        "resources": {
+          "device_at_capacity": {
+            "atoms": 512,
+            "cache_bytes": 2924544,
+            "descriptor_adjoint_bytes": 65536,
+            "peak_device_buffer_bytes": 6190636,
+            "policy_limit_bytes": 67108864,
+            "slot_gradient_bytes": 917504
+          },
+          "device_loss": {
+            "estimated_extra_terms_per_atom": 13220,
+            "extra_device_bytes": 1285232,
+            "extra_host_reserved_bytes": 1318048
+          },
+          "effective_max_atoms": 512,
+          "estimated_scalar_terms_at_capacity": 21104640,
+          "host_tile_payload_at_capacity_bytes": 2313280,
+          "host_tile_payload_policy_limit_bytes": 33554432,
+          "maximum_center_terms": 250,
+          "requested": {
+            "max_atoms": 512,
+            "max_atoms_per_frame": 256,
+            "max_frames": 4
+          },
+          "scalar_work_policy_limit": 50000000
+        },
+        "geometry_cache": {
+          "build_ms": 153.7036,
+          "frames": 6,
+          "geometry_sha256": "5b85a83a3b9ba150e18dd73692d5abde823cc75dc1575ed0b1e9f1306ed6ea4e",
+          "hits": 36,
+          "padded_slots": 14848,
+          "policy_limit_bytes": 67108864,
+          "retained_payload_bytes": 3115722
+        },
+        "dataset_access": {
+          "duplicate_check_scratch_bytes": 128,
+          "file_bytes": 175142,
+          "frame_read_ms": 8.635399999999997,
+          "frame_reads": 82,
+          "frames": 8,
+          "frames_decoded_per_read": 1,
+          "index_build_ms": 1.0526000000000002,
+          "index_payload_bytes": 19626,
+          "index_payload_limit_bytes": 67108864,
+          "integrity_verification_ms": 0.4228,
+          "integrity_verifications": 4,
+          "io_buffer_bytes": 65536,
+          "largest_record_bytes": 33776,
+          "mode": "indexed_jsonl_v1",
+          "parser_record_limit_bytes": 262144,
+          "peak_decoded_frame_payload_bytes": 18975,
+          "record_buffer_peak_capacity_bytes": 33776
+        }
+      },
+      {
+        "label": "resumed-v9",
+        "process": {
+          "process_ms": 2003.5758999874815,
+          "peak_working_set_bytes": 136794112
+        },
+        "timing": {
+          "adam_ms": 1.0302,
+          "assessment_ms": 453.554,
+          "gradient_ms": 477.2831,
+          "initialization_ms": 557.6062000000001,
+          "startup_ms": 783.847
+        },
+        "profile": {
+          "device_prediction_frames": 18,
+          "download_ms": 1.0557999999999998,
+          "frames": 18,
+          "geometry_ms": 456.59909999999996,
+          "kernel_launches": 90,
+          "kernels_and_sync_ms": 15.650500000000001,
+          "max_atoms_per_frame": 256,
+          "max_atoms_per_launch": 512,
+          "max_frames_per_launch": 3,
+          "peak_device_buffer_bytes": 6190356,
+          "peak_host_tile_payload_bytes": 1755624,
+          "prediction_and_seeds_ms": 0.0,
+          "reduction_ms": 0.11779999999999999,
+          "synchronizations": 9,
+          "tiles": 9,
+          "upload_ms": 3.2840000000000003
+        },
+        "execution": {
+          "backend": "cuda_tiled_device_loss_f64_v2",
+          "device_info": "NVIDIA GeForce RTX 4090; compute 8.9; FP64; device 0",
+          "driver_version": 13040,
+          "program_sha256": "619459caa412a2917c57c4377ee0523845b13b798a2bf2bd1166466402dd4e6d",
+          "visible_device": 0
+        },
+        "resources": {
+          "device_at_capacity": {
+            "atoms": 512,
+            "cache_bytes": 2924544,
+            "descriptor_adjoint_bytes": 65536,
+            "peak_device_buffer_bytes": 6190636,
+            "policy_limit_bytes": 67108864,
+            "slot_gradient_bytes": 917504
+          },
+          "device_loss": {
+            "estimated_extra_terms_per_atom": 13220,
+            "extra_device_bytes": 1285232,
+            "extra_host_reserved_bytes": 1318048
+          },
+          "effective_max_atoms": 512,
+          "estimated_scalar_terms_at_capacity": 21104640,
+          "host_tile_payload_at_capacity_bytes": 2313280,
+          "host_tile_payload_policy_limit_bytes": 33554432,
+          "maximum_center_terms": 250,
+          "requested": {
+            "max_atoms": 512,
+            "max_atoms_per_frame": 256,
+            "max_frames": 4
+          },
+          "scalar_work_policy_limit": 50000000
+        },
+        "geometry_cache": null,
+        "dataset_access": null
+      },
+      {
+        "label": "historical-small",
+        "process": {
+          "process_ms": 716.7888999974821,
+          "peak_working_set_bytes": 137228288
+        },
+        "timing": {
+          "adam_ms": 0.1999,
+          "assessment_ms": 7.096299999999999,
+          "gradient_ms": 1.0695999999999999,
+          "initialization_ms": 522.3211,
+          "startup_frame_reads": 11,
+          "startup_ms": 525.9471
+        },
+        "profile": {
+          "device_prediction_frames": 4,
+          "download_ms": 0.1157,
+          "frames": 4,
+          "geometry_ms": 0.06080000000000001,
+          "kernel_launches": 20,
+          "kernels_and_sync_ms": 0.3862,
+          "max_atoms_per_launch": 64,
+          "max_frames_per_launch": 2,
+          "peak_device_buffer_bytes": 778236,
+          "peak_host_tile_payload_bytes": 706960,
+          "prediction_and_seeds_ms": 0.0,
+          "reduction_ms": 0.005,
+          "synchronizations": 2,
+          "tiles": 2,
+          "upload_ms": 0.3394
+        },
+        "execution": {
+          "backend": "cuda_tiled_device_loss_f64_v1",
+          "device_info": "NVIDIA GeForce RTX 4090; compute 8.9; FP64; device 0",
+          "driver_version": 13040,
+          "program_sha256": "f26057c92ce96ade4df2749bd2041cf13eb0e3534d208a46a908bb176f14cab6",
+          "visible_device": 0
+        },
+        "resources": {
+          "device_at_capacity": {
+            "atoms": 256,
+            "cache_bytes": 1462272,
+            "descriptor_adjoint_bytes": 32768,
+            "peak_device_buffer_bytes": 3098156,
+            "policy_limit_bytes": 67108864,
+            "slot_gradient_bytes": 458752
+          },
+          "device_loss": {
+            "estimated_extra_terms_per_atom": 4004,
+            "extra_device_bytes": 643184,
+            "extra_host_reserved_bytes": 659616
+          },
+          "effective_max_atoms": 256,
+          "estimated_scalar_terms_at_capacity": 8193024,
+          "host_tile_payload_at_capacity_bytes": 1158208,
+          "host_tile_payload_policy_limit_bytes": 33554432,
+          "maximum_center_terms": 250,
+          "requested": {
+            "max_atoms": 512,
+            "max_frames": 4
+          },
+          "scalar_work_policy_limit": 50000000
+        },
+        "geometry_cache": {
+          "build_ms": 2.0653,
+          "frames": 2,
+          "geometry_sha256": "ede95a01d937624c3c31c05921cf980c21d1877cfee65e04088e43dc3966ff93",
+          "hits": 4,
+          "padded_slots": 1024,
+          "policy_limit_bytes": 67108864,
+          "retained_payload_bytes": 215498
+        },
+        "dataset_access": {
+          "duplicate_check_scratch_bytes": 48,
+          "file_bytes": 14349,
+          "frame_read_ms": 0.6293,
+          "frame_reads": 21,
+          "frames": 3,
+          "frames_decoded_per_read": 1,
+          "index_build_ms": 0.2931,
+          "index_payload_bytes": 19591,
+          "index_payload_limit_bytes": 67108864,
+          "integrity_verification_ms": 0.0898,
+          "integrity_verifications": 4,
+          "io_buffer_bytes": 65536,
+          "largest_record_bytes": 4623,
+          "mode": "indexed_jsonl_v1",
+          "parser_record_limit_bytes": 262144,
+          "peak_decoded_frame_payload_bytes": 2623,
+          "record_buffer_peak_capacity_bytes": 4623
+        }
+      },
+      {
+        "label": "current-small",
+        "process": {
+          "process_ms": 584.1435999900568,
+          "peak_working_set_bytes": 135733248
+        },
+        "timing": {
+          "adam_ms": 0.45020000000000004,
+          "assessment_ms": 7.2013,
+          "gradient_ms": 1.0001,
+          "initialization_ms": 507.08660000000003,
+          "startup_frame_reads": 11,
+          "startup_ms": 510.6427
+        },
+        "profile": {
+          "device_prediction_frames": 4,
+          "download_ms": 0.10239999999999999,
+          "frames": 4,
+          "geometry_ms": 0.0634,
+          "kernel_launches": 20,
+          "kernels_and_sync_ms": 0.3926,
+          "max_atoms_per_frame": 32,
+          "max_atoms_per_launch": 64,
+          "max_frames_per_launch": 2,
+          "peak_device_buffer_bytes": 778236,
+          "peak_host_tile_payload_bytes": 706960,
+          "prediction_and_seeds_ms": 0.0,
+          "reduction_ms": 0.006200000000000001,
+          "synchronizations": 2,
+          "tiles": 2,
+          "upload_ms": 0.279
+        },
+        "execution": {
+          "backend": "cuda_tiled_device_loss_f64_v1",
+          "device_info": "NVIDIA GeForce RTX 4090; compute 8.9; FP64; device 0",
+          "driver_version": 13040,
+          "program_sha256": "f26057c92ce96ade4df2749bd2041cf13eb0e3534d208a46a908bb176f14cab6",
+          "visible_device": 0
+        },
+        "resources": {
+          "device_at_capacity": {
+            "atoms": 256,
+            "cache_bytes": 1462272,
+            "descriptor_adjoint_bytes": 32768,
+            "peak_device_buffer_bytes": 3098156,
+            "policy_limit_bytes": 67108864,
+            "slot_gradient_bytes": 458752
+          },
+          "device_loss": {
+            "estimated_extra_terms_per_atom": 4004,
+            "extra_device_bytes": 643184,
+            "extra_host_reserved_bytes": 659616
+          },
+          "effective_max_atoms": 256,
+          "estimated_scalar_terms_at_capacity": 8193024,
+          "host_tile_payload_at_capacity_bytes": 1158208,
+          "host_tile_payload_policy_limit_bytes": 33554432,
+          "maximum_center_terms": 250,
+          "requested": {
+            "max_atoms": 512,
+            "max_frames": 4
+          },
+          "scalar_work_policy_limit": 50000000
+        },
+        "geometry_cache": {
+          "build_ms": 2.693,
+          "frames": 2,
+          "geometry_sha256": "ede95a01d937624c3c31c05921cf980c21d1877cfee65e04088e43dc3966ff93",
+          "hits": 4,
+          "padded_slots": 1024,
+          "policy_limit_bytes": 67108864,
+          "retained_payload_bytes": 215498
+        },
+        "dataset_access": {
+          "duplicate_check_scratch_bytes": 48,
+          "file_bytes": 14349,
+          "frame_read_ms": 0.6876,
+          "frame_reads": 21,
+          "frames": 3,
+          "frames_decoded_per_read": 1,
+          "index_build_ms": 0.3034,
+          "index_payload_bytes": 19591,
+          "index_payload_limit_bytes": 67108864,
+          "integrity_verification_ms": 0.07200000000000001,
+          "integrity_verifications": 4,
+          "io_buffer_bytes": 65536,
+          "largest_record_bytes": 4623,
+          "mode": "indexed_jsonl_v1",
+          "parser_record_limit_bytes": 262144,
+          "peak_decoded_frame_payload_bytes": 2623,
+          "record_buffer_peak_capacity_bytes": 4623
+        }
+      }
+    ],
+    "gpu_vs_cpu_loss_final_parameters_moments_max_abs": 4.753532636958546e-14,
+    "v9_resume_cache_and_storage_switch_exact": true,
+    "historical_default_v8_state_and_ptx_exact": true,
+    "rejections": [
+      {
+        "case": "default-frame-cap",
+        "message": "native training failed: full trainer frame exceeds configured atom limit 64"
+      },
+      {
+        "case": "frame-cap-257",
+        "message": "native training failed: CUDA tiling requires max_frames in 1..32, max_atoms in 1..1024 and max_atoms_per_frame in 64..256"
+      },
+      {
+        "case": "tile-cap-255",
+        "message": "native training failed: CUDA tile cannot fit largest frame (256 atoms; effective capacity 255)"
+      },
+      {
+        "case": "work-budget",
+        "message": "native training failed: CUDA tile cannot fit largest frame (256 atoms; effective capacity 138)"
+      },
+      {
+        "case": "cpu-device",
+        "message": "native training failed: cuda_gradient reverse requires an explicit CUDA device; no CPU fallback"
+      },
+      {
+        "case": "changed-cap-resume",
+        "message": "native training failed: checkpoint schema, dataset hash, immutable configuration, layout or step mismatch"
+      },
+      {
+        "case": "old-schema-resume",
+        "message": "native training failed: checkpoint schema, dataset hash, immutable configuration, layout or step mismatch"
+      },
+      {
+        "case": "changed-ptx-resume",
+        "message": "native training failed: CUDA checkpoint device, driver or compiled-program identity changed; exact resume rejected"
+      },
+      {
+        "case": "indexed-parser-257",
+        "message": "native training failed: indexed record at 17436: indexed record array bound exceeded (maximum 256)"
+      }
+    ],
+    "native_v1_reload_EFV_difference": [
+      0.0,
+      0.0,
+      0.0
+    ],
+    "final_training": {
+      "energy_per_atom_rmse_ev": 0.005893954706624545,
+      "energy_rmse_ev": 1.024352869828806,
+      "force_component_rmse_ev_per_angstrom": 0.0027067504866710155,
+      "frames": 6,
+      "normalized_ef_objective": 0.00041940728282447625,
+      "normalized_total_objective": 0.0004210822576417768,
+      "normalized_virial_objective": 1.6749748173005896e-06,
+      "virial_component_rmse_ev": 0.08061576980529729,
+      "virial_per_atom_component_rmse_ev": 0.000454038265727337
+    },
+    "final_validation": {
+      "energy_per_atom_rmse_ev": 0.00589592837161869,
+      "energy_rmse_ev": 1.1932570491988441,
+      "force_component_rmse_ev_per_angstrom": 0.00260438922637837,
+      "frames": 2,
+      "normalized_ef_objective": 0.00040665699734821723,
+      "normalized_total_objective": 0.0004083789811508055,
+      "normalized_virial_objective": 1.721983802588283e-06,
+      "virial_component_rmse_ev": 0.09476458299569261,
+      "virial_per_atom_component_rmse_ev": 0.0004603655808277434
+    },
+    "sha256": {
+      "script": "23e1ddf738c6b9bf5d453bbd95d1b7f0c72d198d1bdb3d9d4d5926fb00514632",
+      "trainer": "8495c740009e4432d70350dc0b93b80d64f90c5c8860fe6098d6313ad5d24225",
+      "evaluator": "f4f58c49958b36a1dc8daa0a83a6d8f69ded5bb98d90cec3b68630d196ef64bb",
+      "reference": "543bf2391fb4d83de2a797bf6de2f52c68d3f2bc9faa4b7eaf5b10d59e3847b5",
+      "dataset": "051ad1506b261e3450145a18a2f65951bc0b0e547319094b276e7d816368be4a",
+      "exported_model": "90534f1d5e4400bae5435dd0963243ad822690a79785ac1cbe3dc19faf9fdc90"
+    }
+  },
+  "commands": [
+    "cargo test --locked --offline --manifest-path mlmd/native/Cargo.toml --features cuda",
+    "cargo test --release --locked --offline --manifest-path mlmd/native/Cargo.toml --features cuda --test large_frame_training large_frame_gpu -- --ignored --nocapture --test-threads=1",
+    "cargo build --release --locked --offline --manifest-path mlmd/native/Cargo.toml --features cuda --bins",
+    "python -u mlmd/native/tools/replay_large_frame_training.py --train-exe mlmd/native/target/release/omnimd-native-train.exe --eval-exe mlmd/native/target/release/omnimd-native-eval.exe --reference-exe mlmd/native/fixtures/generated-deepmd/large-frame-01/pre-large-train.exe --output-dir mlmd/native/fixtures/generated-deepmd/large-frame-replay-02",
+    "cargo check --locked --offline --manifest-path mlmd/native/Cargo.toml --no-default-features --bins"
+  ],
+  "environment": {
+    "os": "Windows",
+    "gpu": "NVIDIA GeForce RTX 4090",
+    "nvrtc": "installed CUDA12.8",
+    "driver_api": 13040,
+    "offline_dependencies_unchanged": true
+  },
+  "limitations": [
+    "Not every model fits256:466parameter synthetic model was rejected at effective138atom GPU-loss work capacity.",
+    "CPU geometry and deterministic GPU force gather retain quadratic frame cost; no speedup claim.",
+    "Physical accuracy/generalization/production scaling not established. New large-frame v9 path not yet validated on Linux.",
+    "No shared contract or external dependency changes; generated artifacts remain ignored."
+  ],
+  "source_sha256_git_lf": {
+    "mlmd/native/src/cuda/device_loss.rs": "11795fa9d9d032eaae6ceed39afb1042a542d63d74e1db7a9c206101c6f7a394",
+    "mlmd/native/src/cuda/full.rs": "bff2f0d99cc95f7822dfdcc694c3e6de913c7e34f25be8fa96c07eb4f02d7802",
+    "mlmd/native/src/cuda/large_frame_kernels.cu": "7e0db293b83ce0c8bc195790a2144a067b38fb1cd78db5cd749fb69342638b77",
+    "mlmd/native/src/cuda/tiled.rs": "f06651e9ad01aaad2e23a1024126a527cec9535c3f3c272dc78b01d842e10973",
+    "mlmd/native/src/fixed_geometry.rs": "a69b30516ea197f4ea72492aab138e96fc62a0c1df8c39ac7e08244f82d171c5",
+    "mlmd/native/src/full_training.rs": "98b4aa7a9cb56da2d8d9350d9006b4a89801798bac40054ed490839ec8b8f771",
+    "mlmd/native/src/indexed_dataset.rs": "1b53aaddea26c50e663a8a1b8c8a7cb3b99cda1f825622f3953c39fa09c0b126",
+    "mlmd/native/tests/cuda_reverse_training.rs": "e27467e5f36e9bd8fda9b551a7ebae531ce758138942895c0f99ef040030d377",
+    "mlmd/native/tests/indexed_training.rs": "b9f0827bc6830347bfe4aafeadcff9ca3341ab1599249df0681488f644d82ff0",
+    "mlmd/native/tests/large_frame_training.rs": "b96e710f73eff8cfcc2611718e3fbb3843b6a6874041c674aa1f357a3380e9c5",
+    "mlmd/native/tools/replay_large_frame_training.py": "23e1ddf738c6b9bf5d453bbd95d1b7f0c72d198d1bdb3d9d4d5926fb00514632"
+  },
+  "source_hash_note": "Hashes identify staged Git LF source blobs. Replay hashes identify actual executed binaries and script files. No executable source changes followed successful verification."
+}

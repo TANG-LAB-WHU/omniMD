@@ -59,7 +59,7 @@ pub(super) fn plan_resources(
         .ok_or_else(|| Error("invalid CUDA tile work estimate".into()))?;
     let cap = config
         .max_atoms
-        .min(config.max_frames * 64)
+        .min(config.max_frames * config.max_atoms_per_frame)
         .min((WORK_LIMIT / per_atom_work) as usize);
     for n in (1..=cap).rev() {
         let host = host_bytes(
@@ -151,6 +151,29 @@ impl CudaFullTrainer {
         }
         result
     }
+    pub(super) fn preflight_tiled_batch(
+        &self,
+        dataset: &dyn DatasetAccess,
+        indices: &[usize],
+    ) -> Result<()> {
+        let cap = self.tiled.as_ref().unwrap();
+        for &index in indices {
+            let n = dataset.atoms(index)?;
+            check_work_bound(
+                n,
+                self.layout.parameters.len(),
+                self.maximum_center_terms,
+                cap.requested.max_atoms_per_frame,
+            )?;
+            if n > cap.effective_max_atoms {
+                return Err(Error(format!(
+                    "CUDA tile cannot fit frame {index} with {n} atoms (effective capacity {})",
+                    cap.effective_max_atoms
+                )));
+            }
+        }
+        Ok(())
+    }
     fn batch_gradient(
         &mut self,
         dataset: &dyn DatasetAccess,
@@ -166,13 +189,19 @@ impl CudaFullTrainer {
         }
         let cap = self.tiled.as_ref().unwrap().clone();
         let p = self.layout.parameters.len();
+        self.preflight_tiled_batch(dataset, indices)?;
         let mut tile = Tile::new(&cap, self.cpu.model().descriptor.sel.iter().sum());
         let mut gradient = vec![0.0; p];
         let mut frame_gradient = vec![0.0; p];
         let mut objective = 0.0;
         for &index in indices {
             let atoms = dataset.atoms(index)?;
-            check_work(atoms, p, self.maximum_center_terms)?;
+            check_work_bound(
+                atoms,
+                p,
+                self.maximum_center_terms,
+                cap.requested.max_atoms_per_frame,
+            )?;
             if atoms > cap.effective_max_atoms {
                 return Err(Error(format!(
                     "CUDA tile cannot fit frame {index} with {atoms} atoms"
@@ -318,6 +347,13 @@ impl CudaFullTrainer {
                 "CUDA tile device resident buffer capacity exceeded".into(),
             ));
         }
+        self.profile.max_atoms_per_frame = self.profile.max_atoms_per_frame.max(
+            tile.boundaries
+                .iter()
+                .map(|f| f.end - f.start)
+                .max()
+                .unwrap_or(0),
+        );
         self.profile.frames += tile.boundaries.len();
         self.profile.tiles += 1;
         self.profile.kernel_launches += 4;
@@ -374,6 +410,7 @@ mod tests {
             &model,
             &plan,
             &CudaTiling {
+                max_atoms_per_frame: 64,
                 max_frames: 32,
                 max_atoms: 1024,
             },
@@ -391,6 +428,7 @@ mod tests {
                 &model,
                 &plan,
                 &CudaTiling {
+                    max_atoms_per_frame: 64,
                     max_frames: frames,
                     max_atoms: atoms
                 }
