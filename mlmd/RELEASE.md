@@ -1049,3 +1049,32 @@ path; periodic and final checkpoint bytes matched exactly. The
 and the local replay path. This is a narrow CPU-work reduction, not a measured
 end-to-end or GPU speedup. Native CUDA performance integration and workload-specific
 English guidance await measured evidence. No public push is included.
+
+## Local packed-transfer and resident-state integration
+
+Native sources `cb2b94fafce69ec8bcd1a317673c54c05b91ed5f` and
+`f4ca7f3a6ec59e7164c6482d574eb7ca650b2a9a` are integrated in order as `9d389ca`
+and `8743e0a277c1dd07e9635cc7c65494f836280ab1`, preserving `76d60c6` and the
+comparison baseline `201cdef`. No native source/evidence changes were needed.
+Existing explicit GPU-loss full training now uses resident parameter/Adam state
+until the original checkpoint boundaries, plus 256-byte packed-input offsets.
+Per-update status checks, full snapshot validation, FP64 kernels, checkpoint formats
+and all-frame export verification remain. CPU and CPU-loss defaults are unchanged.
+
+The actual rebuilt engine/sibling trainer passed the minimal unchanged public
+1,000-update request and historical v8 500+500 continuation: model/checkpoint bytes,
+metrics, sampler and execution identity match the references; export E/F/V error is
+zero. [Evidence and command](evidence/native-resident-integrated.json) are retained;
+native 29-test/CPU-only/v9 acceptance was reused rather than rerun. Capability JSON
+and English entry guides describe activation, diagnostics and workload limits.
+
+The separate native fixed-work comparison records whole-process medians versus
+`201cdef`: public 1332.67->1229.95 ms (7.7% less time), medium synthetic
+2946.89->2875.74 ms (2.4%). Medium improvement over transfer-only is unresolved;
+tiny CPU 504.19 ms beats CUDA 703.56 ms. Earlier unfavorable transfer-only evidence
+remains. These combined gains are specific to the recorded Windows/RTX4090 workloads
+and final-only checkpoint cadence; no independent residency/alignment, cold-cache,
+Linux or general speed claim. Scientific model-quality limitations remain unchanged.
+
+No benchmark suite, new architecture, dependency installation, system setting or
+public push is included. Generated data, weights and raw outputs remain local.

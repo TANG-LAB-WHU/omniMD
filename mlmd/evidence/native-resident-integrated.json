@@ -1,0 +1,86 @@
+{
+  "schema": "omnimd-resident-state-integrated-v1",
+  "scope": "Actual engine train-native forwarding: one unchanged public 1000-update request and one historical v8 500-update continuation; no performance benchmark",
+  "baseline_commit": "201cdef0626bd9308bcff07faef4c5ae3aa9d93a",
+  "native_source_commit": "f4ca7f3a6ec59e7164c6482d574eb7ca650b2a9a",
+  "sha256": {
+    "engine": "88fd40abc7f3073edec824238541258e335584223a036cfa919e4bf4f4d18a15",
+    "trainer": "46076cdbf11707efdb404be84ba49c45d07643fc82cf8d2bca86cf0b6cb07ada",
+    "script": "918519e7cc8ffce07c5e255b7f7cfd842852378206607ac21e7bc7685230f627",
+    "native_receipt": "6a6e3c4599c9c8476daa8088e68b5b1fc1691889ad96da8a6e415aabe5a109ee"
+  },
+  "cpu_default_and_explicit_gpu_capability": true,
+  "reference_work": "D:\\project\\omniMD-native\\mlmd\\native\\fixtures\\generated-deepmd\\resident-state-01",
+  "local_artifact_root": "C:\\Users\\Shawn\\Documents\\Codex\\2026-10-13\\task-2\\omnimd-runtime\\resident-integrated-01",
+  "cases": [
+    {
+      "case": "public-full",
+      "updates": 1000,
+      "final_step": 1000,
+      "request_only_output_path_changed": true,
+      "checkpoint_periodic_checkpoint_and_model_bytes_match_reference": true,
+      "execution_metrics_sampler_and_tile_counts_match_reference": true,
+      "resident_state": {
+        "snapshots": 1,
+        "state_download_bytes": 12744,
+        "state_download_calls": 3,
+        "status_downloads": 1000,
+        "updates": 1000
+      },
+      "all_dataset_export_evaluations": 422,
+      "reload_max_abs_energy_force_virial": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "model_sha256": "4608b318e87f001590a730966eaab020283332eae1bdbec3ea7af0aa75b77baf",
+      "checkpoint_sha256": "9e7494dfff79c926883ab99c9b07a4cb79ad7de4443a033e475b811dfcc43477",
+      "request_sha256": "dd8628524c6ff82c95ec4a764bfa0463bc9a4e0fb5523ff6e2565ce20e95c2d0",
+      "reference_request_sha256": "fe469aef03730cd08d1b09b6850c96b03a77d2f06da68787c72030e5780128f8"
+    },
+    {
+      "case": "historical-v8-resume",
+      "updates": 500,
+      "final_step": 1000,
+      "request_only_output_path_changed": true,
+      "checkpoint_periodic_checkpoint_and_model_bytes_match_reference": true,
+      "execution_metrics_sampler_and_tile_counts_match_reference": true,
+      "resident_state": {
+        "snapshots": 1,
+        "state_download_bytes": 12744,
+        "state_download_calls": 3,
+        "status_downloads": 500,
+        "updates": 500
+      },
+      "all_dataset_export_evaluations": 422,
+      "reload_max_abs_energy_force_virial": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "model_sha256": "4608b318e87f001590a730966eaab020283332eae1bdbec3ea7af0aa75b77baf",
+      "checkpoint_sha256": "cb8a09c5e327a64d89e7c1878fae3a4dd44601edfa5126eb0815d2609b9b1bb9",
+      "request_sha256": "715fc057cdf15199bd265aee1db201e63675caf4255a8a919b1a2c6c1495b1be",
+      "reference_request_sha256": "426362dbac35a7d94168bc26a4a2ed9f400b7dc13d82bbf8993325822a0d01f7"
+    }
+  ],
+  "status": "passed",
+  "gpu_runs": 2,
+  "gpu_failures": 0,
+  "retries": 0,
+  "historical_resume_matches_full_model": true,
+  "performance_measurement": false,
+  "gpu_window_released": true,
+  "integrated_native_commit": "8743e0a277c1dd07e9635cc7c65494f836280ab1",
+  "build_command": "cargo build --locked --offline --release --manifest-path mlmd/Cargo.toml -p omnimd-mlmd -p omnimd-native --features omnimd-mlmd/native-cuda,omnimd-native/cuda --bin omnimd-mlmd --bin omnimd-native-train -j 2",
+  "engine_source_sha256_lf_normalized": {
+    "mlmd/engine/src/main.rs": "7cc3000169197543c379f8dbfe13640dd5cd64cb593cd37b30eddf98aa937a2e",
+    "mlmd/engine/src/dataset_commands.rs": "019e6d3d0e41ae5433bc6d9027928ca2a32dc1e65e0b800dce930e071187a68f"
+  },
+  "existing_native_acceptance": "29 tests, CPU-only build and historical v8/v9 resume are recorded in native/fixtures/resident-state-report.json; not repeated by integration.",
+  "limits": [
+    "Windows RTX4090 CUDA12.8 only; current residency/alignment has no new Linux acceptance.",
+    "No new performance benchmark; timing claims come from B fixed rotating comparisons.",
+    "Public model remains unsuitable for scientific acceptance; 43 frames are diagnostic validation."
+  ]
+}

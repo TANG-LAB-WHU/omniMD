@@ -97,9 +97,13 @@ supports reverse tiling and optional `config.cuda_loss="gpu"` for GPU E/F/V
 predictions and detached seeds. GPU loss requires reverse+tiling and binds v8;
 default CPU loss with tiling keeps v7, and geometry/reduction/assessment remain CPU work.
 Follow [step 23](GETTING_STARTED.md#23-select-gpu-prediction-and-loss-preparation-explicitly)
-for the complete selection/restart rules. Select this per workload: 128-update
-synthetic medians were 605->756 ms (112 parameters, slower) and 3506->3061 ms
-(466 parameters, 1.15x). That GPU-loss option alone does not raise limits.
+for selection/restart rules. State residency now activates automatically in that
+explicit GPU-loss path, preserving each status check and the existing checkpoint
+cadence. [Step 27](GETTING_STARTED.md#27-use-resident-gpu-training-state-and-interpret-measured-speed)
+records combined whole-process reductions versus `201cdef`: public E/F 7.7%, medium
+synthetic 2.4%; medium incremental gain over transfer-only remains unresolved.
+Tiny CPU remains faster (504.19 versus 703.56 ms GPU). These Windows measurements
+do not generalize to every workload or establish physical accuracy. Limits remain.
 For larger physical frames, [step 25](GETTING_STARTED.md#25-opt-in-to-resource-bounded-larger-training-frames)
 adds explicit `cuda_tiling.max_atoms_per_frame=64..256`; >64 selects v9 and
 GPU-loss backend v2. Default 64 and CPU/untiled limits remain. Unchanged work/payload

@@ -112,10 +112,19 @@ CPU work; changing loss mode requires a new optimizer, not a checkpoint edit.
 
 Use [step 23](../GETTING_STARTED.md#23-select-gpu-prediction-and-loss-preparation-explicitly)
 and [the native contract](../native/DEVICE_LOSS_TRAINING.md) for required fields,
-limits and exact restart rules. The final [engine receipt](../evidence/native-device-loss-integrated.json)
-verifies historical v7 and opt-in v8. Synthetic whole-process medians regressed
-605->756 ms for 112 parameters and improved 3506->3061 ms for 466 parameters;
-keep this option explicit. These measurements do not establish general speed.
+limits and restart rules. The current GPU-loss route automatically retains parameters
+and Adam moments on device until the original save boundaries; each update still
+checks synchronized status, and complete snapshots are validated before saving.
+No new request option is needed. CPU and CPU-loss defaults remain unchanged.
+
+[Step 27](../GETTING_STARTED.md#27-use-resident-gpu-training-state-and-interpret-measured-speed)
+records the combined transfer/residency/alignment changes: whole-process medians
+versus `201cdef` fell 7.7% for the public 531-parameter workload and 2.4% for medium
+synthetic work. Medium incremental benefit over transfer-only is unresolved; tiny
+CPU remains faster (504.19 versus 703.56 ms GPU). Frequent checkpoints reduce savings.
+The [integrated receipt](../evidence/native-resident-integrated.json) verifies actual
+CLI forwarding, unchanged full-workload outputs and historical v8 resume. These
+Windows-only results do not establish general speed or scientific model accuracy.
 
 The unchanged `06439f1` engine and sibling trainer also passed the recorded
 [Linux native CUDA check](../LINUX_CUDA_VALIDATION.md): Ubuntu 22.04.5/WSL2

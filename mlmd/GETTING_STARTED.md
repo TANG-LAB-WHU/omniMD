@@ -1112,8 +1112,11 @@ start a new optimizer from exported `model.json` to change mode. Default CPU los
 keeps historical v7 identity and numerics. Cross-mode comparisons use tolerances;
 exact restart is limited to the tested same build/runtime/backend.
 
-Performance must be judged end to end. B's separate three-repeat, 128-update
-synthetic medians were:
+Performance must be judged end to end. The original three-repeat, 128-update
+CPU-loss versus GPU-loss comparison below is historical. For the current combined
+transfer/residency/alignment changes and device guidance, use
+[step 27](#27-use-resident-gpu-training-state-and-interpret-measured-speed).
+The earlier synthetic medians were:
 
 | Model | CPU loss | GPU loss | Outcome |
 | --- | ---: | ---: | --- |
@@ -1314,3 +1317,105 @@ The [diagnosis receipt](evidence/physical-nopbc-diagnosis.json) preserves exact
 request differences, metrics and hashes. Source arrays, helper scripts, models,
 checkpoints and raw logs remain task-local. This documentation integration adds
 no training, test, parameter search, implementation change or performance claim.
+
+## 27. Use resident GPU training state and interpret measured speed
+
+CPU remains the default and is the better measured choice for the tiny case below.
+Use the existing full-network request schema and retain its model, labels, split,
+loss, optimizer and output fields. For CPU, omit `device` or use `"device":"cpu"`
+and leave CUDA-only options absent. For the measured GPU-loss route, build both
+adjacent executables from the standalone workspace:
+
+```sh
+cargo build --release --locked --offline --manifest-path mlmd/Cargo.toml -p omnimd-mlmd -p omnimd-native --features omnimd-mlmd/native-cuda,omnimd-native/cuda --bin omnimd-mlmd --bin omnimd-native-train
+```
+
+Set top-level `"device":"cuda:0"`. Merge these fields into the existing `config`
+(the fragment is not a complete training request):
+
+```json
+{
+  "cuda_gradient": "reverse",
+  "cuda_tiling": {"max_frames": 8, "max_atoms": 80},
+  "cuda_loss": "gpu"
+}
+```
+
+These tile sizes match the public replay; they are not universal tuning values.
+Keep the requested checkpoint interval. Run:
+
+```sh
+omnimd-mlmd train-native REQUEST.json
+```
+
+The engine forwards once to its sibling `omnimd-native-train`. The installed
+Driver/NVRTC runtime must be available; on Windows, `CUDA_PATH` identifies the
+existing toolkit. This workflow installs nothing and does not choose CUDA
+implicitly. Missing `cuda_loss` or `"cuda_loss":"cpu"` retains CPU prediction/loss
+preparation, even with an explicit CUDA gradient executor. It does not select the
+resident path. Readout training and the public eager CUDA API are unchanged.
+
+**There is no new residency option.** In the explicit GPU-loss full trainer,
+parameters and Adam moments now remain on the GPU between original checkpoint
+boundaries. Every update still synchronizes and checks device status. Before every
+save callback and final assessment/export, a complete host snapshot passes model
+and moment validation. Partial final checkpoint intervals are handled too. The
+same FP64 formulas, kernels, sampler, update count and checkpoint versions remain;
+CPU geometry, gradient reduction/clipping, assessments and integrity checks remain.
+Packed tile inputs use one arena plus a separate status reset, with 256-byte field
+offsets inside the existing payload limits. Frequent checkpointing reduces the
+state-transfer savings; do not change save cadence when comparing performance.
+
+Inspect `report.json`:
+
+- `cuda_state_residency.updates` and `status_downloads` count successful updates.
+- `snapshots`, `state_download_calls` and `state_download_bytes` show complete host
+  refreshes. The 1,000-update public final-only run has 1 snapshot, 3 state downloads
+  and 12,744 state bytes, while retaining 1,000 status downloads.
+- `cuda_gradient_profile.input_transfer_calls` counts tiled inputs/status resets,
+  excluding Adam and state downloads. GPU loss uses two per tile.
+- `output_timing.reload_checked_frames` and `reload_evaluations` confirm all-frame
+  export validation: 211 frames and 422 CPU evaluations in the public case.
+
+Use external whole-process elapsed time for speed claims. Startup, Adam snapshots,
+assessment and output timing fields overlap; do not add all fields together.
+
+The [native receipt](native/fixtures/resident-state-report.json) contains three
+rotating GPU runs per implementation and two bracketing CPU runs per case, on
+Windows/RTX 4090 with CUDA/NVRTC 12.8. Complete-process medians include startup,
+checkpoint work, assessments and export validation:
+
+| Fixed workload | Baseline `201cdef` CUDA | Current CUDA | Native CPU | Interpretation |
+| --- | ---: | ---: | ---: | --- |
+| Public E/F: 531 parameters, 211 frames of 7/8/10 atoms, batch 8, 1,000 updates | 1332.67 ms | 1229.95 ms | 2576.25 ms | 7.7% less elapsed time versus baseline CUDA |
+| Synthetic E/F/V: 466 parameters, 128 frames of 32/64 atoms, batch 32, 128 updates | 2946.89 ms | 2875.74 ms | 37114.17 ms | 2.4% less elapsed time versus baseline CUDA |
+| Tiny synthetic E/F/V: 112 parameters, 128 frames of 3/4 atoms, batch 32, 128 updates | 709.35 ms | 703.56 ms | 504.19 ms | Prefer CPU for this measured scale |
+
+All use final-only checkpoints. The public replay keeps the original E/F weights
+1/1, not the later weight-0.1 diagnostic fit. These are combined
+transfer/residency/alignment results. Medium current versus transfer-only differs by just 0.12% with overlapping
+ranges; no reliable incremental whole-process improvement is established there.
+Tiny current CUDA is 3.1% slower than transfer-only. The earlier transfer-only public
+4.5% regression remains in [its receipt](native/TRANSFER_BATCHING.md). The samples
+are small, caches/clocks were not reset, and cold-cache performance was not measured.
+No general crossover, Linux result, external DeepMD comparison or speed guarantee
+follows. See [full ranges, scope and compatibility](native/RESIDENT_STATE_TRAINING.md).
+
+[Integrated acceptance](evidence/native-resident-integrated.json) exercised the
+actual engine command once on the unchanged 1,000-update public request and once
+on historical v8 step-500 continuation with the accepted storage/cache switch.
+Model, final and periodic checkpoint bytes matched the reference; metrics, sampler,
+execution identity and tile counts matched. All-frame reload E/F/V error was zero.
+Native historical v9/29-test evidence was reused without repeating the full suite.
+This integration is not another performance benchmark. To replay from the accepted
+local work directory in an exclusive GPU window:
+
+```text
+python mlmd/scripts/validate_resident_integration.py --engine ENGINE_EXE --reference-work ACCEPTED_RESIDENT_WORK --work NEW_WORK
+```
+
+The replay stops on the first failure without retry. The current resident-state
+implementation has Windows acceptance only; the older Linux v7/v8 record does not
+cover it. The public fit still fails scientific model-quality acceptance, and its
+43 validation frames are diagnostic, not an untouched final test. Faster training
+does not change that conclusion.

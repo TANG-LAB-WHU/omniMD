@@ -19,6 +19,13 @@ have been used for diagnosis; there is no untouched final test. Only 7-10-atom
 v8 frames were exercised, and two-step CPU/GPU optimizer consistency does not
 prove agreement over all 1,000 updates or validate the new v9 path.
 
+The latest local [CUDA training optimization](mlmd/GETTING_STARTED.md#27-use-resident-gpu-training-state-and-interpret-measured-speed)
+retains optimizer state on the device between existing checkpoints. On the recorded
+Windows/RTX 4090 workloads, combined changes reduced complete-process median time
+by 7.7% for the public 531-parameter E/F fit and 2.4% for a 466-parameter synthetic
+case versus `201cdef`. The 112-parameter tiny case remains faster on CPU. CPU stays
+the default; these results do not establish physical accuracy or general speedup.
+
 The CPU baseline was published as fce0af9f6a49592a48c13883dfc3aa0d3eb4a28e.
 The [CUDA release 9074817](https://github.com/TANG-LAB-WHU/omniMD/commit/907481708ae5f3df4228a9fb5d5b1110c39f5e23)
 is now published on shawn_dev. It adds two explicitly selected inference paths
@@ -332,9 +339,13 @@ reduction/clipping and assessment remain CPU work. The
 [step-23 guide](mlmd/GETTING_STARTED.md#23-select-gpu-prediction-and-loss-preparation-explicitly)
 and [final receipt](mlmd/evidence/native-device-loss-integrated.json) cover CLI
 forwarding, actual v7 compatibility, tolerant cross-mode comparison and exact
-same-backend v8 restart. Three-repeat synthetic whole-process medians were
-604.53->756.03 ms for 112 parameters (slower) and 3505.78->3060.90 ms for 466
-parameters (1.15x). This option is not selected automatically; bounds remain.
+same-backend v8 restart. Historical CPU-loss/GPU-loss measurements remain in that
+receipt. The [latest resident-state comparison](mlmd/native/RESIDENT_STATE_TRAINING.md)
+measures the combined transfer, alignment and optimizer-state changes against
+`201cdef`: 1332.67->1229.95 ms public E/F and 2946.89->2875.74 ms medium synthetic.
+The tiny native CPU reference is faster, 504.19 versus 703.56 ms CUDA. GPU loss
+remains explicit; state residency activates automatically within that path and
+preserves checkpoint cadence. Frequent saves reduce its benefit; bounds remain.
 
 [Resource-bounded larger training frames](mlmd/native/LARGE_FRAME_TRAINING.md)
 use explicit `config.cuda_tiling.max_atoms_per_frame=256` with reverse CUDA.

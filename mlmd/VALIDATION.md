@@ -365,3 +365,23 @@ No old shawn_dev-specific work or private HAP inputs were imported. The accepted
 CPU tree was published as fce0af9; the CUDA release was published as 9074817.
 Toolchains/runtimes were installed only in task-local locations
 and the isolated CPU container; no global PATH, driver or security changes.
+
+## Resident GPU state integration, 2026-10-17
+
+Native sources `cb2b94f` and `f4ca7f3` integrate as `9d389ca` and `8743e0a` on
+`76d60c6`. The offline release engine and sibling trainer were built together with
+CUDA features. [Minimal CLI acceptance](evidence/native-resident-integrated.json)
+ran the unchanged public 1,000-update request and historical v8 step-500 continuation
+once each through `omnimd-mlmd train-native`. Model, final and periodic checkpoint
+bytes match the accepted reference. Metrics, sampler, execution identity and tile
+counts match; each run takes one validated state snapshot while checking every
+update. All 211 frames retain two export/reload evaluations, with zero E/F/V error.
+No retries or GPU failures occurred; the GPU window was released after these checks.
+
+The [native receipt](native/fixtures/resident-state-report.json) retains 29 tests,
+CPU-only build and historical v8/v9 restart evidence, not rerun by integration.
+Its separate rotating whole-process comparison supports 7.7% less time for public
+E/F and 2.4% for medium synthetic versus `201cdef`. Medium additional benefit over
+transfer-only is unresolved, and tiny CPU remains faster. These are Windows/RTX4090
+measurements, not a general guarantee or current Linux acceptance. The public model
+remains scientifically unsuitable; its 43 frames are diagnostic validation.

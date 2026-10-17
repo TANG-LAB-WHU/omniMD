@@ -1,6 +1,6 @@
 # DeepMD feature coverage: reference version 3.1.3
 
-Matrix revision 20, checked 2026-10-16. Previous integrated CUDA runtime:
+Matrix revision 21, checked 2026-10-17. Previous integrated CUDA runtime:
 `9b8d1847f892e32751c73d3262e0245d0efb4cdd`. This includes engine inspection/tutorial,
 native source `b6b7aa7` and C API source `1aee39c`. Implementation and real-runtime
 validation are separate. C API CPU follow-up is now verified in `ce27786`
@@ -22,6 +22,12 @@ Physical-label evidence `fd19b9f` and diagnosis source `bd82b25` (integrated as
 both models remain unsuitable.** Lower energy weight improves force error with
 an energy tradeoff. The 43 frames are diagnostic validation, not a final test;
 neither scientific acceptance nor new v9 Linux validation follows.
+
+Packed-transfer source `cb2b94f` and resident-state source `f4ca7f3` are integrated
+as `9d389ca` and `8743e0a` after the engine diagnostic-reuse commit `76d60c6`.
+The [minimal engine receipt](evidence/native-resident-integrated.json) verifies the
+unchanged public workload and historical v8 continuation. Current residency/alignment
+acceptance is Windows-only; earlier Linux evidence does not cover these changes.
 
 **omniMD does not implement all DeepMD features.** Native means arithmetic in
 this Rust/CUDA implementation. Delegated means the official external runtime
@@ -81,7 +87,8 @@ an official `input.json` is not a native training request.
 | Full supported-network training | CPU default; optional bounded CUDA all-neural E/F and optional V gradients and Adam, tanh/linear, checkpoint/restart | CPU geometry/reduction/assessment retained; prediction/loss seeds default CPU with explicit tiled GPU alternative; fixed normalization/cutoff/selection/atomic offsets; independent one-side copies; [CUDA bounds](native/CUDA_FULL_TRAINING.md) |
 | CUDA gradient executor | Hyperdual default; explicit cached reverse accumulation, same shape/work bounds, 64 MiB planned device-buffer payload | [Activation and evidence](native/CUDA_REVERSE_TRAINING.md); full-batch reverse checkpoint v4 (minibatch v5, explicit schedule v6, tiling v7, GPU loss v8, expanded frame ceiling v9), no executor switch on resume; payload excludes driver/context memory |
 | Multi-frame CUDA reverse | Explicit `cuda_tiling`; four gradient kernels per packed tile with default CPU loss, original batch normalization/reduction/Adam boundaries; v7 executor identity | [Contract](native/TILED_TRAINING.md); up to 32 frames/1024 total atoms subject to work/payload planning; default 64 atoms/frame, explicit larger ceiling below; architecture bounds unchanged; CPU geometry remains; GPU prediction/seeds is a separate opt-in below |
-| GPU prediction/loss seeds | Explicit `cuda_loss="gpu"` with reverse+tiling; E/F/V, detached seeds and reused primal intermediates; ten kernels/tile; immutable v8 (v9 with expanded frame ceiling) | [Contract](native/DEVICE_LOSS_TRAINING.md); CPU loss remains default, geometry/scalars/reduction/assessment remain CPU; 128-update tiny synthetic case regressed 605->756 ms, medium improved 3506->3061 ms (1.15x) |
+| GPU prediction/loss seeds | Explicit `cuda_loss="gpu"` with reverse+tiling; E/F/V, detached seeds and reused primal intermediates; ten kernels/tile; immutable v8 (v9 with expanded frame ceiling) | [Contract](native/DEVICE_LOSS_TRAINING.md); CPU loss remains default, geometry/scalars/reduction/assessment remain CPU; current workload measurements are in [step 27](GETTING_STARTED.md#27-use-resident-gpu-training-state-and-interpret-measured-speed) |
+| Resident GPU optimizer state | Automatic within explicit reverse/tiled GPU-loss full training; per-update status checks, validated host snapshots at original save boundaries; packed inputs with 256-byte offsets | [Contract/evidence](native/RESIDENT_STATE_TRAINING.md); unchanged FP64 kernels and checkpoint versions; combined whole-run time reductions versus `201cdef`: public 7.7%, medium synthetic 2.4%; medium incremental gain over transfer-only unresolved; tiny prefers CPU; frequent saves reduce benefit; Windows-only acceptance |
 | Larger CUDA training frames | Explicit `cuda_tiling.max_atoms_per_frame=64..256`, default 64; reverse tiling only; v9 for >64, GPU-loss backend v2 | [Contract](native/LARGE_FRAME_TRAINING.md); no work/payload increase; 112-parameter fixture fits 256, 466-parameter example effective capacity 138 rejects 256; CPU/untiled remain 64; new v9 Linux unverified; no speed claim |
 | Fixed training geometry | Explicit CUDA full-training cache, both gradient executors; default false; 64 MiB retained host payload; exact identity checks | [Contract](native/FIXED_GEOMETRY_TRAINING.md); fixed training frames only; cache may toggle on resume; excludes temporary/allocator memory, assessment and current-loss directions |
 | Virial supervision | Optional full-network CPU/CUDA loss on all nine row-strain virial entries per atom; explicit positive weight/scale; loss-bound full-batch CPU/hyperdual v3 or reverse v4; minibatch v5; explicit schedule v6; tiling v7; GPU loss v8; expanded frame ceiling v9 | [Contract](native/VIRIAL_TRAINING.md); E/F labels still required; readout QR remains E/F-only; no stress/volume conversion |
@@ -274,6 +281,13 @@ an official `input.json` is not a native training request.
   three-frame inference E/F/V differences are 0/8.88e-16/4.44e-16, reload zero;
   these are not physical-accuracy measurements. Only the default 64-atom ceiling/v8 with 7-10 atoms
   per frame was exercised. No new tests, training or implementation changes in integration.
+
+- Packed-transfer/resident-state sources `cb2b94f`/`f4ca7f3` retain the original
+  checkpoint cadence and all-frame export validation. The public integrated
+  1,000-update run and historical 500+500 v8 continuation reproduce reference model,
+  checkpoint, metrics and execution identity exactly. Native 29-test/CPU-only/v9
+  acceptance is retained. Performance comes from the separate fixed rotating
+  comparison, not the integration replay. See [step 27](GETTING_STARTED.md#27-use-resident-gpu-training-state-and-interpret-measured-speed).
 
 ## Implementation order and acceptance gates
 

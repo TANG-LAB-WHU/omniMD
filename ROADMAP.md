@@ -305,6 +305,31 @@ are recorded in the [native contract](mlmd/native/LARGE_FRAME_TRAINING.md).
 The process observations were 1554 ms CPU-loss CUDA and 1721 ms GPU-loss CUDA;
 this delivery expands admitted capacity, not demonstrated throughput.
 
+## Delivered: packed transfers and resident GPU optimizer state
+
+Sources `cb2b94f` and `f4ca7f3` are integrated as `9d389ca` and `8743e0a` after
+engine-only diagnostic reuse `76d60c6`. Explicit reverse/tiled `cuda_loss="gpu"`
+training retains parameters and Adam moments on device until original save
+boundaries, with a synchronized status check each update and full validation before
+publication. Packed inputs use 256-byte offsets. No kernels, FP64 formulas, model/
+checkpoint formats, default device or new configuration fields changed.
+
+The [fixed-work comparison](mlmd/native/RESIDENT_STATE_TRAINING.md) records Windows
+RTX 4090 whole-process medians versus `201cdef`: public 531-parameter E/F,
+1,000 updates, 1332.67->1229.95 ms (7.7% less elapsed time); medium synthetic
+466-parameter E/F/V, 128 updates, 2946.89->2875.74 ms (2.4%). The medium incremental
+benefit over transfer-only is unresolved. Tiny CPU 504.19 ms remains faster than
+CUDA 703.56 ms. Earlier transfer-only public regression is retained; alignment
+and residency contributions are not separately identified. Frequent checkpoints
+reduce savings. No current Linux performance or residency acceptance is claimed.
+
+[Integrated CLI acceptance](mlmd/evidence/native-resident-integrated.json) reproduces
+the complete public run and historical v8 step-500 continuation with exact model,
+checkpoint, metric and execution identity. Full all-frame export validation remains.
+Native 29-test/CPU-only/v9 evidence was reused; no benchmark suite was repeated.
+See [step 27](mlmd/GETTING_STARTED.md#27-use-resident-gpu-training-state-and-interpret-measured-speed).
+Scientific model suitability remains unchanged.
+
 ## Physical-label diagnosis: measured loss tradeoff, model quality unsuitable
 
 The unchanged `8167a4a` runtime completed the original physical-label fit and one
