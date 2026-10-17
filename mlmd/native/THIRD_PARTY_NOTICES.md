@@ -265,3 +265,11 @@ source arrays or fitted weights. Attribution: Jinzhe Zeng and Tong Zhu,
 the official DeepMD example is distributed under LGPL-3.0-or-later at commit
 `b494a0d5413d5f1895202c82f20477300b716bf2`. The original synthetic medium/tiny
 recipes remain MIT. See `TRANSFER_BATCHING.md` for scope and limitations.
+
+## Resident optimizer state and replay
+
+The private resident wrapper, transactional host snapshot publication, added
+phase counters/tests and `tools/replay_resident_training.py` are original MIT
+code. They retain the existing Adam/derivative kernels and add no dependency or
+third-party source. Public-data attribution above also applies to this replay;
+raw source arrays and trained weights remain untracked.

@@ -24,8 +24,9 @@ See [conversion](CONVERSION.md), [frozen export](FROZEN.md),
 GPU inference is described in [CUDA_FIT.md](CUDA_FIT.md); full neural-parameter
 training, its exact computation boundary and timings are in
 [CUDA_FULL_TRAINING.md](CUDA_FULL_TRAINING.md). Tiled trainers use
-[bounded packed input transfers](TRANSFER_BATCHING.md); its dated evidence separates
-whole-process, startup and update timings. The optional nine-component
+[bounded packed input transfers](TRANSFER_BATCHING.md) and
+[resident GPU optimizer state](RESIDENT_STATE_TRAINING.md); their dated evidence
+separates whole-process, startup and update timings, including small-case regressions. The optional nine-component
 virial loss and compatibility rules are in [VIRIAL_TRAINING.md](VIRIAL_TRAINING.md).
 
 ## Step 1: Build the CPU baseline

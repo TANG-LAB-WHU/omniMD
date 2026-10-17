@@ -1,6 +1,8 @@
 //! Byte-exact coalescing of training inputs. Kernel arithmetic/source is unchanged.
 use omnimd_ml_contract::{Error, Result};
-pub(super) const ALIGNMENT_RESERVE: usize = 64; // <= 9 fields, each padded by at most seven bytes.
+const ALIGNMENT: usize = 256;
+// Nine fields: at most eight gaps, each smaller than ALIGNMENT.
+pub(super) const ALIGNMENT_RESERVE: usize = 2048;
 pub(super) struct Layout {
     pub offsets: [usize; 31],
     pub bytes: usize,
@@ -19,8 +21,8 @@ impl Layout {
             seen |= 1u32 << index;
             out.bytes = out
                 .bytes
-                .checked_add(7)
-                .map(|n| n & !7)
+                .checked_add(ALIGNMENT - 1)
+                .map(|n| n & !(ALIGNMENT - 1))
                 .ok_or_else(|| Error("packed CUDA alignment overflow".into()))?;
             out.offsets[index] = out.bytes;
             out.bytes = out
@@ -76,9 +78,9 @@ mod tests {
         assert!(Layout::new([(2, usize::MAX), (3, 8)]).is_err());
         assert!(input_bytes(usize::MAX, 64, 32, true).is_err());
         let l = Layout::new([(2, 24), (3, 12), (17, 4), (18, 120)]).unwrap();
-        assert_eq!(l.offsets[18] % 8, 0);
-        assert_eq!(l.offsets[17], 40);
-        assert_eq!(l.bytes, 168);
+        assert_eq!(l.offsets[18] % ALIGNMENT, 0);
+        assert_eq!(l.offsets[17], 512);
+        assert_eq!(l.bytes, 888);
         assert_eq!(
             i32_bytes(&[-1, 7]),
             [(-1i32).to_ne_bytes(), 7i32.to_ne_bytes()].concat()

@@ -670,15 +670,19 @@ impl CudaFullTrainer {
             return Err(Error("invalid CUDA Adam gradient or global step".into()));
         }
         let step = self.step + 1;
-        let (values, first, second) = self.runtime.full_adam(
-            gradient,
-            config.beta1,
-            config.beta2,
-            1.0 - config.beta1.powf(step as f64),
-            1.0 - config.beta2.powf(step as f64),
-            config.learning_rate_at(self.step)?,
-            config.epsilon,
-        )?;
+        let (values, first, second) = self
+            .runtime
+            .full_adam(
+                gradient,
+                config.beta1,
+                config.beta2,
+                1.0 - config.beta1.powf(step as f64),
+                1.0 - config.beta2.powf(step as f64),
+                config.learning_rate_at(self.step)?,
+                config.epsilon,
+                true,
+            )?
+            .ok_or_else(|| Error("missing eager CUDA Adam snapshot".into()))?;
         if first.iter().any(|x| !x.is_finite()) || second.iter().any(|x| !x.is_finite() || *x < 0.0)
         {
             return Err(Error("invalid downloaded CUDA Adam moments".into()));
@@ -729,3 +733,7 @@ mod tests {
             .contains("64 neighbor slots"));
     }
 }
+
+#[path = "resident.rs"]
+mod resident;
+pub use resident::ResidentStateProfile;

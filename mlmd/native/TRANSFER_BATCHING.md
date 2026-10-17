@@ -1,5 +1,11 @@
 # Bounded packed inputs for CUDA training
 
+**Historical implementation/evidence:** this document records `cb2b94f`, including
+its eight-byte alignment and 64-byte reserve. The subsequent
+[resident-state implementation](RESIDENT_STATE_TRAINING.md) uses 256-byte offsets,
+a 2,048-byte reserve and deferred state snapshots. The measurements below are
+preserved unchanged, including the unfavorable public result.
+
 Tiled training now uploads each tile's inputs in one persistent device allocation,
 with one separate status reset. The GPU-loss path changes from ten synchronous
 HtoD calls to two per tile; the CPU-loss tiled path changes from five to two.
@@ -72,7 +78,7 @@ Separate timing totals, in milliseconds (not per-update latency):
 | Medium | 1057.78 -> 1025.26 | 1245.57 -> 1193.04 | 1.044x | 196.28 -> 58.95 |
 | Tiny | 531.73 -> 528.02 | 116.59 -> 108.07 | 1.079x | 21.69 -> 5.64 |
 
-¡°Gradient + Adam¡± is the measured update computation after startup, excluding
+â€œGradient + Adamâ€ is the measured update computation after startup, excluding
 assessment/checkpoint/IO; it is not the whole warm process. Medians of separate
 phases need not sum to the median process time. Kernel timing and other costs also
 vary, so the upload improvement does not translate directly into process speedup.

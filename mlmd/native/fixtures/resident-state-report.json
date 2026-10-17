@@ -1,0 +1,1952 @@
+{
+  "schema": "omnimd-native-resident-state-evidence-v1",
+  "date_utc": "2026-10-17",
+  "scope": "Native-only private resident GPU-loss optimizer state, 256-byte packed-input offsets, retained checkpoint cadence and all-frame export validation. FP64 arithmetic/kernels/formats unchanged.",
+  "comparison_commits": {
+    "baseline": "201cdef0626bd9308bcff07faef4c5ae3aa9d93a",
+    "transfer_only": "cb2b94fafce69ec8bcd1a317673c54c05b91ed5f",
+    "current": "native-resident-state commit containing this receipt; source hashes below"
+  },
+  "environment": {
+    "os": "Windows",
+    "gpu": "NVIDIA GeForce RTX 4090",
+    "compute_capability": "8.9",
+    "nvrtc_cuda": "12.8",
+    "driver_api_version": 13040,
+    "precision": "float64",
+    "exclusive_gpu": true,
+    "os_isolated": false,
+    "clocks_or_driver_cache_modified": false,
+    "cold_cache_measured": false
+  },
+  "method": "Three fixed rotating/alternating GPU implementations, three fresh processes each; two CPU reference processes bracketing them. No precision/work/output changes. Startup is fresh-process NVRTC/driver initialization with existing uncontrolled caches, not a claimed cold driver-cache experiment.",
+  "gpu_order_each_case": [
+    [
+      "baseline",
+      "transfer",
+      "current"
+    ],
+    [
+      "current",
+      "transfer",
+      "baseline"
+    ],
+    [
+      "transfer",
+      "baseline",
+      "current"
+    ]
+  ],
+  "executables_sha256": {
+    "baseline": "8495c740009e4432d70350dc0b93b80d64f90c5c8860fe6098d6313ad5d24225",
+    "transfer": "c1cb76e6c24eed62fbfb821adb1611ce088ba45208ee8f44c8b06ec42fb399ec",
+    "current": "26cf6b2e5d288655eed74b1eb7b48c6ac60a7357472238b02e918882cab5b539"
+  },
+  "executed_script_sha256": "a46171f4a26a25ac552a2f32e5350472b2916ca323a6729e23d9e2409ee71bfc",
+  "source_sha256_lf_normalized": {
+    "src/bin/omnimd-native-train.rs": "b879c7dfd25fdc5f67b12b439cfcdfc3e25ef40b70df08f4d14473b5f5efdc02",
+    "src/cuda/full.rs": "149c3d9eae9ef8b695b7ba872414f758ba78a92f45087e0105837f4900b2923f",
+    "src/cuda/mod.rs": "da3e4a0d8050632811a98bb0051acce549fdae250724df2d693a6eabfbc187fe",
+    "src/cuda/runtime.rs": "30ae47717fbe2ce4dcdab6c029df4bf57741800e0db843d7a6f04a716a361dcc",
+    "src/cuda/transfer.rs": "6f3006c3c0c24760b74c2522e68867b455cb2e87847bc6c214de51bac2b76de4",
+    "src/cuda/resident.rs": "3aa06b2eea927b3ac0bb66c2a019ae68dc674cdbf941b54056c35c98a10dae49",
+    "src/full_training.rs": "2edfd7a1855c9cc1bdd3be4489386043503e3304e63ebdda7ce5375526c68f45",
+    "tests/cuda_reverse_training.rs": "6dd5762e5af606c1df328689cf4194e0bf4a92fa5fb2ce28eca7d7cf246232d8",
+    "tools/replay_resident_training.py": "67d7febdd65b20b49f4522c0f2b96ad0800a08b2dab80a8646ab3ae6dd67aa22"
+  },
+  "raw_acceptance_sha256": "f8cd99a3db37e31eeea323bd4d8941d2d4d8221b1a317c9a4c4c23c6468508a1",
+  "public_provenance": {
+    "integration_document": "../PHYSICAL_DATA_VALIDATION.md",
+    "integration_evidence": "../evidence/physical-nopbc-training.json",
+    "source_commit": "b494a0d5413d5f1895202c82f20477300b716bf2",
+    "source_path": "examples/nopbc/data",
+    "attribution": "Jinzhe Zeng and Tong Zhu, Dataset for methane combustion (2020), version 3",
+    "doi": "10.6084/m9.figshare.12973055.v3",
+    "dataset_license": "CC BY 4.0",
+    "repository_distribution_license": "LGPL-3.0-or-later",
+    "source_labels": "Published Gaussian16 MN15/6-31G** E/F, float32 stored labels exactly promoted to float64; no virial labels",
+    "accuracy_limit": "This fixed original fit worsens force RMSE. Validation frames are not an untouched test set. No production-accuracy claim."
+  },
+  "tests": [
+    {
+      "command": "cargo test --release --locked --offline --manifest-path mlmd/native/Cargo.toml --features cuda --lib -- --include-ignored --test-threads=1",
+      "passed": 22
+    },
+    {
+      "command": "cargo test --release --locked --offline --manifest-path mlmd/native/Cargo.toml --features cuda --test cuda_reverse_training resident_snapshots -- --include-ignored --test-threads=1",
+      "passed": 1,
+      "checks": "Eager/resident snapshots exactly equal at steps 2,4,5; LR-boundary resume/cache switch; callback failure stops with coherent snapshot"
+    },
+    {
+      "command": "cargo test --release --locked --offline --manifest-path mlmd/native/Cargo.toml --features cuda --test cuda_reverse_training device_loss -- --include-ignored --test-threads=1",
+      "passed": 4,
+      "max_abs_finite_difference_gradient_error": 4.843791145958676e-09
+    },
+    {
+      "command": "cargo test --release --locked --offline --manifest-path mlmd/native/Cargo.toml --features cuda --test large_frame_training -- --include-ignored --test-threads=1",
+      "passed": 2,
+      "max_abs_cpu_loss_finite_difference_gradient_error": 1.9550000507351228e-10
+    },
+    {
+      "command": "cargo check --locked --offline --manifest-path mlmd/native/Cargo.toml --no-default-features --bins",
+      "result": "passed"
+    },
+    {
+      "command": "cargo build --release --locked --offline --manifest-path mlmd/native/Cargo.toml --features cuda --bin omnimd-native-train",
+      "result": "passed"
+    }
+  ],
+  "restarts": [
+    {
+      "case": "historical-v8-500-plus-500-storage-cache-switch",
+      "state_metrics_ptx_exact": true,
+      "process": {
+        "process_ms": 1031.9913999992423,
+        "peak_working_set_bytes": 136499200
+      },
+      "resident_profile": {
+        "snapshot_download_ms": 0.0233,
+        "snapshot_model_validation_ms": 0.021500000000000002,
+        "snapshots": 1,
+        "state_download_bytes": 12744,
+        "state_download_calls": 3,
+        "status_downloads": 500,
+        "updates": 500
+      }
+    },
+    {
+      "case": "historical-v9-128-and-256-atoms-resume",
+      "checkpoint_model_bytes_metrics_ptx_exact": true,
+      "process": {
+        "process_ms": 1979.536700004246,
+        "peak_working_set_bytes": 138215424
+      },
+      "resident_profile": {
+        "snapshot_download_ms": 0.022,
+        "snapshot_model_validation_ms": 0.0149,
+        "snapshots": 1,
+        "state_download_bytes": 2688,
+        "state_download_calls": 3,
+        "status_downloads": 6,
+        "updates": 6
+      }
+    }
+  ],
+  "historical_pilot": {
+    "meaning": "Preliminary single resident/8-byte-alignment process per case; not the final acceptance comparison or evidence isolating alignment benefit. Preserved to avoid selecting only favorable runs.",
+    "runs": [
+      {
+        "case": "physical",
+        "process": {
+          "process_ms": 1378.3403999987058,
+          "peak_working_set_bytes": 141897728
+        },
+        "timing": {
+          "adam_ms": 44.58459999999996,
+          "assessment_ms": 11.382200000000001,
+          "checkpoint_io_ms": 1.277,
+          "gradient_ms": 526.2792999999998,
+          "initialization_ms": 604.3672,
+          "startup_ms": 610.2125000000001
+        },
+        "state": {
+          "snapshot_download_ms": 0.034999999999999996,
+          "snapshot_model_validation_ms": 0.0357,
+          "snapshots": 1,
+          "state_download_bytes": 12744,
+          "state_download_calls": 3,
+          "status_downloads": 1000,
+          "updates": 1000
+        },
+        "output": {
+          "export_validation_ms": 12.1386,
+          "final_checkpoint_io_ms": 0.8786,
+          "reload_checked_frames": 211,
+          "reload_evaluations": 422
+        },
+        "gradient": {
+          "device_prediction_frames": 8000,
+          "download_ms": 64.1714000000001,
+          "frames": 8000,
+          "geometry_ms": 19.691499999999998,
+          "input_transfer_bytes": 125633256,
+          "input_transfer_calls": 2000,
+          "kernel_launches": 10000,
+          "kernels_and_sync_ms": 390.5770000000001,
+          "max_atoms_per_frame": 10,
+          "max_atoms_per_launch": 77,
+          "max_frames_per_launch": 8,
+          "peak_device_buffer_bytes": 1538016,
+          "peak_host_tile_payload_bytes": 637088,
+          "prediction_and_seeds_ms": 0.0,
+          "reduction_ms": 12.7262,
+          "synchronizations": 1000,
+          "tiles": 1000,
+          "upload_ms": 22.253099999999975
+        }
+      },
+      {
+        "case": "medium",
+        "process": {
+          "process_ms": 2928.874500008533,
+          "peak_working_set_bytes": 158359552
+        },
+        "timing": {
+          "adam_ms": 5.813899999999997,
+          "assessment_ms": 460.922,
+          "checkpoint_io_ms": 1.2183000000000002,
+          "gradient_ms": 1168.6296000000002,
+          "initialization_ms": 778.2139,
+          "startup_frame_reads": 504,
+          "startup_ms": 1015.5232000000001
+        },
+        "state": {
+          "snapshot_download_ms": 0.0237,
+          "snapshot_model_validation_ms": 0.0191,
+          "snapshots": 1,
+          "state_download_bytes": 11184,
+          "state_download_calls": 3,
+          "status_downloads": 128,
+          "updates": 128
+        },
+        "output": {
+          "export_validation_ms": 445.269,
+          "final_checkpoint_io_ms": 0.901,
+          "reload_checked_frames": 128,
+          "reload_evaluations": 256
+        },
+        "gradient": {
+          "device_prediction_frames": 3840,
+          "download_ms": 155.11970000000002,
+          "frames": 3840,
+          "geometry_ms": 62.07940000000001,
+          "input_transfer_bytes": 518171532,
+          "input_transfer_calls": 3526,
+          "kernel_launches": 17630,
+          "kernels_and_sync_ms": 712.6670000000003,
+          "max_atoms_per_frame": 64,
+          "max_atoms_per_launch": 128,
+          "max_frames_per_launch": 4,
+          "peak_device_buffer_bytes": 3530740,
+          "peak_host_tile_payload_bytes": 1169920,
+          "prediction_and_seeds_ms": 0.0,
+          "reduction_ms": 30.8323,
+          "synchronizations": 1763,
+          "tiles": 1763,
+          "upload_ms": 52.4675
+        }
+      }
+    ]
+  },
+  "cases": [
+    {
+      "case": "physical",
+      "steps": 1000,
+      "config": {
+        "split": {
+          "mode": "explicit",
+          "validation_ids": [
+            "C1H4O2/set.000/1250",
+            "C1H4O2/set.000/1263",
+            "C1H4O2/set.000/1277",
+            "C1H4O2/set.000/1290",
+            "C1H4O2/set.000/1304",
+            "C1H4O2/set.000/1317",
+            "C1H4O2/set.000/1331",
+            "C1H4O2/set.000/1344",
+            "C1H4O2/set.000/1358",
+            "C1H4O2/set.000/1371",
+            "C1H4O2/set.000/1385",
+            "C1H4O2/set.000/1398",
+            "C1H4O2/set.000/1412",
+            "C1H4O2/set.000/1425",
+            "C1H4O2/set.000/1439",
+            "C1H4O2/set.000/1452",
+            "C1H4O2/set.000/1466",
+            "C1H4O2/set.000/1479",
+            "C1H4O2/set.000/1493",
+            "C1H4O2/set.000/1506",
+            "C1H4O2/set.000/1520",
+            "C1H4O2/set.000/1533",
+            "C1H4O2/set.000/1547",
+            "C1H4O2/set.000/1561",
+            "C3H3O4/set.000/388",
+            "C3H3O4/set.000/394",
+            "C3H3O4/set.000/400",
+            "C3H3O4/set.000/407",
+            "C3H3O4/set.000/413",
+            "C3H3O4/set.000/420",
+            "C3H3O4/set.000/426",
+            "C3H3O4/set.000/432",
+            "C3H3O4/set.000/439",
+            "C3H3O4/set.000/445",
+            "C3H3O4/set.000/452",
+            "C3H3O4/set.000/458",
+            "C3H3O4/set.000/464",
+            "C3H3O4/set.000/471",
+            "C3H3O4/set.000/477",
+            "C3H3O4/set.000/484",
+            "C4H3O1/set.000/12",
+            "C4H3O1/set.000/13",
+            "C4H3O1/set.000/14"
+          ]
+        },
+        "steps": 1000,
+        "energy_weight": 1.0,
+        "force_weight": 1.0,
+        "energy_scale_ev_per_atom": 0.1,
+        "force_scale_ev_per_angstrom": 1.0,
+        "learning_rate": 0.001,
+        "learning_rate_schedule": {
+          "kind": "exponential",
+          "decay_steps": 250,
+          "decay_rate": 0.5
+        },
+        "beta1": 0.9,
+        "beta2": 0.999,
+        "epsilon": 1e-08,
+        "gradient_clip_norm": 10.0,
+        "checkpoint_every": 1000,
+        "cuda_gradient": "reverse",
+        "cuda_loss": "gpu",
+        "cuda_tiling": {
+          "max_frames": 8,
+          "max_atoms": 80
+        },
+        "fixed_geometry_cache": true,
+        "minibatch": {
+          "batch_size": 8,
+          "seed": 20261016,
+          "order": "shuffle_each_epoch"
+        }
+      },
+      "dataset_access": "memory",
+      "dataset_sha256": "779a5cc59b5f01224709cc1f2f95672ea07a7bdeebe9fdb9d8ba8129fdd196ed",
+      "initial_model_sha256": "8109e3432377d7b69f31ca2771fccf65dc403148ef5acb561425bca3522034a1",
+      "summary": {
+        "baseline": {
+          "runs": 3,
+          "whole_process_ms": {
+            "median": 1332.6663000043482,
+            "min": 1300.2691000001505,
+            "max": 1350.5808000045363
+          },
+          "startup_ms": {
+            "median": 584.0852,
+            "min": 571.3931,
+            "max": 587.8518
+          },
+          "steady_updates_ms": {
+            "median": 668.3249999999998,
+            "min": 652.9694,
+            "max": 682.5510000000005
+          },
+          "gradient_ms": {
+            "median": 566.7898999999999,
+            "min": 554.7150999999999,
+            "max": 580.7673000000004
+          },
+          "adam_ms": {
+            "median": 101.53509999999994,
+            "min": 98.25430000000001,
+            "max": 101.78370000000005
+          }
+        },
+        "transfer": {
+          "runs": 3,
+          "whole_process_ms": {
+            "median": 1281.5733999887016,
+            "min": 1260.5305999750271,
+            "max": 1386.7568999994546
+          },
+          "startup_ms": {
+            "median": 572.6608,
+            "min": 570.8421000000001,
+            "max": 576.7116
+          },
+          "steady_updates_ms": {
+            "median": 622.4377999999997,
+            "min": 613.1501,
+            "max": 631.6449000000001
+          },
+          "gradient_ms": {
+            "median": 520.1235999999994,
+            "min": 511.47779999999983,
+            "max": 531.4308000000001
+          },
+          "adam_ms": {
+            "median": 101.67230000000009,
+            "min": 100.21410000000002,
+            "max": 102.31420000000027
+          }
+        },
+        "current": {
+          "runs": 3,
+          "whole_process_ms": {
+            "median": 1229.9517999927048,
+            "min": 1215.4841999872588,
+            "max": 1237.9760000039823
+          },
+          "startup_ms": {
+            "median": 580.6308,
+            "min": 579.4062,
+            "max": 586.9623
+          },
+          "steady_updates_ms": {
+            "median": 569.6775000000002,
+            "min": 556.4562000000004,
+            "max": 572.9744999999996
+          },
+          "gradient_ms": {
+            "median": 523.6243000000003,
+            "min": 512.6059000000005,
+            "max": 526.2702999999996
+          },
+          "adam_ms": {
+            "median": 46.05319999999998,
+            "min": 43.85029999999998,
+            "max": 46.70420000000003
+          }
+        },
+        "cpu": {
+          "runs": 2,
+          "whole_process_ms": {
+            "median": 2576.247550008702,
+            "min": 2574.8689000029117,
+            "max": 2577.6262000144925
+          },
+          "startup_ms": {
+            "median": 6.25305,
+            "min": 6.2184,
+            "max": 6.2877
+          },
+          "steady_updates_ms": {
+            "median": 2451.2897999999986,
+            "min": 2390.255499999996,
+            "max": 2512.324100000001
+          },
+          "gradient_ms": {
+            "median": 2439.808749999999,
+            "min": 2379.0610999999963,
+            "max": 2500.5564000000013
+          },
+          "adam_ms": {
+            "median": 11.481050000000018,
+            "min": 11.194400000000009,
+            "max": 11.767700000000024
+          }
+        }
+      },
+      "all_gpu_checkpoint_and_model_files_byte_identical": true,
+      "execution": {
+        "backend": "cuda_tiled_device_loss_f64_v1",
+        "device_info": "NVIDIA GeForce RTX 4090; compute 8.9; FP64; device 0",
+        "driver_version": 13040,
+        "program_sha256": "0c47f29fd05313c88994f4aa2b0c5a0e2625b87cebb12f6b0c6de5edf53016af",
+        "visible_device": 0
+      },
+      "cpu_model_and_moment_max_abs": 1.7569279364693102e-14,
+      "cpu_repeats_exact": true,
+      "baseline_over_current_whole": 1.0835109961319238,
+      "transfer_over_current_whole": 1.0419704251795094,
+      "cpu_over_current_whole": 2.0945922840423363,
+      "elapsed_reduction_percent_vs_baseline": 7.707443342066078,
+      "reload_max_abs_energy_force_virial": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "identical_gpu_files": {
+        "checkpoint_sha256": "9e7494dfff79c926883ab99c9b07a4cb79ad7de4443a033e475b811dfcc43477",
+        "model_sha256": "4608b318e87f001590a730966eaab020283332eae1bdbec3ea7af0aa75b77baf"
+      },
+      "runs": [
+        {
+          "label": "cpu-0",
+          "process": {
+            "process_ms": 2574.8689000029117,
+            "peak_working_set_bytes": 13344768
+          },
+          "timing": {
+            "adam_ms": 11.194400000000009,
+            "assessment_ms": 11.479299999999999,
+            "checkpoint_io_ms": 1.0164,
+            "cuda_teardown_ms": 0.0,
+            "gradient_ms": 2379.0610999999963,
+            "initialization_ms": 0.46240000000000003,
+            "startup_ms": 6.2877
+          },
+          "output_timing": {
+            "before_output_write_ms": 2430.0717999999997,
+            "export_validation_ms": 13.571200000000001,
+            "final_checkpoint_io_ms": 0.7022,
+            "reload_checked_frames": 211,
+            "reload_evaluations": 422
+          },
+          "state_profile": null
+        },
+        {
+          "label": "baseline-0",
+          "process": {
+            "process_ms": 1350.5808000045363,
+            "peak_working_set_bytes": 140271616
+          },
+          "timing": {
+            "adam_ms": 101.78370000000005,
+            "assessment_ms": 11.668199999999999,
+            "gradient_ms": 580.7673000000004,
+            "initialization_ms": 582.0309,
+            "startup_ms": 587.8518
+          },
+          "output_timing": null,
+          "state_profile": null,
+          "gradient_phase_ms": {
+            "download_ms": 67.11990000000007,
+            "geometry_ms": 18.754699999999982,
+            "kernels_and_sync_ms": 367.8361000000004,
+            "prediction_and_seeds_ms": 0.0,
+            "reduction_ms": 12.418899999999988,
+            "upload_ms": 97.47600000000007
+          }
+        },
+        {
+          "label": "transfer-0",
+          "process": {
+            "process_ms": 1386.7568999994546,
+            "peak_working_set_bytes": 141795328
+          },
+          "timing": {
+            "adam_ms": 102.31420000000027,
+            "assessment_ms": 11.3666,
+            "gradient_ms": 520.1235999999994,
+            "initialization_ms": 571.1776,
+            "startup_ms": 576.7116
+          },
+          "output_timing": null,
+          "state_profile": null,
+          "gradient_phase_ms": {
+            "download_ms": 67.82719999999995,
+            "geometry_ms": 19.74229999999998,
+            "kernels_and_sync_ms": 376.2837999999997,
+            "prediction_and_seeds_ms": 0.0,
+            "reduction_ms": 12.95589999999999,
+            "upload_ms": 26.04109999999994
+          }
+        },
+        {
+          "label": "current-0",
+          "process": {
+            "process_ms": 1237.9760000039823,
+            "peak_working_set_bytes": 140308480
+          },
+          "timing": {
+            "adam_ms": 46.70420000000003,
+            "assessment_ms": 11.3706,
+            "checkpoint_io_ms": 0.9662,
+            "cuda_teardown_ms": 17.5245,
+            "gradient_ms": 526.2702999999996,
+            "initialization_ms": 581.2897,
+            "startup_ms": 586.9623
+          },
+          "output_timing": {
+            "before_output_write_ms": 1204.6089,
+            "export_validation_ms": 11.1238,
+            "final_checkpoint_io_ms": 0.6849999999999999,
+            "reload_checked_frames": 211,
+            "reload_evaluations": 422
+          },
+          "state_profile": {
+            "snapshot_download_ms": 0.023200000000000002,
+            "snapshot_model_validation_ms": 0.0244,
+            "snapshots": 1,
+            "state_download_bytes": 12744,
+            "state_download_calls": 3,
+            "status_downloads": 1000,
+            "updates": 1000
+          },
+          "gradient_phase_ms": {
+            "download_ms": 61.379799999999975,
+            "geometry_ms": 18.463499999999986,
+            "kernels_and_sync_ms": 382.15779999999944,
+            "prediction_and_seeds_ms": 0.0,
+            "reduction_ms": 11.858800000000002,
+            "upload_ms": 35.79590000000006
+          }
+        },
+        {
+          "label": "current-1",
+          "process": {
+            "process_ms": 1215.4841999872588,
+            "peak_working_set_bytes": 140185600
+          },
+          "timing": {
+            "adam_ms": 43.85029999999998,
+            "assessment_ms": 11.4099,
+            "checkpoint_io_ms": 0.9939,
+            "cuda_teardown_ms": 17.6996,
+            "gradient_ms": 512.6059000000005,
+            "initialization_ms": 573.7607,
+            "startup_ms": 579.4062
+          },
+          "output_timing": {
+            "before_output_write_ms": 1180.7941,
+            "export_validation_ms": 11.4752,
+            "final_checkpoint_io_ms": 0.6733,
+            "reload_checked_frames": 211,
+            "reload_evaluations": 422
+          },
+          "state_profile": {
+            "snapshot_download_ms": 0.0234,
+            "snapshot_model_validation_ms": 0.0233,
+            "snapshots": 1,
+            "state_download_bytes": 12744,
+            "state_download_calls": 3,
+            "status_downloads": 1000,
+            "updates": 1000
+          },
+          "gradient_phase_ms": {
+            "download_ms": 64.42990000000002,
+            "geometry_ms": 18.141000000000023,
+            "kernels_and_sync_ms": 378.4535999999998,
+            "prediction_and_seeds_ms": 0.0,
+            "reduction_ms": 12.131400000000006,
+            "upload_ms": 23.03290000000004
+          }
+        },
+        {
+          "label": "transfer-1",
+          "process": {
+            "process_ms": 1260.5305999750271,
+            "peak_working_set_bytes": 140124160
+          },
+          "timing": {
+            "adam_ms": 101.67230000000009,
+            "assessment_ms": 11.1678,
+            "gradient_ms": 511.47779999999983,
+            "initialization_ms": 565.3811,
+            "startup_ms": 570.8421000000001
+          },
+          "output_timing": null,
+          "state_profile": null,
+          "gradient_phase_ms": {
+            "download_ms": 62.90570000000001,
+            "geometry_ms": 17.51629999999998,
+            "kernels_and_sync_ms": 380.0224999999995,
+            "prediction_and_seeds_ms": 0.0,
+            "reduction_ms": 12.418199999999997,
+            "upload_ms": 22.44020000000001
+          }
+        },
+        {
+          "label": "baseline-1",
+          "process": {
+            "process_ms": 1332.6663000043482,
+            "peak_working_set_bytes": 140210176
+          },
+          "timing": {
+            "adam_ms": 101.53509999999994,
+            "assessment_ms": 11.621300000000002,
+            "gradient_ms": 566.7898999999999,
+            "initialization_ms": 578.2498,
+            "startup_ms": 584.0852
+          },
+          "output_timing": null,
+          "state_profile": null,
+          "gradient_phase_ms": {
+            "download_ms": 65.47809999999997,
+            "geometry_ms": 19.79490000000001,
+            "kernels_and_sync_ms": 356.4451000000003,
+            "prediction_and_seeds_ms": 0.0,
+            "reduction_ms": 12.653999999999987,
+            "upload_ms": 95.73779999999998
+          }
+        },
+        {
+          "label": "transfer-2",
+          "process": {
+            "process_ms": 1281.5733999887016,
+            "peak_working_set_bytes": 139460608
+          },
+          "timing": {
+            "adam_ms": 100.21410000000002,
+            "assessment_ms": 11.522400000000001,
+            "gradient_ms": 531.4308000000001,
+            "initialization_ms": 567.0206,
+            "startup_ms": 572.6608
+          },
+          "output_timing": null,
+          "state_profile": null,
+          "gradient_phase_ms": {
+            "download_ms": 63.09790000000002,
+            "geometry_ms": 17.975400000000008,
+            "kernels_and_sync_ms": 379.6672999999999,
+            "prediction_and_seeds_ms": 0.0,
+            "reduction_ms": 12.241899999999994,
+            "upload_ms": 42.17680000000013
+          }
+        },
+        {
+          "label": "baseline-2",
+          "process": {
+            "process_ms": 1300.2691000001505,
+            "peak_working_set_bytes": 139907072
+          },
+          "timing": {
+            "adam_ms": 98.25430000000001,
+            "assessment_ms": 11.4969,
+            "gradient_ms": 554.7150999999999,
+            "initialization_ms": 565.6883,
+            "startup_ms": 571.3931
+          },
+          "output_timing": null,
+          "state_profile": null,
+          "gradient_phase_ms": {
+            "download_ms": 63.25219999999993,
+            "geometry_ms": 17.984799999999982,
+            "kernels_and_sync_ms": 354.6354000000001,
+            "prediction_and_seeds_ms": 0.0,
+            "reduction_ms": 12.1535,
+            "upload_ms": 90.96520000000017
+          }
+        },
+        {
+          "label": "current-2",
+          "process": {
+            "process_ms": 1229.9517999927048,
+            "peak_working_set_bytes": 140320768
+          },
+          "timing": {
+            "adam_ms": 46.05319999999998,
+            "assessment_ms": 11.4514,
+            "checkpoint_io_ms": 1.2439,
+            "cuda_teardown_ms": 18.920099999999998,
+            "gradient_ms": 523.6243000000003,
+            "initialization_ms": 575.0113,
+            "startup_ms": 580.6308
+          },
+          "output_timing": {
+            "before_output_write_ms": 1196.8291,
+            "export_validation_ms": 11.499799999999999,
+            "final_checkpoint_io_ms": 0.7117,
+            "reload_checked_frames": 211,
+            "reload_evaluations": 422
+          },
+          "state_profile": {
+            "snapshot_download_ms": 0.0253,
+            "snapshot_model_validation_ms": 0.0251,
+            "snapshots": 1,
+            "state_download_bytes": 12744,
+            "state_download_calls": 3,
+            "status_downloads": 1000,
+            "updates": 1000
+          },
+          "gradient_phase_ms": {
+            "download_ms": 65.64689999999986,
+            "geometry_ms": 18.906699999999997,
+            "kernels_and_sync_ms": 378.5810000000004,
+            "prediction_and_seeds_ms": 0.0,
+            "reduction_ms": 12.317899999999996,
+            "upload_ms": 31.189699999999988
+          }
+        },
+        {
+          "label": "cpu-1",
+          "process": {
+            "process_ms": 2577.6262000144925,
+            "peak_working_set_bytes": 13336576
+          },
+          "timing": {
+            "adam_ms": 11.767700000000024,
+            "assessment_ms": 11.276399999999999,
+            "checkpoint_io_ms": 0.9449000000000001,
+            "cuda_teardown_ms": 0.0,
+            "gradient_ms": 2500.5564000000013,
+            "initialization_ms": 0.4587,
+            "startup_ms": 6.2184
+          },
+          "output_timing": {
+            "before_output_write_ms": 2549.5128,
+            "export_validation_ms": 12.8725,
+            "final_checkpoint_io_ms": 0.7068000000000001,
+            "reload_checked_frames": 211,
+            "reload_evaluations": 422
+          },
+          "state_profile": null
+        }
+      ],
+      "counts_by_implementation": {
+        "baseline": {
+          "device_prediction_frames": 8000,
+          "frames": 8000,
+          "kernel_launches": 10000,
+          "max_atoms_per_frame": 10,
+          "max_atoms_per_launch": 77,
+          "max_frames_per_launch": 8,
+          "peak_device_buffer_bytes": 1538008,
+          "peak_host_tile_payload_bytes": 489576,
+          "synchronizations": 1000,
+          "tiles": 1000
+        },
+        "transfer": {
+          "device_prediction_frames": 8000,
+          "frames": 8000,
+          "input_transfer_bytes": 125633256,
+          "input_transfer_calls": 2000,
+          "kernel_launches": 10000,
+          "max_atoms_per_frame": 10,
+          "max_atoms_per_launch": 77,
+          "max_frames_per_launch": 8,
+          "peak_device_buffer_bytes": 1538016,
+          "peak_host_tile_payload_bytes": 637088,
+          "synchronizations": 1000,
+          "tiles": 1000
+        },
+        "current": {
+          "device_prediction_frames": 8000,
+          "frames": 8000,
+          "input_transfer_bytes": 126716320,
+          "input_transfer_calls": 2000,
+          "kernel_launches": 10000,
+          "max_atoms_per_frame": 10,
+          "max_atoms_per_launch": 77,
+          "max_frames_per_launch": 8,
+          "peak_device_buffer_bytes": 1539432,
+          "peak_host_tile_payload_bytes": 638504,
+          "synchronizations": 1000,
+          "tiles": 1000
+        }
+      }
+    },
+    {
+      "case": "medium",
+      "steps": 128,
+      "config": {
+        "split": {
+          "mode": "explicit",
+          "validation_ids": [
+            "medium/120",
+            "medium/121",
+            "medium/122",
+            "medium/123",
+            "medium/124",
+            "medium/125",
+            "medium/126",
+            "medium/127"
+          ]
+        },
+        "steps": 128,
+        "minibatch": {
+          "batch_size": 32,
+          "seed": 20261016,
+          "order": "shuffle_each_epoch"
+        },
+        "cuda_gradient": "reverse",
+        "cuda_tiling": {
+          "max_frames": 16,
+          "max_atoms": 512
+        },
+        "fixed_geometry_cache": true,
+        "energy_weight": 1.0,
+        "force_weight": 1.0,
+        "virial_loss": {
+          "weight": 0.7,
+          "scale_ev_per_atom": 0.2
+        },
+        "energy_scale_ev_per_atom": 0.1,
+        "force_scale_ev_per_angstrom": 0.1,
+        "learning_rate": 0.002,
+        "learning_rate_schedule": {
+          "kind": "exponential",
+          "decay_steps": 10,
+          "decay_rate": 0.8
+        },
+        "beta1": 0.9,
+        "beta2": 0.999,
+        "epsilon": 1e-08,
+        "gradient_clip_norm": 10.0,
+        "checkpoint_every": 128,
+        "cuda_loss": "gpu"
+      },
+      "dataset_access": "indexed",
+      "dataset_sha256": "991dcc9121752cc2a7d5e422136a842df5b63b58445c30f7c58f1ebe05606881",
+      "initial_model_sha256": "a1946cf0d5480c572a82678fd1af13cd3b75dbde0ac25b1b93039c8cc352b443",
+      "summary": {
+        "baseline": {
+          "runs": 3,
+          "whole_process_ms": {
+            "median": 2946.886900026584,
+            "min": 2908.25209999457,
+            "max": 2952.1036999940407
+          },
+          "startup_ms": {
+            "median": 991.1544,
+            "min": 973.4408,
+            "max": 991.9827
+          },
+          "steady_updates_ms": {
+            "median": 1211.4347000000007,
+            "min": 1206.8582000000004,
+            "max": 1219.8966999999993
+          },
+          "gradient_ms": {
+            "median": 1197.5891000000006,
+            "min": 1193.2335000000003,
+            "max": 1205.9542999999994
+          },
+          "adam_ms": {
+            "median": 13.845600000000001,
+            "min": 13.624700000000002,
+            "max": 13.942400000000005
+          }
+        },
+        "transfer": {
+          "runs": 3,
+          "whole_process_ms": {
+            "median": 2879.234499996528,
+            "min": 2861.558199976571,
+            "max": 2926.9261000154074
+          },
+          "startup_ms": {
+            "median": 989.347,
+            "min": 964.2622,
+            "max": 1014.2317999999999
+          },
+          "steady_updates_ms": {
+            "median": 1159.1562999999996,
+            "min": 1147.2993999999997,
+            "max": 1175.5414999999994
+          },
+          "gradient_ms": {
+            "median": 1145.7539999999997,
+            "min": 1134.3622999999995,
+            "max": 1162.3982999999994
+          },
+          "adam_ms": {
+            "median": 13.143200000000002,
+            "min": 12.937099999999992,
+            "max": 13.402299999999993
+          }
+        },
+        "current": {
+          "runs": 3,
+          "whole_process_ms": {
+            "median": 2875.7415000000037,
+            "min": 2839.7831999755,
+            "max": 2878.483500011498
+          },
+          "startup_ms": {
+            "median": 981.8224,
+            "min": 978.6291,
+            "max": 996.4944
+          },
+          "steady_updates_ms": {
+            "median": 1128.7103999999997,
+            "min": 1115.3455999999996,
+            "max": 1145.9148999999998
+          },
+          "gradient_ms": {
+            "median": 1122.9669999999996,
+            "min": 1109.3548999999996,
+            "max": 1140.0372999999997
+          },
+          "adam_ms": {
+            "median": 5.8776,
+            "min": 5.743400000000003,
+            "max": 5.990700000000001
+          }
+        },
+        "cpu": {
+          "runs": 2,
+          "whole_process_ms": {
+            "median": 37114.169799984666,
+            "min": 36819.10209998023,
+            "max": 37409.2374999891
+          },
+          "startup_ms": {
+            "median": 232.15179999999998,
+            "min": 226.0544,
+            "max": 238.2492
+          },
+          "steady_updates_ms": {
+            "median": 35614.81444999999,
+            "min": 35348.712499999994,
+            "max": 35880.916399999995
+          },
+          "gradient_ms": {
+            "median": 35612.03915,
+            "min": 35346.0036,
+            "max": 35878.0747
+          },
+          "adam_ms": {
+            "median": 2.775300000000001,
+            "min": 2.7089,
+            "max": 2.841700000000002
+          }
+        }
+      },
+      "all_gpu_checkpoint_and_model_files_byte_identical": true,
+      "execution": {
+        "backend": "cuda_tiled_device_loss_f64_v1",
+        "device_info": "NVIDIA GeForce RTX 4090; compute 8.9; FP64; device 0",
+        "driver_version": 13040,
+        "program_sha256": "7ee4b43dce501e16b5ae6c4917771d3fe4e12001e7d400005061e65b85de11b9",
+        "visible_device": 0
+      },
+      "cpu_model_and_moment_max_abs": 2.220446049250313e-16,
+      "cpu_repeats_exact": true,
+      "baseline_over_current_whole": 1.024739845367388,
+      "transfer_over_current_whole": 1.0012146432481932,
+      "cpu_over_current_whole": 12.905947839882208,
+      "elapsed_reduction_percent_vs_baseline": 2.4142562113917077,
+      "reload_max_abs_energy_force_virial": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "identical_gpu_files": {
+        "checkpoint_sha256": "bda38511c4ecaee0413f82eedcb99a51e06232e109d1460b39fb00fb098a32a9",
+        "model_sha256": "3281e6bc01f778f8c3dbb3d812c7e052d8dd8695d561cdbcf5a8012cb07822be"
+      },
+      "runs": [
+        {
+          "label": "cpu-0",
+          "process": {
+            "process_ms": 36819.10209998023,
+            "peak_working_set_bytes": 22814720
+          },
+          "timing": {
+            "adam_ms": 2.7089,
+            "assessment_ms": 596.4817,
+            "checkpoint_io_ms": 1.702,
+            "cuda_teardown_ms": 0.0,
+            "gradient_ms": 35346.0036,
+            "initialization_ms": 3.7332,
+            "startup_frame_reads": 384,
+            "startup_ms": 226.0544
+          },
+          "output_timing": {
+            "before_output_write_ms": 36790.8427,
+            "export_validation_ms": 825.3647,
+            "final_checkpoint_io_ms": 1.4197000000000002,
+            "reload_checked_frames": 128,
+            "reload_evaluations": 256
+          },
+          "state_profile": null
+        },
+        {
+          "label": "baseline-0",
+          "process": {
+            "process_ms": 2952.1036999940407,
+            "peak_working_set_bytes": 157593600
+          },
+          "timing": {
+            "adam_ms": 13.942400000000005,
+            "assessment_ms": 442.453,
+            "gradient_ms": 1205.9542999999994,
+            "initialization_ms": 771.4368000000001,
+            "startup_frame_reads": 504,
+            "startup_ms": 991.1544
+          },
+          "output_timing": null,
+          "state_profile": null,
+          "gradient_phase_ms": {
+            "download_ms": 163.64460000000005,
+            "geometry_ms": 63.91420000000001,
+            "kernels_and_sync_ms": 599.6655000000002,
+            "prediction_and_seeds_ms": 0.0,
+            "reduction_ms": 31.887500000000003,
+            "upload_ms": 182.50459999999987
+          }
+        },
+        {
+          "label": "transfer-0",
+          "process": {
+            "process_ms": 2861.558199976571,
+            "peak_working_set_bytes": 158445568
+          },
+          "timing": {
+            "adam_ms": 12.937099999999992,
+            "assessment_ms": 449.0426,
+            "gradient_ms": 1134.3622999999995,
+            "initialization_ms": 745.1098000000001,
+            "startup_frame_reads": 504,
+            "startup_ms": 964.2622
+          },
+          "output_timing": null,
+          "state_profile": null,
+          "gradient_phase_ms": {
+            "download_ms": 152.03949999999992,
+            "geometry_ms": 60.41600000000001,
+            "kernels_and_sync_ms": 689.6671000000002,
+            "prediction_and_seeds_ms": 0.0,
+            "reduction_ms": 29.671900000000015,
+            "upload_ms": 49.00749999999998
+          }
+        },
+        {
+          "label": "current-0",
+          "process": {
+            "process_ms": 2878.483500011498,
+            "peak_working_set_bytes": 158265344
+          },
+          "timing": {
+            "adam_ms": 5.8776,
+            "assessment_ms": 441.1397,
+            "checkpoint_io_ms": 1.1874,
+            "cuda_teardown_ms": 15.2697,
+            "gradient_ms": 1140.0372999999997,
+            "initialization_ms": 777.5491,
+            "startup_frame_reads": 504,
+            "startup_ms": 996.4944
+          },
+          "output_timing": {
+            "before_output_write_ms": 2837.1329,
+            "export_validation_ms": 442.5607,
+            "final_checkpoint_io_ms": 0.8331000000000001,
+            "reload_checked_frames": 128,
+            "reload_evaluations": 256
+          },
+          "state_profile": {
+            "snapshot_download_ms": 0.0234,
+            "snapshot_model_validation_ms": 0.018099999999999998,
+            "snapshots": 1,
+            "state_download_bytes": 11184,
+            "state_download_calls": 3,
+            "status_downloads": 128,
+            "updates": 128
+          },
+          "gradient_phase_ms": {
+            "download_ms": 152.5917,
+            "geometry_ms": 59.26350000000001,
+            "kernels_and_sync_ms": 686.4294999999998,
+            "prediction_and_seeds_ms": 0.0,
+            "reduction_ms": 30.0819,
+            "upload_ms": 53.46839999999999
+          }
+        },
+        {
+          "label": "current-1",
+          "process": {
+            "process_ms": 2875.7415000000037,
+            "peak_working_set_bytes": 158511104
+          },
+          "timing": {
+            "adam_ms": 5.743400000000003,
+            "assessment_ms": 446.8809,
+            "checkpoint_io_ms": 1.1736,
+            "cuda_teardown_ms": 18.2594,
+            "gradient_ms": 1122.9669999999996,
+            "initialization_ms": 757.6202,
+            "startup_frame_reads": 504,
+            "startup_ms": 981.8224
+          },
+          "output_timing": {
+            "before_output_write_ms": 2842.6852999999996,
+            "export_validation_ms": 476.7668,
+            "final_checkpoint_io_ms": 0.7614,
+            "reload_checked_frames": 128,
+            "reload_evaluations": 256
+          },
+          "state_profile": {
+            "snapshot_download_ms": 0.0244,
+            "snapshot_model_validation_ms": 0.0203,
+            "snapshots": 1,
+            "state_download_bytes": 11184,
+            "state_download_calls": 3,
+            "status_downloads": 128,
+            "updates": 128
+          },
+          "gradient_phase_ms": {
+            "download_ms": 152.94379999999998,
+            "geometry_ms": 60.328200000000024,
+            "kernels_and_sync_ms": 672.1601,
+            "prediction_and_seeds_ms": 0.0,
+            "reduction_ms": 29.965800000000005,
+            "upload_ms": 52.04080000000004
+          }
+        },
+        {
+          "label": "transfer-1",
+          "process": {
+            "process_ms": 2879.234499996528,
+            "peak_working_set_bytes": 158060544
+          },
+          "timing": {
+            "adam_ms": 13.402299999999993,
+            "assessment_ms": 448.73130000000003,
+            "gradient_ms": 1145.7539999999997,
+            "initialization_ms": 762.202,
+            "startup_frame_reads": 504,
+            "startup_ms": 989.347
+          },
+          "output_timing": null,
+          "state_profile": null,
+          "gradient_phase_ms": {
+            "download_ms": 153.45050000000003,
+            "geometry_ms": 61.436299999999996,
+            "kernels_and_sync_ms": 696.7737000000001,
+            "prediction_and_seeds_ms": 0.0,
+            "reduction_ms": 29.996899999999986,
+            "upload_ms": 50.087199999999996
+          }
+        },
+        {
+          "label": "baseline-1",
+          "process": {
+            "process_ms": 2908.25209999457,
+            "peak_working_set_bytes": 158064640
+          },
+          "timing": {
+            "adam_ms": 13.845600000000001,
+            "assessment_ms": 447.4624,
+            "gradient_ms": 1197.5891000000006,
+            "initialization_ms": 748.674,
+            "startup_frame_reads": 504,
+            "startup_ms": 973.4408
+          },
+          "output_timing": null,
+          "state_profile": null,
+          "gradient_phase_ms": {
+            "download_ms": 165.8529000000001,
+            "geometry_ms": 64.1376,
+            "kernels_and_sync_ms": 590.4664000000001,
+            "prediction_and_seeds_ms": 0.0,
+            "reduction_ms": 32.608200000000004,
+            "upload_ms": 180.44170000000005
+          }
+        },
+        {
+          "label": "transfer-2",
+          "process": {
+            "process_ms": 2926.9261000154074,
+            "peak_working_set_bytes": 158269440
+          },
+          "timing": {
+            "adam_ms": 13.143200000000002,
+            "assessment_ms": 448.8407,
+            "gradient_ms": 1162.3982999999994,
+            "initialization_ms": 794.7547000000001,
+            "startup_frame_reads": 504,
+            "startup_ms": 1014.2317999999999
+          },
+          "output_timing": null,
+          "state_profile": null,
+          "gradient_phase_ms": {
+            "download_ms": 148.7258,
+            "geometry_ms": 60.74869999999999,
+            "kernels_and_sync_ms": 716.2742999999999,
+            "prediction_and_seeds_ms": 0.0,
+            "reduction_ms": 29.49060000000002,
+            "upload_ms": 51.742000000000004
+          }
+        },
+        {
+          "label": "baseline-2",
+          "process": {
+            "process_ms": 2946.886900026584,
+            "peak_working_set_bytes": 157888512
+          },
+          "timing": {
+            "adam_ms": 13.624700000000002,
+            "assessment_ms": 471.14919999999995,
+            "gradient_ms": 1193.2335000000003,
+            "initialization_ms": 761.9586,
+            "startup_frame_reads": 504,
+            "startup_ms": 991.9827
+          },
+          "output_timing": null,
+          "state_profile": null,
+          "gradient_phase_ms": {
+            "download_ms": 157.14620000000008,
+            "geometry_ms": 61.72970000000003,
+            "kernels_and_sync_ms": 601.8481999999999,
+            "prediction_and_seeds_ms": 0.0,
+            "reduction_ms": 31.47170000000001,
+            "upload_ms": 183.0437999999999
+          }
+        },
+        {
+          "label": "current-2",
+          "process": {
+            "process_ms": 2839.7831999755,
+            "peak_working_set_bytes": 158384128
+          },
+          "timing": {
+            "adam_ms": 5.990700000000001,
+            "assessment_ms": 448.5265,
+            "checkpoint_io_ms": 1.353,
+            "cuda_teardown_ms": 16.0806,
+            "gradient_ms": 1109.3548999999996,
+            "initialization_ms": 758.0549,
+            "startup_frame_reads": 504,
+            "startup_ms": 978.6291
+          },
+          "output_timing": {
+            "before_output_write_ms": 2807.4633000000003,
+            "export_validation_ms": 455.1845,
+            "final_checkpoint_io_ms": 0.8551,
+            "reload_checked_frames": 128,
+            "reload_evaluations": 256
+          },
+          "state_profile": {
+            "snapshot_download_ms": 0.0229,
+            "snapshot_model_validation_ms": 0.032,
+            "snapshots": 1,
+            "state_download_bytes": 11184,
+            "state_download_calls": 3,
+            "status_downloads": 128,
+            "updates": 128
+          },
+          "gradient_phase_ms": {
+            "download_ms": 153.756,
+            "geometry_ms": 59.39369999999998,
+            "kernels_and_sync_ms": 658.6881999999999,
+            "prediction_and_seeds_ms": 0.0,
+            "reduction_ms": 30.128200000000003,
+            "upload_ms": 50.3169
+          }
+        },
+        {
+          "label": "cpu-1",
+          "process": {
+            "process_ms": 37409.2374999891,
+            "peak_working_set_bytes": 22835200
+          },
+          "timing": {
+            "adam_ms": 2.841700000000002,
+            "assessment_ms": 619.9877,
+            "checkpoint_io_ms": 1.4336,
+            "cuda_teardown_ms": 0.0,
+            "gradient_ms": 35878.0747,
+            "initialization_ms": 3.8914,
+            "startup_frame_reads": 384,
+            "startup_ms": 238.2492
+          },
+          "output_timing": {
+            "before_output_write_ms": 37378.6717,
+            "export_validation_ms": 856.7728,
+            "final_checkpoint_io_ms": 1.6332,
+            "reload_checked_frames": 128,
+            "reload_evaluations": 256
+          },
+          "state_profile": null
+        }
+      ],
+      "counts_by_implementation": {
+        "baseline": {
+          "device_prediction_frames": 3840,
+          "frames": 3840,
+          "kernel_launches": 17630,
+          "max_atoms_per_frame": 64,
+          "max_atoms_per_launch": 128,
+          "max_frames_per_launch": 4,
+          "peak_device_buffer_bytes": 3530740,
+          "peak_host_tile_payload_bytes": 845888,
+          "synchronizations": 1763,
+          "tiles": 1763
+        },
+        "transfer": {
+          "device_prediction_frames": 3840,
+          "frames": 3840,
+          "input_transfer_bytes": 518171532,
+          "input_transfer_calls": 3526,
+          "kernel_launches": 17630,
+          "max_atoms_per_frame": 64,
+          "max_atoms_per_launch": 128,
+          "max_frames_per_launch": 4,
+          "peak_device_buffer_bytes": 3530740,
+          "peak_host_tile_payload_bytes": 1169920,
+          "synchronizations": 1763,
+          "tiles": 1763
+        },
+        "current": {
+          "device_prediction_frames": 3840,
+          "frames": 3840,
+          "input_transfer_bytes": 518869132,
+          "input_transfer_calls": 3526,
+          "kernel_launches": 17630,
+          "max_atoms_per_frame": 64,
+          "max_atoms_per_launch": 128,
+          "max_frames_per_launch": 4,
+          "peak_device_buffer_bytes": 3531156,
+          "peak_host_tile_payload_bytes": 1170336,
+          "synchronizations": 1763,
+          "tiles": 1763
+        }
+      }
+    },
+    {
+      "case": "tiny",
+      "steps": 128,
+      "config": {
+        "split": {
+          "mode": "explicit",
+          "validation_ids": [
+            "tiny/120",
+            "tiny/121",
+            "tiny/122",
+            "tiny/123",
+            "tiny/124",
+            "tiny/125",
+            "tiny/126",
+            "tiny/127"
+          ]
+        },
+        "steps": 128,
+        "minibatch": {
+          "batch_size": 32,
+          "seed": 20261016,
+          "order": "shuffle_each_epoch"
+        },
+        "cuda_gradient": "reverse",
+        "cuda_tiling": {
+          "max_frames": 16,
+          "max_atoms": 512
+        },
+        "fixed_geometry_cache": true,
+        "energy_weight": 1.0,
+        "force_weight": 1.0,
+        "virial_loss": {
+          "weight": 0.7,
+          "scale_ev_per_atom": 0.2
+        },
+        "energy_scale_ev_per_atom": 0.1,
+        "force_scale_ev_per_angstrom": 0.1,
+        "learning_rate": 0.002,
+        "learning_rate_schedule": {
+          "kind": "exponential",
+          "decay_steps": 10,
+          "decay_rate": 0.8
+        },
+        "beta1": 0.9,
+        "beta2": 0.999,
+        "epsilon": 1e-08,
+        "gradient_clip_norm": 10.0,
+        "checkpoint_every": 128,
+        "cuda_loss": "gpu"
+      },
+      "dataset_access": "indexed",
+      "dataset_sha256": "468e183da02e656521451e0ce5c1fda99b9158793efed9a2013a357b9dc53406",
+      "initial_model_sha256": "407278c6eab122e6dfee2511b3c3fb4c033f58c04819a580ffc0810df3ce7b9a",
+      "summary": {
+        "baseline": {
+          "runs": 3,
+          "whole_process_ms": {
+            "median": 709.3453999841586,
+            "min": 695.9126000001561,
+            "max": 761.3380000111647
+          },
+          "startup_ms": {
+            "median": 507.1458,
+            "min": 501.0546,
+            "max": 550.1361999999999
+          },
+          "steady_updates_ms": {
+            "median": 132.38750000000002,
+            "min": 117.9867,
+            "max": 137.1783
+          },
+          "gradient_ms": {
+            "median": 121.97760000000002,
+            "min": 107.7917,
+            "max": 126.1979
+          },
+          "adam_ms": {
+            "median": 10.4099,
+            "min": 10.194999999999993,
+            "max": 10.9804
+          }
+        },
+        "transfer": {
+          "runs": 3,
+          "whole_process_ms": {
+            "median": 682.2198000154458,
+            "min": 678.8250000099652,
+            "max": 690.3376999835018
+          },
+          "startup_ms": {
+            "median": 510.45779999999996,
+            "min": 503.1333,
+            "max": 513.1768
+          },
+          "steady_updates_ms": {
+            "median": 101.4166,
+            "min": 100.922,
+            "max": 105.5195
+          },
+          "gradient_ms": {
+            "median": 91.748,
+            "min": 91.0707,
+            "max": 95.16179999999999
+          },
+          "adam_ms": {
+            "median": 9.851299999999997,
+            "min": 9.668599999999998,
+            "max": 10.357700000000003
+          }
+        },
+        "current": {
+          "runs": 3,
+          "whole_process_ms": {
+            "median": 703.5613000043668,
+            "min": 685.0930000073276,
+            "max": 713.8725999975577
+          },
+          "startup_ms": {
+            "median": 524.9697,
+            "min": 511.9076,
+            "max": 539.0200000000001
+          },
+          "steady_updates_ms": {
+            "median": 101.30899999999994,
+            "min": 100.67130000000002,
+            "max": 108.46480000000001
+          },
+          "gradient_ms": {
+            "median": 96.09260000000002,
+            "min": 95.94209999999994,
+            "max": 103.06250000000001
+          },
+          "adam_ms": {
+            "median": 5.366899999999998,
+            "min": 4.5786999999999995,
+            "max": 5.402299999999998
+          }
+        },
+        "cpu": {
+          "runs": 2,
+          "whole_process_ms": {
+            "median": 504.19455001247115,
+            "min": 488.98900000494905,
+            "max": 519.4001000199933
+          },
+          "startup_ms": {
+            "median": 5.794449999999999,
+            "min": 5.7585,
+            "max": 5.8304
+          },
+          "steady_updates_ms": {
+            "median": 447.9861000000001,
+            "min": 433.4595999999999,
+            "max": 462.5126000000002
+          },
+          "gradient_ms": {
+            "median": 447.11235000000005,
+            "min": 432.6363999999999,
+            "max": 461.5883000000002
+          },
+          "adam_ms": {
+            "median": 0.8737500000000002,
+            "min": 0.8232000000000003,
+            "max": 0.9243000000000001
+          }
+        }
+      },
+      "all_gpu_checkpoint_and_model_files_byte_identical": true,
+      "execution": {
+        "backend": "cuda_tiled_device_loss_f64_v1",
+        "device_info": "NVIDIA GeForce RTX 4090; compute 8.9; FP64; device 0",
+        "driver_version": 13040,
+        "program_sha256": "f26057c92ce96ade4df2749bd2041cf13eb0e3534d208a46a908bb176f14cab6",
+        "visible_device": 0
+      },
+      "cpu_model_and_moment_max_abs": 3.6637359812630166e-15,
+      "cpu_repeats_exact": true,
+      "baseline_over_current_whole": 1.0082211741603124,
+      "transfer_over_current_whole": 0.9696664668895396,
+      "cpu_over_current_whole": 0.7166320120355423,
+      "elapsed_reduction_percent_vs_baseline": 0.8154137575179687,
+      "reload_max_abs_energy_force_virial": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "identical_gpu_files": {
+        "checkpoint_sha256": "8381c45fee111a45aa131f1c25a4f3acdeadd4585aed9843d441f9dd99460526",
+        "model_sha256": "b56e8d996453dcfd9d713dbd006f5dbaf9718f9fb70dfe05d035ff621ba4c39e"
+      },
+      "runs": [
+        {
+          "label": "cpu-0",
+          "process": {
+            "process_ms": 488.98900000494905,
+            "peak_working_set_bytes": 11194368
+          },
+          "timing": {
+            "adam_ms": 0.8232000000000003,
+            "assessment_ms": 9.122200000000001,
+            "checkpoint_io_ms": 0.9475,
+            "cuda_teardown_ms": 0.0,
+            "gradient_ms": 432.6363999999999,
+            "initialization_ms": 1.2302000000000002,
+            "startup_frame_reads": 384,
+            "startup_ms": 5.7585
+          },
+          "output_timing": {
+            "before_output_write_ms": 459.8971,
+            "export_validation_ms": 7.8438,
+            "final_checkpoint_io_ms": 0.605,
+            "reload_checked_frames": 128,
+            "reload_evaluations": 256
+          },
+          "state_profile": null
+        },
+        {
+          "label": "baseline-0",
+          "process": {
+            "process_ms": 761.3380000111647,
+            "peak_working_set_bytes": 137007104
+          },
+          "timing": {
+            "adam_ms": 10.9804,
+            "assessment_ms": 9.5872,
+            "gradient_ms": 126.1979,
+            "initialization_ms": 545.2836,
+            "startup_frame_reads": 504,
+            "startup_ms": 550.1361999999999
+          },
+          "output_timing": null,
+          "state_profile": null,
+          "gradient_phase_ms": {
+            "download_ms": 9.440600000000002,
+            "geometry_ms": 5.1863,
+            "kernels_and_sync_ms": 43.85410000000001,
+            "prediction_and_seeds_ms": 0.0,
+            "reduction_ms": 0.9044999999999999,
+            "upload_ms": 28.022900000000007
+          }
+        },
+        {
+          "label": "transfer-0",
+          "process": {
+            "process_ms": 690.3376999835018,
+            "peak_working_set_bytes": 137400320
+          },
+          "timing": {
+            "adam_ms": 9.668599999999998,
+            "assessment_ms": 9.942,
+            "gradient_ms": 91.748,
+            "initialization_ms": 505.2198,
+            "startup_frame_reads": 504,
+            "startup_ms": 510.45779999999996
+          },
+          "output_timing": null,
+          "state_profile": null,
+          "gradient_phase_ms": {
+            "download_ms": 9.6209,
+            "geometry_ms": 4.805899999999998,
+            "kernels_and_sync_ms": 35.984599999999986,
+            "prediction_and_seeds_ms": 0.0,
+            "reduction_ms": 0.9592999999999997,
+            "upload_ms": 4.880799999999998
+          }
+        },
+        {
+          "label": "current-0",
+          "process": {
+            "process_ms": 703.5613000043668,
+            "peak_working_set_bytes": 137273344
+          },
+          "timing": {
+            "adam_ms": 5.402299999999998,
+            "assessment_ms": 9.051,
+            "checkpoint_io_ms": 0.914,
+            "cuda_teardown_ms": 14.5348,
+            "gradient_ms": 103.06250000000001,
+            "initialization_ms": 520.4389,
+            "startup_frame_reads": 504,
+            "startup_ms": 524.9697
+          },
+          "output_timing": {
+            "before_output_write_ms": 670.449,
+            "export_validation_ms": 7.9862,
+            "final_checkpoint_io_ms": 0.5605,
+            "reload_checked_frames": 128,
+            "reload_evaluations": 256
+          },
+          "state_profile": {
+            "snapshot_download_ms": 0.0693,
+            "snapshot_model_validation_ms": 0.0131,
+            "snapshots": 1,
+            "state_download_bytes": 2688,
+            "state_download_calls": 3,
+            "status_downloads": 128,
+            "updates": 128
+          },
+          "gradient_phase_ms": {
+            "download_ms": 10.002599999999997,
+            "geometry_ms": 5.6932,
+            "kernels_and_sync_ms": 38.960899999999995,
+            "prediction_and_seeds_ms": 0.0,
+            "reduction_ms": 0.8923000000000001,
+            "upload_ms": 6.334200000000004
+          }
+        },
+        {
+          "label": "current-1",
+          "process": {
+            "process_ms": 713.8725999975577,
+            "peak_working_set_bytes": 137351168
+          },
+          "timing": {
+            "adam_ms": 5.366899999999998,
+            "assessment_ms": 9.354199999999999,
+            "checkpoint_io_ms": 0.8821,
+            "cuda_teardown_ms": 15.9728,
+            "gradient_ms": 95.94209999999994,
+            "initialization_ms": 534.1333999999999,
+            "startup_frame_reads": 504,
+            "startup_ms": 539.0200000000001
+          },
+          "output_timing": {
+            "before_output_write_ms": 679.246,
+            "export_validation_ms": 8.0261,
+            "final_checkpoint_io_ms": 0.6031,
+            "reload_checked_frames": 128,
+            "reload_evaluations": 256
+          },
+          "state_profile": {
+            "snapshot_download_ms": 0.022099999999999998,
+            "snapshot_model_validation_ms": 0.013,
+            "snapshots": 1,
+            "state_download_bytes": 2688,
+            "state_download_calls": 3,
+            "status_downloads": 128,
+            "updates": 128
+          },
+          "gradient_phase_ms": {
+            "download_ms": 10.227400000000001,
+            "geometry_ms": 4.9731000000000005,
+            "kernels_and_sync_ms": 37.58669999999999,
+            "prediction_and_seeds_ms": 0.0,
+            "reduction_ms": 0.9853,
+            "upload_ms": 5.541000000000001
+          }
+        },
+        {
+          "label": "transfer-1",
+          "process": {
+            "process_ms": 682.2198000154458,
+            "peak_working_set_bytes": 137306112
+          },
+          "timing": {
+            "adam_ms": 9.851299999999997,
+            "assessment_ms": 10.278599999999999,
+            "gradient_ms": 91.0707,
+            "initialization_ms": 508.32500000000005,
+            "startup_frame_reads": 504,
+            "startup_ms": 513.1768
+          },
+          "output_timing": null,
+          "state_profile": null,
+          "gradient_phase_ms": {
+            "download_ms": 9.610399999999997,
+            "geometry_ms": 4.695999999999999,
+            "kernels_and_sync_ms": 35.948299999999996,
+            "prediction_and_seeds_ms": 0.0,
+            "reduction_ms": 0.9278000000000003,
+            "upload_ms": 4.8283000000000005
+          }
+        },
+        {
+          "label": "baseline-1",
+          "process": {
+            "process_ms": 695.9126000001561,
+            "peak_working_set_bytes": 137027584
+          },
+          "timing": {
+            "adam_ms": 10.194999999999993,
+            "assessment_ms": 9.5805,
+            "gradient_ms": 107.7917,
+            "initialization_ms": 502.2211,
+            "startup_frame_reads": 504,
+            "startup_ms": 507.1458
+          },
+          "output_timing": null,
+          "state_profile": null,
+          "gradient_phase_ms": {
+            "download_ms": 10.268500000000001,
+            "geometry_ms": 4.720399999999997,
+            "kernels_and_sync_ms": 32.6636,
+            "prediction_and_seeds_ms": 0.0,
+            "reduction_ms": 0.8477,
+            "upload_ms": 21.742500000000007
+          }
+        },
+        {
+          "label": "transfer-2",
+          "process": {
+            "process_ms": 678.8250000099652,
+            "peak_working_set_bytes": 137818112
+          },
+          "timing": {
+            "adam_ms": 10.357700000000003,
+            "assessment_ms": 10.9119,
+            "gradient_ms": 95.16179999999999,
+            "initialization_ms": 496.79269999999997,
+            "startup_frame_reads": 504,
+            "startup_ms": 503.1333
+          },
+          "output_timing": null,
+          "state_profile": null,
+          "gradient_phase_ms": {
+            "download_ms": 10.1484,
+            "geometry_ms": 4.929000000000001,
+            "kernels_and_sync_ms": 36.03509999999999,
+            "prediction_and_seeds_ms": 0.0,
+            "reduction_ms": 0.9269,
+            "upload_ms": 5.798999999999998
+          }
+        },
+        {
+          "label": "baseline-2",
+          "process": {
+            "process_ms": 709.3453999841586,
+            "peak_working_set_bytes": 137498624
+          },
+          "timing": {
+            "adam_ms": 10.4099,
+            "assessment_ms": 10.4787,
+            "gradient_ms": 121.97760000000002,
+            "initialization_ms": 495.98589999999996,
+            "startup_frame_reads": 504,
+            "startup_ms": 501.0546
+          },
+          "output_timing": null,
+          "state_profile": null,
+          "gradient_phase_ms": {
+            "download_ms": 9.223800000000002,
+            "geometry_ms": 5.103800000000002,
+            "kernels_and_sync_ms": 46.01519999999999,
+            "prediction_and_seeds_ms": 0.0,
+            "reduction_ms": 0.8875999999999996,
+            "upload_ms": 23.838100000000004
+          }
+        },
+        {
+          "label": "current-2",
+          "process": {
+            "process_ms": 685.0930000073276,
+            "peak_working_set_bytes": 137027584
+          },
+          "timing": {
+            "adam_ms": 4.5786999999999995,
+            "assessment_ms": 8.9872,
+            "checkpoint_io_ms": 0.8966,
+            "cuda_teardown_ms": 14.981,
+            "gradient_ms": 96.09260000000002,
+            "initialization_ms": 507.3939,
+            "startup_frame_reads": 504,
+            "startup_ms": 511.9076
+          },
+          "output_timing": {
+            "before_output_write_ms": 649.6309,
+            "export_validation_ms": 8.067599999999999,
+            "final_checkpoint_io_ms": 0.5974,
+            "reload_checked_frames": 128,
+            "reload_evaluations": 256
+          },
+          "state_profile": {
+            "snapshot_download_ms": 0.0219,
+            "snapshot_model_validation_ms": 0.0173,
+            "snapshots": 1,
+            "state_download_bytes": 2688,
+            "state_download_calls": 3,
+            "status_downloads": 128,
+            "updates": 128
+          },
+          "gradient_phase_ms": {
+            "download_ms": 8.8638,
+            "geometry_ms": 4.615999999999999,
+            "kernels_and_sync_ms": 40.67069999999999,
+            "prediction_and_seeds_ms": 0.0,
+            "reduction_ms": 0.9281000000000004,
+            "upload_ms": 5.007599999999999
+          }
+        },
+        {
+          "label": "cpu-1",
+          "process": {
+            "process_ms": 519.4001000199933,
+            "peak_working_set_bytes": 11702272
+          },
+          "timing": {
+            "adam_ms": 0.9243000000000001,
+            "assessment_ms": 9.1475,
+            "checkpoint_io_ms": 1.1573,
+            "cuda_teardown_ms": 0.0,
+            "gradient_ms": 461.5883000000002,
+            "initialization_ms": 1.268,
+            "startup_frame_reads": 384,
+            "startup_ms": 5.8304
+          },
+          "output_timing": {
+            "before_output_write_ms": 491.1634,
+            "export_validation_ms": 8.3435,
+            "final_checkpoint_io_ms": 0.6154,
+            "reload_checked_frames": 128,
+            "reload_evaluations": 256
+          },
+          "state_profile": null
+        }
+      ],
+      "counts_by_implementation": {
+        "baseline": {
+          "device_prediction_frames": 3840,
+          "frames": 3840,
+          "kernel_launches": 2560,
+          "max_atoms_per_frame": 4,
+          "max_atoms_per_launch": 62,
+          "max_frames_per_launch": 16,
+          "peak_device_buffer_bytes": 757996,
+          "peak_host_tile_payload_bytes": 1355008,
+          "synchronizations": 256,
+          "tiles": 256
+        },
+        "transfer": {
+          "device_prediction_frames": 3840,
+          "frames": 3840,
+          "input_transfer_bytes": 36026432,
+          "input_transfer_calls": 512,
+          "kernel_launches": 2560,
+          "max_atoms_per_frame": 4,
+          "max_atoms_per_launch": 62,
+          "max_frames_per_launch": 16,
+          "peak_device_buffer_bytes": 757996,
+          "peak_host_tile_payload_bytes": 1513536,
+          "synchronizations": 256,
+          "tiles": 256
+        },
+        "current": {
+          "device_prediction_frames": 3840,
+          "frames": 3840,
+          "input_transfer_bytes": 36155904,
+          "input_transfer_calls": 512,
+          "kernel_launches": 2560,
+          "max_atoms_per_frame": 4,
+          "max_atoms_per_launch": 62,
+          "max_frames_per_launch": 16,
+          "peak_device_buffer_bytes": 758316,
+          "peak_host_tile_payload_bytes": 1513856,
+          "synchronizations": 256,
+          "tiles": 256
+        }
+      }
+    }
+  ],
+  "limits": [
+    "Only three GPU and two CPU processes per case on one machine; observed ranges are not confidence intervals.",
+    "Combined changes improve public/medium vs original baseline; residency/alignment contributions not separately identified.",
+    "Medium incremental whole-process benefit vs transfer-only is unresolved. Tiny current median regresses vs transfer-only, and native CPU stays faster.",
+    "Host geometry, reduction, clipping, assessment, integrity checks, export verification and device status transfer remain.",
+    "Checkpoint format/backend identity unchanged; equality claims apply to tested states, not every possible checkpoint.",
+    "Generated datasets/models/executables/raw logs are ignored and not tracked. No new dependencies, global configuration changes or remote push."
+  ],
+  "timing_scope": {
+    "startup_ms": "Trainer admission/template work, NVRTC/driver initialization and initial assessments; not isolated JIT time or a cold-cache measurement",
+    "steady_updates_ms": "Sum of reported gradient_ms and adam_ms; includes snapshots in adam_ms, excludes separate save callback IO",
+    "whole_process_ms": "Externally measured fresh process completion including data admission, all required assessments, checkpoint/export/reload validation and process overhead",
+    "before_output_write_ms": "Internal CLI elapsed time before final model/report writes; not whole-process time",
+    "nested_scopes": "Do not sum all reported timing fields: startup includes initial assessment and Adam includes snapshot work"
+  }
+}
