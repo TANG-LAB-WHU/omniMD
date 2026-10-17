@@ -5,7 +5,7 @@ pub use crate::fixed_geometry::FixedGeometryStats;
 pub use full::{
     device_loss_resources, full_work_estimate, reverse_resources, tiled_resources,
     validate_full_model, CudaFullTrainer, DeviceLossDiagnostics, DeviceLossResources,
-    FullGradientProfile, FullWorkEstimate, TiledResources,
+    FullGradientProfile, FullWorkEstimate, ResidentStateProfile, TiledResources,
 };
 mod reverse;
 pub use reverse::ReverseResources;

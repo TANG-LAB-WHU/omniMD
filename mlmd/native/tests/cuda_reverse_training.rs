@@ -1273,3 +1273,129 @@ fn device_loss_large_tile_reuse_clipped_updates_and_boundaries() {
         serde_json::json!({"device_loss_capacity_1024_grow_shrink_and_clipped_adam_max_abs":maximum})
     );
 }
+
+#[test]
+#[ignore = "requires an authorized exclusive GPU window"]
+fn resident_snapshots_match_eager_at_callbacks_final_tail_and_restart() {
+    use omnimd_native::full_training::{train_full_with_device, CudaLoss, CudaTiling};
+    let m = model();
+    let d = dataset(&m);
+    let mut c = config(5);
+    c.cuda_gradient = CudaGradient::Reverse;
+    c.cuda_loss = CudaLoss::Gpu;
+    c.cuda_tiling = Some(CudaTiling {
+        max_frames: 4,
+        max_atoms: 64,
+        max_atoms_per_frame: 64,
+    });
+    c.learning_rate_schedule = Some(
+        serde_json::from_value(
+            serde_json::json!({"kind":"exponential","decay_steps":2,"decay_rate":0.8}),
+        )
+        .unwrap(),
+    );
+    let initial = Checkpoint::start(&m, &d, &c).unwrap();
+    let mut eager =
+        CudaFullTrainer::new_device_loss(m.clone(), 0, c.cuda_tiling.as_ref().unwrap()).unwrap();
+    let mut expected = Vec::new();
+    for step in 1..=5 {
+        let (_, mut g) = eager
+            .batch_gradient_with_virial(
+                &d,
+                &initial.training_indices,
+                &c.loss(),
+                c.virial_loss.as_ref(),
+            )
+            .unwrap();
+        let norm = g.iter().fold(0.0_f64, |a, v| a.hypot(*v));
+        if let Some(max) = c.gradient_clip_norm {
+            if norm > max {
+                for v in &mut g {
+                    *v *= max / norm;
+                }
+            }
+        }
+        eager.adam_step(&g, &c).unwrap();
+        if step % 2 == 0 || step == 5 {
+            expected.push((
+                step,
+                serde_json::to_value(eager.model()).unwrap(),
+                eager.moments().0.to_vec(),
+                eager.moments().1.to_vec(),
+            ));
+        }
+    }
+    let mut saved = Vec::new();
+    let outcome = train_full_with_device(
+        initial.clone(),
+        &d,
+        &c,
+        TrainingDevice::Cuda { visible_device: 0 },
+        |s| {
+            let reference = &expected[saved.len()];
+            assert_eq!(s.step, reference.0);
+            assert_eq!(serde_json::to_value(&s.model).unwrap(), reference.1);
+            assert_eq!(s.first_moment, reference.2);
+            assert_eq!(s.second_moment, reference.3);
+            saved.push(s.clone());
+            Ok(())
+        },
+    )
+    .unwrap();
+    assert_eq!(saved.iter().map(|s| s.step).collect::<Vec<_>>(), [2, 4, 5]);
+    let p = outcome.report.cuda_state_residency.unwrap();
+    assert_eq!(
+        (
+            p.updates,
+            p.status_downloads,
+            p.snapshots,
+            p.state_download_calls
+        ),
+        (5, 5, 3, 9)
+    );
+    let mut continuation = c.clone();
+    continuation.steps = 3;
+    continuation.fixed_geometry_cache = true;
+    let resumed = train_full_with_device(
+        saved[0].clone(),
+        &d,
+        &continuation,
+        TrainingDevice::Cuda { visible_device: 0 },
+        |_| Ok(()),
+    )
+    .unwrap();
+    assert_eq!(
+        serde_json::to_value(resumed.checkpoint.model).unwrap(),
+        serde_json::to_value(outcome.checkpoint.model).unwrap()
+    );
+    assert_eq!(
+        resumed.checkpoint.first_moment,
+        outcome.checkpoint.first_moment
+    );
+    assert_eq!(
+        resumed.checkpoint.second_moment,
+        outcome.checkpoint.second_moment
+    );
+    let mut callbacks = 0;
+    let failure = train_full_with_device(
+        initial,
+        &d,
+        &c,
+        TrainingDevice::Cuda { visible_device: 0 },
+        |s| {
+            callbacks += 1;
+            assert_eq!(s.step, 2);
+            assert_eq!(serde_json::to_value(&s.model).unwrap(), expected[0].1);
+            Err(omnimd_ml_contract::Error(
+                "intentional checkpoint callback stop".into(),
+            ))
+        },
+    )
+    .err()
+    .unwrap();
+    assert_eq!(callbacks, 1);
+    assert!(failure.0.contains("intentional checkpoint callback stop"));
+    println!(
+        "resident/eager snapshots exact at 2,4,5; restart crosses schedule; callback failure stops"
+    );
+}

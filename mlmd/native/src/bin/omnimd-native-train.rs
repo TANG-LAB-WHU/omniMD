@@ -143,6 +143,7 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
     };
     let dataset_open_ms = dataset_open.elapsed().as_secs_f64() * 1000.;
     let mut startup_timing = None;
+    let mut final_checkpoint_io_ms = 0.;
     let (model, mut report, input_key, input_sha) = match request {
         Request::Readout {
             initial_model,
@@ -213,7 +214,9 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
                 "before_trainer_ms":before_trainer_ms,
                 "before_first_update_ms":before_trainer_ms+outcome.report.timing.startup_ms
             }));
+            let checkpoint_start = std::time::Instant::now();
             save_checkpoint(&output, "checkpoint.json", &outcome.checkpoint)?;
+            final_checkpoint_io_ms = checkpoint_start.elapsed().as_secs_f64() * 1000.;
             (
                 outcome.checkpoint.model,
                 serde_json::to_value(outcome.report)?,
@@ -222,6 +225,7 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
             )
         }
     };
+    let export_start = std::time::Instant::now();
     let model_json = serde_json::to_string_pretty(&model)? + "\n";
     let mut reloaded = NativePotential::from_json(&model_json)?;
     let mut fitted = NativePotential::new(model)?;
@@ -242,7 +246,9 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
         return Err("native-v1 serialization/reload mismatch exceeds 1e-12".into());
     }
     dataset.verify()?;
+    let export_validation_ms = export_start.elapsed().as_secs_f64() * 1000.;
     let object = report.as_object_mut().unwrap();
+    object.insert("output_timing".into(), serde_json::json!({"final_checkpoint_io_ms":final_checkpoint_io_ms, "export_validation_ms":export_validation_ms,"reload_checked_frames":dataset.len(),"reload_evaluations":2*dataset.len(),"before_output_write_ms":startup.elapsed().as_secs_f64()*1000.}));
     if let Some(timing) = startup_timing {
         object.insert("startup_timing".into(), timing);
     }

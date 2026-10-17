@@ -11,7 +11,9 @@ synthetic cases, the new path improved medium-case whole-process time by 1.15x
 but made the tiny case slower (605 to 756 ms). Select it explicitly and measure
 the actual workload. This is not CPU-free training or general DeepMD compatibility.
 These are historical pre-packing measurements. See [input transfer batching](TRANSFER_BATCHING.md)
-for the later same-work comparison and published-data CPU reference.
+for the historical same-work comparison and [resident optimizer state](RESIDENT_STATE_TRAINING.md)
+for the current implementation, repeated public/synthetic measurements and retained
+CPU reference. GPU-loss full training snapshots state at its original save boundaries.
 
 ## Enable in steps
 

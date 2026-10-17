@@ -137,6 +137,9 @@ pub struct FullTiming {
     pub gradient_ms: f64,
     pub adam_ms: f64,
     pub assessment_ms: f64,
+    /// Dataset verification and required save callbacks; excludes state snapshot time in adam_ms.
+    pub checkpoint_io_ms: f64,
+    pub cuda_teardown_ms: f64,
 }
 
 fn cache_disabled(value: &bool) -> bool {
@@ -299,6 +302,9 @@ pub struct FullReport {
     #[cfg(feature = "cuda")]
     #[serde(skip_serializing_if = "Option::is_none")]
     pub cuda_gradient_profile: Option<crate::cuda::FullGradientProfile>,
+    #[cfg(feature = "cuda")]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub cuda_state_residency: Option<crate::cuda::ResidentStateProfile>,
     #[cfg(feature = "cuda")]
     #[serde(skip_serializing_if = "Option::is_none")]
     pub fixed_geometry_cache: Option<crate::cuda::FixedGeometryStats>,
@@ -737,6 +743,18 @@ pub fn train_full_with_device(
     let mut cuda_gradient_profile = cuda
         .as_ref()
         .map(|_| crate::cuda::FullGradientProfile::default());
+    // This owned wrapper has no accessors for a stale host model/moments. Only
+    // validated complete snapshots are published through the existing callbacks.
+    #[cfg(feature = "cuda")]
+    let mut resident = if config.cuda_loss == CudaLoss::Gpu {
+        Some(
+            cuda.take()
+                .ok_or_else(|| Error("resident state requires CUDA".into()))?
+                .into_resident()?,
+        )
+    } else {
+        None
+    };
     let mut timing = FullTiming {
         initialization_ms: initialization.elapsed().as_secs_f64() * 1000.0,
         ..FullTiming::default()
@@ -793,7 +811,15 @@ pub fn train_full_with_device(
             s.advance(c, &state.training_indices)?;
         }
         #[cfg(feature = "cuda")]
-        let tiled = if config.cuda_tiling.is_some() {
+        let tiled = if let Some(gpu) = &mut resident {
+            gradient = gpu
+                .batch_gradient_with_virial(dataset, batch, &loss, config.virial_loss.as_ref())?
+                .1;
+            if let Some(profile) = &mut cuda_gradient_profile {
+                profile.add(gpu.last_profile());
+            }
+            true
+        } else if config.cuda_tiling.is_some() {
             let gpu = cuda
                 .as_mut()
                 .ok_or_else(|| Error("CUDA tiling requires CUDA".into()))?;
@@ -862,7 +888,14 @@ pub fn train_full_with_device(
         let learning_rate = config.learning_rate_at(state.step)?;
         let step = state.step + 1;
         #[cfg(feature = "cuda")]
-        let cuda_updated = if let Some(gpu) = &mut cuda {
+        let resident_updated = resident.is_some();
+        #[cfg(not(feature = "cuda"))]
+        let resident_updated = false;
+        #[cfg(feature = "cuda")]
+        let cuda_updated = if let Some(gpu) = &mut resident {
+            gpu.adam_step(&gradient, config)?;
+            true
+        } else if let Some(gpu) = &mut cuda {
             gpu.adam_step(&gradient, config)?;
             values = layout.values(gpu.model());
             let (first, second) = gpu.moments();
@@ -886,17 +919,20 @@ pub fn train_full_with_device(
                     / ((state.second_moment[i] / c2).sqrt() + config.epsilon);
             }
         }
-        if state
-            .first_moment
-            .iter()
-            .chain(&state.second_moment)
-            .any(|x| !x.is_finite())
+        if !resident_updated
+            && state
+                .first_moment
+                .iter()
+                .chain(&state.second_moment)
+                .any(|x| !x.is_finite())
         {
             return Err(Error(
                 "nonfinite Adam moments; last completed checkpoint remains usable".into(),
             ));
         }
-        layout.apply(&mut state.model, &values)?;
+        if !resident_updated {
+            layout.apply(&mut state.model, &values)?;
+        }
         state.step = step;
         state.sampler = next_sampler;
         if let Some(report) = &mut minibatch {
@@ -908,8 +944,21 @@ pub fn train_full_with_device(
         }
         timing.adam_ms += phase.elapsed().as_secs_f64() * 1000.0;
         if step % config.checkpoint_every == 0 || step == end {
+            #[cfg(feature = "cuda")]
+            if let Some(gpu) = &mut resident {
+                let snapshot_start = Instant::now();
+                let (model, first, second) = gpu.snapshot(step)?;
+                // All downloads and model/moment checks succeeded before replacing
+                // any checkpoint fields. state is owned here and never returned on error.
+                state.model = model;
+                state.first_moment = first;
+                state.second_moment = second;
+                timing.adam_ms += snapshot_start.elapsed().as_secs_f64() * 1000.;
+            }
+            let checkpoint_start = Instant::now();
             dataset.verify()?;
             save(&state)?;
+            timing.checkpoint_io_ms += checkpoint_start.elapsed().as_secs_f64() * 1000.;
         }
     }
     let mut changes: BTreeMap<String, GroupChange> = BTreeMap::new();
@@ -970,11 +1019,27 @@ pub fn train_full_with_device(
         "CUDA all-neural-parameter mixed derivatives and Adam; CPU inference/loss cotangents, geometry, stable atom/frame reduction, clipping and assessment"
     };
     #[cfg(feature = "cuda")]
-    let fixed_geometry_cache = cuda.as_ref().and_then(|gpu| gpu.fixed_geometry_stats());
-    #[cfg(feature = "cuda")]
-    let cuda_tiling = cuda
+    let fixed_geometry_cache = resident
         .as_ref()
-        .and_then(|gpu| gpu.tiling_resources().cloned());
+        .and_then(|gpu| gpu.fixed_geometry_stats())
+        .or_else(|| cuda.as_ref().and_then(|gpu| gpu.fixed_geometry_stats()));
+    #[cfg(feature = "cuda")]
+    let cuda_tiling = resident
+        .as_ref()
+        .and_then(|gpu| gpu.tiling_resources().cloned())
+        .or_else(|| {
+            cuda.as_ref()
+                .and_then(|gpu| gpu.tiling_resources().cloned())
+        });
+    #[cfg(feature = "cuda")]
+    let cuda_state_residency = resident.as_ref().map(|gpu| gpu.state_profile());
+    #[cfg(feature = "cuda")]
+    if resident.is_some() || cuda.is_some() {
+        let teardown_start = Instant::now();
+        drop(resident);
+        drop(cuda);
+        timing.cuda_teardown_ms = teardown_start.elapsed().as_secs_f64() * 1000.;
+    }
     let algorithm = match (minibatch.is_some(), config.learning_rate_schedule.as_ref()) {
         (true, Some(LearningRateSchedule::Exponential { .. })) =>
             "deterministic minibatch Adam; global-update exponential staircase learning rate; last iterate export",
@@ -1004,6 +1069,7 @@ pub fn train_full_with_device(
         algorithm:algorithm.into(),
         loss_contract:state.loss_contract.clone().unwrap_or_else(|| "energy-force-per-atom-v1".into()),
         #[cfg(feature="cuda")] cuda_gradient_profile,
+        #[cfg(feature="cuda")] cuda_state_residency,
         #[cfg(feature="cuda")] fixed_geometry_cache,
         #[cfg(feature="cuda")] cuda_tiling,
         derivative_method:derivative_method.into(), execution:state.execution.clone(), execution_scope:execution_scope.into(), timing,

@@ -841,7 +841,8 @@ impl Runtime {
         mut c2: f64,
         mut rate: f64,
         mut epsilon: f64,
-    ) -> Result<(Vec<f64>, Vec<f64>, Vec<f64>)> {
+        snapshot: bool,
+    ) -> Result<Option<(Vec<f64>, Vec<f64>, Vec<f64>)>> {
         unsafe {
             let _current = Current::enter(self.api, self.context)?;
             self.upload_current(11, gradient)?;
@@ -873,14 +874,33 @@ impl Runtime {
                     "nonfinite CUDA Adam update; last completed checkpoint remains usable".into(),
                 ));
             }
-            let mut values = vec![0.0; gradient.len()];
-            let mut first = values.clone();
-            let mut second = values.clone();
-            Self::download_into(self.api, self.buffers[1].0, &mut values)?;
-            Self::download_into(self.api, self.buffers[9].0, &mut first)?;
-            Self::download_into(self.api, self.buffers[10].0, &mut second)?;
-            Ok((values, first, second))
+            if snapshot {
+                self.download_adam_current(gradient.len()).map(Some)
+            } else {
+                Ok(None)
+            }
         }
+    }
+    pub(super) fn adam_snapshot(
+        &mut self,
+        parameters: usize,
+    ) -> Result<(Vec<f64>, Vec<f64>, Vec<f64>)> {
+        unsafe {
+            let _current = Current::enter(self.api, self.context)?;
+            self.download_adam_current(parameters)
+        }
+    }
+    unsafe fn download_adam_current(
+        &self,
+        parameters: usize,
+    ) -> Result<(Vec<f64>, Vec<f64>, Vec<f64>)> {
+        let mut values = vec![0.0; parameters];
+        let mut first = values.clone();
+        let mut second = values.clone();
+        Self::download_into(self.api, self.buffers[1].0, &mut values)?;
+        Self::download_into(self.api, self.buffers[9].0, &mut first)?;
+        Self::download_into(self.api, self.buffers[10].0, &mut second)?;
+        Ok((values, first, second))
     }
     unsafe fn launch(&self, index: usize, threads: usize, args: &mut [*mut c_void]) -> Result<()> {
         self.launch_grid(
