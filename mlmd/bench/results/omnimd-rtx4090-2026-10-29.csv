@@ -1,0 +1,7 @@
+engine,route,device,precision,natoms,ms_per_eval,us_per_atom_step,ns_per_day,peak_mem_mb,status,note
+omnimd-mlmd,native-cpu,cpu,float64,192,298.72074000013527,1555.8371875007044,,,ok,(min of 3: 6 frames - 1 frame)/5; single-frame run incl. load 0.37 s; includes JSON parsing
+omnimd-mlmd,native-cuda,gpu,float64,192,,,,,rejected,"CUDA evaluation stopped: CUDA subset requires types<=8, sum(sel)<=256, embedding width<=64, descriptor width<=128"
+omnimd-mlmd,native-cpu,cpu,float64,1536,4598.615149998295,2993.8900716134735,,,ok,(min of 3: 3 frames - 1 frame)/2; single-frame run incl. load 4.35 s; includes JSON parsing
+omnimd-mlmd,native-cuda,gpu,float64,1536,,,,,rejected,"CUDA evaluation stopped: CUDA subset requires types<=8, sum(sel)<=256, embedding width<=64, descriptor width<=128"
+omnimd-mlmd,native-cuda,gpu,float64,12288,,,,,rejected,"CUDA evaluation stopped: CUDA subset requires types<=8, sum(sel)<=256, embedding width<=64, descriptor width<=128"
+omnimd-mlmd,native-cuda,gpu,float64,98304,,,,,rejected,"CUDA evaluation stopped: CUDA subset requires types<=8, sum(sel)<=256, embedding width<=64, descriptor width<=128"
