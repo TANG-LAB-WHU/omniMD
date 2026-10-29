@@ -25,6 +25,7 @@ native-v1 serialization/reload. Example:
 ```json
 {
   "schema": "omnimd-native-readout-train-v1",
+  "device": "cpu",
   "initial_model": "initial.json",
   "dataset": "dataset.jsonl",
   "output_directory": "trained",
@@ -67,6 +68,76 @@ splits do not guarantee independence of correlated trajectories; explicit IDs
 allow a separately chosen system/trajectory holdout. The report preserves the
 header, source SHA map, actual dataset JSONL SHA, request/model hashes, config,
 split identities, rank and initial/final metrics.
+
+## Explicit CPU or CUDA features
+
+`device` defaults to `"cpu"`. With a `--features cuda` build, select an explicit
+`"cuda:N"` visible device ordinal, for example `"cuda:0"`. There is no `auto`
+selection or silent CPU fallback. The request schema and engine forwarding are
+otherwise unchanged. Rust callers can use `training::train_with_device` and
+`TrainingDevice`; the existing `train` function still selects CPU.
+
+CUDA computes the exact one-hot readout E/F/virial columns with the existing
+FP64 descriptor, fitting and coordinate-pullback kernels. A private zero-head
+potential keeps model weights and workspace resident; each basis transition
+clears the previous coefficient and sets the next coefficient. Atomic offsets
+and frozen final biases are tracked separately, so large energy offsets never
+enter a feature column. Native-v1 validation requires a final linear layer with
+no residual or timestep. CPU still prepares geometry and reduces forces/virial,
+predicts the initial model, solves the weighted QR update and independently
+assesses the exported model. This is **GPU-assisted frozen-readout training**;
+the separate [full-network mode](CUDA_FULL_TRAINING.md) implements bounded CUDA
+mixed derivatives and Adam.
+
+The CUDA architecture bounds in [CUDA.md](CUDA.md) also apply, including only
+tanh/linear activations and at most 2048 atoms per frame. Dataset shapes, labels,
+type map, split, dense design bound, model architecture and atom bound are
+checked before creating the GPU context. Geometry/neighbor errors remain
+fallible during feature evaluation. Any CUDA upload/evaluation error aborts the
+fit and poisons that private basis; no partial trained model is published.
+Full-network requests follow their own tighter CUDA bounds and backend-specific
+checkpoint rules. The original CPU Adam checkpoint schema is unchanged.
+
+The direct QR solve has no iterative optimizer state or resume checkpoint. Run
+it again from the same initial model, dataset, split and configuration; a saved
+fitted model can initialize a later run, but that creates a new ridge anchor
+and is not an optimizer resume. Same-device repeat exported identical model
+bytes in the check below. Cross-device/driver bitwise identity is not promised;
+small floating-point differences can also change pivot decisions near rank
+tolerance. Reports preserve the existing rank policy and add `execution` with
+the requested device, feature backend/device, CPU solver/assessment and separate
+initialization, feature, reference, QR and assessment wall times. These segments
+exclude file IO, design assembly and export; they are not total process timing.
+
+For an explicitly authorized GPU window, reproduce the focused checks:
+
+```sh
+cargo test --release --locked --offline --manifest-path mlmd/native/Cargo.toml \
+  --features cuda --test training_device -- --ignored --nocapture --test-threads=1
+python mlmd/native/tools/replay_cuda_readout.py \
+  --eval-exe /path/to/omnimd-native-eval \
+  --train-exe /path/to/omnimd-native-train --device cuda:0 \
+  --output-dir /new/output/directory
+```
+
+On Windows RTX 4090 (2026-10-16), both fixed-bias and fitted-bias feature tests
+passed across nonperiodic/triclinic cells, changing composition/count,
+repeated frames and large fixed offsets. Maximum column E/F/virial differences
+were `0 / 1.11e-15 / 1.11e-15`. The real CLI used 32 original synthetic frames,
+24 explicit training IDs and eight held-out IDs, fitting all eight readout
+weights/biases. Saved CPU/CUDA model predictions differed by at most
+`8.88e-16 / 1.78e-15 / 2.22e-15`; serialization/reload error was zero. Repeated
+CUDA fits produced identical model bytes and all frozen parameters stayed
+unchanged. [The compact report](fixtures/cuda-readout-report.json) includes
+commands, hashes, ranks, metrics and exact execution scope.
+
+This tiny 3/4-atom case was **slower on CUDA**: feature extraction took 21.37 ms
+versus CPU 5.15 ms; CUDA initialization was another 195.88 ms. This is an
+implementation/parity check, not a speed or chemical-accuracy claim. Feature
+checkpointing and virial-loss optimization remain unimplemented in the readout
+QR mode. Representative large-system training performance remains unvalidated.
+The full-network trainer supports [optional virial loss](VIRIAL_TRAINING.md)
+on CPU and CUDA.
 
 ## Exact features and objective
 

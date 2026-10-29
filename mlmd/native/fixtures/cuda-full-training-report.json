@@ -1,0 +1,267 @@
+{
+  "scope": "Bounded FP64 CUDA all-neural-parameter E/F mixed derivatives and Adam; CPU inference/loss cotangents, geometry, stable reduction/clipping and assessment",
+  "date_utc": "2026-10-16",
+  "bounds": {
+    "neural_parameters": 2048,
+    "network_or_descriptor_width": 32,
+    "neighbor_slots": 64,
+    "atoms_per_frame": 64,
+    "frames": 1024,
+    "network_layers": 8,
+    "types": 8,
+    "estimated_contraction_terms_per_gradient": 50000000
+  },
+  "verification": {
+    "default_cpu_tests_passed": 16,
+    "cuda_feature_cpu_tests_passed": 22,
+    "full_cuda_opt_in_tests_passed": 2,
+    "readout_cuda_regression_passed": true,
+    "inference_cuda_regression_passed": true,
+    "gradient_reference": "Independent CPU reverse-over-forward AD for every parameter, E-only/F-only/combined loss, periodic/nonperiodic; central differences as an additional oracle",
+    "checkpoint": "CPU v1 preserved; GPU v2 records backend, visible ordinal/name/capability, driver API version, compiled PTX SHA; 5=2+3 and 300=150+150 exact within same tested build/runtime",
+    "expected_negative_test": "GPU nonfinite Adam candidate rejected; previous host model retained, instance poisoned; this is an intentional numeric status check, not a driver failure",
+    "commands": [
+      "cargo test --locked --offline --manifest-path mlmd/native/Cargo.toml --no-default-features",
+      "cargo test --locked --offline --manifest-path mlmd/native/Cargo.toml --features cuda",
+      "cargo test --release --locked --offline --manifest-path mlmd/native/Cargo.toml --features cuda --test cuda_full_training -- --ignored --nocapture --test-threads=1",
+      "python mlmd/native/tools/replay_full_training.py --eval-exe mlmd/native/target/release/omnimd-native-eval.exe --train-exe mlmd/native/target/release/omnimd-native-train.exe --device cuda:0 --compare-cpu --output-dir mlmd/native/fixtures/generated-deepmd/cuda-full-01/cli"
+    ],
+    "host_only_post_gpu_checks": "Global-step guard and combined work budget: threshold, overflow, unequal type networks, legal individual bounds but excessive product, rejection before context. No GPU arithmetic changed."
+  },
+  "gradient_update_check": {
+    "axis2_gradient_max_abs": 8.881784197001252e-16,
+    "cpu_v1_gpu_v2_checkpoint_guard": true,
+    "execution": {
+      "backend": "cuda_hyperdual_f64_v1",
+      "device_info": "NVIDIA GeForce RTX 4090; compute 8.9; FP64; device 0",
+      "driver_version": 13040,
+      "program_sha256": "36793f1f392c7c3a8a13bb6f9dde7b26d810d4e2600cc5cf4c4cb124107f91b9",
+      "visible_device": 0
+    },
+    "gradient_max_abs_vs_cpu_reverse_ad": 7.105427357601002e-15,
+    "gradient_max_abs_vs_finite_difference": 7.542334046206634e-08,
+    "kernel_resources": [
+      {
+        "local_bytes_per_thread": 6144,
+        "name": "full_gradient",
+        "registers_per_thread": 72,
+        "static_shared_bytes": 0
+      },
+      {
+        "local_bytes_per_thread": 0,
+        "name": "full_adam",
+        "registers_per_thread": 35,
+        "static_shared_bytes": 0
+      }
+    ],
+    "nonfinite_update_preserves_host_snapshot_and_poisons": true,
+    "parameters": 112,
+    "same_device_serialized_resume_exact": true,
+    "scope": "CUDA all neural parameter E/F mixed derivatives and Adam; CPU loss, geometry, reduction and assessment",
+    "two_step_moment_max_abs": 1.6940658945086007e-21,
+    "two_step_parameter_max_abs": 9.020562075079397e-17,
+    "width32_gradient_max_abs": 7.105427357601002e-15,
+    "started_utc": "2026-10-16T10:41:13.057649+00:00",
+    "completed_utc": "2026-10-16T10:41:15.122588+00:00"
+  },
+  "training_cli": {
+    "scope": "full supported tanh network; original synthetic teacher; no physical accuracy claim",
+    "device": "cuda:0",
+    "execution": {
+      "backend": "cuda_hyperdual_f64_v1",
+      "device_info": "NVIDIA GeForce RTX 4090; compute 8.9; FP64; device 0",
+      "driver_version": 13040,
+      "program_sha256": "36793f1f392c7c3a8a13bb6f9dde7b26d810d4e2600cc5cf4c4cb124107f91b9",
+      "visible_device": 0
+    },
+    "execution_scope": "CUDA all-neural-parameter mixed derivatives and Adam; CPU inference/loss cotangents, geometry, stable atom/frame reduction, clipping and assessment",
+    "timing": {
+      "adam_ms": 33.003299999999996,
+      "assessment_ms": 1.3319,
+      "gradient_ms": 1481.1790999999996,
+      "initialization_ms": 208.3434
+    },
+    "cpu_comparison": {
+      "parameter_max_abs": 1.6653345369377348e-15,
+      "moment_max_abs": 4.087875871139346e-15,
+      "prediction_efv_max_abs": [
+        8.881784197001252e-16,
+        2.220446049250313e-15,
+        2.4424906541753444e-15
+      ],
+      "cpu_timing": {
+        "adam_ms": 1.7591000000000034,
+        "assessment_ms": 1.293,
+        "gradient_ms": 603.6832999999998,
+        "initialization_ms": 0.279
+      },
+      "cuda_timing": {
+        "adam_ms": 33.003299999999996,
+        "assessment_ms": 1.3319,
+        "gradient_ms": 1481.1790999999996,
+        "initialization_ms": 208.3434
+      },
+      "cpu_final_training": {
+        "energy_per_atom_rmse_ev": 0.00024168452888774354,
+        "energy_rmse_ev": 0.0008176976670066714,
+        "force_component_rmse_ev_per_angstrom": 0.002260379374292888,
+        "frames": 18,
+        "normalized_ef_objective": 0.000530211820759139,
+        "virial_component_rmse_ev": 0.0022565936217324857
+      },
+      "cpu_final_validation": {
+        "energy_per_atom_rmse_ev": 0.0004476662199882524,
+        "energy_rmse_ev": 0.0017903336254471913,
+        "force_component_rmse_ev_per_angstrom": 0.006793651861295436,
+        "frames": 6,
+        "normalized_ef_objective": 0.004456557551842472,
+        "virial_component_rmse_ev": 0.01094994057190658
+      }
+    },
+    "checkpoint_schema": "omnimd-native-full-checkpoint-v2",
+    "data_seed": 20261014,
+    "split_seed": 20261015,
+    "frames": 24,
+    "train_frames": 18,
+    "validation_frames": 6,
+    "parameters": 112,
+    "steps": 300,
+    "initial_training": {
+      "energy_per_atom_rmse_ev": 0.07572476790753267,
+      "energy_rmse_ev": 0.29282298278796637,
+      "force_component_rmse_ev_per_angstrom": 0.2841021659652936,
+      "frames": 18,
+      "normalized_ef_objective": 8.830361483640697,
+      "virial_component_rmse_ev": 0.2890119185893984
+    },
+    "final_training": {
+      "energy_per_atom_rmse_ev": 0.00024168452888772502,
+      "energy_rmse_ev": 0.0008176976670066299,
+      "force_component_rmse_ev_per_angstrom": 0.0022603793742928895,
+      "frames": 18,
+      "normalized_ef_objective": 0.0005302118207591387,
+      "virial_component_rmse_ev": 0.002256593621732486
+    },
+    "initial_validation": {
+      "energy_per_atom_rmse_ev": 0.06033371156403555,
+      "energy_rmse_ev": 0.23612446270426193,
+      "force_component_rmse_ev_per_angstrom": 0.3178073922785384,
+      "frames": 6,
+      "normalized_ef_objective": 10.140334936324335,
+      "virial_component_rmse_ev": 0.4072473794946535
+    },
+    "final_validation": {
+      "energy_per_atom_rmse_ev": 0.0004476662199882955,
+      "energy_rmse_ev": 0.0017903336254473622,
+      "force_component_rmse_ev_per_angstrom": 0.006793651861295393,
+      "frames": 6,
+      "normalized_ef_objective": 0.0044565575518424275,
+      "virial_component_rmse_ev": 0.010949940571906552
+    },
+    "parameter_changes_from_initial": {
+      "embedding": {
+        "changed": 56,
+        "delta_l2": 0.41718756021768133,
+        "parameters": 56
+      },
+      "fitting_hidden": {
+        "changed": 48,
+        "delta_l2": 0.24783702474763042,
+        "parameters": 48
+      },
+      "fitting_output": {
+        "changed": 8,
+        "delta_l2": 0.08145689221813869,
+        "parameters": 8
+      }
+    },
+    "resume_150_plus_150_equals_continuous_300": true,
+    "exported_model_max_abs_error_to_teacher": {
+      "energy": 0.004238451771663598,
+      "forces": 0.0382690273942039,
+      "virial": 0.057098963435368244
+    },
+    "native_v1_reload_max_abs_energy_force_virial": [
+      0.0,
+      0.0,
+      0.0
+    ],
+    "sha256": {
+      "dataset.jsonl": "5669b8e833b0a409e08b328dc3cf9ef9dfebb52d32f8b8495a75d9342b07902a",
+      "initial.json": "407278c6eab122e6dfee2511b3c3fb4c033f58c04819a580ffc0810df3ce7b9a",
+      "teacher.json": "1113e4f1d49c77756703a0b6f3362615699a6d9bd0686cddbc1c103066fa0bc8",
+      "model.json": "b8d75f37824fbac741add3e3cd3bed308c09da4fbe48a7693031ffb0175b1d25",
+      "report.json": "d3c449cd4171699d7cea5164b067c26761444c997dcab85b2f01a60e84736fd0",
+      "checkpoint.json": "a8dc720eff141dac1d902431c48c4a6166073a8c6d1710f226496193f6bb0bde",
+      "eval_executable": "3baf68174f130a3add67bcf3e2e50baaa1c209d117a6309521cba6f84f37633e",
+      "train_executable": "44c02bd2fb9ddf93376ba9e3043d84c2bfacaa6882dc2b2d898daf5e7b05cabd"
+    }
+  },
+  "gradient_64_atom_timing": {
+    "atoms": 64,
+    "cpu_over_cuda_ratio": 3.458039314516129,
+    "execution": {
+      "backend": "cuda_hyperdual_f64_v1",
+      "device_info": "NVIDIA GeForce RTX 4090; compute 8.9; FP64; device 0",
+      "driver_version": 13040,
+      "program_sha256": "36793f1f392c7c3a8a13bb6f9dde7b26d810d4e2600cc5cf4c4cb124107f91b9",
+      "visible_device": 0
+    },
+    "kernel_resources": [
+      {
+        "local_bytes_per_thread": 192,
+        "name": "full_gradient",
+        "registers_per_thread": 158,
+        "static_shared_bytes": 0
+      },
+      {
+        "local_bytes_per_thread": 0,
+        "name": "full_adam",
+        "registers_per_thread": 35,
+        "static_shared_bytes": 0
+      }
+    ],
+    "max_abs_gradient": 2.1094237467877974e-15,
+    "parameters": 112,
+    "repeats": 5,
+    "startup_ms": 202.231,
+    "timing_scope": "same fixed 64-atom synthetic frame, E/F full gradient; includes CPU inference/loss, geometry, transfers, kernel and stable reduction; excludes initialization, Adam and checkpoint IO; one bounded run, no production scaling claim",
+    "warmed_cpu_total_ms": 10.9772,
+    "warmed_cuda_total_ms": 3.1744,
+    "estimated_scalar_terms": 1792000
+  },
+  "regressions": {
+    "readout_column_max_efv": [
+      [
+        0.0,
+        1.1102230246251565e-15,
+        1.1102230246251565e-15
+      ],
+      [
+        0.0,
+        1.1102230246251565e-15,
+        1.1102230246251565e-15
+      ]
+    ],
+    "inference_max_efv": [
+      0.0,
+      1.1102230246251565e-16,
+      1.1102230246251565e-16
+    ]
+  },
+  "gpu_release": {
+    "gpu_released_utc": "2026-10-16T10:45:16.558985+00:00",
+    "all_owned_gpu_processes_exited": true
+  },
+  "no_new_dependencies": true,
+  "no_push": true,
+  "limitations": [
+    "Per-parameter forward work scales with parameter count; bounds are not a production throughput claim",
+    "Tiny 300-step training is slower on CUDA; 64-atom measurement is gradient-only and excludes startup/Adam/checkpoint IO",
+    "CPU inference, loss seeds, geometry, reduction, clipping and evaluation remain host work",
+    "No virial loss, normalization/atomic-offset optimization, weight tying or generic DeepMD/HAP support",
+    "No cross-platform/driver/build bitwise promise; identity guards are not cryptographic attestation",
+    "No external driver fault injection or Linux CUDA runtime validation in this tranche"
+  ],
+  "raw_evidence_ignored": "fixtures/generated-deepmd/cuda-full-01/"
+}

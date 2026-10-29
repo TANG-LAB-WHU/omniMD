@@ -1,5 +1,9 @@
 # Minimal end-to-end local workflow
 
+For installation and a fully executable synthetic CPU walkthrough, start with
+[GETTING_STARTED.md](GETTING_STARTED.md). [FEATURE_MATRIX.md](FEATURE_MATRIX.md)
+pins the official DeepMD comparison version and records implementation gaps.
+
 The same explicit units and Frame representation connect structure conversion,
 prediction or bounded training, fixed-cell relaxation and MD. This page uses
 native inference after model conversion; C API model options can replace native
@@ -76,8 +80,9 @@ readout with descriptor/embedding and hidden layers frozen; see
 The wrapper runs the adjacent omnimd-native-train executable unchanged.
 Choose validation IDs appropriate to your own dataset; the example IDs are
 placeholders. Inspect training/validation metrics and rank in report.json.
-Validation labels never enter the fit. Then use the saved model.json as
-native_model for subsequent commands.
+Validation labels never enter the fit. Confirm model suitability from held-out
+metrics and the intended physical use before selecting the saved model.json as
+native_model for subsequent commands. A successful fit/export alone is insufficient.
 
 For all neural weights/biases/timesteps in the supported tanh network, use the
 complete omnimd-native-full-train-v1 request in
@@ -86,6 +91,33 @@ That mode uses exact mixed E/F gradients and Adam, with checkpoint restart.
 Normalization, geometry/type metadata and atomic offsets remain fixed; the
 document lists bounds, independent one-side copies and unsupported activations.
 Both training modes export the same native-v1 model for the steps below.
+
+CPU stays the default. With a CUDA-enabled sibling trainer, full training also
+supports reverse tiling and optional `config.cuda_loss="gpu"` for GPU E/F/V
+predictions and detached seeds. GPU loss requires reverse+tiling and binds v8;
+default CPU loss with tiling keeps v7, and geometry/reduction/assessment remain CPU work.
+Follow [step 23](GETTING_STARTED.md#23-select-gpu-prediction-and-loss-preparation-explicitly)
+for selection/restart rules. State residency now activates automatically in that
+explicit GPU-loss path, preserving each status check and the existing checkpoint
+cadence. [Step 27](GETTING_STARTED.md#27-use-resident-gpu-training-state-and-interpret-measured-speed)
+records combined whole-process reductions versus `201cdef`: public E/F 7.7%, medium
+synthetic 2.4%; medium incremental gain over transfer-only remains unresolved.
+Tiny CPU remains faster (504.19 versus 703.56 ms GPU). These Windows measurements
+do not generalize to every workload or establish physical accuracy. Limits remain.
+For larger physical frames, [step 25](GETTING_STARTED.md#25-opt-in-to-resource-bounded-larger-training-frames)
+adds explicit `cuda_tiling.max_atoms_per_frame=64..256`; >64 selects v9 and
+GPU-loss backend v2. Default 64 and CPU/untiled limits remain. Unchanged work/payload
+budgets can reject frames below the configured ceiling: the 466-parameter example
+fits only 138 atoms and rejects 256. New v9 Linux execution remains unverified.
+
+The [physical-label pilot and diagnosis](PHYSICAL_DATA_VALIDATION.md#bounded-training-diagnosis)
+illustrate that distinction. With the same initial model/split/1,000 steps, energy
+weight 1->0.1 improved validation force RMSE 4.164336->3.707381 eV/angstrom, while
+E/atom RMSE worsened 0.455950->0.523472 eV/atom. New training total-energy RMSE
+6.650750 eV also exceeds initial 6.626241 eV. Both models remain unsuitable for
+scientific minimization or MD. The 43 diagnostic-validation frames are no longer
+an untouched test. Two-step optimizer parity is limited numerical evidence;
+see [step 26](GETTING_STARTED.md#26-interpret-the-physical-label-pilot-and-controlled-diagnosis).
 
 ## 4. Minimize at fixed cell
 
@@ -152,3 +184,101 @@ fitted synthetic teacher hit the declared 300-step limit; its exported last
 accepted frame was intentionally used for a five-step IO/integration check.
 That check does not represent equilibration or a converged physical structure.
 See [VALIDATION.md](VALIDATION.md) and the committed evidence for exact numbers.
+## Final native CUDA cache acceptance
+
+This optional inference-only follow-up is local, based on published a74804d.
+CPU stays the default. Optional bounded CUDA gradients/Adam now retain CPU
+inference, geometry, reduction and assessment; see [CUDA training](native/CUDA_FULL_TRAINING.md). The recorded run uses
+existing original synthetic inputs and the already converted public regression
+model. It does not use research data or an equilibrated-water accuracy dataset.
+
+Preserve the baseline a74804d release CLI and CUDA checker in a separate output
+location before building this candidate. Build both versions with the same
+Rust/toolchain and release profile. The measured baseline checker adds only
+host timing instrumentation; its hash is recorded. No CUDA library, driver or
+system change is needed. Candidate build:
+
+    cargo build --release --locked --offline --manifest-path mlmd/Cargo.toml -p omnimd-mlmd -p omnimd-native --features omnimd-mlmd/native-cuda,omnimd-native/cuda --bin omnimd-mlmd --bin omnimd-native-cuda-check
+
+Prepare the existing inputs using native/tools/replay_cuda.py without --run-gpu
+and native/tools/replay_cuda_infra.py, as described in [CUDA_INFRA.md](native/CUDA_INFRA.md).
+Use the same 216-atom medium model/frame and 192-atom public-model water frame.
+Then, only in an explicitly coordinated exclusive GPU window, run once:
+
+```sh
+python mlmd/scripts/validate_cuda_infra.py \
+  --baseline-engine /saved/a74804d/omnimd-mlmd \
+  --baseline-check /saved/a74804d/omnimd-native-cuda-check \
+  --engine /current/mlmd/target/release/omnimd-mlmd \
+  --check /current/mlmd/target/release/omnimd-native-cuda-check \
+  --public-model /prepared/public-native.json \
+  --public-frames /prepared/public-water192.jsonl \
+  --medium-model /prepared/medium-model.json \
+  --medium-frames /prepared/medium-frames.jsonl \
+  --work /new/acceptance-directory --run-gpu
+```
+
+Append .exe on Windows. The script permits a directory containing the preserved
+baseline binaries but requires new report/request/output names. It records input
+and binary hashes; two five-repeat timing pairs; 20-step old-CUDA/current-CPU/
+current-CUDA MD with matching output/checkpoint cadence; exact 10-step restart;
+and a seven-frame moving/rebuild check in one persistent potential. It stops on
+first process failure/timeout with no retry or GPU reset. An owned timed-out
+process tree is stopped. Normal completion leaves no worker running.
+
+[Final receipt](evidence/native-cuda-infra-final.json) and [release measurements](RELEASE.md#local-native-cuda-cache-follow-up)
+separate CUDA construction, first evaluation, warm evaluation and complete MD.
+A large old/new CUDA warm ratio must not be relabeled GPU-over-CPU acceleration.
+The CPU algorithm is unchanged and has no candidate cache. In the recorded run,
+final CUDA's complete short MD still took longer than CPU because initialization
+is material. Changed cells, wrapping or large displacements can require rebuilds;
+independent-frame workloads need not obtain the same warm-cache benefit.
+
+
+## Integrated cooperative CUDA acceptance
+
+The later local integration combines native source b6b7aa7, C API source 1aee39c
+and A's preflight/tutorial. Exact tested runtime: 9b8d184. The new compact
+[GPU receipt](evidence/native-cuda-integrated-fit.json) and
+[CPU tutorial receipt](evidence/cpu-tutorial-integrated.json) supersede no historical
+receipts: they identify their own binaries and inputs. C API new numerical
+validation remains separate and pending; this check exercises native CUDA only.
+
+Build and preserve the engine and CUDA checker from 9eaf284 before building the
+integrated candidate with identical release settings. Use the build and input
+preparation above, then run the same acceptance script with the actual provenance
+arguments (paths must name the newly built/preserved binaries and existing inputs):
+
+```sh
+python mlmd/scripts/validate_cuda_infra.py \
+  --baseline-engine /saved/9eaf284/omnimd-mlmd \
+  --baseline-check /saved/9eaf284/omnimd-native-cuda-check \
+  --engine /integrated/mlmd/target/release/omnimd-mlmd \
+  --check /integrated/mlmd/target/release/omnimd-native-cuda-check \
+  --public-model /prepared/public-native.json \
+  --public-frames /prepared/public-water192.jsonl \
+  --medium-model /prepared/medium-model.json \
+  --medium-frames /prepared/medium-frames.jsonl \
+  --baseline-commit 9eaf284050257dae5ffeb53210987d7c35d391a5 \
+  --source-commit 9b8d1847f892e32751c73d3262e0245d0efb4cdd \
+  --native-source-commit b6b7aa7bc239702dafdefb559d758efd4c357eaa \
+  --work /new/integrated-acceptance --run-gpu
+```
+
+Only run in a coordinated GPU window. The recorded invocation completed without
+errors/retries and released its window at 2026-10-16 07:50:26 UTC. Complete MD
+throughput is 20 steps divided by total process wall time, including startup,
+model loading/compilation, JSON output and checkpoint fsync. Warmed five-repeat
+means exclude those startup costs. Normal desktop graphics remain uncontrolled;
+these figures do not establish a scaling curve or production performance.
+
+## External label return after candidate selection
+
+Use [EXTERNAL_LABELS.md](engine/EXTERNAL_LABELS.md) for the exact preparation and
+return contract. Select a hash-bound subset, export its frame identities, obtain
+external results separately, then import complete E/F labels into a new dataset.
+The merge fills missing labels and rejects conflicts, changed geometry/parameters,
+duplicates and mismatched hashes. Inspect before explicitly retraining. The
+[CPU replay](evidence/external-labels.json) closes these file/CLI steps on saved
+synthetic labels, while preserving v2 context in a separate IO check. It does not
+launch an external calculator or make the native trainer parameter-aware.

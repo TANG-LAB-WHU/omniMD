@@ -1,0 +1,598 @@
+{
+  "schema": "omnimd-native-fixed-geometry-evidence-v1",
+  "date": "2026-10-16",
+  "platform": "Windows x86_64 GNU Rust; CUDA 12.8; RTX 4090",
+  "scope": "opt-in fixed selected training frames; exact geometry reuse; original synthetic fixtures only",
+  "gpu_released_utc": "2026-10-16T12:23:24Z",
+  "cpu_tests": {
+    "default_passed": 22,
+    "cuda_feature_passed": 35,
+    "updated_preflight_guard_passed": 1
+  },
+  "gpu_tests": {
+    "fixed_geometry_acceptance": [
+      {
+        "all_gradients_and_adam_bitwise_equal": true,
+        "cache": {
+          "build_ms": 0.0693,
+          "frames": 3,
+          "geometry_sha256": "2f2c83913278f6e1db514bc928d8bfcb42c09d3e9f59f9b9564ba8f12d13ddca",
+          "hits": 36,
+          "padded_slots": 128,
+          "policy_limit_bytes": 67108864,
+          "retained_payload_bytes": 27722
+        },
+        "cached_profile": {
+          "download_ms": 1.0856000000000001,
+          "frames": 36,
+          "geometry_ms": 0.0292,
+          "kernels_and_sync_ms": 5.403500000000001,
+          "prediction_and_seeds_ms": 0.442,
+          "reduction_ms": 0.012199999999999999,
+          "upload_ms": 5.3524
+        },
+        "executor": "hyperdual",
+        "identity_mismatch_stops_trainer": true,
+        "off_to_on_and_on_to_off_restart_exact": true,
+        "uncached_profile": {
+          "download_ms": 0.9958999999999997,
+          "frames": 36,
+          "geometry_ms": 0.26610000000000006,
+          "kernels_and_sync_ms": 5.418699999999998,
+          "prediction_and_seeds_ms": 0.7271999999999998,
+          "reduction_ms": 0.013499999999999996,
+          "upload_ms": 3.9700000000000015
+        }
+      },
+      {
+        "all_gradients_and_adam_bitwise_equal": true,
+        "cache": {
+          "build_ms": 0.0577,
+          "frames": 3,
+          "geometry_sha256": "2f2c83913278f6e1db514bc928d8bfcb42c09d3e9f59f9b9564ba8f12d13ddca",
+          "hits": 36,
+          "padded_slots": 128,
+          "policy_limit_bytes": 67108864,
+          "retained_payload_bytes": 27722
+        },
+        "cached_profile": {
+          "download_ms": 1.1083000000000003,
+          "frames": 36,
+          "geometry_ms": 0.0324,
+          "kernels_and_sync_ms": 2.3105,
+          "prediction_and_seeds_ms": 0.4586000000000001,
+          "reduction_ms": 0.011900000000000003,
+          "upload_ms": 3.7465999999999986
+        },
+        "executor": "reverse",
+        "identity_mismatch_stops_trainer": true,
+        "off_to_on_and_on_to_off_restart_exact": true,
+        "uncached_profile": {
+          "download_ms": 1.2192000000000003,
+          "frames": 36,
+          "geometry_ms": 0.2629,
+          "kernels_and_sync_ms": 2.038,
+          "prediction_and_seeds_ms": 0.7032000000000002,
+          "reduction_ms": 0.014699999999999998,
+          "upload_ms": 4.448600000000001
+        }
+      }
+    ]
+  },
+  "historical_resume": {
+    "historical_commit": "f33d332adcafcc2a360b22e9605d6da43870eaf9",
+    "checkpoint_schema": "omnimd-native-full-checkpoint-v4",
+    "results": [
+      {
+        "cache": false,
+        "historical_step150_to300_checkpoint_exact": true,
+        "process_ms": 930.531299993163,
+        "cache_stats": null
+      },
+      {
+        "cache": true,
+        "historical_step150_to300_checkpoint_exact": true,
+        "process_ms": 783.0152999958955,
+        "cache_stats": {
+          "build_ms": 0.3625,
+          "frames": 18,
+          "geometry_sha256": "e95ff3112fa19819344a4a0fab53e63bd1888fe898969a96daf7395ce2ef1710",
+          "hits": 2700,
+          "padded_slots": 1040,
+          "policy_limit_bytes": 67108864,
+          "retained_payload_bytes": 221414
+        }
+      }
+    ]
+  },
+  "benchmarks": [
+    {
+      "scope": "bounded synthetic 466-parameter 64-atom E/F/V training; not a production scaling benchmark",
+      "periodic": false,
+      "cache_comparison_bitwise_equal": true,
+      "frames": 8,
+      "train_frames": 6,
+      "validation_frames": 2,
+      "steps": 100,
+      "parameters": 466,
+      "runs": [
+        {
+          "backend": "reverse",
+          "repeat": 0,
+          "complete_training_process_ms": 973.0775999778416,
+          "timing": {
+            "adam_ms": 14.44190000000001,
+            "assessment_ms": 6.0367999999999995,
+            "gradient_ms": 436.1104,
+            "initialization_ms": 367.6235
+          },
+          "gradient_profile": {
+            "download_ms": 36.7683,
+            "frames": 600,
+            "geometry_ms": 33.791399999999996,
+            "kernels_and_sync_ms": 92.18899999999987,
+            "prediction_and_seeds_ms": 225.4153,
+            "reduction_ms": 5.872700000000001,
+            "upload_ms": 40.370900000000006
+          },
+          "fixed_geometry_cache": null
+        },
+        {
+          "backend": "reverse-cached",
+          "repeat": 0,
+          "complete_training_process_ms": 808.7359000055585,
+          "timing": {
+            "adam_ms": 14.6051,
+            "assessment_ms": 6.0428999999999995,
+            "gradient_ms": 364.57359999999983,
+            "initialization_ms": 358.9221
+          },
+          "gradient_profile": {
+            "download_ms": 37.49510000000001,
+            "frames": 600,
+            "geometry_ms": 3.076599999999998,
+            "kernels_and_sync_ms": 88.23869999999994,
+            "prediction_and_seeds_ms": 192.53099999999998,
+            "reduction_ms": 5.894400000000006,
+            "upload_ms": 35.71439999999995
+          },
+          "fixed_geometry_cache": {
+            "build_ms": 0.6596,
+            "frames": 6,
+            "geometry_sha256": "eab81660250b10793fbaf1550f8eef623efd7bab31c7c354837b36dab7dc4616",
+            "hits": 600,
+            "padded_slots": 6144,
+            "policy_limit_bytes": 67108864,
+            "retained_payload_bytes": 1290058
+          }
+        },
+        {
+          "backend": "reverse-cached",
+          "repeat": 1,
+          "complete_training_process_ms": 818.3789000031538,
+          "timing": {
+            "adam_ms": 12.5529,
+            "assessment_ms": 5.8668,
+            "gradient_ms": 380.70680000000004,
+            "initialization_ms": 356.57959999999997
+          },
+          "gradient_profile": {
+            "download_ms": 39.728799999999964,
+            "frames": 600,
+            "geometry_ms": 3.378999999999991,
+            "kernels_and_sync_ms": 92.11379999999984,
+            "prediction_and_seeds_ms": 196.1069000000002,
+            "reduction_ms": 6.055799999999995,
+            "upload_ms": 41.32390000000002
+          },
+          "fixed_geometry_cache": {
+            "build_ms": 0.6218,
+            "frames": 6,
+            "geometry_sha256": "eab81660250b10793fbaf1550f8eef623efd7bab31c7c354837b36dab7dc4616",
+            "hits": 600,
+            "padded_slots": 6144,
+            "policy_limit_bytes": 67108864,
+            "retained_payload_bytes": 1290058
+          }
+        },
+        {
+          "backend": "reverse",
+          "repeat": 1,
+          "complete_training_process_ms": 865.5309999885503,
+          "timing": {
+            "adam_ms": 12.907099999999998,
+            "assessment_ms": 6.0593,
+            "gradient_ms": 432.1945999999998,
+            "initialization_ms": 354.83500000000004
+          },
+          "gradient_profile": {
+            "download_ms": 36.270300000000006,
+            "frames": 600,
+            "geometry_ms": 34.052400000000006,
+            "kernels_and_sync_ms": 90.6774999999998,
+            "prediction_and_seeds_ms": 225.503,
+            "reduction_ms": 5.686900000000014,
+            "upload_ms": 38.396399999999964
+          },
+          "fixed_geometry_cache": null
+        },
+        {
+          "backend": "reverse",
+          "repeat": 2,
+          "complete_training_process_ms": 858.8577999908011,
+          "timing": {
+            "adam_ms": 12.413099999999998,
+            "assessment_ms": 5.8711,
+            "gradient_ms": 430.3399000000001,
+            "initialization_ms": 351.3503
+          },
+          "gradient_profile": {
+            "download_ms": 37.46069999999992,
+            "frames": 600,
+            "geometry_ms": 33.50160000000002,
+            "kernels_and_sync_ms": 89.45069999999993,
+            "prediction_and_seeds_ms": 223.5460000000001,
+            "reduction_ms": 5.545100000000009,
+            "upload_ms": 39.17610000000005
+          },
+          "fixed_geometry_cache": null
+        },
+        {
+          "backend": "reverse-cached",
+          "repeat": 2,
+          "complete_training_process_ms": 820.8334000082687,
+          "timing": {
+            "adam_ms": 11.056700000000003,
+            "assessment_ms": 6.1091,
+            "gradient_ms": 375.6251,
+            "initialization_ms": 348.1926
+          },
+          "gradient_profile": {
+            "download_ms": 38.5856,
+            "frames": 600,
+            "geometry_ms": 3.105999999999993,
+            "kernels_and_sync_ms": 94.21069999999986,
+            "prediction_and_seeds_ms": 194.07940000000013,
+            "reduction_ms": 5.831899999999997,
+            "upload_ms": 38.0267
+          },
+          "fixed_geometry_cache": {
+            "build_ms": 0.6138,
+            "frames": 6,
+            "geometry_sha256": "eab81660250b10793fbaf1550f8eef623efd7bab31c7c354837b36dab7dc4616",
+            "hits": 600,
+            "padded_slots": 6144,
+            "policy_limit_bytes": 67108864,
+            "retained_payload_bytes": 1290058
+          }
+        }
+      ],
+      "median_complete_process_ms": {
+        "reverse": 865.5309999885503,
+        "reverse-cached": 818.3789000031538
+      },
+      "three_repeats_checkpoint_exact": true,
+      "parameter_baseline": "reverse",
+      "parameter_max_abs_vs_baseline": {
+        "reverse-cached": 0.0
+      },
+      "timing_scope": "complete fresh training subprocess, including input, driver/NVRTC initialization, all updates, assessment, two intermediate and final checkpoints and model reload verification; excludes fixture generation",
+      "sha256": {
+        "dataset.jsonl": "21b6f27d1b5067ee6609a4e47768f709bf155ae6040092ab761902e5b9d62d83",
+        "initial.json": "a1946cf0d5480c572a82678fd1af13cd3b75dbde0ac25b1b93039c8cc352b443",
+        "teacher.json": "81d96e632e81131cddd37025dc148dc67fe37d8d1e0db042b8db3ce224de15b7"
+      },
+      "executable_sha256": {
+        "eval": "39f7e9439aa282098b315a06583f94792a87d22d19a7499dada363de6cef7ded",
+        "train": "5a7a3c2746268241a5b66c8f44ece0016fd47c2888367476e22b3a0dc30d6f56"
+      },
+      "final_metrics_by_backend": {
+        "reverse": {
+          "final_training": {
+            "energy_per_atom_rmse_ev": 3.725734431774109e-05,
+            "energy_rmse_ev": 0.00238447003633543,
+            "force_component_rmse_ev_per_angstrom": 1.7107579899989228e-05,
+            "frames": 6,
+            "normalized_ef_objective": 1.6807789956452298e-07,
+            "normalized_total_objective": 1.6876428610443243e-07,
+            "normalized_virial_objective": 6.863865399094458e-10,
+            "virial_component_rmse_ev": 0.00016767347039615686,
+            "virial_per_atom_component_rmse_ev": 2.619897974939951e-06
+          },
+          "final_validation": {
+            "energy_per_atom_rmse_ev": 3.725375782746401e-05,
+            "energy_rmse_ev": 0.0023842405009576965,
+            "force_component_rmse_ev_per_angstrom": 1.7218184055111013e-05,
+            "frames": 2,
+            "normalized_ef_objective": 1.684308334423015e-07,
+            "normalized_total_objective": 1.6916449382276546e-07,
+            "normalized_virial_objective": 7.336603804639566e-10,
+            "virial_component_rmse_ev": 0.00017335146144121103,
+            "virial_per_atom_component_rmse_ev": 2.7086165850189224e-06
+          }
+        },
+        "reverse-cached": {
+          "final_training": {
+            "energy_per_atom_rmse_ev": 3.725734431774109e-05,
+            "energy_rmse_ev": 0.00238447003633543,
+            "force_component_rmse_ev_per_angstrom": 1.7107579899989228e-05,
+            "frames": 6,
+            "normalized_ef_objective": 1.6807789956452298e-07,
+            "normalized_total_objective": 1.6876428610443243e-07,
+            "normalized_virial_objective": 6.863865399094458e-10,
+            "virial_component_rmse_ev": 0.00016767347039615686,
+            "virial_per_atom_component_rmse_ev": 2.619897974939951e-06
+          },
+          "final_validation": {
+            "energy_per_atom_rmse_ev": 3.725375782746401e-05,
+            "energy_rmse_ev": 0.0023842405009576965,
+            "force_component_rmse_ev_per_angstrom": 1.7218184055111013e-05,
+            "frames": 2,
+            "normalized_ef_objective": 1.684308334423015e-07,
+            "normalized_total_objective": 1.6916449382276546e-07,
+            "normalized_virial_objective": 7.336603804639566e-10,
+            "virial_component_rmse_ev": 0.00017335146144121103,
+            "virial_per_atom_component_rmse_ev": 2.7086165850189224e-06
+          }
+        }
+      },
+      "median_training_gradient_ms": {
+        "reverse": 432.1945999999998,
+        "reverse-cached": 375.6251
+      },
+      "wall_ratio_uncached_over_cached": 1.0576164659001042
+    },
+    {
+      "scope": "bounded synthetic 466-parameter 64-atom E/F/V training; not a production scaling benchmark",
+      "periodic": true,
+      "cache_comparison_bitwise_equal": true,
+      "frames": 8,
+      "train_frames": 6,
+      "validation_frames": 2,
+      "steps": 100,
+      "parameters": 466,
+      "runs": [
+        {
+          "backend": "reverse",
+          "repeat": 0,
+          "complete_training_process_ms": 6929.744699998992,
+          "timing": {
+            "adam_ms": 15.525299999999996,
+            "assessment_ms": 81.1711,
+            "gradient_ms": 6328.149999999997,
+            "initialization_ms": 347.6586
+          },
+          "gradient_profile": {
+            "download_ms": 53.270499999999984,
+            "frames": 600,
+            "geometry_ms": 2927.5635000000025,
+            "kernels_and_sync_ms": 94.6322,
+            "prediction_and_seeds_ms": 3144.927,
+            "reduction_ms": 8.058899999999998,
+            "upload_ms": 94.98160000000004
+          },
+          "fixed_geometry_cache": null
+        },
+        {
+          "backend": "reverse-cached",
+          "repeat": 0,
+          "complete_training_process_ms": 969.8647000186611,
+          "timing": {
+            "adam_ms": 12.2607,
+            "assessment_ms": 64.61789999999999,
+            "gradient_ms": 371.84970000000004,
+            "initialization_ms": 396.35949999999997
+          },
+          "gradient_profile": {
+            "download_ms": 38.232000000000006,
+            "frames": 600,
+            "geometry_ms": 3.038400000000005,
+            "kernels_and_sync_ms": 88.60999999999996,
+            "prediction_and_seeds_ms": 195.49270000000007,
+            "reduction_ms": 6.137199999999992,
+            "upload_ms": 38.631699999999974
+          },
+          "fixed_geometry_cache": {
+            "build_ms": 23.002299999999998,
+            "frames": 6,
+            "geometry_sha256": "34cf1bf1441abfc6ac58c53ee8dc5a6b45286b2313ecc835da9db6a04df54f9c",
+            "hits": 600,
+            "padded_slots": 6144,
+            "policy_limit_bytes": 67108864,
+            "retained_payload_bytes": 1290058
+          }
+        },
+        {
+          "backend": "reverse-cached",
+          "repeat": 1,
+          "complete_training_process_ms": 956.9448000111151,
+          "timing": {
+            "adam_ms": 12.3843,
+            "assessment_ms": 65.1842,
+            "gradient_ms": 366.9405999999999,
+            "initialization_ms": 387.014
+          },
+          "gradient_profile": {
+            "download_ms": 35.893700000000024,
+            "frames": 600,
+            "geometry_ms": 2.8450000000000037,
+            "kernels_and_sync_ms": 93.90050000000002,
+            "prediction_and_seeds_ms": 189.66629999999978,
+            "reduction_ms": 5.6713000000000005,
+            "upload_ms": 37.51209999999999
+          },
+          "fixed_geometry_cache": {
+            "build_ms": 23.287599999999998,
+            "frames": 6,
+            "geometry_sha256": "34cf1bf1441abfc6ac58c53ee8dc5a6b45286b2313ecc835da9db6a04df54f9c",
+            "hits": 600,
+            "padded_slots": 6144,
+            "policy_limit_bytes": 67108864,
+            "retained_payload_bytes": 1290058
+          }
+        },
+        {
+          "backend": "reverse",
+          "repeat": 1,
+          "complete_training_process_ms": 7045.726500015007,
+          "timing": {
+            "adam_ms": 14.748899999999997,
+            "assessment_ms": 96.33080000000001,
+            "gradient_ms": 6415.2681999999995,
+            "initialization_ms": 356.75600000000003
+          },
+          "gradient_profile": {
+            "download_ms": 53.2142,
+            "frames": 600,
+            "geometry_ms": 2956.2997000000028,
+            "kernels_and_sync_ms": 94.3516,
+            "prediction_and_seeds_ms": 3204.1484000000005,
+            "reduction_ms": 8.225099999999996,
+            "upload_ms": 94.20080000000009
+          },
+          "fixed_geometry_cache": null
+        },
+        {
+          "backend": "reverse",
+          "repeat": 2,
+          "complete_training_process_ms": 6946.277800016105,
+          "timing": {
+            "adam_ms": 15.470999999999995,
+            "assessment_ms": 69.2853,
+            "gradient_ms": 6348.858500000003,
+            "initialization_ms": 368.5426
+          },
+          "gradient_profile": {
+            "download_ms": 53.23569999999995,
+            "frames": 600,
+            "geometry_ms": 2941.431700000001,
+            "kernels_and_sync_ms": 95.50250000000007,
+            "prediction_and_seeds_ms": 3152.393499999999,
+            "reduction_ms": 8.014799999999997,
+            "upload_ms": 93.46529999999993
+          },
+          "fixed_geometry_cache": null
+        },
+        {
+          "backend": "reverse-cached",
+          "repeat": 2,
+          "complete_training_process_ms": 941.070300003048,
+          "timing": {
+            "adam_ms": 10.210600000000005,
+            "assessment_ms": 67.45100000000001,
+            "gradient_ms": 364.4477999999999,
+            "initialization_ms": 375.4226
+          },
+          "gradient_profile": {
+            "download_ms": 37.040699999999994,
+            "frames": 600,
+            "geometry_ms": 2.9494999999999996,
+            "kernels_and_sync_ms": 88.6468,
+            "prediction_and_seeds_ms": 191.77989999999997,
+            "reduction_ms": 5.655400000000011,
+            "upload_ms": 36.802799999999976
+          },
+          "fixed_geometry_cache": {
+            "build_ms": 22.917199999999998,
+            "frames": 6,
+            "geometry_sha256": "34cf1bf1441abfc6ac58c53ee8dc5a6b45286b2313ecc835da9db6a04df54f9c",
+            "hits": 600,
+            "padded_slots": 6144,
+            "policy_limit_bytes": 67108864,
+            "retained_payload_bytes": 1290058
+          }
+        }
+      ],
+      "median_complete_process_ms": {
+        "reverse": 6946.277800016105,
+        "reverse-cached": 956.9448000111151
+      },
+      "three_repeats_checkpoint_exact": true,
+      "parameter_baseline": "reverse",
+      "parameter_max_abs_vs_baseline": {
+        "reverse-cached": 0.0
+      },
+      "timing_scope": "complete fresh training subprocess, including input, driver/NVRTC initialization, all updates, assessment, two intermediate and final checkpoints and model reload verification; excludes fixture generation",
+      "sha256": {
+        "dataset.jsonl": "9cd4ca95479a7e68fdb85a38cbe79e0577bb412cd57c320b7aee9b226859c52b",
+        "initial.json": "a1946cf0d5480c572a82678fd1af13cd3b75dbde0ac25b1b93039c8cc352b443",
+        "teacher.json": "81d96e632e81131cddd37025dc148dc67fe37d8d1e0db042b8db3ce224de15b7"
+      },
+      "executable_sha256": {
+        "eval": "39f7e9439aa282098b315a06583f94792a87d22d19a7499dada363de6cef7ded",
+        "train": "5a7a3c2746268241a5b66c8f44ece0016fd47c2888367476e22b3a0dc30d6f56"
+      },
+      "final_metrics_by_backend": {
+        "reverse": {
+          "final_training": {
+            "energy_per_atom_rmse_ev": 3.725734431774109e-05,
+            "energy_rmse_ev": 0.00238447003633543,
+            "force_component_rmse_ev_per_angstrom": 1.7107579899989228e-05,
+            "frames": 6,
+            "normalized_ef_objective": 1.6807789956452298e-07,
+            "normalized_total_objective": 1.6876428610443243e-07,
+            "normalized_virial_objective": 6.863865399094458e-10,
+            "virial_component_rmse_ev": 0.00016767347039615686,
+            "virial_per_atom_component_rmse_ev": 2.619897974939951e-06
+          },
+          "final_validation": {
+            "energy_per_atom_rmse_ev": 3.725375782746401e-05,
+            "energy_rmse_ev": 0.0023842405009576965,
+            "force_component_rmse_ev_per_angstrom": 1.7218184055111013e-05,
+            "frames": 2,
+            "normalized_ef_objective": 1.684308334423015e-07,
+            "normalized_total_objective": 1.6916449382276546e-07,
+            "normalized_virial_objective": 7.336603804639566e-10,
+            "virial_component_rmse_ev": 0.00017335146144121103,
+            "virial_per_atom_component_rmse_ev": 2.7086165850189224e-06
+          }
+        },
+        "reverse-cached": {
+          "final_training": {
+            "energy_per_atom_rmse_ev": 3.725734431774109e-05,
+            "energy_rmse_ev": 0.00238447003633543,
+            "force_component_rmse_ev_per_angstrom": 1.7107579899989228e-05,
+            "frames": 6,
+            "normalized_ef_objective": 1.6807789956452298e-07,
+            "normalized_total_objective": 1.6876428610443243e-07,
+            "normalized_virial_objective": 6.863865399094458e-10,
+            "virial_component_rmse_ev": 0.00016767347039615686,
+            "virial_per_atom_component_rmse_ev": 2.619897974939951e-06
+          },
+          "final_validation": {
+            "energy_per_atom_rmse_ev": 3.725375782746401e-05,
+            "energy_rmse_ev": 0.0023842405009576965,
+            "force_component_rmse_ev_per_angstrom": 1.7218184055111013e-05,
+            "frames": 2,
+            "normalized_ef_objective": 1.684308334423015e-07,
+            "normalized_total_objective": 1.6916449382276546e-07,
+            "normalized_virial_objective": 7.336603804639566e-10,
+            "virial_component_rmse_ev": 0.00017335146144121103,
+            "virial_per_atom_component_rmse_ev": 2.7086165850189224e-06
+          }
+        }
+      },
+      "median_training_gradient_ms": {
+        "reverse": 6348.858500000003,
+        "reverse-cached": 366.9405999999999
+      },
+      "wall_ratio_uncached_over_cached": 7.258807195499074
+    }
+  ],
+  "commands": [
+    "cargo test --locked --offline --manifest-path mlmd/native/Cargo.toml --features cuda",
+    "cargo test --locked --offline --manifest-path mlmd/native/Cargo.toml --no-default-features",
+    "cargo test --release --locked --offline --manifest-path mlmd/native/Cargo.toml --features cuda --test cuda_reverse_training fixed_geometry_gradients_adam_switching_restart_and_profile -- --ignored --nocapture --test-threads=1",
+    "python mlmd/native/tools/replay_cuda_reverse.py --eval-exe EVAL --train-exe TRAIN --output-dir NEW_DIR --compare-geometry-cache",
+    "python mlmd/native/tools/replay_cuda_reverse.py --eval-exe EVAL --train-exe TRAIN --output-dir ANOTHER_NEW_DIR --compare-geometry-cache --periodic"
+  ],
+  "source_sha256": {
+    "src/fixed_geometry.rs": "02a9f183be05e2ff5aa73b4382382d9bda8671e65edb199c7ec444b6f073c0ae",
+    "src/lib.rs": "f83dbb98676db5ef3f325f3ee4e57ce3f5dd4a3adeb7bf2e92382daa0ef78e70",
+    "src/full_training.rs": "77a5443d3d2f40bb8feca4ca472d33ab64a4bca5b09fb5d379d638c6d52fcafd",
+    "src/cuda/full.rs": "db74f140c636ab1237272809a76e1af9fdc70a6fc4f580759ed3df30ba7696f9",
+    "tests/cuda_reverse_training.rs": "4209f1fad2b2bef0c801f109b8cf87fe42af287377f9acd70c105ce3c5015f32",
+    "tools/replay_cuda_reverse.py": "a77cfd3a719b5ac555da23663471cdfabb926dc86b498d38e6eefe337c9cc38a",
+    "tools/replay_full_training.py": "d626b83a643c52fdecbb54cc803d67c635c68fbc64530d37e39fe60d23eb6cb5"
+  }
+}

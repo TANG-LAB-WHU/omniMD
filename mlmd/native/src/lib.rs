@@ -2,9 +2,14 @@
 mod autodiff;
 #[cfg(feature = "cuda")]
 pub mod cuda;
+#[cfg(feature = "cuda")]
+mod fixed_geometry;
 pub mod full_gradient;
+mod full_loss;
 pub mod full_training;
+mod learning_rate;
 mod least_squares;
+pub mod minibatch;
 mod model;
 mod neighbor;
 mod network;
@@ -47,35 +52,51 @@ impl NativePotential {
         &self.model
     }
 
-    fn atom(
+    #[cfg(feature = "cuda")]
+    pub(crate) fn eval_prepared(
+        &self,
+        frame: &fixed_geometry::PreparedFrame,
+    ) -> Result<Evaluation> {
+        let n = frame.types.len();
+        let mut result = Evaluation {
+            energy: 0.0,
+            forces: vec![[0.0; 3]; n],
+            virial: [[0.0; 3]; 3],
+            units: Units::EvAngstrom,
+        };
+        for center in 0..n {
+            self.atom(
+                center,
+                frame.types[center] as usize,
+                frame.atom_rows(center),
+                &mut result,
+            )?;
+        }
+        result.validate(n)?;
+        Ok(result)
+    }
+
+    fn atom<'a>(
         &self,
         center: usize,
         kind: usize,
-        neighbors: &[Vec<Neighbor>],
+        rows: impl IntoIterator<Item = (usize, Option<&'a Neighbor>, [f64; 4], [[f64; 3]; 4])>,
         result: &mut Evaluation,
     ) -> Result<()> {
         let d = &self.model.descriptor;
-        let norm = &d.normalization[kind];
         let width = d.embedding[kind][0].output_size();
         let slots = d.sel.iter().sum::<usize>() as f64;
         let mut b = vec![[0.0; 4]; width];
         let mut records = Vec::new();
-        for (species, group) in neighbors.iter().enumerate() {
-            let net = &d.embedding[kind][species];
-            // Empty slots are zero BEFORE normalization; their embedding and
-            // radial contribution generally do not vanish after centering.
-            for slot in 0..d.sel[species] {
-                let neighbor = group.get(slot);
-                let (r, jac) = environment(neighbor, norm, d.rcut_smth, d.rcut);
-                let (g, dg) = net.scalar_with_derivative(r[0])?;
-                for m in 0..width {
-                    for a in 0..4 {
-                        b[m][a] += g[m] * r[a] / slots;
-                    }
+        for (species, neighbor, r, jac) in rows {
+            let (g, dg) = d.embedding[kind][species].scalar_with_derivative(r[0])?;
+            for m in 0..width {
+                for a in 0..4 {
+                    b[m][a] += g[m] * r[a] / slots;
                 }
-                if let Some(n) = neighbor {
-                    records.push((n, r, jac, g, dg));
-                }
+            }
+            if let Some(n) = neighbor {
+                records.push((n, r, jac, g, dg));
             }
         }
         let mut descriptor = Vec::with_capacity(width * d.axis_neuron);
@@ -139,7 +160,16 @@ impl Potential for NativePotential {
         for center in 0..frame.positions.len() {
             let neighbors =
                 geometry.neighbors(frame, &types, center, &self.model.descriptor.sel)?;
-            self.atom(center, types[center] as usize, &neighbors, &mut result)?;
+            let d = &self.model.descriptor;
+            let kind = types[center] as usize;
+            let rows = neighbors.iter().enumerate().flat_map(|(species, group)| {
+                (0..d.sel[species]).map(move |slot| {
+                    let n = group.get(slot);
+                    let (r, jac) = environment(n, &d.normalization[kind], d.rcut_smth, d.rcut);
+                    (species, n, r, jac)
+                })
+            });
+            self.atom(center, kind, rows, &mut result)?;
         }
         result.validate(frame.positions.len())?;
         Ok(result)
@@ -188,3 +218,5 @@ fn environment(
     }
     (r, jac)
 }
+
+pub mod indexed_dataset;

@@ -1,0 +1,261 @@
+{
+  "schema": "omnimd-minibatch-integration-v1",
+  "status": "passed",
+  "started_utc": "2026-10-16T12:58:31.673035+00:00",
+  "completed_utc": "2026-10-16T12:58:34.987991+00:00",
+  "scope": "Seven-update reverse E/F/V engine CLI integration on existing original synthetic data; no new benchmark, chemical accuracy or full-batch convergence claim.",
+  "source_native_commit": "3e7091c143ffa424c935d86adbd9ecb7f1e97d5c",
+  "integrated_native_commit": "5be7e49ccfd8f3dbcabbf75dab47c2a262487cdb",
+  "source_base": "b8ce8fa589e673136902ed162639e012547532b7",
+  "execution": {
+    "backend": "cuda_reverse_f64_v1",
+    "visible_device": 0,
+    "device_info": "NVIDIA GeForce RTX 4090; compute 8.9; FP64; device 0",
+    "driver_version": 13040,
+    "program_sha256": "382ea3a3eee82218b9ec2d975822a0a0c995d2968b0a158cf2bdbfc852859844"
+  },
+  "checkpoint_schema": "omnimd-native-full-checkpoint-v5",
+  "updates": 7,
+  "training_frames": 18,
+  "validation_frames": 6,
+  "batch_sizes": [
+    7,
+    7,
+    4,
+    7,
+    7,
+    4,
+    7
+  ],
+  "sampler_matches_independent_integer_reference_all_steps": true,
+  "minibatch": {
+    "batch_size_counts": {
+      "4": 2,
+      "7": 5
+    },
+    "end": {
+      "algorithm": "omnimd-epoch-splitmix64-v1",
+      "cursor": 7,
+      "epoch": 2,
+      "order": [
+        3,
+        22,
+        14,
+        21,
+        19,
+        20,
+        15,
+        17,
+        18,
+        5,
+        6,
+        16,
+        23,
+        1,
+        12,
+        11,
+        9,
+        4
+      ],
+      "order_mode": "shuffle_each_epoch",
+      "rng_state": 2313747478831229000,
+      "seed": 20261016
+    },
+    "frames_processed": 43,
+    "normalization": "arithmetic mean of actual batch frames; unchanged per-frame atom/component scales; no cross-epoch fill or drop",
+    "partial_batches": 2,
+    "start": {
+      "algorithm": "omnimd-epoch-splitmix64-v1",
+      "cursor": 0,
+      "epoch": 0,
+      "order": [
+        6,
+        17,
+        14,
+        4,
+        22,
+        12,
+        11,
+        15,
+        23,
+        18,
+        9,
+        16,
+        19,
+        20,
+        3,
+        5,
+        21,
+        1
+      ],
+      "order_mode": "shuffle_each_epoch",
+      "rng_state": 13909918895508648240,
+      "seed": 20261016
+    }
+  },
+  "cache_statistics": {
+    "build_ms": 0.5159,
+    "frames": 18,
+    "geometry_sha256": "e95ff3112fa19819344a4a0fab53e63bd1888fe898969a96daf7395ce2ef1710",
+    "hits": 43,
+    "padded_slots": 1040,
+    "policy_limit_bytes": 67108864,
+    "retained_payload_bytes": 221414
+  },
+  "exact_resume_points": [
+    2,
+    3,
+    4
+  ],
+  "both_cache_toggle_directions_exact": true,
+  "cpu_parameter_moment_max_abs": 6.661338147750939e-16,
+  "cpu_export_efv_max_abs": [
+    8.881784197001252e-16,
+    6.661338147750939e-16,
+    8.881784197001252e-16
+  ],
+  "native_v1_reload_max_abs_energy_force_virial": [
+    0.0,
+    0.0,
+    0.0
+  ],
+  "rejected_before_output": [
+    "batch_size",
+    "seed",
+    "order",
+    "missing_sampler",
+    "cursor"
+  ],
+  "historical_fullbatch_v4_exact": true,
+  "historical_checkpoint_sha256": {
+    "checkpoint-step-3.json": "2a2c7cecc681130623c5ec278b6cec09b3430b34a7d2afed898e30af7fc5e615",
+    "checkpoint.json": "be0a7860ac50d7c9c4d575cf13602c165be6f80215968b8f206dae741925c658"
+  },
+  "initial_training": {
+    "energy_per_atom_rmse_ev": 0.07572476790753267,
+    "energy_rmse_ev": 0.29282298278796637,
+    "force_component_rmse_ev_per_angstrom": 0.2841021659652936,
+    "frames": 18,
+    "normalized_ef_objective": 8.830361483640697,
+    "normalized_total_objective": 9.43353925991739,
+    "normalized_virial_objective": 0.6031777762766932,
+    "virial_component_rmse_ev": 0.2890119185893984,
+    "virial_per_atom_component_rmse_ev": 0.07766452061763422
+  },
+  "final_training": {
+    "energy_per_atom_rmse_ev": 0.01816193247185482,
+    "energy_rmse_ev": 0.0688085999855414,
+    "force_component_rmse_ev_per_angstrom": 0.0854314725444796,
+    "frames": 18,
+    "normalized_ef_objective": 0.8810063581911036,
+    "normalized_total_objective": 0.9487851701857282,
+    "normalized_virial_objective": 0.06777881199462453,
+    "virial_component_rmse_ev": 0.08182094064084251,
+    "virial_per_atom_component_rmse_ev": 0.02603436421244516
+  },
+  "initial_validation": {
+    "energy_per_atom_rmse_ev": 0.06033371156403555,
+    "energy_rmse_ev": 0.23612446270426193,
+    "force_component_rmse_ev_per_angstrom": 0.3178073922785384,
+    "frames": 6,
+    "normalized_ef_objective": 10.140334936324335,
+    "normalized_total_objective": 11.186986717484478,
+    "normalized_virial_objective": 1.0466517811601437,
+    "virial_component_rmse_ev": 0.4072473794946535,
+    "virial_per_atom_component_rmse_ev": 0.1023060008582167
+  },
+  "final_validation": {
+    "energy_per_atom_rmse_ev": 0.019770475627470373,
+    "energy_rmse_ev": 0.07834570409157349,
+    "force_component_rmse_ev_per_angstrom": 0.07973081444990021,
+    "frames": 6,
+    "normalized_ef_objective": 0.7763018260865151,
+    "normalized_total_objective": 0.8342384959200272,
+    "normalized_virial_objective": 0.05793666983351208,
+    "virial_component_rmse_ev": 0.07973780259125053,
+    "virial_per_atom_component_rmse_ev": 0.024070037356329982
+  },
+  "sha256": {
+    "engine": "75dabaef0fe5415dcefbff7f6b765667041041c039c05583eb5aa2faa3258bf3",
+    "trainer": "3f20b8b3dd65e42856fc6fb17f3eb122fd4dbe7a18d547d157f004cf294193b0",
+    "evaluator": "2c52c99475baaa16d59d9f5d0b3fea8aac202c09a783faf8e664682dc1190491",
+    "script": "fb48c96e9c00d529ee1c6c0441923492e60fb3cf15af5092c774cfdef89d21a6",
+    "dataset": "5669b8e833b0a409e08b328dc3cf9ef9dfebb52d32f8b8495a75d9342b07902a",
+    "initial_model": "407278c6eab122e6dfee2511b3c3fb4c033f58c04819a580ffc0810df3ce7b9a",
+    "export_model": "362c5ca38a9a5c67b67a97e59f1597432cfb37bb3766afb3457d26a1e9c94fa1",
+    "checkpoint": "dbdad7a7e8daf3122048f1417cd07be1509d618b3ffc64ee1e672af39d083def"
+  },
+  "checks": [
+    {
+      "label": "capabilities",
+      "exit_code": 0
+    },
+    {
+      "label": "continuous",
+      "exit_code": 0
+    },
+    {
+      "label": "resume-before-tail-cache-off",
+      "exit_code": 0
+    },
+    {
+      "label": "resume-after-tail",
+      "exit_code": 0
+    },
+    {
+      "label": "resume-mid-epoch-cache-on",
+      "exit_code": 0
+    },
+    {
+      "label": "cpu-reference",
+      "exit_code": 0
+    },
+    {
+      "label": "continuous-export",
+      "exit_code": 0
+    },
+    {
+      "label": "cpu-reference-export",
+      "exit_code": 0
+    },
+    {
+      "label": "reject-batch_size",
+      "exit_code": 1
+    },
+    {
+      "label": "reject-seed",
+      "exit_code": 1
+    },
+    {
+      "label": "reject-order",
+      "exit_code": 1
+    },
+    {
+      "label": "reject-missing_sampler",
+      "exit_code": 1
+    },
+    {
+      "label": "reject-cursor",
+      "exit_code": 1
+    },
+    {
+      "label": "legacy-fullbatch",
+      "exit_code": 0
+    }
+  ],
+  "source_sha256": {
+    "replay_full_training.py": "12067135c9b176aad6d24ab7d65081340b85e68825bbaf2a37ec809356cf48bc",
+    "teacher.json": "1113e4f1d49c77756703a0b6f3362615699a6d9bd0686cddbc1c103066fa0bc8"
+  },
+  "host_only_checks": {
+    "batch_loss_adam_restart_compatibility_and_failures": 5,
+    "sampler_golden_vectors_and_tail_validation": 2,
+    "engine_routing": 3,
+    "total": 10,
+    "status": "passed"
+  },
+  "build": "Locked offline CUDA-feature release engine and sibling trainer/evaluator; no dependency download",
+  "gpu_window_released_utc": "2026-10-16T12:58:46.4676026Z",
+  "active_omnimd_processes_at_release": 0,
+  "native_acceptance_scope": "B receipt separately records both CUDA executors, actual full-batch v1-v4 150-to-300 continuation and 31-step CLI; not broadly repeated here."
+}

@@ -1,0 +1,47 @@
+{
+  "schema": "omnimd-native-full-train-v1",
+  "device": "cuda:0",
+  "initial_model": "initial.json",
+  "dataset": "dataset.jsonl",
+  "output_directory": "linux-v8",
+  "config": {
+    "split": {
+      "mode": "seeded",
+      "seed": 20261015,
+      "validation_fraction": 0.25
+    },
+    "steps": 7,
+    "energy_weight": 1.0,
+    "force_weight": 1.0,
+    "energy_scale_ev_per_atom": 0.1,
+    "force_scale_ev_per_angstrom": 0.1,
+    "learning_rate": 0.005,
+    "beta1": 0.9,
+    "beta2": 0.999,
+    "epsilon": 1e-08,
+    "gradient_clip_norm": 10.0,
+    "checkpoint_every": 1,
+    "virial_loss": {
+      "weight": 1.0,
+      "scale_ev_per_atom": 0.1
+    },
+    "minibatch": {
+      "batch_size": 7,
+      "seed": 20261016,
+      "order": "shuffle_each_epoch"
+    },
+    "learning_rate_schedule": {
+      "kind": "exponential",
+      "decay_steps": 2,
+      "decay_rate": 0.5
+    },
+    "cuda_gradient": "reverse",
+    "fixed_geometry_cache": true,
+    "cuda_tiling": {
+      "max_frames": 3,
+      "max_atoms": 16
+    },
+    "cuda_loss": "gpu"
+  },
+  "dataset_access": "indexed"
+}

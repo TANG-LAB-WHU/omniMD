@@ -1,0 +1,1075 @@
+{
+  "schema": "omnimd-physical-data-training-validation-v1",
+  "status": "pipeline_passed_accuracy_not_certified",
+  "candidate_commit": "8167a4a3f3ff8d67f53c22f911f3ff31f053fa5d",
+  "completed_utc": "2026-10-16T16:57:33.208946+00:00",
+  "result": "1000 bounded GPU updates completed with published physical E/F labels. Held-out energy RMSE improved; held-out force RMSE worsened. No validation-based tuning or further fit was performed.",
+  "source": {
+    "repository": "https://github.com/deepmodeling/deepmd-kit",
+    "commit": "b494a0d5413d5f1895202c82f20477300b716bf2",
+    "example_directory": "examples/nopbc/data",
+    "example_readme": "https://github.com/deepmodeling/deepmd-kit/blob/b494a0d5413d5f1895202c82f20477300b716bf2/examples/nopbc/README.md",
+    "paper": "https://doi.org/10.1038/s41467-020-19497-z",
+    "data_doi": "https://doi.org/10.6084/m9.figshare.12973055.v3",
+    "data_page": "https://figshare.com/articles/dataset/Dataset_for_methane_combustion/12973055",
+    "attribution": "Jinzhe Zeng and Tong Zhu, Dataset for methane combustion (2020); Zeng et al., Nature Communications 11, 5713 (2020)",
+    "labels": "Published Gaussian 16 MN15/6-31G** total energy and atomic forces; not new calculations or neural-model-generated labels",
+    "license": "CC BY 4.0 (original dataset); official distribution repository LGPL-3.0-or-later",
+    "source_dtype": "float32",
+    "compute_dtype": "float64",
+    "promotion": "original float32 values promoted exactly to float64; atom order, absolute coordinates, total-energy and force labels unchanged; no centering/rescaling/label generation",
+    "units": {
+      "positions": "angstrom",
+      "energy": "eV total/frame",
+      "forces": "eV/angstrom"
+    },
+    "virial_labels": false,
+    "source_frames": 2062,
+    "download_bytes": 400761,
+    "download_files": 21,
+    "files": [
+      {
+        "path": "LICENSE",
+        "bytes": 7652,
+        "git_blob_sha1": "0a041280bd00a9d068f503b8ee7ce35214bd24a1",
+        "sha256": "e3a994d82e644b03a792a930f574002658412f62407f5fee083f2555c5f23118"
+      },
+      {
+        "path": "examples/nopbc/README.md",
+        "bytes": 602,
+        "git_blob_sha1": "02e3652f098afec0070c491e1c99b431fee1cb6a",
+        "sha256": "e2016107883b9aaf6279c9637568fd0365cdc6c89d571e3436b3995d6ffc8253"
+      },
+      {
+        "path": "examples/nopbc/train/input.json",
+        "bytes": 1343,
+        "git_blob_sha1": "491a7e147626060154a38507b6847ac1deb5e160",
+        "sha256": "4f1ba19a6074c24206f088b6ace17bb638aa537d3a57e078ef48b3eeeb409fe8"
+      },
+      {
+        "path": "examples/nopbc/data/C1H4O2/nopbc",
+        "bytes": 0,
+        "git_blob_sha1": "e69de29bb2d1d6434b8b29ae775ad8c2e48c5391",
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      {
+        "path": "examples/nopbc/data/C1H4O2/type.raw",
+        "bytes": 14,
+        "git_blob_sha1": "95403e65a85996621bbbc99b39f81489530f21c7",
+        "sha256": "093b8426a8ba31e958e215b8230de704bc51bb53c8f87440ecefa41162416370"
+      },
+      {
+        "path": "examples/nopbc/data/C1H4O2/type_map.raw",
+        "bytes": 6,
+        "git_blob_sha1": "76d5ec5097f36769e027d098d81ee05422af23b7",
+        "sha256": "d8034b8d9c69105e7a331c6bee20ef660abfddb85d9a583f59d65bef1da0e725"
+      },
+      {
+        "path": "examples/nopbc/data/C1H4O2/set.000/coord.npy",
+        "bytes": 131336,
+        "git_blob_sha1": "4a5137d7accc652736519b288f388f6cf5a84ae2",
+        "sha256": "2bed765a4ed9682e81d46088d3729321bfac2487b62876ca85fbe6974c8b9fd2"
+      },
+      {
+        "path": "examples/nopbc/data/C1H4O2/set.000/energy.npy",
+        "bytes": 6376,
+        "git_blob_sha1": "4565fe90f3c9dce0e0f6d495e40371df0614cf03",
+        "sha256": "50d53ef42c483fdcd7a592441ae8be0cf781ae570a10532d9734ca242899f846"
+      },
+      {
+        "path": "examples/nopbc/data/C1H4O2/set.000/force.npy",
+        "bytes": 131336,
+        "git_blob_sha1": "083f273aac1a50b51a87c8a339c1dd0a23bdc499",
+        "sha256": "43a6b9cc77c73529dcf6fde491b8a44615ce48e88a69cfceee9a39812ae6d053"
+      },
+      {
+        "path": "examples/nopbc/data/C3H3O4/nopbc",
+        "bytes": 0,
+        "git_blob_sha1": "e69de29bb2d1d6434b8b29ae775ad8c2e48c5391",
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      {
+        "path": "examples/nopbc/data/C3H3O4/type.raw",
+        "bytes": 20,
+        "git_blob_sha1": "bca0c2048a791285c279cf3cd8b72f6bf4f81379",
+        "sha256": "dfbdbb31647e524e9ad4f26532ea9f993faafeddd36acb8d537a2a63d9d36be8"
+      },
+      {
+        "path": "examples/nopbc/data/C3H3O4/type_map.raw",
+        "bytes": 6,
+        "git_blob_sha1": "76d5ec5097f36769e027d098d81ee05422af23b7",
+        "sha256": "d8034b8d9c69105e7a331c6bee20ef660abfddb85d9a583f59d65bef1da0e725"
+      },
+      {
+        "path": "examples/nopbc/data/C3H3O4/set.000/coord.npy",
+        "bytes": 58328,
+        "git_blob_sha1": "04de10df337c99b4013c61285a43176880efd11b",
+        "sha256": "9a5f4a7726e93caa802437dee22cf89d38fb7a8ae8b3b09f62cd5c5ac495fba2"
+      },
+      {
+        "path": "examples/nopbc/data/C3H3O4/set.000/energy.npy",
+        "bytes": 2068,
+        "git_blob_sha1": "25af5284ed7bcc0c955537579727939003fb0599",
+        "sha256": "f45877ba6eb6a0390a0778bccdbbb3e87951e95e56299b6945eaed3489349d49"
+      },
+      {
+        "path": "examples/nopbc/data/C3H3O4/set.000/force.npy",
+        "bytes": 58328,
+        "git_blob_sha1": "9c8ac93ef2c681f2306acb4b6ea7645522bf837b",
+        "sha256": "2ae32ee5a5a8a099a167734ab63f6d66435080574e67eebcff606d6e8ba3eca9"
+      },
+      {
+        "path": "examples/nopbc/data/C4H3O1/nopbc",
+        "bytes": 0,
+        "git_blob_sha1": "e69de29bb2d1d6434b8b29ae775ad8c2e48c5391",
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      {
+        "path": "examples/nopbc/data/C4H3O1/type.raw",
+        "bytes": 16,
+        "git_blob_sha1": "9874003f15a304a47172ac79ff345c9c61b69ede",
+        "sha256": "892e39f51ab4f24010b39724f1573e416e243ce4e413750979defa743c70ab9a"
+      },
+      {
+        "path": "examples/nopbc/data/C4H3O1/type_map.raw",
+        "bytes": 6,
+        "git_blob_sha1": "76d5ec5097f36769e027d098d81ee05422af23b7",
+        "sha256": "d8034b8d9c69105e7a331c6bee20ef660abfddb85d9a583f59d65bef1da0e725"
+      },
+      {
+        "path": "examples/nopbc/data/C4H3O1/set.000/coord.npy",
+        "bytes": 1568,
+        "git_blob_sha1": "528d95fefb3e47235b6c22354450306f5896c487",
+        "sha256": "42899e91f87ccd3a27c1be38de94705541cae849db4e0b14cef174f15d463b86"
+      },
+      {
+        "path": "examples/nopbc/data/C4H3O1/set.000/energy.npy",
+        "bytes": 188,
+        "git_blob_sha1": "4af103e9d9bf6549256ca17faefbd77004eabfe6",
+        "sha256": "b5395ed62fe19e2fd7d33ec8b8b9d34204b430640e81a5ca7eddfea237039922"
+      },
+      {
+        "path": "examples/nopbc/data/C4H3O1/set.000/force.npy",
+        "bytes": 1568,
+        "git_blob_sha1": "53d2a9903277307218c4b5d4eabcac6cd46ac1b3",
+        "sha256": "d54540785b06a42ef0ef59664aebcd6043ceef15fcfbafc95e64ce8c7625a88a"
+      }
+    ],
+    "original_source_arrays_changed": false
+  },
+  "selection": {
+    "train_frames": 168,
+    "validation_frames": 43,
+    "selected_frames": 211,
+    "algorithm": "train_end=floor(7*N/10); val_start=N-floor(2*N/10); sample i=lo+floor(i*(hi-lo-1)/(k-1)); endpoint-inclusive, no RNG",
+    "groups": [
+      {
+        "system": "C1H4O2",
+        "source_frames": 1562,
+        "composition": [
+          1,
+          4,
+          2
+        ],
+        "source_type_ids": [
+          1,
+          1,
+          1,
+          1,
+          0,
+          2,
+          2
+        ],
+        "train_range_half_open": [
+          0,
+          1093
+        ],
+        "validation_range_half_open": [
+          1250,
+          1562
+        ],
+        "unused_middle_range_half_open": [
+          1093,
+          1250
+        ],
+        "train_source_indices": [
+          0,
+          11,
+          22,
+          34,
+          45,
+          57,
+          68,
+          80,
+          91,
+          103,
+          114,
+          126,
+          137,
+          149,
+          160,
+          172,
+          183,
+          195,
+          206,
+          218,
+          229,
+          241,
+          252,
+          264,
+          275,
+          287,
+          298,
+          310,
+          321,
+          333,
+          344,
+          356,
+          367,
+          379,
+          390,
+          402,
+          413,
+          425,
+          436,
+          448,
+          459,
+          471,
+          482,
+          494,
+          505,
+          517,
+          528,
+          540,
+          551,
+          563,
+          574,
+          586,
+          597,
+          609,
+          620,
+          632,
+          643,
+          655,
+          666,
+          678,
+          689,
+          701,
+          712,
+          724,
+          735,
+          747,
+          758,
+          770,
+          781,
+          793,
+          804,
+          816,
+          827,
+          839,
+          850,
+          862,
+          873,
+          885,
+          896,
+          908,
+          919,
+          931,
+          942,
+          954,
+          965,
+          977,
+          988,
+          1000,
+          1011,
+          1023,
+          1034,
+          1046,
+          1057,
+          1069,
+          1080,
+          1092
+        ],
+        "validation_source_indices": [
+          1250,
+          1263,
+          1277,
+          1290,
+          1304,
+          1317,
+          1331,
+          1344,
+          1358,
+          1371,
+          1385,
+          1398,
+          1412,
+          1425,
+          1439,
+          1452,
+          1466,
+          1479,
+          1493,
+          1506,
+          1520,
+          1533,
+          1547,
+          1561
+        ]
+      },
+      {
+        "system": "C3H3O4",
+        "source_frames": 485,
+        "composition": [
+          3,
+          3,
+          4
+        ],
+        "source_type_ids": [
+          1,
+          1,
+          1,
+          0,
+          0,
+          0,
+          2,
+          2,
+          2,
+          2
+        ],
+        "train_range_half_open": [
+          0,
+          339
+        ],
+        "validation_range_half_open": [
+          388,
+          485
+        ],
+        "unused_middle_range_half_open": [
+          339,
+          388
+        ],
+        "train_source_indices": [
+          0,
+          5,
+          10,
+          16,
+          21,
+          26,
+          32,
+          37,
+          42,
+          48,
+          53,
+          59,
+          64,
+          69,
+          75,
+          80,
+          85,
+          91,
+          96,
+          101,
+          107,
+          112,
+          118,
+          123,
+          128,
+          134,
+          139,
+          144,
+          150,
+          155,
+          160,
+          166,
+          171,
+          177,
+          182,
+          187,
+          193,
+          198,
+          203,
+          209,
+          214,
+          219,
+          225,
+          230,
+          236,
+          241,
+          246,
+          252,
+          257,
+          262,
+          268,
+          273,
+          278,
+          284,
+          289,
+          295,
+          300,
+          305,
+          311,
+          316,
+          321,
+          327,
+          332,
+          338
+        ],
+        "validation_source_indices": [
+          388,
+          394,
+          400,
+          407,
+          413,
+          420,
+          426,
+          432,
+          439,
+          445,
+          452,
+          458,
+          464,
+          471,
+          477,
+          484
+        ]
+      },
+      {
+        "system": "C4H3O1",
+        "source_frames": 15,
+        "composition": [
+          4,
+          3,
+          1
+        ],
+        "source_type_ids": [
+          1,
+          1,
+          1,
+          0,
+          0,
+          0,
+          0,
+          2
+        ],
+        "train_range_half_open": [
+          0,
+          10
+        ],
+        "validation_range_half_open": [
+          12,
+          15
+        ],
+        "unused_middle_range_half_open": [
+          10,
+          12
+        ],
+        "train_source_indices": [
+          0,
+          1,
+          2,
+          3,
+          5,
+          6,
+          7,
+          9
+        ],
+        "validation_source_indices": [
+          12,
+          13,
+          14
+        ]
+      }
+    ],
+    "id_format": "COMPOSITION/set.000/SOURCE_INDEX",
+    "geometry_screen": {
+      "method": "per-species-pair sorted distances, nearest 1e-4 angstrom quantization; also reject max sorted-distance difference <=1e-4",
+      "cross_partition_equal_or_near_pairs": 0,
+      "same_composition_comparisons": 3352,
+      "minimum_cross_partition_max_distance_difference_angstrom": 0.10114976086423866,
+      "maximum_actual_neighbors_by_type": [
+        3,
+        4,
+        4
+      ],
+      "limitation": "This geometric duplicate screen does not establish independent trajectories or exclude statistical correlation; labels are never used."
+    },
+    "leakage_controls": "Architecture, split, normalization, loss scales and update cap fixed before training. Energy baseline uses train-only CPU predictions/labels. Validation labels never select weights, schedule or continuation; continuation is timing-only.",
+    "limits": "Source order is preserved but not asserted to be time order; middle-index gap and duplicate screen do not establish independent trajectories."
+  },
+  "model": {
+    "type_map": [
+      "C",
+      "H",
+      "O"
+    ],
+    "descriptor": "se_e2_a",
+    "precision": "float64",
+    "embedding": "9 independent pair networks, 1->4 tanh",
+    "fitting": "3 type networks, 8->8 tanh->8 tanh->1 linear",
+    "axis_neuron": 2,
+    "neural_parameters": 531,
+    "sel": [
+      4,
+      4,
+      4
+    ],
+    "rcut_angstrom": 6,
+    "rcut_smth_angstrom": 1,
+    "normalization": "fixed mean0/std1, no validation statistics",
+    "atomic_offsets": "Three train-only composition mean(E_label-E_initial_NN) values solved against atom-count matrix; regression baseline, not isolated-atom reference energies",
+    "max_atoms_per_frame": 10,
+    "native_ceiling": 64,
+    "large_frame_v9_path_used": false,
+    "initialization": {
+      "seed": 20261016,
+      "rng": "Python random.Random / Mersenne Twister",
+      "weights": "uniform[-sqrt(6/(nin+nout)),+sqrt(6/(nin+nout))] in stable center/neighbor/layer/input/output order",
+      "bias": "zero neural biases; nonzero random final matrices",
+      "residual": "none",
+      "timestep": null
+    },
+    "atomic_offsets_ev": [
+      -1029.3460205372046,
+      -14.575719399331478,
+      -2047.1684064867834
+    ],
+    "baseline_per_composition": [
+      {
+        "system": "C1H4O2",
+        "train_frames": 96,
+        "composition": [
+          1,
+          4,
+          2
+        ],
+        "mean_label_energy_ev": -5181.9525807698565,
+        "mean_initial_neural_energy_ev": 0.03313033824012275,
+        "mean_label_minus_neural_ev": -5181.985711108097
+      },
+      {
+        "system": "C3H3O4",
+        "train_frames": 64,
+        "composition": [
+          3,
+          3,
+          4
+        ],
+        "mean_label_energy_ev": -11320.43051147461,
+        "mean_initial_neural_energy_ev": 0.00833428213351204,
+        "mean_label_minus_neural_ev": -11320.438845756742
+      },
+      {
+        "system": "C4H3O1",
+        "train_frames": 8,
+        "composition": [
+          4,
+          3,
+          1
+        ],
+        "mean_label_energy_ev": -6208.275573730469,
+        "mean_initial_neural_energy_ev": 0.00407310312810195,
+        "mean_label_minus_neural_ev": -6208.279646833596
+      }
+    ],
+    "baseline_solve_max_abs_residual_ev": 0.0,
+    "training_only_baseline_frames": 168
+  },
+  "training": {
+    "config": {
+      "steps": 100,
+      "energy_weight": 1.0,
+      "force_weight": 1.0,
+      "energy_scale_ev_per_atom": 0.1,
+      "force_scale_ev_per_angstrom": 1.0,
+      "learning_rate": 0.001,
+      "learning_rate_schedule": {
+        "kind": "exponential",
+        "decay_steps": 250,
+        "decay_rate": 0.5
+      },
+      "beta1": 0.9,
+      "beta2": 0.999,
+      "epsilon": 1e-08,
+      "gradient_clip_norm": 10.0,
+      "checkpoint_every": 100,
+      "cuda_gradient": "reverse",
+      "cuda_loss": "gpu",
+      "cuda_tiling": {
+        "max_frames": 8,
+        "max_atoms": 80
+      },
+      "fixed_geometry_cache": true,
+      "minibatch": {
+        "batch_size": 8,
+        "seed": 20261016,
+        "order": "shuffle_each_epoch"
+      }
+    },
+    "total_updates": 1000,
+    "continuation": {
+      "criterion": "Timing only; no validation-metric-based tuning or selection",
+      "pilot_seconds": 1.420651585998712,
+      "projected_continuation_seconds": 72.78586427398841,
+      "continue_to_1000": true
+    },
+    "compute_wall_limit_seconds": 1200,
+    "execution_seconds": 4.47743891799837,
+    "including_baseline_cpu_seconds": 4.5047800579959585,
+    "commands": [
+      {
+        "label": "probe-cpu",
+        "cpu_only": true,
+        "status": "passed",
+        "exit_code": 0,
+        "seconds": 0.019862914999976056
+      },
+      {
+        "label": "probe-cuda",
+        "cpu_only": false,
+        "status": "passed",
+        "exit_code": 0,
+        "seconds": 1.051638600998558
+      },
+      {
+        "label": "fit-100",
+        "cpu_only": false,
+        "status": "passed",
+        "exit_code": 0,
+        "seconds": 1.420651585998712
+      },
+      {
+        "label": "fit-900",
+        "cpu_only": false,
+        "status": "passed",
+        "exit_code": 0,
+        "seconds": 1.564179899996816
+      },
+      {
+        "label": "initial-cpu-all",
+        "cpu_only": true,
+        "status": "passed",
+        "exit_code": 0,
+        "seconds": 0.027219576000788948
+      },
+      {
+        "label": "final-cpu-all",
+        "cpu_only": true,
+        "status": "passed",
+        "exit_code": 0,
+        "seconds": 0.02923733799980255
+      },
+      {
+        "label": "final-slice-cpu",
+        "cpu_only": true,
+        "status": "passed",
+        "exit_code": 0,
+        "seconds": 0.017785742002160987
+      },
+      {
+        "label": "final-slice-cuda",
+        "cpu_only": false,
+        "status": "passed",
+        "exit_code": 0,
+        "seconds": 0.22628090799844358
+      }
+    ],
+    "runs": {
+      "fit-100": {
+        "step_start": 0,
+        "step_end": 100,
+        "execution": {
+          "backend": "cuda_tiled_device_loss_f64_v1",
+          "device_info": "NVIDIA GeForce RTX 4090; compute 8.9; FP64; device 0",
+          "driver_version": 13040,
+          "program_sha256": "06b2cf6e2306626e8169555bee27498cd72edccd597fd4e596c956043347fc5c",
+          "visible_device": 0
+        },
+        "execution_scope": "CUDA tiled E/F/V prediction, detached loss cotangents, cached mixed derivatives and Adam; CPU geometry, normalization scalars, stable atom/frame reduction, clipping and assessment",
+        "cuda_gradient_profile": {
+          "device_prediction_frames": 800,
+          "download_ms": 15.533123000000002,
+          "frames": 800,
+          "geometry_ms": 2.200155000000001,
+          "kernel_launches": 1000,
+          "kernels_and_sync_ms": 41.688742,
+          "max_atoms_per_frame": 10,
+          "max_atoms_per_launch": 77,
+          "max_frames_per_launch": 8,
+          "peak_device_buffer_bytes": 1538008,
+          "peak_host_tile_payload_bytes": 489576,
+          "prediction_and_seeds_ms": 0.0,
+          "reduction_ms": 1.4700249999999995,
+          "synchronizations": 100,
+          "tiles": 100,
+          "upload_ms": 30.68803700000001
+        },
+        "cuda_tiling": {
+          "device_at_capacity": {
+            "atoms": 80,
+            "cache_bytes": 931840,
+            "descriptor_adjoint_bytes": 20480,
+            "peak_device_buffer_bytes": 1597072,
+            "policy_limit_bytes": 67108864,
+            "slot_gradient_bytes": 61440
+          },
+          "device_loss": {
+            "estimated_extra_terms_per_atom": 3444,
+            "extra_device_bytes": 160664,
+            "extra_host_reserved_bytes": 158208
+          },
+          "effective_max_atoms": 80,
+          "estimated_scalar_terms_at_capacity": 17607360,
+          "host_tile_payload_at_capacity_bytes": 569904,
+          "host_tile_payload_policy_limit_bytes": 33554432,
+          "maximum_center_terms": 408,
+          "requested": {
+            "max_atoms": 80,
+            "max_frames": 8
+          },
+          "scalar_work_policy_limit": 50000000
+        },
+        "learning_rate": {
+          "base_rate": 0.001,
+          "contract": "omnimd-optimizer-update-learning-rate-v1",
+          "first_rate": 0.001,
+          "first_update": 1,
+          "last_rate": 0.001,
+          "last_update": 100,
+          "schedule": {
+            "decay_rate": 0.5,
+            "decay_steps": 250,
+            "kind": "exponential"
+          }
+        },
+        "fixed_geometry_cache": {
+          "build_ms": 2.108151,
+          "frames": 168,
+          "geometry_sha256": "69574f43ee1b123c8d52f83d66d149b17d953fe0112db19da78ab42c8105acb1",
+          "hits": 800,
+          "padded_slots": 16512,
+          "policy_limit_bytes": 67108864,
+          "retained_payload_bytes": 3500387
+        }
+      },
+      "fit-1000": {
+        "step_start": 100,
+        "step_end": 1000,
+        "execution": {
+          "backend": "cuda_tiled_device_loss_f64_v1",
+          "device_info": "NVIDIA GeForce RTX 4090; compute 8.9; FP64; device 0",
+          "driver_version": 13040,
+          "program_sha256": "06b2cf6e2306626e8169555bee27498cd72edccd597fd4e596c956043347fc5c",
+          "visible_device": 0
+        },
+        "execution_scope": "CUDA tiled E/F/V prediction, detached loss cotangents, cached mixed derivatives and Adam; CPU geometry, normalization scalars, stable atom/frame reduction, clipping and assessment",
+        "cuda_gradient_profile": {
+          "device_prediction_frames": 7200,
+          "download_ms": 104.71517199999988,
+          "frames": 7200,
+          "geometry_ms": 19.197709999999994,
+          "kernel_launches": 9000,
+          "kernels_and_sync_ms": 356.7859840000001,
+          "max_atoms_per_frame": 10,
+          "max_atoms_per_launch": 77,
+          "max_frames_per_launch": 8,
+          "peak_device_buffer_bytes": 1538008,
+          "peak_host_tile_payload_bytes": 489576,
+          "prediction_and_seeds_ms": 0.0,
+          "reduction_ms": 11.507477000000002,
+          "synchronizations": 900,
+          "tiles": 900,
+          "upload_ms": 242.8027280000001
+        },
+        "cuda_tiling": {
+          "device_at_capacity": {
+            "atoms": 80,
+            "cache_bytes": 931840,
+            "descriptor_adjoint_bytes": 20480,
+            "peak_device_buffer_bytes": 1597072,
+            "policy_limit_bytes": 67108864,
+            "slot_gradient_bytes": 61440
+          },
+          "device_loss": {
+            "estimated_extra_terms_per_atom": 3444,
+            "extra_device_bytes": 160664,
+            "extra_host_reserved_bytes": 158208
+          },
+          "effective_max_atoms": 80,
+          "estimated_scalar_terms_at_capacity": 17607360,
+          "host_tile_payload_at_capacity_bytes": 569904,
+          "host_tile_payload_policy_limit_bytes": 33554432,
+          "maximum_center_terms": 408,
+          "requested": {
+            "max_atoms": 80,
+            "max_frames": 8
+          },
+          "scalar_work_policy_limit": 50000000
+        },
+        "learning_rate": {
+          "base_rate": 0.001,
+          "contract": "omnimd-optimizer-update-learning-rate-v1",
+          "first_rate": 0.001,
+          "first_update": 101,
+          "last_rate": 0.000125,
+          "last_update": 1000,
+          "schedule": {
+            "decay_rate": 0.5,
+            "decay_steps": 250,
+            "kind": "exponential"
+          }
+        },
+        "fixed_geometry_cache": {
+          "build_ms": 2.408449,
+          "frames": 168,
+          "geometry_sha256": "69574f43ee1b123c8d52f83d66d149b17d953fe0112db19da78ab42c8105acb1",
+          "hits": 7200,
+          "padded_slots": 16512,
+          "policy_limit_bytes": 67108864,
+          "retained_payload_bytes": 3500387
+        }
+      }
+    },
+    "timing_scope": "Single process observations including startup/JIT, assessment, checkpoint and file IO; not a benchmark. Gradient counters exclude Adam. Phase timers are host-wall times and include synchronization.",
+    "gpu_prediction_frame_visits": 8000,
+    "gradient_kernel_launches": 10000,
+    "gradient_synchronizations": 1000,
+    "checkpoint": "v8 continuation at step100 to step1000; this run does not claim a separate uninterrupted-vs-resumed exactness comparison"
+  },
+  "metrics": {
+    "initial": {
+      "train": {
+        "frames": 168,
+        "atoms": 1376,
+        "energy_rmse_ev": 6.6262410978704,
+        "energy_per_atom_rmse_ev": 0.7758208337290332,
+        "force_component_rmse_ev_per_angstrom": 6.97069113695925,
+        "by_composition": {
+          "C1H4O2": {
+            "frames": 96,
+            "atoms": 672,
+            "energy_rmse_ev": 5.190572342361573,
+            "energy_per_atom_rmse_ev": 0.7415103346230818,
+            "force_component_rmse_ev_per_angstrom": 4.782089276365381
+          },
+          "C3H3O4": {
+            "frames": 64,
+            "atoms": 640,
+            "energy_rmse_ev": 8.581075556700325,
+            "energy_per_atom_rmse_ev": 0.8581075556700325,
+            "force_component_rmse_ev_per_angstrom": 7.4747680114351835
+          },
+          "C4H3O1": {
+            "frames": 8,
+            "atoms": 64,
+            "energy_rmse_ev": 3.108880225318474,
+            "energy_per_atom_rmse_ev": 0.3886100281648093,
+            "force_component_rmse_ev_per_angstrom": 15.679826698193098
+          }
+        }
+      },
+      "validation": {
+        "frames": 43,
+        "atoms": 352,
+        "energy_rmse_ev": 4.8786431270146275,
+        "energy_per_atom_rmse_ev": 0.5695132504427439,
+        "force_component_rmse_ev_per_angstrom": 3.9335647931428355,
+        "by_composition": {
+          "C1H4O2": {
+            "frames": 24,
+            "atoms": 168,
+            "energy_rmse_ev": 3.783492295129423,
+            "energy_per_atom_rmse_ev": 0.5404988993042033,
+            "force_component_rmse_ev_per_angstrom": 2.5691581330266553
+          },
+          "C3H3O4": {
+            "frames": 16,
+            "atoms": 160,
+            "energy_rmse_ev": 6.4012464335253085,
+            "energy_per_atom_rmse_ev": 0.6401246433525308,
+            "force_component_rmse_ev_per_angstrom": 4.149816600759878
+          },
+          "C4H3O1": {
+            "frames": 3,
+            "atoms": 24,
+            "energy_rmse_ev": 2.844819709235641,
+            "energy_per_atom_rmse_ev": 0.35560246365445514,
+            "force_component_rmse_ev_per_angstrom": 8.11947057059433
+          }
+        }
+      }
+    },
+    "final": {
+      "train": {
+        "frames": 168,
+        "atoms": 1376,
+        "energy_rmse_ev": 5.0998919037136785,
+        "energy_per_atom_rmse_ev": 0.5930120622841162,
+        "force_component_rmse_ev_per_angstrom": 7.170288762987166,
+        "by_composition": {
+          "C1H4O2": {
+            "frames": 96,
+            "atoms": 672,
+            "energy_rmse_ev": 3.8614441327423092,
+            "energy_per_atom_rmse_ev": 0.5516348761060441,
+            "force_component_rmse_ev_per_angstrom": 4.968613464790779
+          },
+          "C3H3O4": {
+            "frames": 64,
+            "atoms": 640,
+            "energy_rmse_ev": 6.675139129687971,
+            "energy_per_atom_rmse_ev": 0.6675139129687971,
+            "force_component_rmse_ev_per_angstrom": 7.710301522422042
+          },
+          "C4H3O1": {
+            "frames": 8,
+            "atoms": 64,
+            "energy_rmse_ev": 3.286027591460381,
+            "energy_per_atom_rmse_ev": 0.4107534489325476,
+            "force_component_rmse_ev_per_angstrom": 15.864366584784959
+          }
+        }
+      },
+      "validation": {
+        "frames": 43,
+        "atoms": 352,
+        "energy_rmse_ev": 3.9479652456618326,
+        "energy_per_atom_rmse_ev": 0.4559499814624389,
+        "force_component_rmse_ev_per_angstrom": 4.164336329946852,
+        "by_composition": {
+          "C1H4O2": {
+            "frames": 24,
+            "atoms": 168,
+            "energy_rmse_ev": 2.817731170784167,
+            "energy_per_atom_rmse_ev": 0.40253302439773814,
+            "force_component_rmse_ev_per_angstrom": 2.7043032207267403
+          },
+          "C3H3O4": {
+            "frames": 16,
+            "atoms": 160,
+            "energy_rmse_ev": 5.211398292928286,
+            "energy_per_atom_rmse_ev": 0.5211398292928285,
+            "force_component_rmse_ev_per_angstrom": 4.4056486709534886
+          },
+          "C4H3O1": {
+            "frames": 3,
+            "atoms": 24,
+            "energy_rmse_ev": 3.8784491093316373,
+            "energy_per_atom_rmse_ev": 0.48480613866645467,
+            "force_component_rmse_ev_per_angstrom": 8.588005059237977
+          }
+        }
+      }
+    }
+  },
+  "metric_definition": {
+    "energy_rmse_ev": "sqrt(mean over frames of squared total-energy residual))",
+    "energy_per_atom_rmse_ev": "sqrt(mean over frames of squared (total-energy residual / atom count)))",
+    "force_component_rmse_ev_per_angstrom": "sqrt(sum squared force component residuals / total number of force components)); pooled across atoms",
+    "source": "Independent CPU evaluation of initial/final exported models against retained labels; checked against native report metrics"
+  },
+  "cpu_gpu_parity": {
+    "initial_probe": {
+      "frames": 1,
+      "device": "NVIDIA GeForce RTX 4090; compute 8.9; FP64; device 0",
+      "max_abs_cpu_gpu": {
+        "energy": 0.0,
+        "forces": 6.938893903907228e-18,
+        "virial": 1.3877787807814457e-17
+      }
+    },
+    "trained_slice": {
+      "frames": 3,
+      "device": "NVIDIA GeForce RTX 4090; compute 8.9; FP64; device 0",
+      "max_abs_cpu_gpu": {
+        "energy": 0.0,
+        "forces": 4.440892098500626e-16,
+        "virial": 8.881784197001252e-16
+      },
+      "tolerance": "abs(delta)<=1e-8+1e-10*abs(CPU) per component"
+    },
+    "probe_id": "C1H4O2/set.000/0",
+    "heldout_slice_ids": [
+      "C1H4O2/set.000/1250",
+      "C3H3O4/set.000/388",
+      "C4H3O1/set.000/12"
+    ],
+    "virial_scope": "Numerical CPU/GPU parity only; no physical virial labels or supervised virial fit"
+  },
+  "runtime": {
+    "container": "omnimd-physical-8167a4a",
+    "image_id": "sha256:23d23b922459eb49b23f9d4977b6e453fd17feb2ee03a280c70fb7f4a6452e8c",
+    "official_image_tag": "deepmodeling/deepmd-kit:3.1.0_cuda129",
+    "network": "none",
+    "compiled_offline_release_seconds": 36.85,
+    "new_installs": false,
+    "host_driver_or_security_modifications": false,
+    "container_id": "ef40e1be39598d9d976bcd4da3a543cc8d9bc75302c025a37780e5964e8d56c6",
+    "os": "Ubuntu 22.04.5 LTS / WSL2 Linux x86_64",
+    "gpu": "NVIDIA GeForce RTX 4090",
+    "driver": "617.42",
+    "driver_api_version": 13040,
+    "nvrtc": "12.9.86",
+    "rustc": "1.99.0",
+    "cargo": "1.99.0",
+    "linker": "conda-forge GCC13.3.0-2",
+    "python_numpy": {
+      "python": "3.12.11 | packaged by conda-forge | (main, Jun  4 2025, 14:45:31) [GCC 13.3.0]",
+      "numpy": "1.26.4"
+    },
+    "environment": {
+      "CUDA_VISIBLE_DEVICES": "0",
+      "OMP_NUM_THREADS": "1",
+      "OMNIMD_NVRTC_LIBRARY": "/opt/deepmd-kit/lib/libnvrtc.so.12",
+      "LD_LIBRARY_PATH": "/opt/deepmd-kit/lib"
+    },
+    "gpu_errors": 0,
+    "gpu_retries": 0,
+    "container_stopped": true,
+    "gpu_window_released": true,
+    "integration_worktree_modified": false,
+    "native_code_modified": false
+  },
+  "replay": {
+    "local_runtime_directory": "C:/Users/Shawn/Documents/Codex/2026-10-13/task-4/physical-run-8167a4a",
+    "scripts_remain_task_local": true,
+    "script_sha256": {
+      "fetch_official_nopbc.py": "e31fafa67e7165ade40625537ee3af80cc3bf71fa4e7219b289454a649e2509d",
+      "prepare_physical.py": "e00d35515351e4c63119e1ae21cfbd0af56e85141142ba9375fc445c7062f7c2",
+      "run_physical.py": "dfeb768c748533113b341dcb4c4d7373766bbd7ecf9c78bb7dc211086feef945"
+    },
+    "evidence_sha256": {
+      "resource-plan.json": "6bd7fd694f7d88bc80880d8d9ea368fc89b7ebe4199efeaf494111895ac11696",
+      "preparation.json": "3b48af4a68af5af012a31cf068394b325b6ac5df776724d0d5fded8aafd0a53a",
+      "split.json": "8c898bbc2f6048a6c54eed495450576ae242371abea875362c786a86c8b25e06",
+      "physical-acceptance.json": "047e4994eb08a59aad0e59c1731e76d4dce7382f5397375367699b38ffd144d3"
+    },
+    "execution_sha256": {
+      "initial_model": "8109e3432377d7b69f31ca2771fccf65dc403148ef5acb561425bca3522034a1",
+      "final_model": "a43a55f9a1ea455ede44f0f854fbb6fe08e9b046c1625b1b0d912c7de6009206",
+      "dataset": "779a5cc59b5f01224709cc1f2f95672ea07a7bdeebe9fdb9d8ba8129fdd196ed",
+      "preparation": "3b48af4a68af5af012a31cf068394b325b6ac5df776724d0d5fded8aafd0a53a",
+      "runner": "dfeb768c748533113b341dcb4c4d7373766bbd7ecf9c78bb7dc211086feef945",
+      "engine": "b3dee936dcaad09ffa91e1226e96a39dec35b8ce586c61ac0b2c0f0e1c08ba8b",
+      "trainer": "8bf29f9f90220e4b110870cc3c047082345e5f11e2ef39eebbb7ca797c6fab8e",
+      "cpu_eval": "6bc4eec45a0f2a9fd1d7120e06b1eaf796de3d31d80cf6e85bd6f605d3b5a1c9",
+      "cuda_eval": "ae565a7772a6ff2202d62df74802f18888ac24be18377f17b546e1fe1eba7b8d"
+    },
+    "output_sha256": {
+      "initial.json": "8109e3432377d7b69f31ca2771fccf65dc403148ef5acb561425bca3522034a1",
+      "dataset.jsonl": "779a5cc59b5f01224709cc1f2f95672ea07a7bdeebe9fdb9d8ba8129fdd196ed",
+      "train-100.request.json": "93ffcba17538d74f713106de5ceef48af51b944e4ed6a904729843780ef9031a",
+      "train-900.request.json": "1659698e08e09e962457d86c0b2b215ad0768b0760676f51c8a871ac4db3510e",
+      "probe-frame.jsonl": "cb86467c1bb93d34143263b63d84633cd250854c144e93292f7089122bf0bb48",
+      "slice-frames.jsonl": "ad2b9c07825651c8607dd185a3d3dfe071664265eba561b7c008ac3b69faebb0"
+    }
+  },
+  "limits": [
+    "One small physical-data feasibility run; retained force error worsened and the model is unsuitable for production use.",
+    "Index-held-out frames within published composition groups; original trajectory identities unavailable and statistical independence unproven.",
+    "No virial labels, chemical-accuracy certification, production MD, optimizer retuning or validation-based model selection.",
+    "Only7-10atom frames/default64 ceiling/v8 exercised; conditional256atom/v9 path not covered by this physical replay.",
+    "CPU/GPU numerical comparison covers inference on a small physical slice; no CPU full-training parity or speedup claim.",
+    "No new quantum calculations, HAP/private data, system changes, unknown software installation or publishing."
+  ]
+}

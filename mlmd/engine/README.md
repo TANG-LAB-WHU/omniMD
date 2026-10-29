@@ -1,4 +1,4 @@
-# CPU MLIP dynamics CLI
+# MLIP dynamics and data CLI
 
 This is a **separate JSON runner**, backed by the actual upstream
 `omnimd-core::System` and the new fallible `omnimd-sim::md::MlipDynamics`
@@ -28,9 +28,9 @@ without writing a trajectory. The older two-path invocation is also accepted.
 
 Both backends use the same run schema. Model/library paths must be absolute.
 Windows JSON uses escaped backslashes. Output paths must be new; existing files
-are never replaced. Real DeepMD inference uses a fresh worker with GPU visibility
-disabled and one trusted official model handle. Native inference needs no DeepMD,
-Python, GPU or LibTorch installation.
+are never replaced. DeepMD inference uses a fresh device-isolated worker and one
+trusted official model handle. CPU requests disable GPU visibility. Native CPU
+inference needs no DeepMD, Python, GPU or LibTorch installation.
 
 ## Explicit native CUDA inference
 
@@ -48,7 +48,9 @@ This is the options object within the existing request. Omit device or use cpu
 for the ordinary CPU path. Legacy {"Cuda":0} device spelling is also accepted.
 A native CUDA request without the build feature fails explicitly before a worker
 or CUDA runtime is started. CUDA failures are errors; CPU fallback is an explicit
-new request, not an automatic retry. The train-native command remains CPU-only.
+new request, not an automatic retry. The train-native command defaults to CPU;
+optional CUDA readout features and bounded full-network gradients/Adam require a
+CUDA-enabled sibling trainer and explicit request device.
 
 Both inference backends share the fresh-process selector: cuda:N selects index
 N from an inherited CUDA_VISIBLE_DEVICES list, or system CUDA index N when no
@@ -65,7 +67,8 @@ sets. The 216-atom case measured 60.385 ms CPU versus 52.288 ms CUDA (1.155x), w
 two small cases were about 8.4x slower. Timings include CPU geometry, transfers,
 kernels and final reduction, exclude initialization, and were affected by desktop
 graphics load. This is inference only: CPU PBC/neighbor geometry and final E/F/V
-reduction remain; there is no native CUDA training or general speedup claim.
+reduction remain. The separate bounded training route also retains CPU stages;
+no general speedup is claimed.
 
 The unified CLI passed an eight-step native CUDA NVE comparison with CPU on the
 original four-atom triclinic tanh fixture, plus continuation from step four.
@@ -88,8 +91,69 @@ runtime-based measurement is separate from the native benchmark above.
 
 The static capabilities command lists both paths, their evidence and runtime
 requirements without loading a model or probing GPU availability on this host.
-GPU training is not implemented. These CUDA changes are published on shawn_dev
+Bounded CUDA full-gradient/Adam training is a later local extension. These inference changes are published on shawn_dev
 as 907481708ae5f3df4228a9fb5d5b1110c39f5e23.
+
+## Native training and optional GPU loss
+
+`omnimd-mlmd train-native REQUEST.json` forwards to the adjacent native trainer.
+Build both binaries when selecting native CUDA training:
+
+```sh
+cargo build --release --locked --offline --manifest-path mlmd/Cargo.toml -p omnimd-mlmd -p omnimd-native --features omnimd-mlmd/native-cuda --bins
+```
+
+CPU training is the default. A valid full-network request with explicit CUDA may
+select `config.cuda_gradient="reverse"`, `config.cuda_tiling` and optional
+`config.cuda_loss="gpu"`. That last option computes tiled E/F/V and detached seeds
+on GPU, reuses primal intermediates and selects v8. Absent or `"cpu"` retains the
+historical CPU-loss path (v7 with tiling). Geometry, reduction/clipping and assessment remain
+CPU work; changing loss mode requires a new optimizer, not a checkpoint edit.
+
+Use [step 23](../GETTING_STARTED.md#23-select-gpu-prediction-and-loss-preparation-explicitly)
+and [the native contract](../native/DEVICE_LOSS_TRAINING.md) for required fields,
+limits and restart rules. The current GPU-loss route automatically retains parameters
+and Adam moments on device until the original save boundaries; each update still
+checks synchronized status, and complete snapshots are validated before saving.
+No new request option is needed. CPU and CPU-loss defaults remain unchanged.
+
+[Step 27](../GETTING_STARTED.md#27-use-resident-gpu-training-state-and-interpret-measured-speed)
+records the combined transfer/residency/alignment changes: whole-process medians
+versus `201cdef` fell 7.7% for the public 531-parameter workload and 2.4% for medium
+synthetic work. Medium incremental benefit over transfer-only is unresolved; tiny
+CPU remains faster (504.19 versus 703.56 ms GPU). Frequent checkpoints reduce savings.
+The [integrated receipt](../evidence/native-resident-integrated.json) verifies actual
+CLI forwarding, unchanged full-workload outputs and historical v8 resume. These
+Windows-only results do not establish general speed or scientific model accuracy.
+
+The unchanged `06439f1` engine and sibling trainer also passed the recorded
+[Linux native CUDA check](../LINUX_CUDA_VALIDATION.md): Ubuntu 22.04.5/WSL2
+x86_64, RTX 4090, driver 617.42/NVRTC 12.9.86, one inference fixture and 24-frame
+tiled v7/v8 training with exact same-runtime v8 continuation. C API execution,
+other Linux configurations and cross-platform checkpoint restore were outside
+that check. Use [step 24](../GETTING_STARTED.md#24-use-the-recorded-linux-native-cuda-configuration)
+for the exact environment and limits; no performance advantage is established.
+That Linux check does not cover the subsequent large-frame v9 path.
+
+Explicit `config.cuda_tiling.max_atoms_per_frame=64..256` now admits larger frames
+under unchanged work/payload limits. Default 64 preserves historical v7/v8;
+CPU/untiled training stays 64. Above 64 uses v9, with GPU-loss backend v2 and complete
+strided force/virial gather. The 112-parameter fixture fits 256; the 466-parameter
+example has effective capacity 138 and rejects 256. Use
+[step 25](../GETTING_STARTED.md#25-opt-in-to-resource-bounded-larger-training-frames)
+and the [final receipt](../evidence/native-large-frame-integrated.json) for actual
+256-atom forwarding, exact 2+2 restart and refusals. Capacity expansion does not
+promise speed; new v9 Linux execution remains unverified.
+
+The [physical-label pilot and diagnosis](../PHYSICAL_DATA_VALIDATION.md#bounded-training-diagnosis)
+show a loss-weight tradeoff, not scientific acceptance. Changing only energy
+weight 1->0.1 improved validation force RMSE 4.164336->3.707381 eV/angstrom but
+worsened E/atom RMSE 0.455950->0.523472 eV/atom. Training total-E RMSE rose above
+initialization, 6.626241->6.650750 eV. Both models remain unsuitable, and the
+43 diagnostic-validation frames are not an untouched final test. Two-step
+CPU/GPU optimizer agreement does not prove full-trajectory or defect-free
+execution. This 7-10-atom v8 case provides no v9 validation. See
+[step 26](../GETTING_STARTED.md#26-interpret-the-physical-label-pilot-and-controlled-diagnosis).
 
 ## Dataset workflows
 
@@ -216,5 +280,68 @@ The current System is exposed read-only to protect cached model outputs.
 Failed numerical/model/thermostat updates leave the published System unchanged;
 the CSVR wrapper advances its RNG only after a successful dynamics step.
 
-GPU, MPI, NPT/barostats, constraints, classical force-field mixing, legacy
-trajectory plugins and native training are not enabled by this CLI.
+MPI, NPT/barostats, constraints, classical force-field mixing and legacy
+trajectory plugins are not enabled by this CLI. Explicit CUDA inference and the
+`train-native` wrapper (CPU default; optional CUDA readout features or full gradients/Adam) are available within their documented scopes.
+
+For executable setup, model integration, dataset inspection and a complete CPU
+tutorial, see [GETTING_STARTED.md](../GETTING_STARTED.md). The
+[versioned matrix](../FEATURE_MATRIX.md) distinguishes implemented, delegated and
+missing DeepMD functions.
+
+
+## Current integrated adapter and CUDA follow-up
+
+The local integrated runtime 9b8d184 includes native cooperative fitting and
+persistent host buffers. The [final receipt](../evidence/native-cuda-integrated-fit.json)
+measures complete 20-step NVE separately from warmed evaluations and verifies
+exact checkpoint continuation. Older measurements above describe their original
+release snapshots; see [release scopes](../RELEASE.md) for before/after details.
+
+C API multi-frame batching and atomic outputs remain in the separate standalone
+CLI. Engine `batch-eval` retains one call per frame; dataset v2 now propagates
+CPU C API frame/atom parameters and explicit stored-default policy. Fixed-parameter
+MD uses the same context for every evaluation and checkpoint v3. See
+[parameter usage](PARAMETERS.md) and [the standalone guide](../deepmd/BACKEND_GUIDE.md).
+Real TF/PT CPU comparisons passed. TF fixed-context restart is bitwise exact;
+PT exhibits external-runtime first-call roundoff and has numerical restart parity.
+No new C API GPU parameter/batch acceptance is claimed.
+
+## Ensemble comparison and explicit subset extraction
+
+[model-deviation](MODEL_DEVIATION.md) retains 2..16 models on CPU and streams
+absolute population E/F/virial deviations with optional candidate marking.
+[select-dataset](DATASET_SELECTION.md) takes explicit IDs and an expected source
+SHA256, validates the entire input, then creates a new shared-format subset and
+receipt. It preserves scientific values and missing labels, with source-order
+IDs and explicit old/new indices. The executable replay connects these commands
+to inspection, assessment and CPU readout training without generating labels.
+
+Local source `dc5449e` additionally supplies explicit CUDA frozen-readout E/F/V
+features through the sibling trainer. QR and assessment remain CPU and the
+recorded microcase was slower than CPU. Local source `f4dbf62` adds bounded
+[full-network CUDA gradients/Adam](../native/CUDA_FULL_TRAINING.md), retaining CPU
+inference, loss seeds, geometry, reduction and assessment. See
+[training-device rules](../native/TRAINING.md). Engine compilation alone does not
+prove its sibling trainer was built with CUDA support.
+
+## External label return
+
+`prepare-labels REQUEST.json NEW_DIRECTORY` exports exact frame identities from
+an explicitly hash-bound dataset. `import-labels REQUEST.json NEW_DIRECTORY`
+accepts a complete hash-bound return with explicit units, geometry/context and
+E/F labels, preserving source order and v2 parameters. Duplicate/missing frames,
+changed identities and conflicting existing labels reject before output creation.
+See [the complete return-file contract and replay](EXTERNAL_LABELS.md). Neither
+command starts a calculator, model or GPU. Existing training is a separate command.
+
+## Optional virial loss in the sibling full trainer
+
+The engine forwards `config.virial_loss` unchanged for full-network requests;
+see [the complete loss/checkpoint contract](../native/VIRIAL_TRAINING.md).
+Explicit positive weight and eV/atom scale enable all-nine-component row-strain
+virial supervision on CPU or bounded CUDA, with checkpoint v3 for CPU/hyperdual
+and v4 for explicit reverse execution. The readout QR
+mode remains E/F-only. Absent/null V retains E/F CPU-v1 and CUDA-v2 behavior.
+The [final integration receipt](../evidence/native-virial-integrated.json) records
+short joint training, exact continuation, CPU parity and legacy CUDA-v2 resume.

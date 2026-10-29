@@ -1,0 +1,27 @@
+{
+  "scope": "DeepMD adapter batch, parameters, atomic outputs and inspection",
+  "base_commit": "f839cef8a45e5b4e63b8470ad1adbcdb0fed1919",
+  "platform": "Windows CPU-only compile/tests",
+  "rust_tests": {
+    "library": 17,
+    "cli": 4,
+    "failed": 0
+  },
+  "release_build": [
+    "omnimd-deepmd",
+    "omnimd-mlmd"
+  ],
+  "python_comparator_cases": 17,
+  "new_runtime_validation": {
+    "status": "completed_cpu_fixtures",
+    "date_utc": "2026-10-16",
+    "evidence": [
+      "cpu-batch-parameters.json",
+      "model-default-fparam.json"
+    ]
+  },
+  "gpu_jobs_started": 0,
+  "new_dependencies": 0,
+  "shared_interfaces_modified": false,
+  "native_sources_modified": false
+}

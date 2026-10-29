@@ -167,6 +167,7 @@ pub fn import_xyz(request: &XyzRequest, output: &Path) -> Result<u64> {
         &mut writer,
         &Record::Header {
             header: DatasetHeader {
+                parameter_layout: None,
                 schema: SCHEMA.into(),
                 type_map: request.type_map.clone(),
                 units: request.units,
@@ -323,6 +324,7 @@ pub fn import_xyz(request: &XyzRequest, output: &Path) -> Result<u64> {
             &mut writer,
             &Record::Frame {
                 data: DatasetFrame {
+                    parameters: None,
                     index,
                     id: format!("xyz/{index}"),
                     frame,

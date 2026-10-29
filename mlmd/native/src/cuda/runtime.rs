@@ -1,4 +1,6 @@
 //! Minimal dynamic NVIDIA Driver/NVRTC bindings. No link-time CUDA dependency.
+#[path = "device_runtime.rs"]
+mod device_loss;
 use omnimd_ml_contract::{Error, Result};
 use std::{
     ffi::{c_char, c_void, CStr, CString},
@@ -198,6 +200,7 @@ macro_rules! api {
 }
 api! {
     init:unsafe extern "system" fn(u32)->i32=>"cuInit",
+    driver_version:unsafe extern "system" fn(*mut i32)->i32=>"cuDriverGetVersion",
     get_device:unsafe extern "system" fn(*mut i32,i32)->i32=>"cuDeviceGet",
     name:unsafe extern "system" fn(*mut c_char,i32,i32)->i32=>"cuDeviceGetName",
     capability:unsafe extern "system" fn(*mut i32,*mut i32,i32)->i32=>"cuDeviceComputeCapability",
@@ -208,6 +211,7 @@ api! {
     module_load:unsafe extern "system" fn(*mut Handle,*const c_void)->i32=>"cuModuleLoadData",
     module_unload:unsafe extern "system" fn(Handle)->i32=>"cuModuleUnload",
     function:unsafe extern "system" fn(*mut Handle,Handle,*const c_char)->i32=>"cuModuleGetFunction",
+    attribute:unsafe extern "system" fn(*mut i32,i32,Handle)->i32=>"cuFuncGetAttribute",
     alloc:unsafe extern "system" fn(*mut u64,usize)->i32=>"cuMemAlloc_v2",
     free:unsafe extern "system" fn(u64)->i32=>"cuMemFree_v2",
     h2d:unsafe extern "system" fn(u64,*const c_void,usize)->i32=>"cuMemcpyHtoD_v2",
@@ -234,18 +238,44 @@ impl Drop for Current {
         }
     }
 }
+#[derive(Debug, serde::Serialize)]
+pub struct KernelResources {
+    pub name: String,
+    pub registers_per_thread: i32,
+    pub static_shared_bytes: i32,
+    pub local_bytes_per_thread: i32,
+}
 pub struct Runtime {
     api: Api,
     context: Handle,
     module: Handle,
-    functions: [Handle; 3],
+    functions: Vec<Handle>,
     buffers: Vec<(u64, usize)>,
     pub device_info: String,
+    pub driver_version: i32,
+    pub program_sha256: String,
+    pub kernel_resources: Vec<KernelResources>,
+    pub last_timing_ms: [f64; 3],
+    pub type_uploads: usize,
+    pub last_upload_bytes: usize,
+    cached_types: Vec<i32>,
+    packed_input: Vec<u8>,
+    packed_input_index: Option<usize>,
+    pub energies: Vec<f64>,
+    pub gradients: Vec<f64>,
     _library: Library,
     _not_send: PhantomData<Rc<()>>,
 }
 impl Runtime {
     pub fn new(source: &str, ordinal: i32) -> Result<Self> {
+        Self::with_functions(source, ordinal, &["embed", "fit", "pullback"], 11)
+    }
+    pub(super) fn with_functions(
+        source: &str,
+        ordinal: i32,
+        names: &[&str],
+        buffers: usize,
+    ) -> Result<Self> {
         unsafe {
             #[cfg(windows)]
             let driver = PathBuf::from(
@@ -257,6 +287,11 @@ impl Runtime {
             let library = Library::open(&driver)?;
             let api = Api::load(&library)?;
             check((api.init)(0), "cuInit")?;
+            let mut driver_version = 0;
+            check(
+                (api.driver_version)(&mut driver_version),
+                "cuDriverGetVersion",
+            )?;
             let mut device = 0;
             check((api.get_device)(&mut device, ordinal), "cuDeviceGet")?;
             let (mut major, mut minor) = (0, 0);
@@ -277,6 +312,8 @@ impl Runtime {
                 ordinal
             );
             let ptx = compile(source, major * 10 + minor)?;
+            use sha2::{Digest, Sha256};
+            let program_sha256 = format!("{:x}", Sha256::digest(&ptx));
             let mut previous = ptr::null_mut();
             check((api.ctx_current)(&mut previous), "cuCtxGetCurrent")?;
             let mut context = ptr::null_mut();
@@ -286,9 +323,20 @@ impl Runtime {
                 api,
                 context,
                 module: ptr::null_mut(),
-                functions: [ptr::null_mut(); 3],
-                buffers: vec![(0, 0); 11],
+                functions: vec![ptr::null_mut(); names.len()],
+                buffers: vec![(0, 0); buffers],
                 device_info,
+                driver_version,
+                program_sha256,
+                kernel_resources: Vec::new(),
+                last_timing_ms: [0.0; 3],
+                type_uploads: 0,
+                last_upload_bytes: 0,
+                cached_types: Vec::new(),
+                packed_input: Vec::new(),
+                packed_input_index: None,
+                energies: Vec::new(),
+                gradients: Vec::new(),
                 _library: library,
                 _not_send: PhantomData,
             };
@@ -296,15 +344,98 @@ impl Runtime {
                 (api.module_load)(&mut rt.module, ptx.as_ptr() as *const c_void),
                 "cuModuleLoadData",
             )?;
-            for (i, name) in ["embed", "fit", "pullback"].iter().enumerate() {
+            for (i, name) in names.iter().enumerate() {
                 let name = CString::new(*name).unwrap();
                 check(
                     (api.function)(&mut rt.functions[i], rt.module, name.as_ptr()),
                     "cuModuleGetFunction",
                 )?;
             }
+            for (i, name) in names.iter().enumerate() {
+                let mut values = [0; 3];
+                for (value, attribute) in values.iter_mut().zip([4, 1, 3]) {
+                    check(
+                        (api.attribute)(value, attribute, rt.functions[i]),
+                        "cuFuncGetAttribute",
+                    )?;
+                }
+                rt.kernel_resources.push(KernelResources {
+                    name: (*name).into(),
+                    registers_per_thread: values[0],
+                    static_shared_bytes: values[1],
+                    local_bytes_per_thread: values[2],
+                });
+            }
             drop(restore);
             Ok(rt)
+        }
+    }
+    pub(super) fn enable_packed_inputs(&mut self) {
+        assert!(self.packed_input_index.is_none());
+        self.packed_input_index = Some(self.buffers.len());
+        self.buffers.push((0, 0));
+    }
+    pub(super) fn reserve_packed_inputs(
+        &mut self,
+        bytes: usize,
+        host_budget: usize,
+    ) -> Result<usize> {
+        if self.packed_input.capacity().max(bytes) > host_budget {
+            return Err(Error("packed CUDA input host capacity exceeded".into()));
+        }
+        if self.packed_input.capacity() < bytes {
+            self.packed_input = Vec::new();
+            self.packed_input = Vec::with_capacity(bytes);
+        }
+        // Vec is allowed to provide excess capacity: count the actual retained payload.
+        if self.packed_input.capacity() > host_budget {
+            self.packed_input = Vec::new();
+            return Err(Error(
+                "packed CUDA allocation exceeded host capacity".into(),
+            ));
+        }
+        Ok(self.packed_input.capacity())
+    }
+    // Caller holds this runtime's current context; copies are synchronous.
+    // Only the arena base is owned in buffers. Interior pointers are call-local.
+    fn upload_packed_inputs(&mut self, parts: &[(usize, &[u8])]) -> Result<[u64; 31]> {
+        let layout = super::transfer::Layout::new(parts.iter().map(|(i, x)| (*i, x.len())))?;
+        if layout.bytes > 32 * 1024 * 1024 {
+            return Err(Error("packed CUDA inputs exceed host policy".into()));
+        }
+        let index = self
+            .packed_input_index
+            .ok_or_else(|| Error("packed CUDA inputs are not enabled".into()))?;
+        if self.packed_input.capacity() < layout.bytes {
+            return Err(Error(
+                "packed CUDA inputs were not reserved within host budget".into(),
+            ));
+        }
+        self.packed_input.resize(layout.bytes, 0);
+        for &(i, bytes) in parts {
+            let start = layout.offsets[i];
+            self.packed_input[start..start + bytes.len()].copy_from_slice(bytes);
+        }
+        unsafe {
+            if self.buffers[index].1 < layout.bytes && self.buffers[index].0 != 0 {
+                check(
+                    (self.api.free)(self.buffers[index].0),
+                    "cuMemFree_v2(packed grow)",
+                )?;
+                self.buffers[index] = (0, 0);
+            }
+            let base = self.ensure(index, layout.bytes)?;
+            check(
+                (self.api.h2d)(base, self.packed_input.as_ptr().cast(), layout.bytes),
+                "cuMemcpyHtoD_v2(packed)",
+            )?;
+            let mut address = std::array::from_fn(|i| self.buffers.get(i).map_or(0, |b| b.0));
+            for &(i, _) in parts {
+                address[i] = base
+                    .checked_add(layout.offsets[i] as u64)
+                    .ok_or_else(|| Error("packed CUDA pointer overflow".into()))?;
+            }
+            Ok(address)
         }
     }
     fn ensure(&mut self, index: usize, bytes: usize) -> Result<u64> {
@@ -322,29 +453,66 @@ impl Runtime {
         }
     }
     pub fn upload<T: Copy>(&mut self, index: usize, data: &[T]) -> Result<()> {
+        let _current = unsafe { Current::enter(self.api, self.context)? };
+        self.upload_current(index, data)
+    }
+    fn upload_current<T: Copy>(&mut self, index: usize, data: &[T]) -> Result<()> {
+        let bytes = std::mem::size_of_val(data);
+        let pointer = self.ensure(index, bytes)?;
         unsafe {
-            let _current = Current::enter(self.api, self.context)?;
-            let bytes = std::mem::size_of_val(data);
-            let pointer = self.ensure(index, bytes)?;
             check(
                 (self.api.h2d)(pointer, data.as_ptr() as *const c_void, bytes),
                 "cuMemcpyHtoD_v2",
             )
         }
     }
-    fn download<T: Copy + Default>(&self, index: usize, count: usize) -> Result<Vec<T>> {
-        unsafe {
-            let mut output = vec![T::default(); count];
-            check(
-                (self.api.d2h)(
-                    output.as_mut_ptr() as *mut c_void,
-                    self.buffers[index].0,
-                    std::mem::size_of_val(output.as_slice()),
-                ),
-                "cuMemcpyDtoH_v2",
-            )?;
-            Ok(output)
+    unsafe fn download_into<T: Copy>(api: Api, pointer: u64, output: &mut [T]) -> Result<()> {
+        check(
+            (api.d2h)(
+                output.as_mut_ptr() as *mut c_void,
+                pointer,
+                std::mem::size_of_val(output),
+            ),
+            "cuMemcpyDtoH_v2",
+        )
+    }
+    /// Select one final-readout basis coefficient in private training weights.
+    /// Both indices refer to the resident packed weight array. No graph/model
+    /// reload or host-wide weight copy is necessary.
+    pub(super) fn select_readout_basis(
+        &mut self,
+        previous: Option<usize>,
+        next: usize,
+    ) -> Result<()> {
+        let count = self.buffers[1].1 / std::mem::size_of::<f64>();
+        if next >= count || previous.is_some_and(|p| p >= count) {
+            return Err(Error(
+                "readout basis weight index outside resident buffer".into(),
+            ));
         }
+        if previous == Some(next) {
+            return Ok(());
+        }
+        let _current = unsafe { Current::enter(self.api, self.context)? };
+        let copy = |offset: usize, values: &[f64]| unsafe {
+            check(
+                (self.api.h2d)(
+                    self.buffers[1].0 + (offset * 8) as u64,
+                    values.as_ptr() as *const c_void,
+                    std::mem::size_of_val(values),
+                ),
+                "cuMemcpyHtoD_v2(readout basis)",
+            )
+        };
+        if previous.is_some_and(|p| p.checked_add(1) == Some(next)) {
+            copy(previous.unwrap(), &[0.0, 1.0])?;
+        } else {
+            if let Some(previous) = previous {
+                copy(previous, &[0.0])?;
+            }
+            copy(next, &[1.0])?;
+        }
+        Ok(())
     }
     pub fn evaluate(
         &mut self,
@@ -352,23 +520,33 @@ impl Runtime {
         types: &[i32],
         slots: usize,
         width: usize,
-    ) -> Result<(Vec<f64>, Vec<f64>)> {
+    ) -> Result<()> {
         unsafe {
             let _current = Current::enter(self.api, self.context)?;
             let n = types.len();
             let q = n * slots;
-            self.upload(2, rows)?;
-            self.upload(3, types)?;
-            self.upload(10, &[0_i32])?;
+            let phase = std::time::Instant::now();
+            self.upload_current(2, rows)?;
+            self.last_upload_bytes = std::mem::size_of_val(rows) + 4;
+            if self.cached_types != types {
+                self.upload_current(3, types)?;
+                self.cached_types.clear();
+                self.cached_types.extend_from_slice(types);
+                self.type_uploads += 1;
+                self.last_upload_bytes += std::mem::size_of_val(types);
+            }
+            self.upload_current(10, &[0_i32])?;
             self.ensure(5, q * width * 8)?;
             self.ensure(6, q * width * 8)?;
             self.ensure(7, n * width * 4 * 8)?;
             self.ensure(8, n * 8)?;
             self.ensure(9, q * 4 * 8)?;
-            let mut addresses: Vec<_> = self.buffers.iter().map(|x| x.0).collect();
+            self.last_timing_ms[0] = phase.elapsed().as_secs_f64() * 1000.0;
+            let phase = std::time::Instant::now();
+            let mut addresses: [u64; 11] = std::array::from_fn(|i| self.buffers[i].0);
             let mut atoms = n as i32;
             let pointer = |p: &mut u64| p as *mut u64 as *mut c_void;
-            let mut embed = vec![
+            let mut embed = [
                 pointer(&mut addresses[0]),
                 pointer(&mut addresses[1]),
                 pointer(&mut addresses[2]),
@@ -380,7 +558,7 @@ impl Runtime {
                 pointer(&mut addresses[10]),
             ];
             self.launch(0, q, &mut embed)?;
-            let mut fit = vec![
+            let mut fit = [
                 pointer(&mut addresses[0]),
                 pointer(&mut addresses[1]),
                 pointer(&mut addresses[2]),
@@ -392,7 +570,7 @@ impl Runtime {
                 pointer(&mut addresses[10]),
             ];
             self.launch(1, n, &mut fit)?;
-            let mut pull = vec![
+            let mut pull = [
                 pointer(&mut addresses[2]),
                 &mut atoms as *mut i32 as *mut c_void,
                 pointer(&mut addresses[5]),
@@ -403,22 +581,353 @@ impl Runtime {
             ];
             self.launch(2, q, &mut pull)?;
             check((self.api.sync)(), "cuCtxSynchronize")?;
-            if self.download::<i32>(10, 1)?[0] != 0 {
+            self.last_timing_ms[1] = phase.elapsed().as_secs_f64() * 1000.0;
+            let phase = std::time::Instant::now();
+            let mut status = [0_i32];
+            Self::download_into(self.api, self.buffers[10].0, &mut status)?;
+            if status[0] != 0 {
                 return Err(Error(
                     "nonfinite CUDA network/contraction intermediate".into(),
                 ));
             }
-            Ok((self.download(8, n)?, self.download(9, q * 4)?))
+            self.energies.resize(n, 0.0);
+            self.gradients.resize(q * 4, 0.0);
+            Self::download_into(self.api, self.buffers[8].0, &mut self.energies)?;
+            Self::download_into(self.api, self.buffers[9].0, &mut self.gradients)?;
+            self.last_timing_ms[2] = phase.elapsed().as_secs_f64() * 1000.0;
+            Ok(())
         }
     }
+    pub(super) fn full_frame(
+        &mut self,
+        rows: &[f64],
+        tangent: &[f64],
+        types: &[i32],
+        parameters: usize,
+        mut energy_seed: f64,
+    ) -> Result<(Vec<f64>, Vec<f64>)> {
+        unsafe {
+            let _current = Current::enter(self.api, self.context)?;
+            let phase = std::time::Instant::now();
+            self.upload_current(2, rows)?;
+            self.upload_current(3, types)?;
+            self.upload_current(5, tangent)?;
+            self.upload_current(8, &[0_i32])?;
+            self.ensure(6, types.len() * parameters * 8)?;
+            self.ensure(7, types.len() * 8)?;
+            let mut address: [u64; 12] = std::array::from_fn(|i| self.buffers[i].0);
+            let pointer = |p: &mut u64| p as *mut u64 as *mut c_void;
+            let mut atoms = types.len() as i32;
+            let mut count = parameters as i32;
+            let mut args = [
+                pointer(&mut address[0]),
+                pointer(&mut address[1]),
+                pointer(&mut address[2]),
+                pointer(&mut address[5]),
+                pointer(&mut address[3]),
+                pointer(&mut address[4]),
+                &mut atoms as *mut i32 as *mut c_void,
+                &mut count as *mut i32 as *mut c_void,
+                &mut energy_seed as *mut f64 as *mut c_void,
+                pointer(&mut address[6]),
+                pointer(&mut address[7]),
+                pointer(&mut address[8]),
+            ];
+            self.last_timing_ms[0] = phase.elapsed().as_secs_f64() * 1000.;
+            let phase = std::time::Instant::now();
+            self.launch_grid(0, (types.len() * parameters).div_ceil(64), 64, &mut args)?;
+            check((self.api.sync)(), "cuCtxSynchronize(full gradient)")?;
+            self.last_timing_ms[1] = phase.elapsed().as_secs_f64() * 1000.;
+            let phase = std::time::Instant::now();
+            let mut status = [0_i32];
+            Self::download_into(self.api, self.buffers[8].0, &mut status)?;
+            if status[0] != 0 {
+                return Err(Error("nonfinite CUDA full-gradient intermediate".into()));
+            }
+            let mut gradient = vec![0.0; types.len() * parameters];
+            let mut energy = vec![0.0; types.len()];
+            Self::download_into(self.api, self.buffers[6].0, &mut gradient)?;
+            Self::download_into(self.api, self.buffers[7].0, &mut energy)?;
+            self.last_timing_ms[2] = phase.elapsed().as_secs_f64() * 1000.;
+            Ok((gradient, energy))
+        }
+    }
+    pub(super) fn reverse_frame(
+        &mut self,
+        rows: &[f64],
+        tangent: &[f64],
+        types: &[i32],
+        parameters: usize,
+        mut energy_seed: f64,
+        resources: &super::ReverseResources,
+    ) -> Result<(Vec<f64>, Vec<f64>)> {
+        unsafe {
+            let _current = Current::enter(self.api, self.context)?;
+            let phase = std::time::Instant::now();
+            // Scratch has no persistent state. Release every growing allocation first,
+            // so old+new buffers never exceed the planner's resident payload bound.
+            let required = [
+                (2, std::mem::size_of_val(rows)),
+                (3, std::mem::size_of_val(types)),
+                (5, std::mem::size_of_val(tangent)),
+                (6, types.len() * parameters * 8),
+                (7, types.len() * 8),
+                (12, resources.cache_bytes),
+                (13, resources.descriptor_adjoint_bytes),
+                (14, resources.slot_gradient_bytes),
+            ];
+            for (index, bytes) in required {
+                if self.buffers[index].1 < bytes && self.buffers[index].0 != 0 {
+                    check(
+                        (self.api.free)(self.buffers[index].0),
+                        "cuMemFree_v2(reverse grow)",
+                    )?;
+                    self.buffers[index] = (0, 0);
+                }
+            }
+            self.upload_current(2, rows)?;
+            self.upload_current(3, types)?;
+            self.upload_current(5, tangent)?;
+            self.upload_current(8, &[0_i32])?;
+            self.ensure(6, types.len() * parameters * 8)?;
+            self.ensure(7, types.len() * 8)?;
+            self.ensure(12, resources.cache_bytes)?;
+            self.ensure(13, resources.descriptor_adjoint_bytes)?;
+            self.ensure(14, resources.slot_gradient_bytes)?;
+            let mut address: [u64; 16] = std::array::from_fn(|i| self.buffers[i].0);
+            let pointer = |p: &mut u64| p as *mut u64 as *mut c_void;
+            let mut atoms = types.len() as i32;
+            let mut count = parameters as i32;
+            let mut args = [
+                pointer(&mut address[0]),
+                pointer(&mut address[1]),
+                pointer(&mut address[2]),
+                pointer(&mut address[5]),
+                pointer(&mut address[3]),
+                pointer(&mut address[4]),
+                &mut atoms as *mut i32 as *mut c_void,
+                &mut count as *mut i32 as *mut c_void,
+                &mut energy_seed as *mut f64 as *mut c_void,
+                pointer(&mut address[6]),
+                pointer(&mut address[7]),
+                pointer(&mut address[8]),
+                pointer(&mut address[12]),
+                pointer(&mut address[13]),
+                pointer(&mut address[14]),
+                pointer(&mut address[15]),
+            ];
+            self.last_timing_ms[0] = phase.elapsed().as_secs_f64() * 1000.;
+            let phase = std::time::Instant::now();
+            let slots = rows.len() / 4;
+            self.launch_grid(0, slots.div_ceil(64), 64, &mut args)?;
+            self.launch_grid(2, types.len().div_ceil(32), 32, &mut args)?;
+            self.launch_grid(3, slots.div_ceil(64), 64, &mut args)?;
+            self.launch_grid(4, (types.len() * parameters).div_ceil(64), 64, &mut args)?;
+            check((self.api.sync)(), "cuCtxSynchronize(reverse gradient)")?;
+            self.last_timing_ms[1] = phase.elapsed().as_secs_f64() * 1000.;
+            let phase = std::time::Instant::now();
+            let mut status = [0_i32];
+            Self::download_into(self.api, self.buffers[8].0, &mut status)?;
+            if status[0] != 0 {
+                return Err(Error("nonfinite CUDA reverse-gradient intermediate".into()));
+            }
+            let mut gradient = vec![0.; types.len() * parameters];
+            let mut energy = vec![0.; types.len()];
+            Self::download_into(self.api, self.buffers[6].0, &mut gradient)?;
+            Self::download_into(self.api, self.buffers[7].0, &mut energy)?;
+            self.last_timing_ms[2] = phase.elapsed().as_secs_f64() * 1000.;
+            Ok((gradient, energy))
+        }
+    }
+    pub(super) fn reverse_tile(
+        &mut self,
+        rows: &[f64],
+        tangent: &[f64],
+        types: &[i32],
+        parameters: usize,
+        energy_seed: &[f64],
+        resources: &super::ReverseResources,
+    ) -> Result<(Vec<f64>, Vec<f64>)> {
+        if energy_seed.len() != types.len() {
+            return Err(Error("CUDA tile energy seed shape mismatch".into()));
+        }
+        unsafe {
+            let _current = Current::enter(self.api, self.context)?;
+            let phase = std::time::Instant::now();
+            // Scratch has no persistent state. Release every growing allocation first,
+            // so old+new buffers never exceed the planner's resident payload bound.
+            let required = [
+                (6, types.len() * parameters * 8),
+                (7, types.len() * 8),
+                (12, resources.cache_bytes),
+                (13, resources.descriptor_adjoint_bytes),
+                (14, resources.slot_gradient_bytes),
+            ];
+            for (index, bytes) in required {
+                if self.buffers[index].1 < bytes && self.buffers[index].0 != 0 {
+                    check(
+                        (self.api.free)(self.buffers[index].0),
+                        "cuMemFree_v2(reverse grow)",
+                    )?;
+                    self.buffers[index] = (0, 0);
+                }
+            }
+            self.upload_current(8, &[0_i32])?;
+            self.ensure(6, types.len() * parameters * 8)?;
+            self.ensure(7, types.len() * 8)?;
+            self.ensure(12, resources.cache_bytes)?;
+            self.ensure(13, resources.descriptor_adjoint_bytes)?;
+            self.ensure(14, resources.slot_gradient_bytes)?;
+            use super::transfer::{f64_bytes, i32_bytes};
+            let mut address = self.upload_packed_inputs(&[
+                (2, f64_bytes(rows)),
+                (3, i32_bytes(types)),
+                (5, f64_bytes(tangent)),
+                (16, f64_bytes(energy_seed)),
+            ])?;
+            let pointer = |p: &mut u64| p as *mut u64 as *mut c_void;
+            let mut atoms = types.len() as i32;
+            let mut count = parameters as i32;
+            let mut args = [
+                pointer(&mut address[0]),
+                pointer(&mut address[1]),
+                pointer(&mut address[2]),
+                pointer(&mut address[5]),
+                pointer(&mut address[3]),
+                pointer(&mut address[4]),
+                &mut atoms as *mut i32 as *mut c_void,
+                &mut count as *mut i32 as *mut c_void,
+                pointer(&mut address[16]),
+                pointer(&mut address[6]),
+                pointer(&mut address[7]),
+                pointer(&mut address[8]),
+                pointer(&mut address[12]),
+                pointer(&mut address[13]),
+                pointer(&mut address[14]),
+                pointer(&mut address[15]),
+            ];
+            self.last_timing_ms[0] = phase.elapsed().as_secs_f64() * 1000.;
+            let phase = std::time::Instant::now();
+            let slots = rows.len() / 4;
+            self.launch_grid(0, slots.div_ceil(64), 64, &mut args)?;
+            self.launch_grid(2, types.len().div_ceil(32), 32, &mut args)?;
+            self.launch_grid(3, slots.div_ceil(64), 64, &mut args)?;
+            self.launch_grid(4, (types.len() * parameters).div_ceil(64), 64, &mut args)?;
+            check((self.api.sync)(), "cuCtxSynchronize(reverse gradient)")?;
+            self.last_timing_ms[1] = phase.elapsed().as_secs_f64() * 1000.;
+            let phase = std::time::Instant::now();
+            let mut status = [0_i32];
+            Self::download_into(self.api, self.buffers[8].0, &mut status)?;
+            if status[0] != 0 {
+                return Err(Error("nonfinite CUDA reverse-gradient intermediate".into()));
+            }
+            let mut gradient = vec![0.; types.len() * parameters];
+            let mut energy = vec![0.; types.len()];
+            Self::download_into(self.api, self.buffers[6].0, &mut gradient)?;
+            Self::download_into(self.api, self.buffers[7].0, &mut energy)?;
+            self.last_timing_ms[2] = phase.elapsed().as_secs_f64() * 1000.;
+            Ok((gradient, energy))
+        }
+    }
+    pub(super) fn resident_buffer_bytes(&self) -> usize {
+        self.buffers.iter().map(|b| b.1).sum()
+    }
+    pub(super) fn full_adam(
+        &mut self,
+        gradient: &[f64],
+        mut beta1: f64,
+        mut beta2: f64,
+        mut c1: f64,
+        mut c2: f64,
+        mut rate: f64,
+        mut epsilon: f64,
+        snapshot: bool,
+    ) -> Result<Option<(Vec<f64>, Vec<f64>, Vec<f64>)>> {
+        unsafe {
+            let _current = Current::enter(self.api, self.context)?;
+            self.upload_current(11, gradient)?;
+            self.upload_current(8, &[0_i32])?;
+            let mut address: [u64; 12] = std::array::from_fn(|i| self.buffers[i].0);
+            let pointer = |p: &mut u64| p as *mut u64 as *mut c_void;
+            let scalar = |p: &mut f64| p as *mut f64 as *mut c_void;
+            let mut count = gradient.len() as i32;
+            let mut args = [
+                pointer(&mut address[1]),
+                pointer(&mut address[9]),
+                pointer(&mut address[10]),
+                pointer(&mut address[11]),
+                &mut count as *mut i32 as *mut c_void,
+                scalar(&mut beta1),
+                scalar(&mut beta2),
+                scalar(&mut c1),
+                scalar(&mut c2),
+                scalar(&mut rate),
+                scalar(&mut epsilon),
+                pointer(&mut address[8]),
+            ];
+            self.launch_grid(1, gradient.len().div_ceil(64), 64, &mut args)?;
+            check((self.api.sync)(), "cuCtxSynchronize(full Adam)")?;
+            let mut status = [0_i32];
+            Self::download_into(self.api, self.buffers[8].0, &mut status)?;
+            if status[0] != 0 {
+                return Err(Error(
+                    "nonfinite CUDA Adam update; last completed checkpoint remains usable".into(),
+                ));
+            }
+            if snapshot {
+                self.download_adam_current(gradient.len()).map(Some)
+            } else {
+                Ok(None)
+            }
+        }
+    }
+    pub(super) fn adam_snapshot(
+        &mut self,
+        parameters: usize,
+    ) -> Result<(Vec<f64>, Vec<f64>, Vec<f64>)> {
+        unsafe {
+            let _current = Current::enter(self.api, self.context)?;
+            self.download_adam_current(parameters)
+        }
+    }
+    unsafe fn download_adam_current(
+        &self,
+        parameters: usize,
+    ) -> Result<(Vec<f64>, Vec<f64>, Vec<f64>)> {
+        let mut values = vec![0.0; parameters];
+        let mut first = values.clone();
+        let mut second = values.clone();
+        Self::download_into(self.api, self.buffers[1].0, &mut values)?;
+        Self::download_into(self.api, self.buffers[9].0, &mut first)?;
+        Self::download_into(self.api, self.buffers[10].0, &mut second)?;
+        Ok((values, first, second))
+    }
     unsafe fn launch(&self, index: usize, threads: usize, args: &mut [*mut c_void]) -> Result<()> {
+        self.launch_grid(
+            index,
+            if index == 1 {
+                threads
+            } else {
+                threads.div_ceil(64)
+            },
+            if index == 1 { 128 } else { 64 },
+            args,
+        )
+    }
+    unsafe fn launch_grid(
+        &self,
+        index: usize,
+        blocks: usize,
+        threads: usize,
+        args: &mut [*mut c_void],
+    ) -> Result<()> {
         check(
             (self.api.launch)(
                 self.functions[index],
-                threads.div_ceil(64) as u32,
+                blocks as u32,
                 1,
                 1,
-                64,
+                threads as u32,
                 1,
                 1,
                 0,

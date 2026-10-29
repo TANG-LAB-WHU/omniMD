@@ -1,0 +1,251 @@
+{
+  "status": "passed_cpu_fixture",
+  "date_utc": "2026-10-16",
+  "runtime": {
+    "deepmd": "3.1.3",
+    "tensorflow": "2.19.1",
+    "pytorch": "2.10.0",
+    "image": "ghcr.io/deepmodeling/deepmd-kit:3.1.3_cpu",
+    "image_id_prefix": "7953cbd4b487",
+    "c_api_sha256": "ebd691da29bc432a1ee820bfd7754c21983d36c97f98e08741f3cec75b498985",
+    "device": "cpu",
+    "CUDA_VISIBLE_DEVICES": "-1",
+    "container_gpu_devices": false,
+    "threads": {
+      "OMP_NUM_THREADS": 1,
+      "DP_INTRA_OP_PARALLELISM_THREADS": 1,
+      "DP_INTER_OP_PARALLELISM_THREADS": 1
+    }
+  },
+  "sources": [
+    {
+      "path": "source/tests/infer/fparam_aparam_default.pth",
+      "filename": "fparam_aparam_default.pth",
+      "url": "https://raw.githubusercontent.com/deepmodeling/deepmd-kit/v3.1.3/source/tests/infer/fparam_aparam_default.pth",
+      "bytes": 133290,
+      "sha256": "95c168635f378b64522b14067bb7458602416fb12d14ce5d605f3b8a71d39d9e"
+    },
+    {
+      "path": "source/tests/infer/fparam_aparam_default.yaml",
+      "filename": "fparam_aparam_default.yaml",
+      "url": "https://raw.githubusercontent.com/deepmodeling/deepmd-kit/v3.1.3/source/tests/infer/fparam_aparam_default.yaml",
+      "bytes": 76255,
+      "sha256": "232192c0c19ff8671aac19dfbea96f042cdb50a44e8f1614544562db4787648a"
+    },
+    {
+      "path": "source/api_c/tests/test_deeppot_default_fparam.cc",
+      "filename": "test_deeppot_default_fparam.cc",
+      "url": "https://raw.githubusercontent.com/deepmodeling/deepmd-kit/v3.1.3/source/api_c/tests/test_deeppot_default_fparam.cc",
+      "bytes": 6336,
+      "sha256": "3ecde267d1dad993ee0e12f6a4c999bddc9b669fd17c1af1fa37f03a9c8e1285"
+    }
+  ],
+  "details": {
+    "frame_parameter_dim": 1,
+    "atom_parameter_dim": 1,
+    "has_default_fparam": true
+  },
+  "frames": 1,
+  "atoms": 6,
+  "type_map": [
+    "O"
+  ],
+  "stored_fparam": [
+    0.25852028
+  ],
+  "aparam": "Six explicit one-component rows, each [0.25852028], from the official fixture",
+  "capi_calls_per_result": 1,
+  "atomic_outputs": true,
+  "comparison": {
+    "absolute_tolerance": 1e-07,
+    "relative_tolerance": 0.0,
+    "max_absolute_error_vs_explicit": {
+      "default": {
+        "energy": 0.0,
+        "forces": 0.0,
+        "virial": 0.0,
+        "atomic_energy": 0.0,
+        "atomic_virial": 0.0
+      },
+      "python_explicit": {
+        "energy": 0.0,
+        "forces": 0.0,
+        "virial": 0.0,
+        "atomic_energy": 0.0,
+        "atomic_virial": 0.0
+      },
+      "python_default": {
+        "energy": 0.0,
+        "forces": 0.0,
+        "virial": 0.0,
+        "atomic_energy": 0.0,
+        "atomic_virial": 0.0
+      }
+    },
+    "max_absolute_error_first_frame_vs_official": {
+      "explicit": {
+        "energy": 4.440892098500626e-16,
+        "forces": 2.498001805406602e-16,
+        "virial": 2.3592239273284576e-16,
+        "atomic_energy": 4.440892098500626e-16,
+        "atomic_virial": 7.875644580934704e-16
+      },
+      "default": {
+        "energy": 4.440892098500626e-16,
+        "forces": 2.498001805406602e-16,
+        "virial": 2.3592239273284576e-16,
+        "atomic_energy": 4.440892098500626e-16,
+        "atomic_virial": 7.875644580934704e-16
+      },
+      "python_explicit": {
+        "energy": 4.440892098500626e-16,
+        "forces": 2.498001805406602e-16,
+        "virial": 2.3592239273284576e-16,
+        "atomic_energy": 4.440892098500626e-16,
+        "atomic_virial": 7.875644580934704e-16
+      },
+      "python_default": {
+        "energy": 4.440892098500626e-16,
+        "forces": 2.498001805406602e-16,
+        "virial": 2.3592239273284576e-16,
+        "atomic_energy": 4.440892098500626e-16,
+        "atomic_virial": 7.875644580934704e-16
+      }
+    },
+    "fixture_atomic_sums": {
+      "explicit": {
+        "energy": 0.0,
+        "virial": 1.1102230246251565e-16
+      },
+      "default": {
+        "energy": 0.0,
+        "virial": 1.1102230246251565e-16
+      },
+      "python_explicit": {
+        "energy": 0.0,
+        "virial": 1.1102230246251565e-16
+      },
+      "python_default": {
+        "energy": 0.0,
+        "virial": 1.1102230246251565e-16
+      }
+    },
+    "result_sha256": {
+      "explicit": "43eab670b58cf3dac3b7fe9876c51a2e547a13b30b0e8772d2fe92bd097d0e08",
+      "default": "3c89fa809209899e5095ab3b314adb6086102dc84e37e8fdf8eef8ab41e117d2",
+      "python_explicit": "d8e05cfd3bd2e369f4e3d63a808783c4d70ed8bed1b9eb79934a7b98073243d3",
+      "python_default": "ac55336de5402d9861f1ac4356642d1a298d699573b2a40b84a75e7bd602325b"
+    },
+    "python_provenance": {
+      "python_explicit": {
+        "deepmd_version": "3.1.3",
+        "model": "fparam_aparam_default.pth",
+        "model_sha256": "95c168635f378b64522b14067bb7458602416fb12d14ce5d605f3b8a71d39d9e",
+        "request_sha256": "f07ac5304a56cd71916a62fffd092f09b0bee65e8633d60ac233403d36941947",
+        "CUDA_VISIBLE_DEVICES": "-1",
+        "inference_calls": 1,
+        "backend_version": "2.10.0"
+      },
+      "python_default": {
+        "deepmd_version": "3.1.3",
+        "model": "fparam_aparam_default.pth",
+        "model_sha256": "95c168635f378b64522b14067bb7458602416fb12d14ce5d605f3b8a71d39d9e",
+        "request_sha256": "4861a8afae9d2a94adf4d779c0a4b21e9e5fc4f03d19332ad6bb7ef3a4423b0a",
+        "CUDA_VISIBLE_DEVICES": "-1",
+        "inference_calls": 1,
+        "backend_version": "2.10.0"
+      }
+    }
+  },
+  "mock_and_synthetic_validation": {
+    "default_policy_library_suite": {
+      "passed": 22,
+      "failed": 0
+    },
+    "cli_suite": {
+      "passed": 5,
+      "failed": 0
+    },
+    "additional_pth_batch_guard": {
+      "passed": 1,
+      "failed": 0,
+      "other_library_tests_filtered": 22
+    },
+    "additional_comparator_cases": [
+      {
+        "case": "model_default_serial_frames",
+        "passed": true,
+        "expected_comparison_success": true
+      },
+      {
+        "case": "batch_rejected",
+        "passed": true,
+        "expected_comparison_success": false
+      },
+      {
+        "case": "missing_default_rejected",
+        "passed": true,
+        "expected_comparison_success": false
+      },
+      {
+        "case": "zero_dimension_rejected",
+        "passed": true,
+        "expected_comparison_success": false
+      },
+      {
+        "case": "policy_mismatch_rejected",
+        "passed": true,
+        "expected_comparison_success": false
+      },
+      {
+        "case": "unknown_policy_rejected",
+        "passed": true,
+        "expected_comparison_success": false
+      },
+      {
+        "case": "timing_policy_mismatch_rejected",
+        "passed": true,
+        "expected_comparison_success": false
+      },
+      {
+        "case": "legacy_normalizes_to_explicit",
+        "passed": true,
+        "expected_comparison_success": true
+      }
+    ]
+  },
+  "release_builds": {
+    "windows_cpu": "passed",
+    "linux_cpu": "passed",
+    "binaries": [
+      "omnimd-deepmd",
+      "omnimd-mlmd"
+    ],
+    "new_dependencies": 0
+  },
+  "limitations": [
+    "Opt-in only; legacy evaluate and Potential::eval still require explicit parameters.",
+    "Default mode requires positive frame dimension and confirmed availability; unknown is not false.",
+    "Default mode is one frame per call; atomic parameters always remain explicit.",
+    "All .pth ordinary C API calls require one frame, including explicit-parameter calls.",
+    "DeepMD 3.1.3 TensorFlow backend has no stored frame-parameter defaults.",
+    "No new CUDA validation."
+  ],
+  "pth_single_frame_source": "https://github.com/deepmodeling/deepmd-kit/blob/v3.1.3/source/api_cc/src/DeepPotPT.cc#L337",
+  "negative_cases": [
+    {
+      "case": "tf.default-rejected",
+      "status": "expected_rejection",
+      "exit_code": 1,
+      "matched_reason": "this model has no stored frame-parameter defaults",
+      "output_published": false
+    },
+    {
+      "case": "pt.batch-rejected",
+      "status": "expected_rejection",
+      "exit_code": 1,
+      "matched_reason": "PyTorch .pth ordinary C API inference supports one frame per call",
+      "output_published": false
+    }
+  ]
+}

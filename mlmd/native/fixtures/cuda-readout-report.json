@@ -1,0 +1,280 @@
+{
+  "scope": "Native CUDA-assisted frozen final affine readout training only; CPU QR/reference/metrics; full-network GPU gradients and Adam unsupported",
+  "date_utc": "2026-10-16",
+  "gpu_released_utc": "2026-10-16T08:00:55Z",
+  "platform": "Windows x64; existing NVIDIA GeForce RTX 4090, compute 8.9; FP64",
+  "no_new_dependencies": true,
+  "no_push": true,
+  "verification": {
+    "default_cpu_tests_passed": 16,
+    "cuda_feature_cpu_tests_passed": 20,
+    "opt_in_gpu_tests_passed": 1,
+    "cpu_adam_two_step_and_serialized_resume": "passed unchanged existing oracle",
+    "rejected_before_driver": [
+      "missing E/F labels",
+      "unsupported softplus CUDA architecture",
+      "more than 2048 atoms",
+      "oversized dense design"
+    ],
+    "rejected_before_dataset_io_or_output": "full-network cuda:0 request; no fallback",
+    "commands": [
+      "cargo test --locked --offline --manifest-path mlmd/native/Cargo.toml --no-default-features",
+      "cargo test --locked --offline --manifest-path mlmd/native/Cargo.toml --features cuda",
+      "cargo test --release --locked --offline --manifest-path mlmd/native/Cargo.toml --features cuda --test training_device -- --ignored --nocapture --test-threads=1",
+      "python mlmd/native/tools/replay_cuda_readout.py --eval-exe mlmd/native/target/release/omnimd-native-eval.exe --train-exe mlmd/native/target/release/omnimd-native-train.exe --output-dir mlmd/native/fixtures/generated-deepmd/cuda-readout-01/cli"
+    ]
+  },
+  "column_and_fit_checks": [
+    {
+      "fit_bias": false,
+      "columns": 6,
+      "max_abs_column_efv": [
+        0.0,
+        1.1102230246251565e-15,
+        1.1102230246251565e-15
+      ],
+      "max_abs_fitted_prediction_efv": [
+        8.881784197001252e-16,
+        6.661338147750939e-16,
+        1.3322676295501878e-15
+      ],
+      "same_device_repeat_model_exact": true,
+      "held_out": {
+        "energy_per_atom_rmse_ev": 8.065583281888543e-17,
+        "energy_rmse_ev": 2.830524433501838e-16,
+        "force_component_rmse_ev_per_angstrom": 2.8100083173443073e-16,
+        "frames": 8,
+        "normalized_ef_objective": 8.330334459468834e-28,
+        "virial_component_rmse_ev": 3.306627151879442e-16
+      },
+      "data_rank": 6
+    },
+    {
+      "fit_bias": true,
+      "columns": 8,
+      "max_abs_column_efv": [
+        0.0,
+        1.1102230246251565e-15,
+        1.1102230246251565e-15
+      ],
+      "max_abs_fitted_prediction_efv": [
+        8.881784197001252e-16,
+        8.881784197001252e-16,
+        1.7763568394002505e-15
+      ],
+      "same_device_repeat_model_exact": true,
+      "held_out": {
+        "energy_per_atom_rmse_ev": 5.036955145130954e-16,
+        "energy_rmse_ev": 1.5876577437262774e-15,
+        "force_component_rmse_ev_per_angstrom": 4.4375572362247976e-16,
+        "frames": 8,
+        "normalized_ef_objective": 2.10225063635521e-27,
+        "virial_component_rmse_ev": 5.530236968184691e-16
+      },
+      "data_rank": 8
+    }
+  ],
+  "cli_replay": {
+    "scope": "GPU-assisted frozen final affine weights and biases; E/F loss, CPU QR and assessment; not full-network GPU training",
+    "frames": 32,
+    "train_frames": 24,
+    "validation_frames": 8,
+    "fit_bias": true,
+    "same_device_repeat_model_exact": true,
+    "frozen_parameters_unchanged": true,
+    "max_abs_cpu_cuda_fitted_efv": [
+      8.881784197001252e-16,
+      1.7763568394002505e-15,
+      2.220446049250313e-15
+    ],
+    "max_abs_cuda_teacher_efv": [
+      3.552713678800501e-15,
+      1.1102230246251565e-15,
+      2.220446049250313e-15
+    ],
+    "reports": {
+      "cpu": {
+        "execution": {
+          "assessment_device": "cpu",
+          "assessment_ms": 1.8674,
+          "columns_per_frame": 8,
+          "feature_backend": "native-cpu-analytic-readout",
+          "feature_device_info": "CPU float64",
+          "feature_generation_ms": 5.150899999999999,
+          "initialization_ms": 0.056799999999999996,
+          "linear_solve_ms": 0.1185,
+          "reference_prediction_ms": 0.6586,
+          "requested_device": "cpu",
+          "solver_device": "cpu",
+          "training_frames": 24
+        },
+        "data_rank": 8,
+        "solve_rank": 8,
+        "initial_training": {
+          "energy_per_atom_rmse_ev": 0.12315923970871671,
+          "energy_rmse_ev": 0.37539164414435106,
+          "force_component_rmse_ev_per_angstrom": 0.31011345789654704,
+          "frames": 24,
+          "normalized_ef_objective": 1115.9340114255367,
+          "virial_component_rmse_ev": 0.2691660526426386
+        },
+        "final_training": {
+          "energy_per_atom_rmse_ev": 4.533095983897209e-16,
+          "energy_rmse_ev": 1.4432899320127035e-15,
+          "force_component_rmse_ev_per_angstrom": 3.4924298883642103e-16,
+          "frames": 24,
+          "normalized_ef_objective": 1.3405150465069548e-27,
+          "virial_component_rmse_ev": 3.722514205725746e-16
+        },
+        "initial_validation": {
+          "energy_per_atom_rmse_ev": 0.1402609716702323,
+          "energy_rmse_ev": 0.43114773264707,
+          "force_component_rmse_ev_per_angstrom": 0.35169309672179394,
+          "frames": 8,
+          "normalized_ef_objective": 1376.4270203785716,
+          "virial_component_rmse_ev": 0.33805929839634347
+        },
+        "final_validation": {
+          "energy_per_atom_rmse_ev": 4.616668140324298e-16,
+          "energy_rmse_ev": 1.464484751053976e-15,
+          "force_component_rmse_ev_per_angstrom": 4.2328102679249255e-16,
+          "frames": 8,
+          "normalized_ef_objective": 1.9364570239652028e-27,
+          "virial_component_rmse_ev": 4.514884231091414e-16
+        },
+        "native_v1_reload_max_abs_energy_force_virial": [
+          0.0,
+          0.0,
+          0.0
+        ]
+      },
+      "cuda": {
+        "execution": {
+          "assessment_device": "cpu",
+          "assessment_ms": 1.7931,
+          "columns_per_frame": 8,
+          "feature_backend": "native-cuda-analytic-readout",
+          "feature_device_info": "NVIDIA GeForce RTX 4090; compute 8.9; FP64; device 0",
+          "feature_generation_ms": 21.372700000000002,
+          "initialization_ms": 195.87570000000002,
+          "linear_solve_ms": 0.11739999999999999,
+          "reference_prediction_ms": 0.6909000000000001,
+          "requested_device": "cuda:0",
+          "solver_device": "cpu",
+          "training_frames": 24
+        },
+        "data_rank": 8,
+        "solve_rank": 8,
+        "initial_training": {
+          "energy_per_atom_rmse_ev": 0.12315923970871671,
+          "energy_rmse_ev": 0.37539164414435106,
+          "force_component_rmse_ev_per_angstrom": 0.31011345789654704,
+          "frames": 24,
+          "normalized_ef_objective": 1115.9340114255367,
+          "virial_component_rmse_ev": 0.2691660526426386
+        },
+        "final_training": {
+          "energy_per_atom_rmse_ev": 5.493246370918924e-16,
+          "energy_rmse_ev": 1.7330388197057449e-15,
+          "force_component_rmse_ev_per_angstrom": 3.335873386216353e-16,
+          "frames": 24,
+          "normalized_ef_objective": 1.1444750259686612e-27,
+          "virial_component_rmse_ev": 4.617206082547904e-16
+        },
+        "initial_validation": {
+          "energy_per_atom_rmse_ev": 0.1402609716702323,
+          "energy_rmse_ev": 0.43114773264707,
+          "force_component_rmse_ev_per_angstrom": 0.35169309672179394,
+          "frames": 8,
+          "normalized_ef_objective": 1376.4270203785716,
+          "virial_component_rmse_ev": 0.33805929839634347
+        },
+        "final_validation": {
+          "energy_per_atom_rmse_ev": 5.501550602977821e-16,
+          "energy_rmse_ev": 1.7271017045521525e-15,
+          "force_component_rmse_ev_per_angstrom": 3.9050738595014207e-16,
+          "frames": 8,
+          "normalized_ef_objective": 1.6066072822343217e-27,
+          "virial_component_rmse_ev": 5.643777378281874e-16
+        },
+        "native_v1_reload_max_abs_energy_force_virial": [
+          0.0,
+          0.0,
+          0.0
+        ]
+      },
+      "cuda-repeat": {
+        "execution": {
+          "assessment_device": "cpu",
+          "assessment_ms": 1.7937,
+          "columns_per_frame": 8,
+          "feature_backend": "native-cuda-analytic-readout",
+          "feature_device_info": "NVIDIA GeForce RTX 4090; compute 8.9; FP64; device 0",
+          "feature_generation_ms": 20.947300000000002,
+          "initialization_ms": 184.8314,
+          "linear_solve_ms": 0.15410000000000001,
+          "reference_prediction_ms": 0.7173000000000002,
+          "requested_device": "cuda:0",
+          "solver_device": "cpu",
+          "training_frames": 24
+        },
+        "data_rank": 8,
+        "solve_rank": 8,
+        "initial_training": {
+          "energy_per_atom_rmse_ev": 0.12315923970871671,
+          "energy_rmse_ev": 0.37539164414435106,
+          "force_component_rmse_ev_per_angstrom": 0.31011345789654704,
+          "frames": 24,
+          "normalized_ef_objective": 1115.9340114255367,
+          "virial_component_rmse_ev": 0.2691660526426386
+        },
+        "final_training": {
+          "energy_per_atom_rmse_ev": 5.493246370918924e-16,
+          "energy_rmse_ev": 1.7330388197057449e-15,
+          "force_component_rmse_ev_per_angstrom": 3.335873386216353e-16,
+          "frames": 24,
+          "normalized_ef_objective": 1.1444750259686612e-27,
+          "virial_component_rmse_ev": 4.617206082547904e-16
+        },
+        "initial_validation": {
+          "energy_per_atom_rmse_ev": 0.1402609716702323,
+          "energy_rmse_ev": 0.43114773264707,
+          "force_component_rmse_ev_per_angstrom": 0.35169309672179394,
+          "frames": 8,
+          "normalized_ef_objective": 1376.4270203785716,
+          "virial_component_rmse_ev": 0.33805929839634347
+        },
+        "final_validation": {
+          "energy_per_atom_rmse_ev": 5.501550602977821e-16,
+          "energy_rmse_ev": 1.7271017045521525e-15,
+          "force_component_rmse_ev_per_angstrom": 3.9050738595014207e-16,
+          "frames": 8,
+          "normalized_ef_objective": 1.6066072822343217e-27,
+          "virial_component_rmse_ev": 5.643777378281874e-16
+        },
+        "native_v1_reload_max_abs_energy_force_virial": [
+          0.0,
+          0.0,
+          0.0
+        ]
+      }
+    },
+    "sha256": {
+      "dataset": "e14465e02891be67b51aa7ff9e31414a0596c76a048147e0dfc805239c69b287",
+      "initial_model": "407278c6eab122e6dfee2511b3c3fb4c033f58c04819a580ffc0810df3ce7b9a",
+      "cuda_model": "8e365ab0024681ef93663c11fe33eeb56c683609828d7b690002dc2bb7f36bd2",
+      "trainer": "743e7495a77648494d931eb771c0c980d0c678bee1a54151d8583051a4dd2f1e",
+      "evaluator": "0dbc795d101f9e01367c1785c0f64dc2ee5f16795f2d9416fdc878e6bac3034f",
+      "replay": "84c39354d0b7f1b566667de9ac80c05dcf3923f8da96cce597666f6041b10200"
+    }
+  },
+  "timing_limit": "Tiny 3/4-atom original synthetic example, one bounded run; CUDA is slower here. Segment host wall time excludes file IO, design assembly and export; initialization reported separately. No general speed claim.",
+  "remaining": [
+    "Full-network CUDA parameter/mixed derivatives and Adam are unimplemented",
+    "Virial loss is unsupported; labels are assessment only",
+    "No direct-solver feature checkpoint or GPU optimizer checkpoint",
+    "No representative physical training accuracy, large-system training performance or cross-device bitwise reproducibility claim",
+    "Driver-failure injection and Linux runtime execution are unverified"
+  ],
+  "raw_evidence_ignored": "fixtures/generated-deepmd/cuda-readout-01/"
+}

@@ -72,6 +72,7 @@ fn system(periodic: bool) -> (PathBuf, ImportRequest) {
         }
     }
     let request = ImportRequest {
+        parameter_layout: None,
         system: root.clone(),
         sets: vec!["set.001".into(), "set.000".into()],
         units: Units::EvAngstrom,
@@ -268,4 +269,243 @@ fn metrics_use_actual_label_counts_atom_normalization_and_all_tensor_entries() {
     huge.add(-1e300).unwrap();
     assert_eq!(huge.report("eV")["rmse"].as_f64().unwrap(), 1e300);
     assert!(huge.add(f64::INFINITY).is_err());
+}
+
+#[test]
+fn inspection_hashes_original_bytes_and_reports_mixed_label_coverage() {
+    let (root, request) = system(false);
+    let input = root.join("inspect.jsonl");
+    import_deepmd(&request, &input).unwrap();
+    let text = fs::read_to_string(&input).unwrap();
+    let mut records: Vec<serde_json::Value> = text
+        .lines()
+        .map(|s| serde_json::from_str(s).unwrap())
+        .collect();
+    records[1]["data"]["labels"] =
+        serde_json::json!({"energy": 2., "forces": [[0.,0.,0.],[0.,0.,0.]], "virial": null});
+    records[2]["data"]["frame"]["cell"] =
+        serde_json::json!([[8., 0., 0.], [1., 9., 0.], [0., 0., 10.]]);
+    records[2]["data"]["labels"] = serde_json::json!({"energy": null,"forces":null,"virial":[[0.,0.,0.],[0.,0.,0.],[0.,0.,0.]]});
+    // Deliberately preserve CRLF and whitespace: reserialized JSON hashes differ.
+    let bytes = records
+        .iter()
+        .map(|r| format!("  {}  \r\n", serde_json::to_string(r).unwrap()))
+        .collect::<String>();
+    fs::write(&input, &bytes).unwrap();
+    let report = inspect_dataset(&input).unwrap();
+    assert_eq!(report.dataset_sha256, sha256(&input).unwrap());
+    assert_eq!(report.frames, 2);
+    assert_eq!(
+        (report.min_atoms_per_frame, report.max_atoms_per_frame),
+        (2, 2)
+    );
+    assert_eq!(report.atom_occurrences, 4);
+    assert_eq!(report.species_atom_occurrences["H"], 2);
+    assert_eq!((report.periodic_frames, report.nonperiodic_frames), (1, 1));
+    assert_eq!(report.labels.energy_frames, 1);
+    assert_eq!(report.labels.force_frames, 1);
+    assert_eq!(report.labels.virial_frames, 1);
+    assert_eq!(report.labels.energy_and_force_frames, 1);
+    assert!(!report.labels.all_frames_have_energy_and_forces);
+    assert_eq!(report.labels.missing_examples[0].id, "set.000/0");
+    assert!(!report.labels.missing_examples_truncated);
+    assert_eq!(
+        serde_json::to_value(&report.declared_source_sha256).unwrap(),
+        records[3]["source_sha256"]
+    );
+    assert!(!report.source_hashes_verified);
+    records[2]["data"]["labels"] = records[1]["data"]["labels"].clone();
+    fs::write(
+        &input,
+        records.iter().map(|r| format!("{r}\n")).collect::<String>(),
+    )
+    .unwrap();
+    assert!(
+        inspect_dataset(&input)
+            .unwrap()
+            .labels
+            .all_frames_have_energy_and_forces
+    );
+}
+
+#[test]
+fn inspection_bounds_missing_examples_and_cli_does_not_write_on_invalid_input() {
+    let (root, request) = system(false);
+    let input = root.join("inspect.jsonl");
+    import_deepmd(&request, &input).unwrap();
+    let records: Vec<serde_json::Value> = fs::read_to_string(&input)
+        .unwrap()
+        .lines()
+        .map(|s| serde_json::from_str(s).unwrap())
+        .collect();
+    let mut text = format!("{}\n", records[0]);
+    for index in 0..40 {
+        let mut r = records[1].clone();
+        r["data"]["index"] = index.into();
+        r["data"]["id"] = format!("example/{index}").into();
+        text.push_str(&format!("{r}\n"));
+    }
+    let mut completed = records[3].clone();
+    completed["frames"] = 40.into();
+    fs::write(&input, format!("{text}{completed}\n")).unwrap();
+    let report = inspect_dataset(&input).unwrap();
+    assert_eq!(report.labels.missing_energy_or_force_frames, 40);
+    assert_eq!(report.labels.missing_examples.len(), 32);
+    assert!(report.labels.missing_examples_truncated);
+    let output = root.join("report.json");
+    let cli = env!("CARGO_BIN_EXE_omnimd-mlmd");
+    let valid = std::process::Command::new(cli)
+        .arg("inspect-dataset")
+        .arg(&input)
+        .arg(&output)
+        .output()
+        .unwrap();
+    assert!(
+        valid.status.success(),
+        "{}",
+        String::from_utf8_lossy(&valid.stderr)
+    );
+    let original = fs::read(&output).unwrap();
+    assert!(!std::process::Command::new(cli)
+        .arg("inspect-dataset")
+        .arg(&input)
+        .arg(&output)
+        .output()
+        .unwrap()
+        .status
+        .success());
+    assert_eq!(fs::read(&output).unwrap(), original);
+    // Truncated and trailing files must not produce a misleading success report.
+    for (i, invalid) in [
+        text,
+        format!("{}{{}}\n", fs::read_to_string(&input).unwrap()),
+    ]
+    .iter()
+    .enumerate()
+    {
+        let bad = root.join(format!("invalid-{i}.jsonl"));
+        let absent = root.join(format!("absent-{i}.json"));
+        fs::write(&bad, invalid).unwrap();
+        let result = std::process::Command::new(cli)
+            .arg("inspect-dataset")
+            .arg(bad)
+            .arg(&absent)
+            .output()
+            .unwrap();
+        assert!(!result.status.success());
+        assert!(!absent.exists());
+    }
+}
+
+#[test]
+fn streamed_provenance_is_available_only_after_verified_completion() {
+    let (root, request) = system(false);
+    let input = root.join("hashed.jsonl");
+    import_deepmd(&request, &input).unwrap();
+    let mut reader = DatasetReader::open_hashed(&input).unwrap();
+    assert!(reader.completed_provenance().is_err());
+    while reader.next_frame().unwrap().is_some() {}
+    let result = reader.completed_provenance().unwrap();
+    assert_eq!(result.dataset_sha256, sha256(&input).unwrap());
+    assert!(!result.declared_source_sha256.is_empty());
+    let mut unhashed = DatasetReader::open(&input).unwrap();
+    while unhashed.next_frame().unwrap().is_some() {}
+    assert!(unhashed.completed_provenance().is_err());
+}
+
+#[test]
+fn parameterized_npy_import_retains_order_and_v2_records_survive_selection() {
+    use omnimd_mlmd::parameters::{Field, FramePolicy, Layout};
+    let (root, mut request) = system(false);
+    request.parameter_layout = Some(Layout {
+        fparam: vec![Field {
+            name: "condition".into(),
+            unit: "fixture".into(),
+        }],
+        aparam: vec![Field {
+            name: "atomic".into(),
+            unit: "fixture".into(),
+        }],
+    });
+    for (set, f, a) in [("set.001", 2., [0.7, 0.2]), ("set.000", 3., [0.9, 0.4])] {
+        npy(
+            &root.join(set).join("fparam.npy"),
+            &[1, 1],
+            &[f],
+            "<f8",
+            false,
+        );
+        npy(
+            &root.join(set).join("aparam.npy"),
+            &[1, 2],
+            &a,
+            "<f8",
+            false,
+        );
+    }
+    let output = root.join("params.jsonl");
+    import_deepmd(&request, &output).unwrap();
+    let mut reader = DatasetReader::open(&output).unwrap();
+    assert_eq!(reader.header.schema, "omnimd-dataset-jsonl-v2");
+    let first = reader.next_frame().unwrap().unwrap();
+    let p = first.parameters.unwrap();
+    assert_eq!(p.fparam, vec![2.]);
+    assert_eq!(p.aparam, vec![vec![0.7], vec![0.2]]);
+    assert_eq!(p.frame_parameter_policy, FramePolicy::Explicit);
+    assert_eq!(first.frame.species, vec!["H", "O"]);
+    while reader.next_frame().unwrap().is_some() {}
+    assert!(FrameReference {
+        dataset: output.clone(),
+        index: 0
+    }
+    .resolve()
+    .is_err());
+    let (_, fixed) = FrameReference {
+        dataset: output.clone(),
+        index: 0,
+    }
+    .resolve_with_parameters()
+    .unwrap();
+    assert_eq!(fixed.unwrap().values, p);
+    let req = root.join("select.json");
+    fs::write(&req,serde_json::json!({"schema":"omnimd-select-dataset-v1","dataset":output,"expected_source_sha256":sha256(&output).unwrap(),"ids":["set.001/0"]}).to_string()).unwrap();
+    let bundle = root.join("selection");
+    omnimd_mlmd::selection::select_dataset(&req, &bundle).unwrap();
+    let mut selected = DatasetReader::open(&bundle.join("dataset.jsonl")).unwrap();
+    assert_eq!(selected.next_frame().unwrap().unwrap().parameters, Some(p));
+    assert!(selected.next_frame().unwrap().is_none());
+    // Reader refuses omitted context and parameter injection into legacy v1.
+    let text = fs::read_to_string(&output).unwrap();
+    let mut records: Vec<serde_json::Value> = text
+        .lines()
+        .map(|s| serde_json::from_str(s).unwrap())
+        .collect();
+    records[1]["data"]
+        .as_object_mut()
+        .unwrap()
+        .remove("parameters");
+    let bad = root.join("missing.jsonl");
+    fs::write(
+        &bad,
+        records.iter().map(|r| format!("{r}\n")).collect::<String>(),
+    )
+    .unwrap();
+    assert!(DatasetReader::open(&bad).unwrap().next_frame().is_err());
+    records[0]["header"]["schema"] = "omnimd-dataset-jsonl-v1".into();
+    fs::write(
+        &bad,
+        records.iter().map(|r| format!("{r}\n")).collect::<String>(),
+    )
+    .unwrap();
+    assert!(DatasetReader::open(&bad).is_err());
+    npy(
+        &root.join("set.001/aparam.npy"),
+        &[1, 1],
+        &[0.1],
+        "<f8",
+        false,
+    );
+    assert!(import_deepmd(&request, &root.join("bad-width.jsonl")).is_err());
+    npy(&root.join("set.001/fparam.npy"), &[1, 0], &[], "<f8", false);
+    assert!(import_deepmd(&request, &root.join("missing-array.jsonl")).is_err());
 }

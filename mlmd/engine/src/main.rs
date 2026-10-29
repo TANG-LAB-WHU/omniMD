@@ -1,5 +1,7 @@
 mod dataset_commands;
+mod deviation_command;
 mod minimize_command;
+mod parameter_backend;
 use omnimd_deepmd::{DeepMd, Device, LoadOptions};
 use omnimd_ml_contract::{Frame, Potential};
 use omnimd_mlmd::{
@@ -34,6 +36,7 @@ enum BackendOptions {
 
 enum Backend {
     DeepMd(DeepMd),
+    Conditioned(parameter_backend::ConditionedPotential),
     Native(omnimd_native::NativePotential),
     #[cfg(feature = "native-cuda")]
     NativeCuda(omnimd_native::cuda::CudaPotential),
@@ -133,6 +136,7 @@ impl Potential for Backend {
     fn metadata(&self) -> &omnimd_ml_contract::ModelMetadata {
         match self {
             Self::DeepMd(model) => model.metadata(),
+            Self::Conditioned(model) => model.metadata(),
             Self::Native(model) => model.metadata(),
             #[cfg(feature = "native-cuda")]
             Self::NativeCuda(model) => model.metadata(),
@@ -144,6 +148,7 @@ impl Potential for Backend {
     ) -> omnimd_ml_contract::Result<omnimd_ml_contract::Evaluation> {
         match self {
             Self::DeepMd(model) => model.eval(frame),
+            Self::Conditioned(model) => model.eval(frame),
             Self::Native(model) => model.eval(frame),
             #[cfg(feature = "native-cuda")]
             Self::NativeCuda(model) => model.eval(frame),
@@ -171,6 +176,7 @@ struct Request {
     remove_center_of_mass: Option<bool>,
     ensemble: Option<Ensemble>,
     restart: Option<PathBuf>,
+    fixed_parameters: Option<omnimd_mlmd::parameters::FixedParameters>,
     timestep_fs: f64,
     steps: u64,
     sample_every: u64,
@@ -202,13 +208,21 @@ fn checkpoint_path(output: &Path, step: Option<u64>) -> PathBuf {
 
 fn prepare(
     request: &Request,
-) -> Result<(MlipDynamics<Backend>, EnsembleState, String), Box<dyn Error>> {
+) -> Result<
+    (
+        MlipDynamics<Backend>,
+        EnsembleState,
+        String,
+        Option<omnimd_mlmd::parameters::FixedParameters>,
+    ),
+    Box<dyn Error>,
+> {
     request.options.validate()?;
     if request.sample_every == 0 || request.checkpoint_every == Some(0) {
         return Err("sample_every and checkpoint_every must be positive".into());
     }
     let hash = model_hash(request.options.model_path())?;
-    let (system, state) = if let Some(path) = &request.restart {
+    let (system, state, fixed_parameters) = if let Some(path) = &request.restart {
         if request.frame.is_some()
             || request.dataset_frame.is_some()
             || request.masses.is_some()
@@ -220,7 +234,19 @@ fn prepare(
             );
         }
         let checkpoint: Checkpoint = serde_json::from_str(&fs::read_to_string(path)?)?;
-        let system = checkpoint.restore(&hash, request.timestep_fs)?;
+        if request
+            .fixed_parameters
+            .as_ref()
+            .is_some_and(|p| Some(p) != checkpoint.fixed_parameters.as_ref())
+        {
+            return Err("restart fixed parameters must exactly match the checkpoint, including layout/policy/atom order".into());
+        }
+        let fixed_parameters = checkpoint.fixed_parameters.clone();
+        let system = checkpoint.restore_with_parameters(
+            &hash,
+            request.timestep_fs,
+            fixed_parameters.as_ref(),
+        )?;
         let state = checkpoint
             .ensemble_state
             .unwrap_or(EnsembleState::new(Ensemble::Nve, request.timestep_fs)?);
@@ -234,17 +260,26 @@ fn prepare(
         {
             return Err("restart ensemble and COM policy must match the checkpoint".into());
         }
-        (system, state)
+        (system, state, fixed_parameters)
     } else {
         let resolved = request
             .dataset_frame
             .as_ref()
-            .map(|r| r.resolve())
+            .map(|r| r.resolve_with_parameters())
             .transpose()?;
         let frame = match (&request.frame, &resolved) {
-            (Some(frame), None) | (None, Some(frame)) => frame,
+            (Some(frame), None) => frame,
+            (None, Some((frame, _))) => frame,
             _ => return Err("fresh run requires exactly one frame or dataset_frame".into()),
         };
+        let inherited = resolved.as_ref().and_then(|(_, p)| p.as_ref());
+        if inherited.is_some() && request.fixed_parameters.is_some() {
+            return Err("dataset v2 parameters cannot be overridden by fixed_parameters".into());
+        }
+        let fixed_parameters = inherited.or(request.fixed_parameters.as_ref()).cloned();
+        if let Some(p) = &fixed_parameters {
+            p.validate(frame)?;
+        }
         let masses = request
             .masses
             .as_ref()
@@ -273,7 +308,7 @@ fn prepare(
             request.ensemble.clone().unwrap_or_default(),
             request.timestep_fs,
         )?;
-        (system, state)
+        (system, state, fixed_parameters)
     };
     state.validate(request.timestep_fs)?;
     state.validate_system(&system)?;
@@ -284,9 +319,21 @@ fn prepare(
     if !(final_step as f64 * request.timestep_fs).is_finite() {
         return Err("simulated time would overflow".into());
     }
+    parameter_backend::validate_request(
+        &request.options,
+        fixed_parameters.as_ref().map(|p| &p.layout),
+    )?;
     let model = request.options.load()?;
+    let model = match (model, fixed_parameters.clone()) {
+        (Backend::DeepMd(model), Some(fixed)) => {
+            parameter_backend::validate_layout(&model, &fixed.layout)?;
+            Backend::Conditioned(parameter_backend::ConditionedPotential { model, fixed })
+        }
+        (model, None) => model,
+        (_, Some(_)) => return Err("fixed parameters require CPU C API".into()),
+    };
     let md = MlipDynamics::new(system, model, request.timestep_fs)?;
-    Ok((md, state, hash))
+    Ok((md, state, hash, fixed_parameters))
 }
 
 fn write_snapshot<P: Potential>(
@@ -294,13 +341,20 @@ fn write_snapshot<P: Potential>(
     md: &MlipDynamics<P>,
     state: &EnsembleState,
 ) -> Result<(), Box<dyn Error>> {
+    // Reuse diagnostics while this immutable snapshot is validated and written.
+    // Keep the existing kinetic sum and temperature calculation order.
+    let time_fs = md.system().step as f64 * md.timestep_fs();
+    let kinetic_energy_ev = md.kinetic_energy_ev();
+    let total_energy_ev = md.evaluation().energy + kinetic_energy_ev;
+    let temperature_kelvin = md.temperature_kelvin();
+    let effective_energy_ev = total_energy_ev - state.heat_ev;
     let diagnostics = [
-        md.system().step as f64 * md.timestep_fs(),
-        md.kinetic_energy_ev(),
-        md.total_energy_ev(),
-        md.temperature_kelvin(),
+        time_fs,
+        kinetic_energy_ev,
+        total_energy_ev,
+        temperature_kelvin,
         state.heat_ev,
-        md.total_energy_ev() - state.heat_ev,
+        effective_energy_ev,
     ];
     if diagnostics.iter().any(|v| !v.is_finite()) {
         return Err("nonfinite trajectory diagnostic".into());
@@ -316,12 +370,12 @@ fn write_snapshot<P: Potential>(
         &mut *writer,
         &json!({
             "kind":"frame", "step":md.system().step,
-            "time_fs": md.system().step as f64 * md.timestep_fs(),
+            "time_fs": time_fs,
             "frame":md.frame(), "velocities": velocities,
-            "evaluation":md.evaluation(), "kinetic_energy_ev": md.kinetic_energy_ev(),
-            "total_energy_ev":md.total_energy_ev(), "temperature_kelvin":md.temperature_kelvin(),
+            "evaluation":md.evaluation(), "kinetic_energy_ev": kinetic_energy_ev,
+            "total_energy_ev":total_energy_ev, "temperature_kelvin":temperature_kelvin,
             "thermostat_heat_ev":state.heat_ev,
-            "effective_energy_ev":md.total_energy_ev()-state.heat_ev
+            "effective_energy_ev":effective_energy_ev
         }),
     )?;
     writer.write_all(b"\n")?;
@@ -333,9 +387,15 @@ fn write_checkpoint<P: Potential>(
     md: &MlipDynamics<P>,
     state: &EnsembleState,
     hash: &str,
+    fixed_parameters: Option<&omnimd_mlmd::parameters::FixedParameters>,
 ) -> Result<(), Box<dyn Error>> {
     let mut checkpoint = Checkpoint::capture(md, hash.to_owned());
     checkpoint.ensemble_state = Some(state.clone());
+    if let Some(fixed) = fixed_parameters {
+        fixed.validate(&md.frame())?;
+        checkpoint.schema_version = 3;
+        checkpoint.fixed_parameters = Some(fixed.clone());
+    }
     let mut file = fs::OpenOptions::new()
         .write(true)
         .create_new(true)
@@ -348,7 +408,7 @@ fn write_checkpoint<P: Potential>(
 
 fn worker(input: &Path, output: Option<&Path>) -> Result<(), Box<dyn Error>> {
     let request: Request = serde_json::from_str(&fs::read_to_string(input)?)?;
-    let (mut md, mut state, hash) = prepare(&request)?;
+    let (mut md, mut state, hash, fixed_parameters) = prepare(&request)?;
     let Some(output) = output else {
         println!(
             "Valid model/run: {} atoms, {} DOF, {:.6} K, E = {:.12} eV, ensemble {:?}",
@@ -370,21 +430,23 @@ fn worker(input: &Path, output: Option<&Path>) -> Result<(), Box<dyn Error>> {
         .create_new(true)
         .open(output)?;
     let mut writer = BufWriter::new(file);
-    serde_json::to_writer(
-        &mut writer,
-        &json!({
-            "kind":"header", "schema":"omnimd-mlmd-jsonl-v2", "ensemble":state.ensemble,
-            "dynamics_units":request.dynamics_units,
-            "metadata":md.metadata(), "timestep_fs":request.timestep_fs,
-            "dataset_frame":request.dataset_frame,
-            "requested_steps":request.steps, "start_step":start_step,
-            "masses_u":md.system().particles().mass, "model_sha256":hash,
-            "degrees_of_freedom":md.system().degrees_of_freedom(),
-            "initialize_velocities":request.initialize_velocities,
-            "remove_center_of_mass":matches!(md.system().simulated_degrees_of_freedom, omnimd_core::DegreesOfFreedom::Frozen(3)),
-            "checkpoint_every":request.checkpoint_every
-        }),
-    )?;
+    let mut header = json!({
+        "kind":"header", "schema":if fixed_parameters.is_some() {"omnimd-mlmd-jsonl-v3"} else {"omnimd-mlmd-jsonl-v2"}, "ensemble":state.ensemble,
+        "dynamics_units":request.dynamics_units,
+        "metadata":md.metadata(), "timestep_fs":request.timestep_fs,
+        "dataset_frame":request.dataset_frame,
+        "requested_steps":request.steps, "start_step":start_step,
+        "masses_u":md.system().particles().mass, "model_sha256":hash,
+        "degrees_of_freedom":md.system().degrees_of_freedom(),
+        "initialize_velocities":request.initialize_velocities,
+        "remove_center_of_mass":matches!(md.system().simulated_degrees_of_freedom, omnimd_core::DegreesOfFreedom::Frozen(3)),
+        "checkpoint_every":request.checkpoint_every
+    });
+    if let Some(fixed) = &fixed_parameters {
+        header["fixed_parameters"] = serde_json::to_value(fixed)?;
+        header["parameter_policy"]=json!("fixed for the complete trajectory; atomic rows follow immutable input indices; model defaults bound to model SHA256");
+    }
+    serde_json::to_writer(&mut writer, &header)?;
     writer.write_all(b"\n")?;
     write_snapshot(&mut writer, &md, &state)?;
     let initial = md.total_energy_ev();
@@ -393,9 +455,10 @@ fn worker(input: &Path, output: Option<&Path>) -> Result<(), Box<dyn Error>> {
     let mut max_effective_drift = 0.0_f64;
     for step in 1..=request.steps {
         state.advance(&mut md)?;
-        max_drift = max_drift.max((md.total_energy_ev() - initial).abs());
-        max_effective_drift = max_effective_drift
-            .max((md.total_energy_ev() - state.heat_ev - initial_effective).abs());
+        let total_energy_ev = md.total_energy_ev();
+        max_drift = max_drift.max((total_energy_ev - initial).abs());
+        max_effective_drift =
+            max_effective_drift.max((total_energy_ev - state.heat_ev - initial_effective).abs());
         if step % request.sample_every == 0 || step == request.steps {
             write_snapshot(&mut writer, &md, &state)?;
             writer.flush()?;
@@ -406,10 +469,17 @@ fn worker(input: &Path, output: Option<&Path>) -> Result<(), Box<dyn Error>> {
                 &md,
                 &state,
                 &hash,
+                fixed_parameters.as_ref(),
             )?;
         }
     }
-    write_checkpoint(&restart_output, &md, &state, &hash)?;
+    write_checkpoint(
+        &restart_output,
+        &md,
+        &state,
+        &hash,
+        fixed_parameters.as_ref(),
+    )?;
     let nve_drift = matches!(state.ensemble, Ensemble::Nve).then_some(max_drift);
     serde_json::to_writer(
         &mut writer,
@@ -428,7 +498,7 @@ fn worker(input: &Path, output: Option<&Path>) -> Result<(), Box<dyn Error>> {
 
 fn run() -> Result<(), Box<dyn Error>> {
     let mut args: Vec<_> = std::env::args_os().skip(1).collect();
-    if dataset_commands::dispatch(&args)? {
+    if deviation_command::dispatch(&args)? || dataset_commands::dispatch(&args)? {
         return Ok(());
     }
     if args.len() == 3 && args[0] == "--worker" {
@@ -440,7 +510,7 @@ fn run() -> Result<(), Box<dyn Error>> {
     if args.len() == 1 && (args[0] == "--help" || args[0] == "-h") {
         println!(
             "omnimd-mlmd: CPU/CUDA DeepMD C API / native se_e2_a dynamics (native CUDA requires native-cuda feature)\n\
-Usage:\n  omnimd-mlmd train-native TRAIN.json\n  omnimd-mlmd minimize REQUEST.json NEW_MINIMIZATION.jsonl\n  omnimd-mlmd import-xyz IMPORT.json NEW_DATASET.jsonl\n  omnimd-mlmd capabilities\n  omnimd-mlmd model-info OPTIONS.json NEW_INFO.json\n  omnimd-mlmd import-deepmd IMPORT.json NEW_DATASET.jsonl\n  omnimd-mlmd batch-eval EVAL.json NEW_PREDICTIONS.jsonl\n  omnimd-mlmd run REQUEST.json NEW_TRAJECTORY.jsonl\n\
+Usage:\n  omnimd-mlmd prepare-labels REQUEST.json NEW_DIRECTORY | import-labels REQUEST.json NEW_DIRECTORY\n  omnimd-mlmd model-deviation REQUEST.json NEW_DEVIATIONS.jsonl | select-dataset REQUEST.json NEW_DIRECTORY\n  omnimd-mlmd train-native TRAIN.json\n  omnimd-mlmd minimize REQUEST.json NEW_MINIMIZATION.jsonl\n  omnimd-mlmd import-xyz IMPORT.json NEW_DATASET.jsonl\n  omnimd-mlmd capabilities\n  omnimd-mlmd model-info OPTIONS.json NEW_INFO.json\n  omnimd-mlmd inspect-dataset DATASET.jsonl NEW_REPORT.json\n  omnimd-mlmd import-deepmd IMPORT.json NEW_DATASET.jsonl\n  omnimd-mlmd batch-eval EVAL.json NEW_PREDICTIONS.jsonl\n  omnimd-mlmd run REQUEST.json NEW_TRAJECTORY.jsonl\n\
   omnimd-mlmd check REQUEST.json\n\
   omnimd-mlmd REQUEST.json NEW_TRAJECTORY.jsonl\n\
 Units: angstrom, fs, u, K, eV. Ensembles: nve, nvt_csvr.\n\
@@ -519,6 +589,23 @@ mod backend_tests {
             .contains("--features native-cuda"));
         #[cfg(feature = "native-cuda")]
         cuda.validate().unwrap(); // Validation only: never construct a GPU potential.
+    }
+    #[test]
+    fn parameter_requests_reject_native_and_cuda_before_loading_backends() {
+        use omnimd_mlmd::parameters::{Field, Layout};
+        let layout = Layout {
+            fparam: vec![Field {
+                name: "condition".into(),
+                unit: "fixture".into(),
+            }],
+            aparam: vec![],
+        };
+        assert!(
+            parameter_backend::validate_request(&native_options(Some("cpu")), Some(&layout))
+                .is_err()
+        );
+        let capi:BackendOptions=serde_json::from_value(json!({"library":"/not-loaded/runtime","model":"/not-loaded/model.pb","device":"cuda:0","type_map":["O"],"units":"EvAngstrom"})).unwrap();
+        assert!(parameter_backend::validate_request(&capi, Some(&layout)).is_err());
     }
     #[test]
     fn isolated_native_cuda_ordinal_is_zero_and_mismatches_fail_before_driver_load() {

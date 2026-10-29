@@ -22,3 +22,8 @@ in [native/THIRD_PARTY_NOTICES.md](native/THIRD_PARTY_NOTICES.md).
 
 The dataset importer uses npyz 0.9.1 and py_literal 0.4.0 (MIT), with their
 locked parser dependencies; upstream crate licenses remain applicable.
+
+The model-deviation statistics follow the absolute population convention described
+by DeepMD 3.1.3 `deepmd/infer/model_devi.py` (LGPL-3.0-or-later). The Rust moments,
+streaming workflow and stdlib replay are independently written; no upstream
+implementation is copied or vendored for this feature.

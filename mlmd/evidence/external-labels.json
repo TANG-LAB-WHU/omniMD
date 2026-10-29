@@ -1,0 +1,142 @@
+{
+  "schema": "omnimd-external-label-replay-v1",
+  "status": "passed",
+  "device": "cpu",
+  "CUDA_VISIBLE_DEVICES": "-1",
+  "scope": "Original saved synthetic software fixtures; no external calculation or scientific accuracy claim. v2 is an identity/IO check only.",
+  "source_frames": 12,
+  "selected_frames": 6,
+  "initial_labeled_frames": 3,
+  "final_labeled_frames": 6,
+  "training_frames": 5,
+  "validation_frames": 1,
+  "source_order_preserved": true,
+  "v2_parameters_preserved": true,
+  "independent_binary_identity_checks": 12,
+  "selected_ids": [
+    "deviation/1",
+    "deviation/2",
+    "deviation/3",
+    "deviation/4",
+    "deviation/10",
+    "deviation/11"
+  ],
+  "training_data_rank": 10,
+  "initial_validation": {
+    "energy_per_atom_rmse_ev": 0.04326487367681256,
+    "energy_rmse_ev": 0.17305949470725024,
+    "force_component_rmse_ev_per_angstrom": 0.002478686293451887,
+    "frames": 1,
+    "normalized_ef_objective": 0.2486237868405174,
+    "virial_component_rmse_ev": 0.002163619684239489
+  },
+  "final_validation": {
+    "energy_per_atom_rmse_ev": 1.1102230246251565e-16,
+    "energy_rmse_ev": 4.440892098500626e-16,
+    "force_component_rmse_ev_per_angstrom": 6.597580315663953e-18,
+    "frames": 1,
+    "normalized_ef_objective": 1.6678758246241957e-30,
+    "virial_component_rmse_ev": 8.919059425446549e-18
+  },
+  "native_v1_reload_max_abs_energy_force_virial": [
+    0.0,
+    0.0,
+    0.0
+  ],
+  "sha256": {
+    "engine": "04d7e30cb31f19ca4235e99e4c8071a61de1de78066cb57b75d6aaa0246a07e3",
+    "trainer": "766823df920e2a53a9850e489144bf386234ae5f86668af01cc952b9db40437b",
+    "script": "8d86202f18d589e4e96a9958ad7993b37039a091405ab419ffb481e2f90a309f",
+    "source": "c34eeb420bf7d306d77a159140818118cc27a0ff122e489c8aca0251f4c00618",
+    "selected": "2759d3a3d440138b982400fbe93c2e45b300d23e92af440fe149128dbc8c778a",
+    "returned": "f28b3c3408e9eaefac8b85e684e24b9d1c10d9829355ec79c2570525baa7ded5",
+    "labeled": "8c2dc900c07363d0666171676e2bbeb8a5071a1625bce3e0bc653a618b2e3d0b",
+    "v2_labeled": "e9acc8ced04f8c0003756d7bd36850ec3a09dd7835da9bf39a70585761584392",
+    "trained_model": "f3421bae71064cafc6d71c59129068ecb378c2c047422443d0de50d551dd427e"
+  },
+  "rejections": [
+    "coordinate",
+    "duplicate",
+    "conflict",
+    "wrong-source-hash",
+    "wrong-return-hash"
+  ],
+  "commands": [
+    {
+      "label": "CPU model-deviation",
+      "exit_code": 0
+    },
+    {
+      "label": "Select reviewed candidates",
+      "exit_code": 0
+    },
+    {
+      "label": "v1 prepare label job",
+      "exit_code": 0
+    },
+    {
+      "label": "v1 import returned labels",
+      "exit_code": 0
+    },
+    {
+      "label": "Inspect completed labeled dataset",
+      "exit_code": 0
+    },
+    {
+      "label": "CPU retrain on returned labels",
+      "exit_code": 0
+    },
+    {
+      "label": "v2 prepare label job",
+      "exit_code": 0
+    },
+    {
+      "label": "v2 import returned labels",
+      "exit_code": 0
+    },
+    {
+      "label": "Inspect preserved v2 dataset",
+      "exit_code": 0
+    },
+    {
+      "label": "Reject coordinate",
+      "exit_code": 1
+    },
+    {
+      "label": "Reject duplicate",
+      "exit_code": 1
+    },
+    {
+      "label": "Reject conflict",
+      "exit_code": 1
+    },
+    {
+      "label": "Reject wrong-source-hash",
+      "exit_code": 1
+    },
+    {
+      "label": "Reject wrong-return-hash",
+      "exit_code": 1
+    }
+  ],
+  "source_base": "e764502ed3e4003f2a8ac63d21e92a15c58c62c1",
+  "rust_checks": {
+    "engine_binary": 3,
+    "dataset": 8,
+    "labeling": 4,
+    "parameters": 2,
+    "selection": 2,
+    "total": 19,
+    "status": "passed"
+  },
+  "rust_labeling_coverage": [
+    "v1/v2 full context and source order preservation",
+    "exact matching existing labels and missing virial preservation",
+    "24 identity/context/shape/duplicate/missing/conflict/signed-zero cases rejected without output",
+    "return/source hash mismatch",
+    "unterminated record, duplicate JSON/provenance fields and nonfinite value rejection",
+    "exact bounded source byte budget",
+    "existing output refusal"
+  ],
+  "build": "locked offline release engine and default CPU native trainer; no native source changes"
+}

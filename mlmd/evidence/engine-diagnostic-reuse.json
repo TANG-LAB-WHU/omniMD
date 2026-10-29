@@ -1,0 +1,47 @@
+{
+  "baseline_commit": "201cdef0626bd9308bcff07faef4c5ae3aa9d93a",
+  "scope": "CPU-only scalar diagnostic reuse; no GPU or speedup measurement",
+  "binary_sha256": {
+    "baseline": "a0b422f3dd744259c36ec7943518748859166b73e83cc6a69edfb77b72b66d77",
+    "candidate": "d804dc1cf03f9ed5cfd2c4dfe97e926a7ebe906965a11809d8c5e9f588df67a0"
+  },
+  "cases": [
+    {
+      "ensemble": "nve",
+      "steps": 16,
+      "sample_every": 1,
+      "json_records": 19,
+      "all_parsed_records_identical": true,
+      "final_and_periodic_checkpoint_bytes_identical": true
+    },
+    {
+      "ensemble": "nvt",
+      "steps": 16,
+      "sample_every": 1,
+      "json_records": 19,
+      "all_parsed_records_identical": true,
+      "final_and_periodic_checkpoint_bytes_identical": true
+    }
+  ],
+  "schema": "omnimd-engine-diagnostic-reuse-v1",
+  "status": "passed",
+  "local_artifact_root": "C:\\Users\\Shawn\\Documents\\Codex\\2026-10-13\\task-2\\omnimd-runtime\\engine-perf-prep-01",
+  "runtime_features": "CPU only; no native-cuda feature",
+  "build_command": "cargo build --locked --offline --release --manifest-path mlmd/Cargo.toml -p omnimd-mlmd --no-default-features -j 1",
+  "comparison_normalization": "Only the completed-record checkpoint output path differs between baseline/candidate directories and is normalized. Every other parsed field matches exactly. Checkpoint files match byte-for-byte.",
+  "optimization": "Reuse immutable scalar diagnostics within each snapshot and total energy within each MD drift calculation. Existing kinetic sum and temperature arithmetic, finite checks, serialization schema and output cadence retained.",
+  "gpu_calls": 0,
+  "performance_measurement": false,
+  "sha256": {
+    "compare_engine_diagnostics.py": "db4d73469af7bf669a7ed8da599a3060514808b57f1cd78268913105ed2ca645",
+    "INTEGRATION_PLAN.md": "4e081fc055adcea33b0313eb66fa05fb4be962117532b0d6ba3ea7d1ee0f2562",
+    "baseline/nve.request.json": "b74a4a88da6e91de675c631f3264da2189df8606c479d1765c169edaa04205ea",
+    "baseline/nvt.request.json": "9e7c61345184427c09cd1c0846eb55bbc8a33ac751255695e50efb7753b5ecdc",
+    "candidate/nve.request.json": "b74a4a88da6e91de675c631f3264da2189df8606c479d1765c169edaa04205ea",
+    "candidate/nvt.request.json": "9e7c61345184427c09cd1c0846eb55bbc8a33ac751255695e50efb7753b5ecdc"
+  },
+  "source_sha256": {
+    "mlmd/engine/src/main.rs": "7cc3000169197543c379f8dbfe13640dd5cd64cb593cd37b30eddf98aa937a2e",
+    "mlmd/native/fixtures/synthetic-v1.json": "cb26865cd0ed593214bace5aef1084fbdfe1725523d36e28b695b2012d237346"
+  }
+}

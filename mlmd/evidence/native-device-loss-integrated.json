@@ -1,0 +1,253 @@
+{
+  "schema": "omnimd-device-loss-integration-v1",
+  "status": "passed",
+  "started_utc": "2026-10-16T15:37:14.275066+00:00",
+  "completed_utc": "2026-10-16T15:37:16.718979+00:00",
+  "source_native_commit": "36ee5cf4cc261437b6dcc03b182073dee72c5cae",
+  "integrated_native_commit": "230279d2adb6151321720f27af20c45252f1f096",
+  "source_base": "f6030da6cef085e37bd2d135878c591218f30b2e",
+  "scope": "Essential engine GPU-loss forwarding, historical v7 equality, tolerant v8 comparison and exact v8 restart on existing 24-frame original synthetic input; no performance/capacity benchmark.",
+  "frames": 24,
+  "training_frames": 18,
+  "validation_frames": 6,
+  "optimizer_updates": 7,
+  "default_v7_checkpoint_all_fields_model_bytes_metrics_and_ptx_exact": true,
+  "gpu_loss_vs_cpu_loss_parameters_moments_max_abs": 8.881784197001252e-16,
+  "partition_metrics_max_abs_differences": {
+    "initial_training": 0.0,
+    "final_training": 2.220446049250313e-16,
+    "initial_validation": 0.0,
+    "final_validation": 8.326672684688674e-17
+  },
+  "comparison_tolerance": 3e-12,
+  "v8_step_2_resume_memory_cache_off_exact_except_additional_steps_and_cache_flag": true,
+  "v8_resume_model_bytes_and_final_metrics_exact": true,
+  "tiling_plan": {
+    "device_at_capacity": {
+      "atoms": 16,
+      "cache_bytes": 91392,
+      "descriptor_adjoint_bytes": 2048,
+      "peak_device_buffer_bytes": 198676,
+      "policy_limit_bytes": 67108864,
+      "slot_gradient_bytes": 28672
+    },
+    "device_loss": {
+      "estimated_extra_terms_per_atom": 4004,
+      "extra_device_bytes": 40984,
+      "extra_host_reserved_bytes": 42040
+    },
+    "effective_max_atoms": 16,
+    "estimated_scalar_terms_at_capacity": 512064,
+    "host_tile_payload_at_capacity_bytes": 74992,
+    "host_tile_payload_policy_limit_bytes": 33554432,
+    "maximum_center_terms": 250,
+    "requested": {
+      "max_atoms": 16,
+      "max_frames": 3
+    },
+    "scalar_work_policy_limit": 50000000
+  },
+  "runs": {
+    "default-cpu-loss": {
+      "schema": "omnimd-native-full-checkpoint-v7",
+      "execution": {
+        "backend": "cuda_tiled_reverse_f64_v1",
+        "visible_device": 0,
+        "device_info": "NVIDIA GeForce RTX 4090; compute 8.9; FP64; device 0",
+        "driver_version": 13040,
+        "program_sha256": "ac8c9019b07549ac68542bcedb83f50f26d06637c98a801bb61a5eb22bef308a"
+      },
+      "profile": {
+        "device_prediction_frames": 0,
+        "download_ms": 1.0497999999999998,
+        "frames": 43,
+        "geometry_ms": 0.058300000000000005,
+        "kernel_launches": 76,
+        "kernels_and_sync_ms": 1.4024999999999999,
+        "max_atoms_per_launch": 11,
+        "max_frames_per_launch": 3,
+        "peak_device_buffer_bytes": 109832,
+        "peak_host_tile_payload_bytes": 28432,
+        "prediction_and_seeds_ms": 0.8443,
+        "reduction_ms": 0.012299999999999998,
+        "synchronizations": 19,
+        "tiles": 19,
+        "upload_ms": 2.0587
+      },
+      "rates": {
+        "base_rate": 0.005,
+        "contract": "omnimd-optimizer-update-learning-rate-v1",
+        "first_rate": 0.005,
+        "first_update": 1,
+        "last_rate": 0.000625,
+        "last_update": 7,
+        "schedule": {
+          "decay_rate": 0.5,
+          "decay_steps": 2,
+          "kind": "exponential"
+        }
+      },
+      "reload_max_abs_energy_force_virial": [
+        0,
+        0,
+        0
+      ],
+      "model_sha256": "9d563f8add825c8effb6c61340a290a91078b6ef3ff3e199910a539d6d176c73",
+      "checkpoint_sha256": "b1d13a3553469e40f1b1cc446391160683d9d23596750c8b66f780fb43ab0bb6"
+    },
+    "gpu-loss": {
+      "schema": "omnimd-native-full-checkpoint-v8",
+      "execution": {
+        "backend": "cuda_tiled_device_loss_f64_v1",
+        "visible_device": 0,
+        "device_info": "NVIDIA GeForce RTX 4090; compute 8.9; FP64; device 0",
+        "driver_version": 13040,
+        "program_sha256": "f26057c92ce96ade4df2749bd2041cf13eb0e3534d208a46a908bb176f14cab6"
+      },
+      "profile": {
+        "device_prediction_frames": 43,
+        "download_ms": 0.8922,
+        "frames": 43,
+        "geometry_ms": 0.10520000000000002,
+        "kernel_launches": 190,
+        "kernels_and_sync_ms": 2.3012,
+        "max_atoms_per_launch": 11,
+        "max_frames_per_launch": 3,
+        "peak_device_buffer_bytes": 138276,
+        "peak_host_tile_payload_bytes": 52720,
+        "prediction_and_seeds_ms": 0.0,
+        "reduction_ms": 0.012499999999999999,
+        "synchronizations": 19,
+        "tiles": 19,
+        "upload_ms": 3.4255
+      },
+      "rates": {
+        "base_rate": 0.005,
+        "contract": "omnimd-optimizer-update-learning-rate-v1",
+        "first_rate": 0.005,
+        "first_update": 1,
+        "last_rate": 0.000625,
+        "last_update": 7,
+        "schedule": {
+          "decay_rate": 0.5,
+          "decay_steps": 2,
+          "kind": "exponential"
+        }
+      },
+      "reload_max_abs_energy_force_virial": [
+        0,
+        0,
+        0
+      ],
+      "model_sha256": "b5fa5d0911fe40e2d7e9a8ec8f2362f3e67fe6d911cc23e6f642c12b9807436f",
+      "checkpoint_sha256": "88ffe48696378c6c757780ec12db910160c97ca88dfd86bd00495fb3fd46d764"
+    },
+    "resume-v8-memory-cache-off": {
+      "schema": "omnimd-native-full-checkpoint-v8",
+      "execution": {
+        "backend": "cuda_tiled_device_loss_f64_v1",
+        "visible_device": 0,
+        "device_info": "NVIDIA GeForce RTX 4090; compute 8.9; FP64; device 0",
+        "driver_version": 13040,
+        "program_sha256": "f26057c92ce96ade4df2749bd2041cf13eb0e3534d208a46a908bb176f14cab6"
+      },
+      "profile": {
+        "device_prediction_frames": 29,
+        "download_ms": 0.7092,
+        "frames": 29,
+        "geometry_ms": 0.41100000000000003,
+        "kernel_launches": 130,
+        "kernels_and_sync_ms": 1.5845000000000002,
+        "max_atoms_per_launch": 11,
+        "max_frames_per_launch": 3,
+        "peak_device_buffer_bytes": 138276,
+        "peak_host_tile_payload_bytes": 52720,
+        "prediction_and_seeds_ms": 0.0,
+        "reduction_ms": 0.0086,
+        "synchronizations": 13,
+        "tiles": 13,
+        "upload_ms": 2.1112
+      },
+      "rates": {
+        "base_rate": 0.005,
+        "contract": "omnimd-optimizer-update-learning-rate-v1",
+        "first_rate": 0.0025,
+        "first_update": 3,
+        "last_rate": 0.000625,
+        "last_update": 7,
+        "schedule": {
+          "decay_rate": 0.5,
+          "decay_steps": 2,
+          "kind": "exponential"
+        }
+      },
+      "reload_max_abs_energy_force_virial": [
+        0,
+        0,
+        0
+      ],
+      "model_sha256": "b5fa5d0911fe40e2d7e9a8ec8f2362f3e67fe6d911cc23e6f642c12b9807436f",
+      "checkpoint_sha256": "4ca2e652ec4e321e4b9cbcf1e39e98ad6ca809a0a709b9f935ca183a0e72e578"
+    }
+  },
+  "rejected_before_output": [
+    "missing tiling",
+    "changed loss mode on resume",
+    "historical v7 to v8"
+  ],
+  "source_sha256": {
+    "replay_full_training.py": "12067135c9b176aad6d24ab7d65081340b85e68825bbaf2a37ec809356cf48bc",
+    "teacher.json": "1113e4f1d49c77756703a0b6f3362615699a6d9bd0686cddbc1c103066fa0bc8"
+  },
+  "sha256": {
+    "engine": "ab21ad543370f5c7c2db04887bcda1f5e9f7e4bc28b2cee3d0cb65dd8eed610f",
+    "trainer": "5cd7310d8a510d7e68d67453c9ea6d9c9ca058bd4136430ff422718e6cdd7ec7",
+    "script": "ea78fe6ad8474a55a7d6dc85869da2ac9383b9a2616db37af20deb7d4f3df3b8",
+    "helper": "95be1cfcf9a0e447c69da61b859cc696de344ef0c306237646d732b1e7a63cf4",
+    "dataset": "5669b8e833b0a409e08b328dc3cf9ef9dfebb52d32f8b8495a75d9342b07902a",
+    "initial_model": "407278c6eab122e6dfee2511b3c3fb4c033f58c04819a580ffc0810df3ce7b9a",
+    "historical_v7": "b1d13a3553469e40f1b1cc446391160683d9d23596750c8b66f780fb43ab0bb6"
+  },
+  "checks": [
+    {
+      "label": "capabilities",
+      "exit_code": 0
+    },
+    {
+      "label": "default-cpu-loss",
+      "exit_code": 0
+    },
+    {
+      "label": "gpu-loss",
+      "exit_code": 0
+    },
+    {
+      "label": "resume-v8-memory-cache-off",
+      "exit_code": 0
+    },
+    {
+      "label": "reject-missing-tiling",
+      "exit_code": 1
+    },
+    {
+      "label": "reject-loss-mode-change",
+      "exit_code": 1
+    },
+    {
+      "label": "reject-v7-to-v8",
+      "exit_code": 1
+    }
+  ],
+  "host_only_checks": {
+    "device_loss_configuration_and_budget_guards": 1,
+    "engine_cpu_routing": 3,
+    "total": 4,
+    "status": "passed"
+  },
+  "build": "Locked offline release engine/native bins with CUDA feature; no dependency download.",
+  "gpu_window": {
+    "released_utc": "2026-10-16T15:37:37.3601191Z",
+    "active_omnimd_processes": 0
+  },
+  "native_performance_scope": "Separate native/fixtures/device-loss-training-report.json: three alternating 128-update complete-process synthetic repeats. Tiny regresses 604.53->756.03 ms; medium improves 3505.78->3060.90 ms (1.15x). Not repeated by A; no general speed claim."
+}

@@ -116,12 +116,21 @@ impl ReadoutBasis {
             initial_coefficients,
         })
     }
-    pub fn features(&mut self, frame: &Frame) -> Result<ReadoutFeatures> {
+    #[cfg(feature = "cuda")]
+    pub(crate) fn zero_model(&self) -> &Model {
+        self.basis.model()
+    }
+    pub(crate) fn fixed_energy(&self, frame: &Frame) -> Result<f64> {
+        frame.validate()?;
         let types = frame.type_ids(self.basis.metadata())?;
         let fixed_energy: f64 = types.iter().map(|t| self.offsets[*t as usize]).sum();
         if !fixed_energy.is_finite() {
             return Err(Error("nonfinite fixed readout offset".into()));
         }
+        Ok(fixed_energy)
+    }
+    pub fn features(&mut self, frame: &Frame) -> Result<ReadoutFeatures> {
+        let fixed_energy = self.fixed_energy(frame)?;
         let mut columns = Vec::with_capacity(self.parameters.len());
         for parameter in &self.parameters {
             parameter.set(&mut self.basis.model, 1.0);

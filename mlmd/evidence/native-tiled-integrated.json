@@ -1,0 +1,246 @@
+{
+  "schema": "omnimd-tiled-training-integration-v1",
+  "status": "passed",
+  "started_utc": "2026-10-16T15:00:17.546745+00:00",
+  "completed_utc": "2026-10-16T15:00:18.182688+00:00",
+  "source_native_commit": "cce7f8c447b22824593ad3b4df333d63932e44bc",
+  "integrated_native_commit": "0937cb97733d4a5bb5987389636e9ccd893fbe7b",
+  "source_base": "6bb52955315304b1a35842e6065afc7219388805",
+  "scope": "Short final engine CLI forwarding, same-model framewise equality and v7 restart on existing 24-frame original synthetic input; no new performance or capacity benchmark.",
+  "reused_completed_successful_commands": [
+    "capabilities",
+    "framewise",
+    "tiled"
+  ],
+  "fixture_atoms_per_frame_min_max": [
+    3,
+    4
+  ],
+  "frames": 24,
+  "training_frames": 18,
+  "validation_frames": 6,
+  "optimizer_updates": 7,
+  "framewise_numeric_state_and_all_four_metrics_exact": true,
+  "exported_model_bytes_exact": true,
+  "v7_step_2_resume_memory_cache_off_exact_except_additional_steps_and_cache_flag": true,
+  "tiling_plan": {
+    "device_at_capacity": {
+      "atoms": 16,
+      "cache_bytes": 91392,
+      "descriptor_adjoint_bytes": 2048,
+      "peak_device_buffer_bytes": 157692,
+      "policy_limit_bytes": 67108864,
+      "slot_gradient_bytes": 28672
+    },
+    "effective_max_atoms": 16,
+    "estimated_scalar_terms_at_capacity": 448000,
+    "host_tile_payload_at_capacity_bytes": 32952,
+    "host_tile_payload_policy_limit_bytes": 33554432,
+    "maximum_center_terms": 250,
+    "requested": {
+      "max_atoms": 16,
+      "max_frames": 3
+    },
+    "scalar_work_policy_limit": 50000000
+  },
+  "runs": {
+    "framewise": {
+      "schema": "omnimd-native-full-checkpoint-v6",
+      "execution": {
+        "backend": "cuda_reverse_f64_v1",
+        "visible_device": 0,
+        "device_info": "NVIDIA GeForce RTX 4090; compute 8.9; FP64; device 0",
+        "driver_version": 13040,
+        "program_sha256": "382ea3a3eee82218b9ec2d975822a0a0c995d2968b0a158cf2bdbfc852859844"
+      },
+      "profile": {
+        "download_ms": 1.6306999999999998,
+        "frames": 43,
+        "geometry_ms": 0.0563,
+        "kernel_launches": 172,
+        "kernels_and_sync_ms": 2.5130999999999997,
+        "max_atoms_per_launch": 4,
+        "max_frames_per_launch": 1,
+        "peak_device_buffer_bytes": 42796,
+        "peak_host_tile_payload_bytes": 0,
+        "prediction_and_seeds_ms": 0.7353999999999999,
+        "reduction_ms": 0.019400000000000008,
+        "synchronizations": 43,
+        "tiles": 43,
+        "upload_ms": 2.5536000000000003
+      },
+      "rates": {
+        "base_rate": 0.005,
+        "contract": "omnimd-optimizer-update-learning-rate-v1",
+        "first_rate": 0.005,
+        "first_update": 1,
+        "last_rate": 0.000625,
+        "last_update": 7,
+        "schedule": {
+          "decay_rate": 0.5,
+          "decay_steps": 2,
+          "kind": "exponential"
+        }
+      },
+      "reload_max_abs_energy_force_virial": [
+        0,
+        0,
+        0
+      ],
+      "model_sha256": "9d563f8add825c8effb6c61340a290a91078b6ef3ff3e199910a539d6d176c73",
+      "checkpoint_sha256": "9828f0824eb1670bb56fc9ba874580f07b989ea369838267249f2183335c611b"
+    },
+    "tiled": {
+      "schema": "omnimd-native-full-checkpoint-v7",
+      "execution": {
+        "backend": "cuda_tiled_reverse_f64_v1",
+        "visible_device": 0,
+        "device_info": "NVIDIA GeForce RTX 4090; compute 8.9; FP64; device 0",
+        "driver_version": 13040,
+        "program_sha256": "ac8c9019b07549ac68542bcedb83f50f26d06637c98a801bb61a5eb22bef308a"
+      },
+      "profile": {
+        "download_ms": 0.7310000000000001,
+        "frames": 43,
+        "geometry_ms": 0.0631,
+        "kernel_launches": 76,
+        "kernels_and_sync_ms": 1.3294,
+        "max_atoms_per_launch": 11,
+        "max_frames_per_launch": 3,
+        "peak_device_buffer_bytes": 109832,
+        "peak_host_tile_payload_bytes": 28432,
+        "prediction_and_seeds_ms": 0.8302,
+        "reduction_ms": 0.014599999999999998,
+        "synchronizations": 19,
+        "tiles": 19,
+        "upload_ms": 1.7483
+      },
+      "rates": {
+        "base_rate": 0.005,
+        "contract": "omnimd-optimizer-update-learning-rate-v1",
+        "first_rate": 0.005,
+        "first_update": 1,
+        "last_rate": 0.000625,
+        "last_update": 7,
+        "schedule": {
+          "decay_rate": 0.5,
+          "decay_steps": 2,
+          "kind": "exponential"
+        }
+      },
+      "reload_max_abs_energy_force_virial": [
+        0,
+        0,
+        0
+      ],
+      "model_sha256": "9d563f8add825c8effb6c61340a290a91078b6ef3ff3e199910a539d6d176c73",
+      "checkpoint_sha256": "b1d13a3553469e40f1b1cc446391160683d9d23596750c8b66f780fb43ab0bb6"
+    },
+    "resume-2-memory-cache-off": {
+      "schema": "omnimd-native-full-checkpoint-v7",
+      "execution": {
+        "backend": "cuda_tiled_reverse_f64_v1",
+        "visible_device": 0,
+        "device_info": "NVIDIA GeForce RTX 4090; compute 8.9; FP64; device 0",
+        "driver_version": 13040,
+        "program_sha256": "ac8c9019b07549ac68542bcedb83f50f26d06637c98a801bb61a5eb22bef308a"
+      },
+      "profile": {
+        "download_ms": 0.5329999999999999,
+        "frames": 29,
+        "geometry_ms": 0.3492,
+        "kernel_launches": 52,
+        "kernels_and_sync_ms": 0.8254999999999999,
+        "max_atoms_per_launch": 11,
+        "max_frames_per_launch": 3,
+        "peak_device_buffer_bytes": 109832,
+        "peak_host_tile_payload_bytes": 28432,
+        "prediction_and_seeds_ms": 0.8763000000000001,
+        "reduction_ms": 0.008199999999999999,
+        "synchronizations": 13,
+        "tiles": 13,
+        "upload_ms": 0.9516000000000001
+      },
+      "rates": {
+        "base_rate": 0.005,
+        "contract": "omnimd-optimizer-update-learning-rate-v1",
+        "first_rate": 0.0025,
+        "first_update": 3,
+        "last_rate": 0.000625,
+        "last_update": 7,
+        "schedule": {
+          "decay_rate": 0.5,
+          "decay_steps": 2,
+          "kind": "exponential"
+        }
+      },
+      "reload_max_abs_energy_force_virial": [
+        0,
+        0,
+        0
+      ],
+      "model_sha256": "9d563f8add825c8effb6c61340a290a91078b6ef3ff3e199910a539d6d176c73",
+      "checkpoint_sha256": "feee373be3cd0a60967accf93bf9e1b79ceb9a42a4f52ae7683dc2eb16dd8568"
+    }
+  },
+  "rejected_before_output": [
+    "CPU tiling",
+    "changed tile capacity",
+    "framewise resume of tiled checkpoint"
+  ],
+  "source_sha256": {
+    "replay_full_training.py": "12067135c9b176aad6d24ab7d65081340b85e68825bbaf2a37ec809356cf48bc",
+    "teacher.json": "1113e4f1d49c77756703a0b6f3362615699a6d9bd0686cddbc1c103066fa0bc8"
+  },
+  "sha256": {
+    "engine": "8ca4bbf5eaf5836c6a158f43f4887dc6e6aa7eaf8ef7c8ca9f8265f1b8ca5201",
+    "trainer": "3aab035d077b5e8cf3d8c3341fc7525df7b3ad18abf204400dc19dc7d2008858",
+    "script": "ad9b6ea00ae1504e9d2536bf1d2d4fddba135881ca44a61da63e7bb1a9effe5f",
+    "helper": "95be1cfcf9a0e447c69da61b859cc696de344ef0c306237646d732b1e7a63cf4",
+    "dataset": "5669b8e833b0a409e08b328dc3cf9ef9dfebb52d32f8b8495a75d9342b07902a",
+    "initial_model": "407278c6eab122e6dfee2511b3c3fb4c033f58c04819a580ffc0810df3ce7b9a"
+  },
+  "checks": [
+    {
+      "label": "capabilities",
+      "exit_code": 0
+    },
+    {
+      "label": "framewise",
+      "exit_code": 0
+    },
+    {
+      "label": "tiled",
+      "exit_code": 0
+    },
+    {
+      "label": "resume-2-memory-cache-off",
+      "exit_code": 0
+    },
+    {
+      "label": "reject-cpu",
+      "exit_code": 1
+    },
+    {
+      "label": "reject-capacity-change",
+      "exit_code": 1
+    },
+    {
+      "label": "reject-framewise-resume",
+      "exit_code": 1
+    }
+  ],
+  "host_only_checks": {
+    "tiled_configuration_schema_resource_guards": 1,
+    "engine_cpu_routing": 3,
+    "total": 4,
+    "status": "passed"
+  },
+  "build": "Locked offline release engine/native bins with CUDA feature; no dependency download.",
+  "gpu_window": {
+    "released_utc": "2026-10-16T15:00:29.7714465Z",
+    "active_omnimd_processes": 0
+  },
+  "harness_correction": "Initial assertion incorrectly assumed three four-atom frames. Existing fixture mixes three/four atoms; actual maximum was eleven. Both GPU commands exited successfully. Corrected bounds derive from fixture atom counts; matching completed outputs were reused, not rerun. No CUDA error or retry.",
+  "native_performance_scope": "Separate native/fixtures/tiled-training-report.json: three alternating 128-update whole-process repeats on original synthetic cases. Not repeated by A; no physical/general speed claim."
+}

@@ -1,0 +1,222 @@
+{
+  "schema": "omnimd-learning-rate-integration-v1",
+  "status": "passed",
+  "started_utc": "2026-10-16T14:21:52.460204+00:00",
+  "completed_utc": "2026-10-16T14:21:53.600230+00:00",
+  "source_native_commit": "63ea457d7084d17dbd2db25e4c7ee42ca46740d5",
+  "integrated_native_commit": "7fdb1e24709d79e949be9bc30ae8b410d9cf65ac",
+  "source_base": "e0decf3f8e64c8bad10f79323fa036511f2088fa",
+  "scope": "Final engine forwarding and CPU boundary/legacy acceptance on existing 24-frame synthetic input; no GPU or performance test; B broad permutations not repeated.",
+  "cuda_used": false,
+  "device": "cpu",
+  "frames": 24,
+  "training_frames": 18,
+  "validation_frames": 6,
+  "schedule": {
+    "kind": "exponential",
+    "decay_steps": 2,
+    "decay_rate": 0.5
+  },
+  "expected_rates_updates_1_to_7": [
+    0.005,
+    0.005,
+    0.0025,
+    0.0025,
+    0.00125,
+    0.00125,
+    0.000625
+  ],
+  "v6_resume_splits_exact_except_additional_steps": [
+    2,
+    3
+  ],
+  "v6_resume_model_bytes_and_final_metrics_exact": true,
+  "constant_matches_historical_v5_except_explicit_schedule_and_schema": true,
+  "null_schedule_resumes_historical_v5_exactly": true,
+  "rejected_before_output": [
+    "rate greater than one",
+    "changed schedule on resume",
+    "removed schedule on resume"
+  ],
+  "runs": {
+    "scheduled": {
+      "rates": {
+        "base_rate": 0.005,
+        "contract": "omnimd-optimizer-update-learning-rate-v1",
+        "first_rate": 0.005,
+        "first_update": 1,
+        "last_rate": 0.000625,
+        "last_update": 7,
+        "schedule": {
+          "decay_rate": 0.5,
+          "decay_steps": 2,
+          "kind": "exponential"
+        }
+      },
+      "step_start": 0,
+      "step_end": 7,
+      "schema": "omnimd-native-full-checkpoint-v6",
+      "reload_max_abs_energy_force_virial": [
+        0,
+        0,
+        0
+      ],
+      "checkpoint_sha256": "41c1af5358dd609a49e1fd24522abd060549b263796b0750eca949d5a4d89fec",
+      "model_sha256": "c7dead175cfbac0bbae5228c140068725af9e75a46c85540e44f3177d20e66ae"
+    },
+    "resume-2": {
+      "rates": {
+        "base_rate": 0.005,
+        "contract": "omnimd-optimizer-update-learning-rate-v1",
+        "first_rate": 0.0025,
+        "first_update": 3,
+        "last_rate": 0.000625,
+        "last_update": 7,
+        "schedule": {
+          "decay_rate": 0.5,
+          "decay_steps": 2,
+          "kind": "exponential"
+        }
+      },
+      "step_start": 2,
+      "step_end": 7,
+      "schema": "omnimd-native-full-checkpoint-v6",
+      "reload_max_abs_energy_force_virial": [
+        0,
+        0,
+        0
+      ],
+      "checkpoint_sha256": "eeeb09ead9bbfe85df68168171fd270136c5bdd19287d6546efeec42dfc560ae",
+      "model_sha256": "c7dead175cfbac0bbae5228c140068725af9e75a46c85540e44f3177d20e66ae"
+    },
+    "resume-3": {
+      "rates": {
+        "base_rate": 0.005,
+        "contract": "omnimd-optimizer-update-learning-rate-v1",
+        "first_rate": 0.0025,
+        "first_update": 4,
+        "last_rate": 0.000625,
+        "last_update": 7,
+        "schedule": {
+          "decay_rate": 0.5,
+          "decay_steps": 2,
+          "kind": "exponential"
+        }
+      },
+      "step_start": 3,
+      "step_end": 7,
+      "schema": "omnimd-native-full-checkpoint-v6",
+      "reload_max_abs_energy_force_virial": [
+        0,
+        0,
+        0
+      ],
+      "checkpoint_sha256": "a2950e2d086f5be32ee2fda66ce62ad1d026014ccf3798cdb2bee6cc5919b039",
+      "model_sha256": "c7dead175cfbac0bbae5228c140068725af9e75a46c85540e44f3177d20e66ae"
+    },
+    "explicit-constant": {
+      "rates": {
+        "base_rate": 0.005,
+        "contract": "omnimd-optimizer-update-learning-rate-v1",
+        "first_rate": 0.005,
+        "first_update": 1,
+        "last_rate": 0.005,
+        "last_update": 7,
+        "schedule": {
+          "kind": "constant"
+        }
+      },
+      "step_start": 0,
+      "step_end": 7,
+      "schema": "omnimd-native-full-checkpoint-v6",
+      "reload_max_abs_energy_force_virial": [
+        0,
+        0,
+        0
+      ],
+      "checkpoint_sha256": "05f9644defb2574488a01a230bf389099618a5a4901ac2d90772de0e56a6fdc2",
+      "model_sha256": "ff5463273532275a1bed13965ed3fd41d5fa786288a104d239cd5abb38a1fc18"
+    },
+    "legacy-null-resume": {
+      "rates": {
+        "base_rate": 0.005,
+        "contract": "omnimd-optimizer-update-learning-rate-v1",
+        "first_rate": 0.005,
+        "first_update": 7,
+        "last_rate": 0.005,
+        "last_update": 7,
+        "schedule": {
+          "kind": "constant"
+        }
+      },
+      "step_start": 6,
+      "step_end": 7,
+      "schema": "omnimd-native-full-checkpoint-v5",
+      "reload_max_abs_energy_force_virial": [
+        0,
+        0,
+        0
+      ],
+      "checkpoint_sha256": "3baf638fdcbca6621cb5c4e8f8d4182f1ff4d2ba3683db5798808853693001ee",
+      "model_sha256": "ff5463273532275a1bed13965ed3fd41d5fa786288a104d239cd5abb38a1fc18"
+    }
+  },
+  "source_sha256": {
+    "replay_full_training.py": "12067135c9b176aad6d24ab7d65081340b85e68825bbaf2a37ec809356cf48bc",
+    "teacher.json": "1113e4f1d49c77756703a0b6f3362615699a6d9bd0686cddbc1c103066fa0bc8"
+  },
+  "sha256": {
+    "engine": "a7f3b6714c1186d5c21cdeebf2167f0328c6309dc853b7b9f371dd0288ca667e",
+    "trainer": "9c2e392f4ce69d18f9ce7c53bbdf23b07ad7da0eb89680876d6e49e0a17fb5cd",
+    "script": "b4c1842d771cf1a679909862ca08cd92a4ed8e0a31ec1b7e11c2068d9aafae3a",
+    "helper": "95be1cfcf9a0e447c69da61b859cc696de344ef0c306237646d732b1e7a63cf4",
+    "dataset": "5669b8e833b0a409e08b328dc3cf9ef9dfebb52d32f8b8495a75d9342b07902a",
+    "initial_model": "407278c6eab122e6dfee2511b3c3fb4c033f58c04819a580ffc0810df3ce7b9a",
+    "historical_v5": "bfef7f1ba61246c98d16b84a5857da4d6dd5b268337810877ceba375cd50d226"
+  },
+  "checks": [
+    {
+      "label": "capabilities",
+      "exit_code": 0
+    },
+    {
+      "label": "scheduled",
+      "exit_code": 0
+    },
+    {
+      "label": "resume-2",
+      "exit_code": 0
+    },
+    {
+      "label": "resume-3",
+      "exit_code": 0
+    },
+    {
+      "label": "explicit-constant",
+      "exit_code": 0
+    },
+    {
+      "label": "legacy-null-resume",
+      "exit_code": 0
+    },
+    {
+      "label": "reject-invalid-rate",
+      "exit_code": 1
+    },
+    {
+      "label": "reject-changed-schedule",
+      "exit_code": 1
+    },
+    {
+      "label": "reject-removed-schedule",
+      "exit_code": 1
+    }
+  ],
+  "host_only_checks": {
+    "engine_cpu_routing": 3,
+    "status": "passed"
+  },
+  "build": "Locked offline release engine and native bins with optional CUDA feature; all integration invocations explicitly CPU; no dependency download.",
+  "native_evidence": "Separate native/fixtures/learning-rate-report.json: CPU and both CUDA executors, broader fullbatch/minibatch/indexed/cache permutations; not repeated by this integration.",
+  "native_gpu_release_utc": "2026-10-16T14:10:49.476910+00:00"
+}

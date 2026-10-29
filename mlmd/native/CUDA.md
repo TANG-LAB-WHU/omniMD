@@ -5,20 +5,28 @@ checks on original tiny, public converted and 216-atom synthetic fixtures. The
 216-atom case was modestly faster in one end-to-end measurement; tiny cases were
 slower. See the measured results below. The CPU default remains unchanged.
 
+A subsequent host neighbor-cache optimization and same-work before/after
+measurements are documented in [CUDA_INFRA.md](CUDA_INFRA.md). The next cooperative
+fitting/scratch and persistent-host-workspace tranche is in [CUDA_FIT.md](CUDA_FIT.md).
+
 ## Computation boundary
 
 Enable `cuda` explicitly. `cuda::CudaPotential` implements the existing shared
 `Potential` trait and returns energy, analytic force and row-strain virial in
-float64. This is a CPU/CUDA inference pipeline, not CUDA training:
+float64. The inference pipeline is below; the separate bounded
+[readout trainer](TRAINING.md#explicit-cpu-or-cuda-features) reuses it to generate
+analytic feature columns for CPU QR. The separate [full trainer](CUDA_FULL_TRAINING.md)
+uses bounded CUDA mixed derivatives and Adam. Inference remains:
 
-1. Rust validates native-v1 weights/frame/types and enumerates the exact CPU
+1. Rust validates native-v1 weights/frame/types and builds or conservatively
+   reuses periodic-image candidates, then filters/sorts the exact active CPU
    periodic/triclinic neighbor list. It computes normalized environment rows `R`
    and their displacement Jacobians `J`, including normalized padding.
 2. CUDA `embed` evaluates every slot's embedding value `G` and radial derivative
    `dG/dR0`. One thread owns one atom-slot.
 3. CUDA `fit` contracts `B=G^T R/sum(sel)` and `D[m,k]=B[m,:].B[k,:]`, evaluates
-   the fitting network and backpropagates `dE/dD` and `dE/dB`. One thread owns one
-   central atom. Both descriptor factors contribute, including doubled diagonal
+   the fitting network and backpropagates `dE/dD` and `dE/dB`. One 128-thread
+   block cooperates on each central atom using shared memory. Both descriptor factors contribute, including doubled diagonal
    derivatives.
 4. CUDA `pullback` computes `dE/dR`, including the radial embedding chain term.
    Rust downloads only atomic energies and these environment gradients, then
@@ -28,7 +36,8 @@ float64. This is a CPU/CUDA inference pipeline, not CUDA training:
 
 All neural/descriptor arithmetic listed in steps 2-4 executes in real CUDA
 kernels. Geometry and final force/virial reduction remain CPU work. Weights stay
-resident; grow-only workspace buffers are reused. CUDA compilation occurs once
+resident; grow-only device and host workspace buffers are reused. Atom types are
+uploaded again only when their ordered vector changes. CUDA compilation occurs once
 per potential. Parameters are uploaded arrays, not generated source literals.
 The CUDA source specializes dimensions while retaining ordinary bounded loops.
 No fast-math flag is used; FMA contraction is disabled for closer CPU comparison.
@@ -61,8 +70,11 @@ Linux uses `libcuda.so.1` and `CUDA_PATH/lib64/libnvrtc.so`, defaulting to
 `OMNIMD_NVRTC_LIBRARY` path can name a different installed official NVRTC library.
 No dependency or driver is automatically installed. Rust builds can run on a
 machine without CUDA; using the CUDA backend requires compatible installed
-NVIDIA driver/NVRTC and a supported GPU. Windows x64 is the development target;
-Linux dynamic-loading code has not yet been runtime-verified.
+NVIDIA driver/NVRTC and a supported GPU. Windows x64 is the development target.
+[Linux dynamic loading and execution](../LINUX_CUDA_VALIDATION.md) passed on
+Ubuntu 22.04.5 x86_64 under WSL2, RTX 4090, driver 617.42/NVRTC 12.9.86 in the
+recorded official container. This validates the documented inference fixture and
+small tiled training/resume case, not other Linux configurations or architectures.
 
 Compile kernels without making driver calls or using a GPU:
 
@@ -87,15 +99,17 @@ width 32). Neighbor capacity overflow still fails; neighborhoods are not
 truncated. There are no compression tables, GPU neighbor search, GPU Adam or
 mixed-derivative training kernels.
 
-A simple thread-per-slot/thread-per-atom implementation favors reviewable
-correctness and avoids floating-point atomic reduction. Large local scratch
-arrays can spill, and consumer GPUs may have low FP64 throughput. Small models
+Embedding and pullback use one thread per slot; fitting uses one cooperative
+block per atom. Scalar sums retain explicit order and avoid floating-point
+atomic reduction. Embedding local scratch can still spill, and consumer GPUs
+may have low FP64 throughput. Small models
 can be slower after CPU geometry, transfers and launch overhead; no blanket
 speedup or production scaling claim is made.
 
 ## Controlled acceptance and timing
 
-CPU-only test suite with `--features cuda` currently passes 14 tests, including
+At the initial inference milestone, the CPU-only suite with `--features cuda`
+passed 15 tests, including
 strict packing and all existing CPU inference/training checks. NVRTC compilation
 has succeeded for tiny original, public converted and medium synthetic models.
 Actual GPU execution was subsequently checked in the controlled run below.

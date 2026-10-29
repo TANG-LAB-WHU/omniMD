@@ -176,3 +176,70 @@ pub(crate) fn validate_labels(data: &DatasetFrame) -> Result<()> {
     }
     Ok(())
 }
+
+/// Storage access only; numerical ordering and dataset identity are unchanged.
+/// A returned owned frame lives only for the current loop iteration.
+pub trait DatasetAccess: private::Sealed {
+    fn header(&self) -> &DatasetHeader;
+    fn source_sha256(&self) -> &BTreeMap<String, String>;
+    fn dataset_sha256(&self) -> &str;
+    fn len(&self) -> usize;
+    fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
+    fn index(&self, index: usize) -> Result<u64>;
+    fn id(&self, index: usize) -> Result<&str>;
+    fn atoms(&self, index: usize) -> Result<usize>;
+    fn frame(&self, index: usize) -> Result<std::borrow::Cow<'_, DatasetFrame>>;
+    fn indexed(&self) -> bool {
+        false
+    }
+    fn verify(&self) -> Result<()> {
+        Ok(())
+    }
+    fn access_report(&self) -> Option<crate::indexed_dataset::AccessReport> {
+        None
+    }
+}
+pub(crate) mod private {
+    pub trait Sealed {}
+}
+impl private::Sealed for Dataset {}
+impl DatasetAccess for Dataset {
+    fn header(&self) -> &DatasetHeader {
+        &self.header
+    }
+    fn source_sha256(&self) -> &BTreeMap<String, String> {
+        &self.source_sha256
+    }
+    fn dataset_sha256(&self) -> &str {
+        &self.dataset_sha256
+    }
+    fn len(&self) -> usize {
+        self.frames.len()
+    }
+    fn index(&self, index: usize) -> Result<u64> {
+        self.frames
+            .get(index)
+            .map(|f| f.index)
+            .ok_or_else(|| Error("dataset index out of range".into()))
+    }
+    fn id(&self, index: usize) -> Result<&str> {
+        self.frames
+            .get(index)
+            .map(|f| f.id.as_str())
+            .ok_or_else(|| Error("dataset index out of range".into()))
+    }
+    fn atoms(&self, index: usize) -> Result<usize> {
+        self.frames
+            .get(index)
+            .map(|f| f.frame.positions.len())
+            .ok_or_else(|| Error("dataset index out of range".into()))
+    }
+    fn frame(&self, index: usize) -> Result<std::borrow::Cow<'_, DatasetFrame>> {
+        self.frames
+            .get(index)
+            .map(std::borrow::Cow::Borrowed)
+            .ok_or_else(|| Error("dataset index out of range".into()))
+    }
+}

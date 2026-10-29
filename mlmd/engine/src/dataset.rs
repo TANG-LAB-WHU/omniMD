@@ -1,4 +1,5 @@
 //! Bounded, explicit dataset IO and evaluation statistics. No training or splitting.
+use crate::parameters::{self, FixedParameters, FramePolicy, Layout, Values};
 use omnimd_ml_contract::{Evaluation, Frame, ModelMetadata, Units};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
@@ -30,6 +31,8 @@ pub struct ImportRequest {
     pub sets: Vec<String>,
     pub units: Units,
     pub pbc: Pbc,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub parameter_layout: Option<Layout>,
 }
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -40,6 +43,8 @@ pub struct DatasetHeader {
     pub virial_convention: VirialConvention,
     pub source: String,
     pub selected_sets: Vec<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub parameter_layout: Option<Layout>,
 }
 #[derive(Debug, Default, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -72,6 +77,8 @@ pub struct DatasetFrame {
     pub id: String,
     pub frame: Frame,
     pub labels: Labels,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub parameters: Option<Values>,
 }
 #[derive(Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
@@ -125,7 +132,7 @@ pub fn sha256(path: &Path) -> Result<String> {
     }
     Ok(format!("{:x}", hasher.finalize()))
 }
-fn read_record(reader: &mut impl BufRead) -> Result<Option<Record>> {
+fn read_record(reader: &mut impl BufRead, hash: &mut Option<Sha256>) -> Result<Option<Record>> {
     let mut line = Vec::new();
     reader
         .take(MAX_LINE_BYTES + 1)
@@ -139,27 +146,95 @@ fn read_record(reader: &mut impl BufRead) -> Result<Option<Record>> {
     if line.last() != Some(&b'\n') {
         return Err("dataset record is missing its terminating newline".into());
     }
+    if let Some(hash) = hash {
+        hash.update(&line);
+    }
     Ok(Some(serde_json::from_slice(&line)?))
 }
+#[derive(Debug, Serialize)]
+pub struct DatasetProvenance {
+    pub dataset_sha256: String,
+    pub declared_source_sha256: BTreeMap<String, String>,
+}
+struct LimitedFile {
+    file: File,
+    remaining: u64,
+}
+impl Read for LimitedFile {
+    fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+        if buf.is_empty() {
+            return Ok(0);
+        }
+        if self.remaining == 0 {
+            let mut extra = [0];
+            return if self.file.read(&mut extra)? == 0 {
+                Ok(0)
+            } else {
+                Err(std::io::Error::new(
+                    std::io::ErrorKind::InvalidData,
+                    "dataset exceeds byte limit",
+                ))
+            };
+        }
+        let n = buf
+            .len()
+            .min(self.remaining.min(usize::MAX as u64) as usize);
+        let n = self.file.read(&mut buf[..n])?;
+        self.remaining -= n as u64;
+        Ok(n)
+    }
+}
 pub struct DatasetReader {
-    reader: BufReader<File>,
+    reader: BufReader<LimitedFile>,
     pub header: DatasetHeader,
     metadata: ModelMetadata,
     next_index: u64,
     ids: HashSet<String>,
     completed: bool,
+    hash: Option<Sha256>,
+    source_sha256: BTreeMap<String, String>,
 }
 impl DatasetReader {
     pub fn open(path: &Path) -> Result<Self> {
+        Self::open_inner(path, false, u64::MAX)
+    }
+    /// Hash the exact bytes consumed by this reader; retrieve only after full validation.
+    pub fn open_hashed(path: &Path) -> Result<Self> {
+        Self::open_inner(path, true, u64::MAX)
+    }
+    /// Enforce a total read-byte budget on the same handle used for hashing/validation.
+    pub fn open_hashed_bounded(path: &Path, max_bytes: u64) -> Result<Self> {
+        Self::open_inner(path, true, max_bytes)
+    }
+    pub fn completed_provenance(&self) -> Result<DatasetProvenance> {
+        if !self.completed {
+            return Err("dataset provenance requires validated completion".into());
+        }
+        let hash = self
+            .hash
+            .as_ref()
+            .ok_or("reader was not opened with byte hashing")?;
+        Ok(DatasetProvenance {
+            dataset_sha256: format!("{:x}", hash.clone().finalize()),
+            declared_source_sha256: self.source_sha256.clone(),
+        })
+    }
+    fn open_inner(path: &Path, hash_bytes: bool, max_bytes: u64) -> Result<Self> {
         if !path.is_absolute() {
             return Err("dataset path must be absolute".into());
         }
-        let mut reader = BufReader::new(File::open(path)?);
-        let Some(Record::Header { header }) = read_record(&mut reader)? else {
+        let mut reader = BufReader::new(LimitedFile {
+            file: File::open(path)?,
+            remaining: max_bytes,
+        });
+        let mut hash = hash_bytes.then(Sha256::new);
+        let Some(Record::Header { header }) = read_record(&mut reader, &mut hash)? else {
             return Err("dataset must start with one header".into());
         };
-        if header.schema != SCHEMA {
-            return Err("unsupported dataset schema".into());
+        match (header.schema.as_str(), &header.parameter_layout) {
+            (SCHEMA, None) => {}
+            (parameters::DATASET_SCHEMA, Some(layout)) => layout.validate()?,
+            _ => return Err("dataset v1 forbids parameter layout; v2 requires it".into()),
         }
         let metadata = type_metadata(&header.type_map);
         metadata.validate()?;
@@ -170,6 +245,8 @@ impl DatasetReader {
             next_index: 0,
             ids: HashSet::new(),
             completed: false,
+            hash,
+            source_sha256: BTreeMap::new(),
         })
     }
     /// Read until None to verify the terminal record and reject truncated/trailing data.
@@ -177,7 +254,7 @@ impl DatasetReader {
         if self.completed {
             return Ok(None);
         }
-        match read_record(&mut self.reader)? {
+        match read_record(&mut self.reader, &mut self.hash)? {
             Some(Record::Frame { data }) => {
                 if data.index != self.next_index
                     || data.id.is_empty()
@@ -190,6 +267,11 @@ impl DatasetReader {
                 }
                 data.frame.type_ids(&self.metadata)?;
                 data.labels.validate(data.frame.positions.len())?;
+                match (&self.header.parameter_layout, &data.parameters) {
+                    (None,None)=>{},
+                    (Some(layout),Some(values))=>values.validate(layout,data.frame.positions.len())?,
+                    _=>return Err("dataset parameter records must match header version/layout; no silent omission".into()),
+                }
                 self.next_index = self
                     .next_index
                     .checked_add(1)
@@ -208,15 +290,139 @@ impl DatasetReader {
                 {
                     return Err("invalid completed count or source SHA256".into());
                 }
-                if read_record(&mut self.reader)?.is_some() {
+                if read_record(&mut self.reader, &mut self.hash)?.is_some() {
                     return Err("completed must be the last dataset record".into());
                 }
+                self.source_sha256 = source_sha256;
                 self.completed = true;
                 Ok(None)
             }
             _ => Err("incomplete dataset or misplaced header; completed record required".into()),
         }
     }
+}
+/// Statistics for fully validated input. Source hashes are declarations, not reverified files.
+#[derive(Debug, Serialize)]
+pub struct DatasetInspection {
+    pub schema: &'static str,
+    pub dataset_sha256: String,
+    pub header: DatasetHeader,
+    pub declared_source_sha256: BTreeMap<String, String>,
+    pub source_hashes_verified: bool,
+    pub frames: u64,
+    pub atom_occurrences: u64,
+    pub min_atoms_per_frame: u64,
+    pub max_atoms_per_frame: u64,
+    pub species_atom_occurrences: BTreeMap<String, u64>,
+    pub periodic_frames: u64,
+    pub nonperiodic_frames: u64,
+    pub labels: LabelCoverage,
+    pub scope: &'static str,
+}
+#[derive(Debug, Default, Serialize)]
+pub struct LabelCoverage {
+    pub energy_frames: u64,
+    pub force_frames: u64,
+    pub virial_frames: u64,
+    pub energy_and_force_frames: u64,
+    pub all_frames_have_energy_and_forces: bool,
+    pub missing_energy_or_force_frames: u64,
+    pub missing_examples: Vec<MissingLabels>,
+    pub missing_examples_truncated: bool,
+}
+#[derive(Debug, Serialize)]
+pub struct MissingLabels {
+    pub index: u64,
+    pub id: String,
+    pub missing_energy: bool,
+    pub missing_forces: bool,
+}
+fn increment(count: &mut u64, amount: u64) -> Result<()> {
+    *count = count
+        .checked_add(amount)
+        .ok_or("inspection count overflow")?;
+    Ok(())
+}
+/// One file handle, one streaming pass. Hash original bytes including newlines.
+/// Existing unique-ID validation retains IDs; frame contents are not accumulated.
+pub fn inspect_dataset(path: &Path) -> Result<DatasetInspection> {
+    let mut reader = DatasetReader::open_hashed(path)?;
+    let mut report = DatasetInspection {
+        schema: "omnimd-dataset-inspection-v1",
+        dataset_sha256: String::new(),
+        header: reader.header.clone(),
+        declared_source_sha256: BTreeMap::new(),
+        source_hashes_verified: false,
+        frames: 0,
+        atom_occurrences: 0,
+        min_atoms_per_frame: u64::MAX,
+        max_atoms_per_frame: 0,
+        species_atom_occurrences: BTreeMap::new(),
+        periodic_frames: 0,
+        nonperiodic_frames: 0,
+        labels: LabelCoverage::default(),
+        scope: "Structural validation and label coverage only; no model compatibility, trainer size/rank/split checks, source-file verification, or physical accuracy assessment.",
+    };
+    while let Some(data) = reader.next_frame()? {
+        let atoms = u64::try_from(data.frame.positions.len())?;
+        increment(&mut report.frames, 1)?;
+        increment(&mut report.atom_occurrences, atoms)?;
+        report.min_atoms_per_frame = report.min_atoms_per_frame.min(atoms);
+        report.max_atoms_per_frame = report.max_atoms_per_frame.max(atoms);
+        for species in &data.frame.species {
+            increment(
+                report
+                    .species_atom_occurrences
+                    .entry(species.clone())
+                    .or_default(),
+                1,
+            )?;
+        }
+        if data.frame.cell.is_some() {
+            increment(&mut report.periodic_frames, 1)?;
+        } else {
+            increment(&mut report.nonperiodic_frames, 1)?;
+        }
+        let labels = &mut report.labels;
+        let energy = data.labels.energy.is_some();
+        let forces = data.labels.forces.is_some();
+        increment(&mut labels.energy_frames, u64::from(energy))?;
+        increment(&mut labels.force_frames, u64::from(forces))?;
+        increment(
+            &mut labels.virial_frames,
+            u64::from(data.labels.virial.is_some()),
+        )?;
+        increment(
+            &mut labels.energy_and_force_frames,
+            u64::from(energy && forces),
+        )?;
+        if !energy || !forces {
+            increment(&mut labels.missing_energy_or_force_frames, 1)?;
+            if labels.missing_examples.len() < 32 {
+                labels.missing_examples.push(MissingLabels {
+                    index: data.index,
+                    id: data.id,
+                    missing_energy: !energy,
+                    missing_forces: !forces,
+                });
+            } else {
+                labels.missing_examples_truncated = true;
+            }
+        }
+    }
+    // The reader rejects zero-frame, incomplete or trailing records before this point.
+    report.labels.all_frames_have_energy_and_forces =
+        report.labels.energy_and_force_frames == report.frames;
+    report.dataset_sha256 = format!(
+        "{:x}",
+        reader
+            .hash
+            .take()
+            .ok_or("inspection hash missing")?
+            .finalize()
+    );
+    report.declared_source_sha256 = reader.source_sha256;
+    Ok(report)
 }
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -225,12 +431,27 @@ pub struct FrameReference {
     pub index: u64,
 }
 impl FrameReference {
+    /// Geometry-only consumers must not silently discard conditioning parameters.
     pub fn resolve(&self) -> Result<Frame> {
+        let (frame, parameters) = self.resolve_with_parameters()?;
+        if parameters.is_some() {
+            return Err("this command does not accept parameterized dataset frames".into());
+        }
+        Ok(frame)
+    }
+    pub fn resolve_with_parameters(&self) -> Result<(Frame, Option<FixedParameters>)> {
         let mut reader = DatasetReader::open(&self.dataset)?;
         let mut found = None;
         while let Some(data) = reader.next_frame()? {
             if data.index == self.index {
-                found = Some(data.frame);
+                let parameters = match (reader.header.parameter_layout.clone(), data.parameters) {
+                    (Some(layout), Some(values)) => {
+                        Some(FixedParameters::new(layout, values, &data.frame)?)
+                    }
+                    (None, None) => None,
+                    _ => return Err("inconsistent parameter record".into()),
+                };
+                found = Some((data.frame, parameters));
             }
         }
         found.ok_or_else(|| "dataset frame index out of range".into())
@@ -390,6 +611,9 @@ fn check_shape(array: &Array, n: u64, width: u64, energy: bool) -> Result<()> {
     Ok(())
 }
 pub fn import_deepmd(request: &ImportRequest, output: &Path) -> Result<u64> {
+    if let Some(layout) = &request.parameter_layout {
+        layout.validate()?;
+    }
     if !request.system.is_absolute() || !request.system.is_dir() || request.sets.is_empty() {
         return Err(
             "system must be an absolute directory and sets must be explicit/nonempty".into(),
@@ -448,7 +672,13 @@ pub fn import_deepmd(request: &ImportRequest, output: &Path) -> Result<u64> {
     }
     let width = species.len() as u64 * 3;
     let header = DatasetHeader {
-        schema: SCHEMA.into(),
+        schema: if request.parameter_layout.is_some() {
+            parameters::DATASET_SCHEMA
+        } else {
+            SCHEMA
+        }
+        .into(),
+        parameter_layout: request.parameter_layout.clone(),
         type_map,
         units: request.units,
         virial_convention: VirialConvention::MinusDEpsilonRow,
@@ -465,7 +695,9 @@ pub fn import_deepmd(request: &ImportRequest, output: &Path) -> Result<u64> {
                 && !matches!(
                     name.as_str(),
                     "coord.npy" | "box.npy" | "energy.npy" | "force.npy" | "virial.npy"
-                ))
+                )
+                && !(request.parameter_layout.is_some()
+                    && matches!(name.as_str(), "fparam.npy" | "aparam.npy")))
                 || name.ends_with(".raw")
             {
                 return Err(format!("unsupported data field: {set}/{name}").into());
@@ -492,6 +724,21 @@ pub fn import_deepmd(request: &ImportRequest, output: &Path) -> Result<u64> {
         let energies = optional("energy", 1, true)?;
         let forces = optional("force", width, false)?;
         let virials = optional("virial", 9, false)?;
+        let (fp, ap) = if let Some(layout) = &request.parameter_layout {
+            let df = layout.fparam.len() as u64;
+            let da = layout.aparam.len() as u64;
+            let fp = optional("fparam", df, false)?;
+            let aw = (species.len() as u64)
+                .checked_mul(da)
+                .ok_or("atomic parameter width overflow")?;
+            let ap = optional("aparam", aw, false)?;
+            if fp.is_some() != (df > 0) || ap.is_some() != (da > 0) {
+                return Err("NPY parameters require arrays exactly for nonzero declared dimensions; no broadcast/defaults".into());
+            }
+            (fp, ap)
+        } else {
+            (None, None)
+        };
         for i in 0..n as usize {
             let width = width as usize;
             let frame = Frame {
@@ -513,7 +760,33 @@ pub fn import_deepmd(request: &ImportRequest, output: &Path) -> Result<u64> {
                     .map(|a| matrix3(&a.values[i * 9..(i + 1) * 9])),
             };
             labels.validate(species.len())?;
+            let parameters = if let Some(layout) = &request.parameter_layout {
+                let df = layout.fparam.len();
+                let da = layout.aparam.len();
+                let aw = species.len() * da;
+                let values = Values {
+                    frame_parameter_policy: FramePolicy::Explicit,
+                    fparam: fp
+                        .as_ref()
+                        .map(|a| a.values[i * df..(i + 1) * df].to_vec())
+                        .unwrap_or_default(),
+                    aparam: ap
+                        .as_ref()
+                        .map(|a| {
+                            a.values[i * aw..(i + 1) * aw]
+                                .chunks_exact(da)
+                                .map(|row| row.to_vec())
+                                .collect()
+                        })
+                        .unwrap_or_default(),
+                };
+                values.validate(layout, species.len())?;
+                Some(values)
+            } else {
+                None
+            };
             let data = DatasetFrame {
+                parameters,
                 index,
                 id: format!("{set}/{i}"),
                 frame,

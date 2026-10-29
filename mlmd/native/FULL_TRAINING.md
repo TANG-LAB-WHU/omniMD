@@ -2,10 +2,26 @@
 
 `omnimd-native-train` now has a second strict request schema,
 `omnimd-native-full-train-v1`. It trains all embedding and fitting matrices,
-biases and present timesteps jointly against energy and force labels using
+biases and present timesteps jointly against energy/force labels and optional
+[virial supervision](VIRIAL_TRAINING.md) using
 CPU float64 Rust. It preserves the existing readout request and inference model
 formats. The engine's `train-native REQUEST.json` wrapper can forward either
-request unchanged to this executable.
+request unchanged to this executable. The optional request field `device`
+defaults to `"cpu"`; a CUDA-enabled build also accepts explicit `"cuda:N"` for
+bounded all-neural-parameter GPU gradients and Adam. See
+[CUDA full training](CUDA_FULL_TRAINING.md) for its CPU/GPU boundary, tighter
+resource limits and checkpoint identity. E/F-only CPU v1 and CUDA v2 checkpoints
+remain compatible; enabled virial loss uses v3, opt-in CUDA reverse execution
+uses v4, explicit [minibatching](MINIBATCH_TRAINING.md) uses v5, and explicit
+[learning-rate scheduling](LEARNING_RATE.md) uses v6. Explicit
+[reverse tiling](TILED_TRAINING.md) takes precedence with v7; optional
+[GPU E/F/V prediction and loss seeds](DEVICE_LOSS_TRAINING.md) requires tiling
+and uses v8. CPU loss remains default. The GPU-loss whole-process synthetic
+comparison regressed 605->756 ms for 112 parameters and improved 3506->3061 ms
+for 466 parameters (1.15x); it is an explicit workload choice. Optional
+[larger-frame tiled CUDA training](LARGE_FRAME_TRAINING.md) admits up to 256 atoms
+under unchanged resource budgets and selects v9. CPU full-gradient and default
+CUDA modes retain their existing 64-atom frame limit.
 
 ## Supported scope
 
@@ -24,7 +40,7 @@ atomic offsets. Final fitting biases do train. Inference remains the existing
 shared `Potential` E/F/virial implementation, including normalized padding,
 quintic switching, full periodic-image enumeration and strict neighbor overflow.
 
-Current bounds: at most 10000 neural scalar parameters, 128 total neighbor
+Current CPU bounds: at most 10000 neural scalar parameters, 128 total neighbor
 slots, 64 atoms per frame, 1024 frames, and two million AD nodes per frame.
 The tape bound can reject a model below the other limits. Existing dataset
 limits of 128 MiB/file and 16 MiB/record still apply. This is a bounded reference
@@ -35,6 +51,7 @@ trainer, not a claim of production scaling. No new dependency was introduced.
 ```json
 {
   "schema": "omnimd-native-full-train-v1",
+  "device": "cpu",
   "initial_model": "initial.json",
   "dataset": "dataset.jsonl",
   "output_directory": "trained",
@@ -58,16 +75,19 @@ trainer, not a claim of production scaling. No new dependency was introduced.
 Run `omnimd-native-train REQUEST.json`. Paths are relative to the request file;
 output must be a new directory with an existing parent. The exact shared
 `omnimd-dataset-jsonl-v1` header/frame/completed contract is reused. Every frame
-must have E and F labels; missing values are errors, not zeros. Optional virial
-labels are used only for assessment. See [TRAINING.md](TRAINING.md) for the wire
+must have E and F labels; missing values are errors, not zeros. Virial labels
+are assessment-only by default. Adding `config.virial_loss` enables the
+[nine-component virial loss](VIRIAL_TRAINING.md) and requires virial labels on
+every frame. See [TRAINING.md](TRAINING.md) for the wire
 contract and strict parsing details.
 
 Seeded selection uses the existing SplitMix64/Fisher-Yates split, rounded
 validation count clamped to `[1, frames-1]`, and stable original dataset order.
 Alternatively use `{"mode":"explicit","validation_ids":["set.000/3"]}`.
-There is no optimizer RNG or minibatch reshuffling: the explicit split seed only
-controls validation selection. Validation labels never enter an update, model
-selection, or schedule. Every requested step is a complete training-set update;
+By default there is no optimizer RNG or reshuffling: the split seed only
+controls validation selection. Optional `config.minibatch` adds a separate explicit
+seed, order policy and exact sampler checkpoint; see [MINIBATCH_TRAINING.md](MINIBATCH_TRAINING.md). Validation labels never enter an update, model
+selection, or schedule. Without minibatching, every requested step is a complete training-set update;
 the exported model is the last iterate. Training reports retain exact dataset
 byte SHA-256, source SHA map, original index/ID of both splits, loss scales,
 parameter-layout hash, parameter group changes, and initial/final E/F/virial
@@ -81,14 +101,18 @@ L = (1/M) sum_f [wE ((E_f-E*_f)/(N_f sE))^2
                  + wF/(3 N_f) sum_q ((F_fq-F*_fq)/sF)^2]
 ```
 
-Weights are finite/nonnegative, with at least one positive. Both scales are
+E/F weights are finite/nonnegative, with at least one positive unless virial
+supervision is enabled. Both E/F scales are
 finite/positive even when their weight is zero. `gradient_clip_norm:null`
 disables clipping. Otherwise the whole accumulated gradient is scaled to the
 specified Euclidean norm before standard Adam moment updates. Learning rate is
-constant; moments are bias-corrected using the global step, with update divisor
-`sqrt(v_hat)+epsilon`. There is no ridge penalty, weight decay or virial loss.
+constant by default; optional [explicit schedules](LEARNING_RATE.md) use the
+global optimizer-update count. Moments are bias-corrected using the global step, with update divisor
+`sqrt(v_hat)+epsilon`. There is no ridge penalty or weight decay. Optional
+virial supervision adds a separately normalized term; see
+[VIRIAL_TRAINING.md](VIRIAL_TRAINING.md) for its exact formula and v3 restart rules.
 
-## Exact mixed derivatives
+## Exact E/F mixed derivatives
 
 With detached loss seeds `a=2*wE*(E-E*)/(M*N^2*sE^2)` and
 `v_q=2*wF*(F_q-F*_q)/(M*3*N*sF^2)`, use `F=-grad_r E`:
@@ -122,9 +146,13 @@ To continue, replace `initial_model` with
 `"checkpoint":"trained/checkpoint.json"`, choose a new output directory,
 and set `config.steps` to the number of **additional** updates. Exactly one of
 `initial_model` or `checkpoint` is required. All other configuration fields,
-including checkpoint interval and split specification, must match exactly.
+including checkpoint interval and split specification, must match exactly, except
+for the runtime-only CUDA fixed geometry cache flag. Explicit minibatching also
+requires unchanged batch size, seed and order policy. Explicit learning-rate
+schedules also require unchanged presence, kind, interval and decay rate;
+missing/null schedules retain historical checkpoint formats.
 
-Checkpoint schema `omnimd-native-full-checkpoint-v1` stores the last model,
+For E/F-only runs, CPU checkpoint schema `omnimd-native-full-checkpoint-v1` stores the last model,
 original anchor model, first/second moments, global step, configuration,
 dataset SHA, parameter-layout SHA and split indices. Restart checks both model
 schemas, shapes, finite moments/nonnegative second moments, split, exact dataset
@@ -182,3 +210,8 @@ This establishes implementation correctness for this bounded subset and
 learning on an original synthetic teacher. It does not establish physical
 accuracy, chemical generalization, production MD stability, full DeepMD/HAP
 support, a new optimization algorithm or any speed advantage.
+
+For explicit minibatching, [indexed dataset access](INDEXED_TRAINING.md) can read
+larger datasets one frame at a time. It preserves the existing memory-mode limits
+and numerical/checkpoint semantics; its own parsing/index bounds and the unchanged
+geometry payload cap are documented separately.
