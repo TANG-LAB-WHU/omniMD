@@ -49,13 +49,31 @@ impl LearningRateSchedule {
                 let exponent = completed_updates / decay_steps;
                 // The global step bound makes this conversion exact and safe.
                 // Integer exponent, no interpolation or repeated mutable LR state.
-                base * decay_rate.powi(exponent as i32)
+                base * powi_portable(*decay_rate, exponent)
             }
         };
         if !rate.is_finite() || rate <= 0.0 {
             return Err(Error(format!("learning-rate schedule is nonpositive/nonfinite at completed update {completed_updates} (possible float64 underflow)")));
         }
         Ok(rate)
+    }
+}
+
+/// `f64::powi` has unspecified precision and differs between toolchains (MSVC
+/// does not underflow 0.5^1075 to zero). This is compiler-rt's `__powidf2`
+/// square-and-multiply order, which the gnu toolchain used for all recorded
+/// schedules, written out so every platform rounds identically.
+fn powi_portable(mut factor: f64, mut exponent: u64) -> f64 {
+    let mut result = 1.0;
+    loop {
+        if exponent & 1 == 1 {
+            result *= factor;
+        }
+        exponent /= 2;
+        if exponent == 0 {
+            return result;
+        }
+        factor *= factor;
     }
 }
 
