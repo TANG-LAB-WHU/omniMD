@@ -1,7 +1,7 @@
 //! Input conversion for the fallible MLIP dynamics implemented in omnimd-sim.
-pub mod labeling;
 pub mod dataset;
 pub mod deviation;
+pub mod labeling;
 mod thermal;
 pub mod xyz;
 use omnimd_core::{Matrix3, Molecule, Particle, System, UnitCell, Vector3D};
