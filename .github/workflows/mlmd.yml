@@ -19,7 +19,7 @@ on:
 env:
   CARGO_TERM_COLOR: always
   MLMD_MANIFEST: mlmd/Cargo.toml
-  MLMD_PACKAGES: -p omnimd-mlmd -p omnimd-native -p omnimd-deepmd -p omnimd-ml-contract
+  MLMD_PACKAGES: -p omnimd-mlmd -p omnimd-native -p omnimd-deepmd -p omnimd-ml-contract -p omnimd-gpu
 
 jobs:
   fmt:

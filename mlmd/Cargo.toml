@@ -1,5 +1,5 @@
 [workspace]
-members = ["contract", "deepmd", "engine", "native"]
+members = ["contract", "deepmd", "engine", "gpu", "native"]
 resolver = "2"
 
 [workspace.package]

@@ -1,0 +1,294 @@
+//! Device runtime shared by omniMD GPU paths (plan W5, ADR-2).
+//!
+//! One [`Device`] owns a CUDA context, its default stream, a cuBLAS handle and a
+//! [`KernelCache`]. CUDA libraries are loaded at run time, so this crate builds
+//! and its host-only tests run on machines without a driver; [`Device::new`]
+//! then returns an error instead of panicking. Allocations go through the
+//! stream-ordered driver allocator (`cuMemAllocAsync`), which already pools.
+mod dense;
+mod kernels;
+
+pub use cudarc::driver::{CudaFunction, CudaSlice, CudaStream, LaunchConfig, PushKernelArg};
+pub use dense::{Activation, DenseLayer, DenseNetwork};
+pub use kernels::{CacheStats, KernelCache};
+
+use cudarc::cublas::{CudaBlas, Gemm, GemmConfig, StridedBatchedConfig};
+use cudarc::driver::{CudaContext, DeviceRepr, ValidAsZeroBits};
+use omnimd_ml_contract::{Error, Result};
+use std::fmt::Debug;
+use std::sync::Arc;
+
+pub(crate) fn cuda_error<E: Debug>(operation: &'static str) -> impl FnOnce(E) -> Error {
+    move |error| Error(format!("CUDA {operation} failed: {error:?}"))
+}
+
+/// Element types with device kernels and cuBLAS GEMM.
+pub trait Scalar: DeviceRepr + ValidAsZeroBits + Copy + Default + Debug + 'static {
+    /// Suffix of the `extern "C"` kernel instantiations (`f32` or `f64`).
+    const SUFFIX: &'static str;
+    const ONE: Self;
+    const ZERO: Self;
+    #[doc(hidden)]
+    unsafe fn gemm(
+        blas: &CudaBlas,
+        cfg: GemmConfig<Self>,
+        a: &CudaSlice<Self>,
+        b: &CudaSlice<Self>,
+        c: &mut CudaSlice<Self>,
+    ) -> std::result::Result<(), cudarc::cublas::result::CublasError>;
+    #[doc(hidden)]
+    unsafe fn gemm_strided_batched(
+        blas: &CudaBlas,
+        cfg: StridedBatchedConfig<Self>,
+        a: &CudaSlice<Self>,
+        b: &CudaSlice<Self>,
+        c: &mut CudaSlice<Self>,
+    ) -> std::result::Result<(), cudarc::cublas::result::CublasError>;
+}
+
+macro_rules! scalar {
+    ($t:ty, $suffix:literal) => {
+        impl Scalar for $t {
+            const SUFFIX: &'static str = $suffix;
+            const ONE: Self = 1.0;
+            const ZERO: Self = 0.0;
+            unsafe fn gemm(
+                blas: &CudaBlas,
+                cfg: GemmConfig<Self>,
+                a: &CudaSlice<Self>,
+                b: &CudaSlice<Self>,
+                c: &mut CudaSlice<Self>,
+            ) -> std::result::Result<(), cudarc::cublas::result::CublasError> {
+                Gemm::<$t>::gemm(blas, cfg, a, b, c)
+            }
+            unsafe fn gemm_strided_batched(
+                blas: &CudaBlas,
+                cfg: StridedBatchedConfig<Self>,
+                a: &CudaSlice<Self>,
+                b: &CudaSlice<Self>,
+                c: &mut CudaSlice<Self>,
+            ) -> std::result::Result<(), cudarc::cublas::result::CublasError> {
+                Gemm::<$t>::gemm_strided_batched(blas, cfg, a, b, c)
+            }
+        }
+    };
+}
+scalar!(f32, "f32");
+scalar!(f64, "f64");
+
+/// Shape of one row-major product `c[m×n] = a[m×k] · b[k×n]`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct MatmulShape {
+    pub m: usize,
+    pub k: usize,
+    pub n: usize,
+}
+
+impl MatmulShape {
+    fn dims(self) -> Result<(i32, i32, i32)> {
+        let fit = |v: usize| i32::try_from(v).ok().filter(|&v| v > 0);
+        match (fit(self.m), fit(self.k), fit(self.n)) {
+            (Some(m), Some(k), Some(n)) => Ok((m, k, n)),
+            _ => Err(Error(format!(
+                "matmul dimensions must be in 1..=i32::MAX, got {self:?}"
+            ))),
+        }
+    }
+
+    /// Row-major operands are the transposes of column-major ones, so cuBLAS
+    /// computes cᵀ[n×m] = bᵀ[n×k] · aᵀ[k×m] with every operand untransposed.
+    fn config<T: Scalar>(self, accumulate: bool) -> Result<GemmConfig<T>> {
+        let (m, k, n) = self.dims()?;
+        let op = cudarc::cublas::sys::cublasOperation_t::CUBLAS_OP_N;
+        Ok(GemmConfig {
+            transa: op,
+            transb: op,
+            m: n,
+            n: m,
+            k,
+            alpha: T::ONE,
+            lda: n,
+            ldb: k,
+            beta: if accumulate { T::ONE } else { T::ZERO },
+            ldc: n,
+        })
+    }
+}
+
+fn check_len(name: &str, actual: usize, needed: usize) -> Result<()> {
+    if actual < needed {
+        return Err(Error(format!(
+            "{name} holds {actual} elements, needs {needed}"
+        )));
+    }
+    Ok(())
+}
+
+pub struct Device {
+    context: Arc<CudaContext>,
+    stream: Arc<CudaStream>,
+    blas: CudaBlas,
+    kernels: KernelCache,
+    name: String,
+    capability: (i32, i32),
+}
+
+impl Device {
+    /// Opens GPU `ordinal`. Fails (never panics) when the driver, NVRTC or
+    /// cuBLAS library cannot be loaded or no such device exists.
+    pub fn new(ordinal: usize) -> Result<Self> {
+        let missing = unsafe {
+            [
+                ("CUDA driver", cudarc::driver::sys::is_culib_present()),
+                ("NVRTC", cudarc::nvrtc::sys::is_culib_present()),
+                ("cuBLAS", cudarc::cublas::sys::is_culib_present()),
+            ]
+        };
+        if let Some((library, _)) = missing.iter().find(|(_, present)| !present) {
+            return Err(Error(format!(
+                "{library} library not found; install the NVIDIA driver and CUDA 12 toolkit and put its bin directory on the library path"
+            )));
+        }
+        let context = CudaContext::new(ordinal).map_err(cuda_error("context creation"))?;
+        let stream = context.default_stream();
+        let blas = CudaBlas::new(stream.clone()).map_err(cuda_error("cuBLAS handle creation"))?;
+        let capability = context
+            .compute_capability()
+            .map_err(cuda_error("compute capability query"))?;
+        let name = context.name().map_err(cuda_error("device name query"))?;
+        let kernels = KernelCache::new(context.clone(), capability);
+        Ok(Self {
+            context,
+            stream,
+            blas,
+            kernels,
+            name,
+            capability,
+        })
+    }
+
+    pub fn name(&self) -> &str {
+        &self.name
+    }
+
+    pub fn compute_capability(&self) -> (i32, i32) {
+        self.capability
+    }
+
+    /// Free and total device memory in bytes.
+    pub fn memory_info(&self) -> Result<(usize, usize)> {
+        self.context
+            .mem_get_info()
+            .map_err(cuda_error("memory query"))
+    }
+
+    pub fn stream(&self) -> &Arc<CudaStream> {
+        &self.stream
+    }
+
+    pub fn kernels(&self) -> &KernelCache {
+        &self.kernels
+    }
+
+    pub fn upload<T: DeviceRepr>(&self, host: &[T]) -> Result<CudaSlice<T>> {
+        self.stream
+            .clone_htod(host)
+            .map_err(cuda_error("host-to-device copy"))
+    }
+
+    pub fn download<T: DeviceRepr>(&self, device: &CudaSlice<T>) -> Result<Vec<T>> {
+        self.stream
+            .clone_dtoh(device)
+            .map_err(cuda_error("device-to-host copy"))
+    }
+
+    pub fn zeros<T: DeviceRepr + ValidAsZeroBits>(&self, len: usize) -> Result<CudaSlice<T>> {
+        self.stream
+            .alloc_zeros(len)
+            .map_err(cuda_error("allocation"))
+    }
+
+    pub fn synchronize(&self) -> Result<()> {
+        self.stream
+            .synchronize()
+            .map_err(cuda_error("stream synchronize"))
+    }
+
+    /// Row-major `c = a·b`, or `c += a·b` when `accumulate`. Full-precision
+    /// cuBLAS (no TF32) so FP32 results stay comparable to the CPU reference.
+    pub fn matmul<T: Scalar>(
+        &self,
+        a: &CudaSlice<T>,
+        b: &CudaSlice<T>,
+        c: &mut CudaSlice<T>,
+        shape: MatmulShape,
+        accumulate: bool,
+    ) -> Result<()> {
+        let cfg = shape.config::<T>(accumulate)?;
+        check_len("matmul a", a.len(), shape.m * shape.k)?;
+        check_len("matmul b", b.len(), shape.k * shape.n)?;
+        check_len("matmul c", c.len(), shape.m * shape.n)?;
+        // Operand order is swapped for the column-major call; see `config`.
+        unsafe { T::gemm(&self.blas, cfg, b, a, c) }.map_err(cuda_error("cuBLAS GEMM"))
+    }
+
+    /// `batch` independent row-major products laid out back to back, e.g. one
+    /// embedding layer per (center type, neighbor type) pair.
+    pub fn matmul_batched<T: Scalar>(
+        &self,
+        a: &CudaSlice<T>,
+        b: &CudaSlice<T>,
+        c: &mut CudaSlice<T>,
+        shape: MatmulShape,
+        batch: usize,
+    ) -> Result<()> {
+        let gemm = shape.config::<T>(false)?;
+        let batch_size = i32::try_from(batch)
+            .ok()
+            .filter(|&b| b > 0)
+            .ok_or_else(|| Error(format!("batch must be in 1..=i32::MAX, got {batch}")))?;
+        let (sa, sb, sc) = (shape.m * shape.k, shape.k * shape.n, shape.m * shape.n);
+        check_len("batched matmul a", a.len(), sa * batch)?;
+        check_len("batched matmul b", b.len(), sb * batch)?;
+        check_len("batched matmul c", c.len(), sc * batch)?;
+        let cfg = StridedBatchedConfig {
+            gemm,
+            batch_size,
+            stride_a: sb as i64,
+            stride_b: sa as i64,
+            stride_c: sc as i64,
+        };
+        unsafe { T::gemm_strided_batched(&self.blas, cfg, b, a, c) }
+            .map_err(cuda_error("cuBLAS strided batched GEMM"))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn row_major_shape_maps_to_swapped_column_major_call() {
+        let cfg = MatmulShape { m: 7, k: 3, n: 5 }
+            .config::<f64>(true)
+            .unwrap();
+        assert_eq!((cfg.m, cfg.n, cfg.k), (5, 7, 3));
+        assert_eq!((cfg.lda, cfg.ldb, cfg.ldc), (5, 3, 5));
+        assert_eq!((cfg.alpha, cfg.beta), (1.0, 1.0));
+        assert_eq!(
+            MatmulShape { m: 7, k: 3, n: 5 }
+                .config::<f32>(false)
+                .unwrap()
+                .beta,
+            0.0
+        );
+        for bad in [(0, 1, 1), (1, 0, 1), (1, 1, i32::MAX as usize + 1)] {
+            let shape = MatmulShape {
+                m: bad.0,
+                k: bad.1,
+                n: bad.2,
+            };
+            assert!(shape.config::<f64>(false).is_err(), "{shape:?}");
+        }
+    }
+}

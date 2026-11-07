@@ -89,6 +89,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "cudarc"
+version = "0.19.10"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7359bf1de037ddada72729c3acec9b040f3468400c6e9e740b01ba0cd2e89562"
+dependencies = [
+ "libloading 0.9.0",
+]
+
+[[package]]
 name = "digest"
 version = "0.10.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -151,6 +160,16 @@ checksum = "07033963ba89ebaf1584d767badaa2e8fcec21aedea6b8c0346d487d49c28667"
 dependencies = [
  "cfg-if",
  "windows-targets",
+]
+
+[[package]]
+name = "libloading"
+version = "0.9.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "754ca22de805bb5744484a5b151a9e1a8e837d5dc232c2d7d8c2e3492edc8b60"
+dependencies = [
+ "cfg-if",
+ "windows-link",
 ]
 
 [[package]]
@@ -272,10 +291,19 @@ dependencies = [
 name = "omnimd-deepmd"
 version = "0.1.0"
 dependencies = [
- "libloading",
+ "libloading 0.8.8",
  "omnimd-ml-contract",
  "serde",
  "serde_json",
+]
+
+[[package]]
+name = "omnimd-gpu"
+version = "0.1.0"
+dependencies = [
+ "cudarc",
+ "omnimd-ml-contract",
+ "sha2",
 ]
 
 [[package]]
