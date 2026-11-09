@@ -1,3 +1,29 @@
+# GPU se_e2_a and LAMMPS baseline, 2026-11-09 (same card, model and frames)
+
+ms per energy/force/virial evaluation. DeePMD LAMMPS rows are `pair_style deepmd`
+NVE loop time per step (`deepmd-3.1.3-lammps-2026-11-09.csv`); omniMD rows are the
+in-process GPU evaluator, `omnimd-native-gpu-eval --precision P --bench K`
+(`omnimd-gpu-rtx4090-2026-11-09.csv`, stage times and errors in the `.json`).
+omniMD float32 runs the networks in float32; geometry, the B accumulation,
+forces and virial stay float64.
+
+| atoms | DeePMD LAMMPS fp64 | omniMD GPU fp64 | speed-up | DeePMD LAMMPS fp32 | omniMD GPU fp32 | speed-up |
+|---:|---:|---:|---:|---:|---:|---:|
+| 192 | 11.4 | 3.52 | 3.2× | 10.4 | 1.01 | 10.3× |
+| 1,536 | 41.9 | 15.7 | 2.7× | 13.1 | 2.86 | 4.6× |
+| 12,288 | 293 | 117 | 2.5× | 66.1 | 20.4 | 3.2× |
+| 98,304 | error | 929 | — | error | 175 | — |
+
+- Accuracy against DeepMD-kit CPU float64 `DeepPot` (192 and 1,536 atoms): omniMD
+  float64 energy is identical and the largest force difference is 2e-17 eV/Å. In
+  float32 the force error is at most 5.4e-9 eV/Å. At 12,288 and 98,304 atoms,
+  float32 is within 8.8e-9 eV/Å of omniMD float64.
+- LAMMPS rebuilds its neighbor list only every ~13 steps (2 Å skin), while omniMD
+  rebuilds on every evaluation. The comparison therefore slightly favors DeePMD.
+- At 98,304 atoms LAMMPS stopped with a TorchScript runtime error in both
+  precisions. This is probably out of memory, but that has not been verified.
+- Milestone M2 (12k atoms fp32 ≥ 1.0× DeePMD) is met: 3.2×.
+
 # W1 baseline, 2026-10-29 (RTX 4090 24 GB, Windows 11 host)
 
 Water `se_e2_a` (sel [46, 92], embedding [25, 50, 100], fitting [240, 240, 240]),
@@ -33,8 +59,8 @@ not run by design.
 ## Not measured yet
 
 - **LAMMPS `pair_style deepmd`:** every case failed in this run because the image
-  runs as root and Open MPI refuses that. `bench_deepmd.py` now sets
-  `OMPI_ALLOW_RUN_AS_ROOT`; this has not been rerun yet.
+  runs as root and Open MPI refuses that. The script also handed LAMMPS a relative
+  log path. Both are fixed; see the 2026-11-09 table above.
 - **DeePMD fp32 at 12,288 and 98,304 atoms:** the Docker Desktop VM went down
   during the fp32 12,288-atom DeepPot case and the run ended there.
 - **Compressed DeePMD models** (`dp compress`), which the W1 row of the plan lists,

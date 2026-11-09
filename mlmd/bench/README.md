@@ -24,7 +24,14 @@ docker run --rm -v $PWD/mlmd:/m -w /m ghcr.io/deepmodeling/deepmd-kit:3.1.3_cuda
 docker run --rm --gpus all -v $PWD/mlmd/bench:/work -w /work ghcr.io/deepmodeling/deepmd-kit:3.1.3_cuda129 python bench_deepmd.py cases results/deepmd-<tag>.csv
 # 4. omniMD timings (host; release build with --features cuda)
 python mlmd/bench/bench_omnimd.py mlmd/bench/cases <target>/release mlmd/bench/results/omnimd-<tag>.csv
+# 5. DeePMD reference E/F/V (CPU float64; DeepPot needs too much memory past 1,536 atoms)
+docker run --rm -v $PWD/mlmd/bench:/work -w /work ghcr.io/deepmodeling/deepmd-kit:3.1.3_cuda129 python deepmd_reference.py cases water-se_e2_a-float64.pth 192 1536 > mlmd/bench/cases/deepmd-ref-float64.jsonl
+# 6. omniMD GPU se_e2_a (host; cargo build --release -p omnimd-native --features gpu --bins)
+python mlmd/bench/bench_omnimd_gpu.py mlmd/bench/cases <target>/release mlmd/bench/results/omnimd-gpu-<tag>.csv --reference mlmd/bench/cases/deepmd-ref-float64.jsonl
 ```
+
+Step 6 also writes `omnimd-gpu-<tag>.json` with per-stage times and the energy,
+force and virial errors against the DeePMD reference and against omniMD float64.
 
 Run steps 3 and 4 one after the other, never at the same time, so they don't
 compete for the GPU. `cases/` is generated and git-ignored. Step 3 accepts

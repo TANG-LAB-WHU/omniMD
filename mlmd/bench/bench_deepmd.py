@@ -105,7 +105,7 @@ def run_lammps(case_dir, work_dir, model, case, natoms, precision):
            'precision': precision, 'natoms': natoms}
     # The image runs as root, which Open MPI refuses unless told otherwise.
     env = dict(os.environ, OMPI_ALLOW_RUN_AS_ROOT='1', OMPI_ALLOW_RUN_AS_ROOT_CONFIRM='1')
-    proc = subprocess.run(['lmp', '-in', str(script), '-log', str(script.with_suffix('.log'))],
+    proc = subprocess.run(['lmp', '-in', str(script.resolve()), '-log', str(script.with_suffix('.log').resolve())],
                           capture_output=True, text=True, cwd=work_dir, env=env)
     perf = re.findall(r'Performance:\s*([\d.]+) ns/day', proc.stdout)
     loop = re.findall(r'Loop time of ([\d.eE+-]+) on .* for (\d+) steps with', proc.stdout)
