@@ -1,9 +1,11 @@
 //! Cell-list neighbor search with DeePMD semantics (plan I-1).
 //!
 //! Atoms are binned on the host (counting sort over a grid whose cells are at
-//! least `rcut` wide); one GPU thread per center then scans the stencil of
-//! cells, including periodic images, and keeps for each neighbor type the
-//! `sel[type]` nearest neighbors ordered by (distance, atom, delta). Neighbors
+//! least `rcut` wide); one GPU warp per center then scans the stencil of
+//! cells, including periodic images, into shared memory and keeps for each
+//! neighbor type the `sel[type]` nearest neighbors ordered by (distance, atom,
+//! delta). Centers with more neighbors than the shared buffer holds fall back
+//! to one thread with insertion into the slots, which gives the same result. Neighbors
 //! beyond `sel` are dropped like DeePMD's `format_nlist`, and the full per-type
 //! counts and the minimum distance are kept for `dp neighbor-stat`.
 //!
@@ -15,6 +17,8 @@ use cudarc::driver::{CudaSlice, DevicePtr, DevicePtrMut, LaunchConfig, PushKerne
 use omnimd_ml_contract::{Error, Result};
 
 const SOURCE: &str = r#"
+#define FULL_MASK 0xffffffffu
+
 __device__ bool before(double r, int j, const double* d, double r2, int j2, const double* d2) {
     if (r != r2) return r < r2;
     if (j != j2) return j < j2;
@@ -24,14 +28,48 @@ __device__ bool before(double r, int j, const double* d, double r2, int j2, cons
 
 __device__ int floor_div(int a, int n) { return a >= 0 ? a / n : -((-a + n - 1) / n); }
 
-extern "C" __global__ void neighbor_search(
+// Stencil offset -> (cell, periodic image q); false when outside an open box.
+__device__ bool stencil_cell(const int* ci, const int* o, const int* n, int periodic, int* cell, int* q) {
+    int c[3];
+    for (int a = 0; a < 3; ++a) {
+        int raw = ci[a] + o[a];
+        if (periodic) {
+            q[a] = floor_div(raw, n[a]);
+            c[a] = raw - q[a] * n[a];
+        } else {
+            q[a] = 0;
+            c[a] = raw;
+            if (raw < 0 || raw >= n[a]) return false;
+        }
+    }
+    *cell = (c[0] * n[1] + c[1]) * n[2] + c[2];
+    return true;
+}
+
+__device__ void image_delta(const double* pos, const double* lattice, const double* pi, int j,
+        const int* q, double* d) {
+    for (int a = 0; a < 3; ++a) {
+        double shift = q[0] * lattice[a] + q[1] * lattice[3 + a] + q[2] * lattice[6 + a];
+        d[a] = pos[3 * (long long)j + a] + shift - pi[a];
+    }
+}
+
+__device__ int pack_image(const int* q) {
+    return (q[0] + 512) | ((q[1] + 512) << 10) | ((q[2] + 512) << 20);
+}
+
+__device__ void unpack_image(int packed, int* q) {
+    for (int a = 0; a < 3; ++a) q[a] = ((packed >> (10 * a)) & 1023) - 512;
+}
+
+// One thread does a whole center: insertion into the sorted per-type
+// segments in global memory. Used when a center has more neighbors than the
+// warp path's shared buffer holds.
+__device__ void serial_center(int i,
         const double* pos, const int* types, const int* cell_of, const int* cell_start,
-        const int* cell_atoms, const double* lattice, int natoms, int ntypes,
-        int nx, int ny, int nz, int sx, int sy, int sz, int periodic, double rcut,
-        const int* sel, const int* offset, int slots,
+        const int* cell_atoms, const double* lattice, int ntypes, const int* n,
+        const int* reach, int periodic, double rcut, const int* sel, const int* offset, int slots,
         int* index, double* delta, double* dist, int* count, double* min_dist, int* flags) {
-    int i = blockIdx.x * blockDim.x + threadIdx.x;
-    if (i >= natoms) return;
     long long base = (long long)i * slots;
     for (int s = 0; s < slots; ++s) {
         index[base + s] = -1;
@@ -42,33 +80,16 @@ extern "C" __global__ void neighbor_search(
     double best = __longlong_as_double(0x7ff0000000000000LL);
     const double* pi = pos + 3 * (long long)i;
     int ci[3] = {cell_of[3 * i], cell_of[3 * i + 1], cell_of[3 * i + 2]};
-    int n[3] = {nx, ny, nz};
-    for (int ox = -sx; ox <= sx; ++ox)
-    for (int oy = -sy; oy <= sy; ++oy)
-    for (int oz = -sz; oz <= sz; ++oz) {
-        int o[3] = {ox, oy, oz}, c[3], q[3];
-        bool skip = false;
-        for (int a = 0; a < 3; ++a) {
-            int raw = ci[a] + o[a];
-            if (periodic) {
-                q[a] = floor_div(raw, n[a]);
-                c[a] = raw - q[a] * n[a];
-            } else {
-                q[a] = 0;
-                c[a] = raw;
-                if (raw < 0 || raw >= n[a]) skip = true;
-            }
-        }
-        if (skip) continue;
-        double shift[3];
-        for (int a = 0; a < 3; ++a)
-            shift[a] = q[0] * lattice[a] + q[1] * lattice[3 + a] + q[2] * lattice[6 + a];
-        int cell = (c[0] * ny + c[1]) * nz + c[2];
+    for (int ox = -reach[0]; ox <= reach[0]; ++ox)
+    for (int oy = -reach[1]; oy <= reach[1]; ++oy)
+    for (int oz = -reach[2]; oz <= reach[2]; ++oz) {
+        int o[3] = {ox, oy, oz}, q[3], cell;
+        if (!stencil_cell(ci, o, n, periodic, &cell, q)) continue;
         for (int k = cell_start[cell]; k < cell_start[cell + 1]; ++k) {
             int j = cell_atoms[k];
             if (j == i && q[0] == 0 && q[1] == 0 && q[2] == 0) continue;
             double d[3];
-            for (int a = 0; a < 3; ++a) d[a] = pos[3 * (long long)j + a] + shift[a] - pi[a];
+            image_delta(pos, lattice, pi, j, q, d);
             double r2 = d[0] * d[0] + d[1] * d[1] + d[2] * d[2];
             if (!(r2 < rcut * rcut)) continue;
             double r = sqrt(r2);
@@ -102,6 +123,123 @@ extern "C" __global__ void neighbor_search(
     min_dist[i] = best;
     for (int t = 0; t < ntypes; ++t)
         if (count[(long long)i * ntypes + t] > sel[t]) atomicExch(&flags[1], 1);
+}
+
+// One warp per center. The lanes scan each stencil cell together and append
+// accepted neighbors to a per-warp shared buffer (ballot + popc), then each
+// lane ranks its entries within their type by (distance, atom, delta) and
+// writes the `sel` nearest straight to their slots. Same result as
+// `serial_center`, which takes over when the buffer would overflow.
+extern "C" __global__ void neighbor_search(
+        const double* pos, const int* types, const int* cell_of, const int* cell_start,
+        const int* cell_atoms, const double* lattice, int natoms, int ntypes,
+        int nx, int ny, int nz, int sx, int sy, int sz, int periodic, double rcut,
+        const int* sel, const int* offset, int slots, int capacity,
+        int* index, double* delta, double* dist, int* count, double* min_dist, int* flags) {
+    extern __shared__ double smem[];
+    int warps = blockDim.x >> 5, warp = threadIdx.x >> 5, lane = threadIdx.x & 31;
+    int i = blockIdx.x * warps + warp;
+    if (i >= natoms) return;
+    int n[3] = {nx, ny, nz}, reach[3] = {sx, sy, sz};
+    // Per warp: r[capacity] doubles, then j, packed image, type [capacity]
+    // ints, then the per-type counts.
+    int per_warp = capacity + (3 * capacity + ntypes + 1) / 2;
+    double* cr = smem + (long long)warp * per_warp;
+    int* cj = (int*)(cr + capacity);
+    int* cimg = cj + capacity;
+    int* ctype = cimg + capacity;
+    int* cnt = ctype + capacity;
+    for (int t = lane; t < ntypes; t += 32) cnt[t] = 0;
+    __syncwarp();
+    const double* pi = pos + 3 * (long long)i;
+    int ci[3] = {cell_of[3 * i], cell_of[3 * i + 1], cell_of[3 * i + 2]};
+    double best = __longlong_as_double(0x7ff0000000000000LL);
+    int total = 0;
+    for (int ox = -sx; ox <= sx; ++ox)
+    for (int oy = -sy; oy <= sy; ++oy)
+    for (int oz = -sz; oz <= sz; ++oz) {
+        int o[3] = {ox, oy, oz}, q[3], cell;
+        if (!stencil_cell(ci, o, n, periodic, &cell, q)) continue;
+        bool self_image = q[0] == 0 && q[1] == 0 && q[2] == 0;
+        int end = cell_start[cell + 1];
+        for (int k0 = cell_start[cell]; k0 < end; k0 += 32) {
+            int k = k0 + lane, j = -1, t = 0;
+            double r = 0.0;
+            bool accept = false;
+            if (k < end) {
+                j = cell_atoms[k];
+                if (!(j == i && self_image)) {
+                    double d[3];
+                    image_delta(pos, lattice, pi, j, q, d);
+                    double r2 = d[0] * d[0] + d[1] * d[1] + d[2] * d[2];
+                    if (r2 < rcut * rcut) {
+                        r = sqrt(r2);
+                        if (r <= 1e-12) atomicExch(&flags[0], 1);
+                        else { accept = true; t = types[j]; best = fmin(best, r); }
+                    }
+                }
+            }
+            unsigned mask = __ballot_sync(FULL_MASK, accept);
+            if (accept) {
+                int at = total + __popc(mask & ((1u << lane) - 1u));
+                atomicAdd(&cnt[t], 1);
+                if (at < capacity) {
+                    cr[at] = r;
+                    cj[at] = j;
+                    cimg[at] = pack_image(q);
+                    ctype[at] = t;
+                }
+            }
+            total += __popc(mask);
+        }
+    }
+    for (int offset_ = 16; offset_ > 0; offset_ >>= 1)
+        best = fmin(best, __shfl_down_sync(FULL_MASK, best, offset_));
+    __syncwarp();
+    if (total > capacity) {
+        if (lane == 0)
+            serial_center(i, pos, types, cell_of, cell_start, cell_atoms, lattice, ntypes, n, reach,
+                          periodic, rcut, sel, offset, slots, index, delta, dist, count, min_dist,
+                          flags);
+        return;
+    }
+    long long base = (long long)i * slots;
+    for (int s = lane; s < slots; s += 32) {
+        index[base + s] = -1;
+        dist[base + s] = __longlong_as_double(0x7ff0000000000000LL);
+        for (int a = 0; a < 3; ++a) delta[(base + s) * 3 + a] = 0.0;
+    }
+    for (int t = lane; t < ntypes; t += 32) {
+        count[(long long)i * ntypes + t] = cnt[t];
+        if (cnt[t] > sel[t]) atomicExch(&flags[1], 1);
+    }
+    if (lane == 0) min_dist[i] = best;
+    __syncwarp();
+    for (int e = lane; e < total; e += 32) {
+        int t = ctype[e];
+        if (sel[t] == 0) continue;
+        double re = cr[e], de[3];
+        int je = cj[e], qe[3], rank = 0;
+        unpack_image(cimg[e], qe);
+        image_delta(pos, lattice, pi, je, qe, de);
+        for (int f = 0; f < total; ++f) {
+            if (f == e || ctype[f] != t) continue;
+            double rf = cr[f];
+            if (rf < re) { ++rank; continue; }
+            if (rf > re) continue;
+            double df[3];
+            int qf[3];
+            unpack_image(cimg[f], qf);
+            image_delta(pos, lattice, pi, cj[f], qf, df);
+            if (before(rf, cj[f], df, re, je, de)) ++rank;
+        }
+        if (rank < sel[t]) {
+            long long at = base + offset[t] + rank;
+            index[at] = je;
+            dist[at] = re;
+            for (int a = 0; a < 3; ++a) delta[3 * at + a] = de[a];
+        }
+    }
 }
 "#;
 
@@ -245,6 +383,14 @@ fn bin(positions: &[[f64; 3]], cell: &Cell, rcut: f64) -> Result<Grid> {
     })
 }
 
+/// Shared memory one block may use without opting in to more.
+const SHARED_LIMIT: usize = 48 * 1024;
+
+/// Doubles of shared memory per warp for a buffer of `capacity` neighbors.
+fn warp_doubles(capacity: usize, ntypes: usize) -> usize {
+    capacity + (3 * capacity + ntypes + 1) / 2
+}
+
 impl NeighborList {
     pub fn build(
         device: &Device,
@@ -253,6 +399,21 @@ impl NeighborList {
         cell: &Cell,
         rcut: f64,
         sel: &[usize],
+    ) -> Result<Self> {
+        Self::build_with_capacity(device, positions, types, cell, rcut, sel, None)
+    }
+
+    /// `build` with an explicit per-center shared buffer size; centers with
+    /// more neighbors take the serial path. For tests of that path.
+    #[doc(hidden)]
+    pub fn build_with_capacity(
+        device: &Device,
+        positions: &[[f64; 3]],
+        types: &[i32],
+        cell: &Cell,
+        rcut: f64,
+        sel: &[usize],
+        capacity: Option<usize>,
     ) -> Result<Self> {
         let natoms = positions.len();
         let ntypes = sel.len();
@@ -339,6 +500,18 @@ impl NeighborList {
             i32::from(matches!(cell, Cell::Periodic(_))),
         ];
         let slots_i = slots as i32;
+        // Packed images need |q| < 512; past that every center goes serial.
+        let packable = grid.reach.iter().all(|&r| r < 500);
+        let max_capacity = (2 * (SHARED_LIMIT / 8) - ntypes - 1) / 5;
+        let capacity = match (capacity, packable) {
+            (_, false) => 0,
+            (Some(c), true) => c,
+            (None, true) => slots + slots / 2 + 32,
+        }
+        .min(max_capacity);
+        let warp_bytes = warp_doubles(capacity, ntypes) * 8;
+        let warps = (SHARED_LIMIT / warp_bytes).clamp(1, 4);
+        let capacity_i = capacity as i32;
         {
             let pointers = [
                 positions_d.device_ptr(stream),
@@ -369,13 +542,14 @@ impl NeighborList {
                 launch.arg(p);
             }
             launch.arg(&slots_i);
+            launch.arg(&capacity_i);
             for (p, _) in &outputs {
                 launch.arg(p);
             }
             let config = LaunchConfig {
-                grid_dim: (natoms.div_ceil(128) as u32, 1, 1),
-                block_dim: (128, 1, 1),
-                shared_mem_bytes: 0,
+                grid_dim: (natoms.div_ceil(warps) as u32, 1, 1),
+                block_dim: (32 * warps as u32, 1, 1),
+                shared_mem_bytes: (warps * warp_bytes) as u32,
             };
             unsafe { launch.launch(config) }
                 .map(drop)

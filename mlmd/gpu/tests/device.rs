@@ -509,8 +509,26 @@ fn check_neighbors(
     rcut: f64,
     sel: &[usize],
 ) {
+    // Default warp path, all-serial fallback, and a mix of both.
+    for capacity in [None, Some(0), Some(7)] {
+        let label = format!("{label} (capacity {capacity:?})");
+        check_neighbors_with(&label, positions, types, cell, rcut, sel, capacity);
+    }
+}
+
+fn check_neighbors_with(
+    label: &str,
+    positions: &[[f64; 3]],
+    types: &[i32],
+    cell: Cell,
+    rcut: f64,
+    sel: &[usize],
+    capacity: Option<usize>,
+) {
     let device = device().unwrap();
-    let list = NeighborList::build(device, positions, types, &cell, rcut, sel).unwrap();
+    let list =
+        NeighborList::build_with_capacity(device, positions, types, &cell, rcut, sel, capacity)
+            .unwrap();
     let (index, delta, counts, nearest) = neighbors_cpu(positions, types, &cell, rcut, sel);
     assert_eq!(
         device.download(&list.count).unwrap(),
