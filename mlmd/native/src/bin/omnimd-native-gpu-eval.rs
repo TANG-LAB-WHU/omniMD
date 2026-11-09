@@ -1,0 +1,140 @@
+//! JSONL evaluator on the omnimd-gpu se_e2_a path (device 0).
+//!
+//! ```text
+//! omnimd-native-gpu-eval MODEL.json [--precision float64|float32] [--bench K]
+//!                        [--profile] [--chunk ATOMS] < frames.jsonl
+//! ```
+//!
+//! `--precision float32` runs the networks in float32 (geometry, reductions,
+//! forces and virial stay float64). `--bench K` times K in-process
+//! evaluations of each frame after one warmup and prints one JSON line per
+//! frame to stderr; `--profile` adds per-stage times from one extra,
+//! synchronized evaluation. `--chunk` overrides the per-chunk atom count.
+use omnimd_gpu::{Device, Scalar};
+use omnimd_ml_contract::{Frame, Potential};
+use omnimd_native::{gpu_model::GpuPotential, NativePotential};
+use std::io::{BufRead, Write};
+use std::sync::Arc;
+use std::time::Instant;
+
+const USAGE: &str = "usage: omnimd-native-gpu-eval MODEL.json [--precision float64|float32] \
+                     [--bench K] [--profile] [--chunk ATOMS] < frames.jsonl";
+
+struct Options {
+    model: String,
+    float32: bool,
+    bench: usize,
+    profile: bool,
+    chunk: Option<usize>,
+}
+
+fn options() -> Result<Options, Box<dyn std::error::Error>> {
+    let mut args = std::env::args().skip(1);
+    let mut options = Options {
+        model: args.next().ok_or(USAGE)?,
+        float32: false,
+        bench: 0,
+        profile: false,
+        chunk: None,
+    };
+    while let Some(flag) = args.next() {
+        let mut value = || args.next().ok_or(USAGE);
+        match flag.as_str() {
+            "--precision" => {
+                options.float32 = match value()?.as_str() {
+                    "float32" => true,
+                    "float64" => false,
+                    other => return Err(format!("unknown precision {other:?}").into()),
+                }
+            }
+            "--bench" => options.bench = value()?.parse()?,
+            "--chunk" => options.chunk = Some(value()?.parse()?),
+            "--profile" => options.profile = true,
+            _ => return Err(USAGE.into()),
+        }
+    }
+    Ok(options)
+}
+
+fn evaluate<P: Scalar>(
+    options: &Options,
+    model: &NativePotential,
+    device: Arc<Device>,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let mut gpu = GpuPotential::<P>::new(model.model(), device)?;
+    if let Some(chunk) = options.chunk {
+        gpu.set_chunk_atoms(chunk);
+    }
+    eprintln!(
+        "precision: network {}, chunk {} atoms",
+        P::SUFFIX,
+        gpu.chunk_atoms()
+    );
+    let input = std::io::stdin();
+    let mut out = std::io::BufWriter::new(std::io::stdout().lock());
+    for (line_number, line) in input.lock().lines().enumerate() {
+        let line = line?;
+        if line.trim().is_empty() {
+            continue;
+        }
+        let frame: Frame =
+            serde_json::from_str(&line).map_err(|e| format!("frame {}: {e}", line_number + 1))?;
+        let evaluation = gpu.eval(&frame)?;
+        if gpu.last_truncated() {
+            eprintln!(
+                "warning: frame {} has more neighbors than sel; nearest kept",
+                line_number + 1
+            );
+        }
+        if options.bench > 0 {
+            gpu.eval(&frame)?;
+            let start = Instant::now();
+            for _ in 0..options.bench {
+                gpu.eval(&frame)?;
+            }
+            let ms = start.elapsed().as_secs_f64() * 1e3 / options.bench as f64;
+            eprintln!(
+                "{}",
+                serde_json::json!({"frame": line_number + 1, "natoms": frame.positions.len(),
+                    "precision": P::SUFFIX, "ms_per_eval": ms, "evaluations": options.bench})
+            );
+        }
+        if options.profile {
+            gpu.set_profiling(true);
+            gpu.eval(&frame)?;
+            eprintln!(
+                "{}",
+                serde_json::json!({"frame": line_number + 1, "stages_ms": gpu.stage_times()})
+            );
+            gpu.set_profiling(false);
+        }
+        serde_json::to_writer(&mut out, &evaluation)?;
+        writeln!(out)?;
+        out.flush()?;
+    }
+    Ok(())
+}
+
+fn run() -> Result<(), Box<dyn std::error::Error>> {
+    let options = options()?;
+    let model = NativePotential::load(&options.model)?;
+    let device = Arc::new(Device::new(0)?);
+    eprintln!(
+        "device: {} (sm_{}{})",
+        device.name(),
+        device.compute_capability().0,
+        device.compute_capability().1
+    );
+    if options.float32 {
+        evaluate::<f32>(&options, &model, device)
+    } else {
+        evaluate::<f64>(&options, &model, device)
+    }
+}
+
+fn main() {
+    if let Err(e) = run() {
+        eprintln!("GPU evaluation stopped: {e}");
+        std::process::exit(1);
+    }
+}

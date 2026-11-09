@@ -7,10 +7,15 @@
 //! stream-ordered driver allocator (`cuMemAllocAsync`), which already pools.
 mod dense;
 mod kernels;
+mod nlist;
 
-pub use cudarc::driver::{CudaFunction, CudaSlice, CudaStream, LaunchConfig, PushKernelArg};
-pub use dense::{Activation, DenseLayer, DenseNetwork};
+pub use cudarc::driver::{
+    CudaFunction, CudaSlice, CudaStream, CudaView, CudaViewMut, DevicePtr, DevicePtrMut,
+    DeviceSlice, DriverError, LaunchConfig, PushKernelArg,
+};
+pub use dense::{Activation, DenseLayer, DenseNetwork, DenseTape};
 pub use kernels::{CacheStats, KernelCache};
+pub use nlist::{Cell, NeighborList, NeighborStats};
 
 use cudarc::cublas::{CudaBlas, Gemm, GemmConfig, StridedBatchedConfig};
 use cudarc::driver::{CudaContext, DeviceRepr, ValidAsZeroBits};
@@ -28,13 +33,15 @@ pub trait Scalar: DeviceRepr + ValidAsZeroBits + Copy + Default + Debug + 'stati
     const SUFFIX: &'static str;
     const ONE: Self;
     const ZERO: Self;
+    fn from_f64(value: f64) -> Self;
+    fn to_f64(self) -> f64;
     #[doc(hidden)]
-    unsafe fn gemm(
+    unsafe fn gemm<A: DevicePtr<Self>, B: DevicePtr<Self>, C: DevicePtrMut<Self>>(
         blas: &CudaBlas,
         cfg: GemmConfig<Self>,
-        a: &CudaSlice<Self>,
-        b: &CudaSlice<Self>,
-        c: &mut CudaSlice<Self>,
+        a: &A,
+        b: &B,
+        c: &mut C,
     ) -> std::result::Result<(), cudarc::cublas::result::CublasError>;
     #[doc(hidden)]
     unsafe fn gemm_strided_batched(
@@ -52,12 +59,18 @@ macro_rules! scalar {
             const SUFFIX: &'static str = $suffix;
             const ONE: Self = 1.0;
             const ZERO: Self = 0.0;
-            unsafe fn gemm(
+            fn from_f64(value: f64) -> Self {
+                value as $t
+            }
+            fn to_f64(self) -> f64 {
+                self as f64
+            }
+            unsafe fn gemm<A: DevicePtr<Self>, B: DevicePtr<Self>, C: DevicePtrMut<Self>>(
                 blas: &CudaBlas,
                 cfg: GemmConfig<Self>,
-                a: &CudaSlice<Self>,
-                b: &CudaSlice<Self>,
-                c: &mut CudaSlice<Self>,
+                a: &A,
+                b: &B,
+                c: &mut C,
             ) -> std::result::Result<(), cudarc::cublas::result::CublasError> {
                 Gemm::<$t>::gemm(blas, cfg, a, b, c)
             }
@@ -96,18 +109,23 @@ impl MatmulShape {
     }
 
     /// Row-major operands are the transposes of column-major ones, so cuBLAS
-    /// computes cᵀ[n×m] = bᵀ[n×k] · aᵀ[k×m] with every operand untransposed.
-    fn config<T: Scalar>(self, accumulate: bool) -> Result<GemmConfig<T>> {
+    /// computes cᵀ[n×m] = op(b)ᵀ[n×k] · aᵀ[k×m]. With `transpose_b`, `b` is
+    /// stored as `[n][k]` and cuBLAS transposes it back.
+    fn config<T: Scalar>(self, accumulate: bool, transpose_b: bool) -> Result<GemmConfig<T>> {
+        use cudarc::cublas::sys::cublasOperation_t::{CUBLAS_OP_N, CUBLAS_OP_T};
         let (m, k, n) = self.dims()?;
-        let op = cudarc::cublas::sys::cublasOperation_t::CUBLAS_OP_N;
         Ok(GemmConfig {
-            transa: op,
-            transb: op,
+            transa: if transpose_b {
+                CUBLAS_OP_T
+            } else {
+                CUBLAS_OP_N
+            },
+            transb: CUBLAS_OP_N,
             m: n,
             n: m,
             k,
             alpha: T::ONE,
-            lda: n,
+            lda: if transpose_b { k } else { n },
             ldb: k,
             beta: if accumulate { T::ONE } else { T::ZERO },
             ldc: n,
@@ -150,6 +168,26 @@ impl Device {
             )));
         }
         let context = CudaContext::new(ordinal).map_err(cuda_error("context creation"))?;
+        if context.has_async_alloc() {
+            // Keep freed pool memory mapped: with the default release
+            // threshold of 0 every synchronization hands it back to the OS
+            // and the next evaluation pays to map it again.
+            use cudarc::driver::sys;
+            let mut pool = std::ptr::null_mut();
+            let mut threshold = u64::MAX;
+            unsafe {
+                sys::cuDeviceGetDefaultMemPool(&mut pool, context.cu_device())
+                    .result()
+                    .map_err(cuda_error("memory pool query"))?;
+                sys::cuMemPoolSetAttribute(
+                    pool,
+                    sys::CUmemPool_attribute::CU_MEMPOOL_ATTR_RELEASE_THRESHOLD,
+                    (&mut threshold as *mut u64).cast(),
+                )
+                .result()
+                .map_err(cuda_error("memory pool configuration"))?;
+            }
+        }
         let stream = context.default_stream();
         let blas = CudaBlas::new(stream.clone()).map_err(cuda_error("cuBLAS handle creation"))?;
         let capability = context
@@ -208,6 +246,15 @@ impl Device {
             .map_err(cuda_error("allocation"))
     }
 
+    /// Allocation without the zero fill, for buffers a kernel overwrites
+    /// completely before anything reads them.
+    ///
+    /// # Safety
+    /// Every element must be written on the device before it is read.
+    pub unsafe fn alloc_uninit<T: DeviceRepr>(&self, len: usize) -> Result<CudaSlice<T>> {
+        self.stream.alloc(len).map_err(cuda_error("allocation"))
+    }
+
     pub fn synchronize(&self) -> Result<()> {
         self.stream
             .synchronize()
@@ -216,15 +263,41 @@ impl Device {
 
     /// Row-major `c = a·b`, or `c += a·b` when `accumulate`. Full-precision
     /// cuBLAS (no TF32) so FP32 results stay comparable to the CPU reference.
+    /// Operands may be whole buffers or sub-range views.
     pub fn matmul<T: Scalar>(
         &self,
-        a: &CudaSlice<T>,
-        b: &CudaSlice<T>,
-        c: &mut CudaSlice<T>,
+        a: &impl DevicePtr<T>,
+        b: &impl DevicePtr<T>,
+        c: &mut impl DevicePtrMut<T>,
         shape: MatmulShape,
         accumulate: bool,
     ) -> Result<()> {
-        let cfg = shape.config::<T>(accumulate)?;
+        self.product(a, b, c, shape, accumulate, false)
+    }
+
+    /// Row-major `c = a·bᵀ` (or `+=`), with `b` stored as `[n][k]`; the
+    /// reverse pass of a layer whose weights are `[k][n]`.
+    pub fn matmul_bt<T: Scalar>(
+        &self,
+        a: &impl DevicePtr<T>,
+        b: &impl DevicePtr<T>,
+        c: &mut impl DevicePtrMut<T>,
+        shape: MatmulShape,
+        accumulate: bool,
+    ) -> Result<()> {
+        self.product(a, b, c, shape, accumulate, true)
+    }
+
+    fn product<T: Scalar>(
+        &self,
+        a: &impl DevicePtr<T>,
+        b: &impl DevicePtr<T>,
+        c: &mut impl DevicePtrMut<T>,
+        shape: MatmulShape,
+        accumulate: bool,
+        transpose_b: bool,
+    ) -> Result<()> {
+        let cfg = shape.config::<T>(accumulate, transpose_b)?;
         check_len("matmul a", a.len(), shape.m * shape.k)?;
         check_len("matmul b", b.len(), shape.k * shape.n)?;
         check_len("matmul c", c.len(), shape.m * shape.n)?;
@@ -242,7 +315,7 @@ impl Device {
         shape: MatmulShape,
         batch: usize,
     ) -> Result<()> {
-        let gemm = shape.config::<T>(false)?;
+        let gemm = shape.config::<T>(false, false)?;
         let batch_size = i32::try_from(batch)
             .ok()
             .filter(|&b| b > 0)
@@ -270,14 +343,18 @@ mod tests {
     #[test]
     fn row_major_shape_maps_to_swapped_column_major_call() {
         let cfg = MatmulShape { m: 7, k: 3, n: 5 }
-            .config::<f64>(true)
+            .config::<f64>(true, false)
             .unwrap();
         assert_eq!((cfg.m, cfg.n, cfg.k), (5, 7, 3));
         assert_eq!((cfg.lda, cfg.ldb, cfg.ldc), (5, 3, 5));
         assert_eq!((cfg.alpha, cfg.beta), (1.0, 1.0));
+        let cfg = MatmulShape { m: 7, k: 3, n: 5 }
+            .config::<f64>(false, true)
+            .unwrap();
+        assert_eq!((cfg.lda, cfg.ldb, cfg.ldc), (3, 3, 5));
         assert_eq!(
             MatmulShape { m: 7, k: 3, n: 5 }
-                .config::<f32>(false)
+                .config::<f32>(false, false)
                 .unwrap()
                 .beta,
             0.0
@@ -288,7 +365,7 @@ mod tests {
                 k: bad.1,
                 n: bad.2,
             };
-            assert!(shape.config::<f64>(false).is_err(), "{shape:?}");
+            assert!(shape.config::<f64>(false, false).is_err(), "{shape:?}");
         }
     }
 }

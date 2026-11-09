@@ -1,58 +1,109 @@
 //! Dense layers with the native network semantics (`native/src/network.rs`):
 //! `y = act(x·W + b)·dt`, plus `x[j mod input]` when residual, and
-//! `slope = act'(x·W + b)·dt`. The product runs in cuBLAS; bias, activation,
-//! timestep and residual are one fused epilogue kernel.
+//! `slope = act'(x·W + b)·dt`. The products run in cuBLAS; bias, activation,
+//! timestep and residual are fused epilogue kernels.
+//!
+//! Three passes: `forward` (optionally recording slopes), `forward_tangent`
+//! (value and directional derivative, used for the scalar-input embedding net)
+//! and `backward` (input adjoint from output adjoint and recorded slopes).
 use crate::{check_len, cuda_error, Device, MatmulShape, Scalar};
-use cudarc::driver::{CudaFunction, CudaSlice, LaunchConfig, PushKernelArg};
+use cudarc::driver::{
+    CudaFunction, CudaSlice, DevicePtr, DevicePtrMut, LaunchConfig, PushKernelArg,
+};
 use omnimd_ml_contract::{Error, Result};
 
-const EPILOGUE: &str = r#"
+const SOURCE: &str = r#"
 template <typename T>
-__device__ void dense_epilogue(T* y, T* slope, const T* x, const T* bias, const T* dt,
-                               long long rows, int in, int out, int act, int residual) {
-    long long idx = (long long)blockIdx.x * blockDim.x + threadIdx.x;
-    if (idx >= rows * out) return;
-    int j = (int)(idx % out);
-    long long r = idx / out;
-    T z = y[idx] + bias[j];
-    T v, s;
+__device__ void activate(int act, T z, T* v, T* s) {
     if (act == 1) {
-        v = tanh(z);
-        s = T(1) - v * v;
+        *v = tanh(z);
+        *s = T(1) - *v * *v;
     } else if (act == 2 || act == 3) {
         T e = exp(z >= T(0) ? -z : z);
         T sigmoid = z >= T(0) ? T(1) / (T(1) + e) : e / (T(1) + e);
         if (act == 2) {
-            v = sigmoid;
-            s = sigmoid * (T(1) - sigmoid);
+            *v = sigmoid;
+            *s = sigmoid * (T(1) - sigmoid);
         } else {
-            v = (z > T(0) ? z : T(0)) + log1p(e);
-            s = sigmoid;
+            *v = (z > T(0) ? z : T(0)) + log1p(e);
+            *s = sigmoid;
         }
     } else {
-        v = z;
-        s = T(1);
+        *v = z;
+        *s = T(1);
     }
+}
+
+// y holds x·W on entry; dy (tangent mode) holds dx·W.
+template <typename T>
+__device__ void epilogue(T* y, T* slope, T* dy, const T* x, const T* dx, const T* bias,
+                         const T* dt, long long rows, int in, int out, int act, int residual) {
+    long long idx = (long long)blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx >= rows * out) return;
+    int j = (int)(idx % out);
+    long long r = idx / out;
+    T v, s;
+    activate(act, y[idx] + bias[j], &v, &s);
     T scale = dt ? dt[j] : T(1);
     v *= scale;
     s *= scale;
-    if (residual) v += x[r * in + j % in];
+    long long source = r * in + j % in;
+    if (residual) v += x[source];
     y[idx] = v;
     if (slope) slope[idx] = s;
+    if (dy) dy[idx] = s * dy[idx] + (residual ? dx[source] : T(0));
 }
 
-extern "C" __global__ void dense_epilogue_f32(float* y, float* slope, const float* x,
-        const float* bias, const float* dt, long long rows, int in, int out, int act, int residual) {
-    dense_epilogue<float>(y, slope, x, bias, dt, rows, in, out, act, residual);
+template <typename T>
+__device__ void scale_by_slope(T* out, const T* adjoint, const T* slope, long long n) {
+    long long idx = (long long)blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx < n) out[idx] = adjoint[idx] * slope[idx];
 }
 
-extern "C" __global__ void dense_epilogue_f64(double* y, double* slope, const double* x,
-        const double* bias, const double* dt, long long rows, int in, int out, int act, int residual) {
-    dense_epilogue<double>(y, slope, x, bias, dt, rows, in, out, act, residual);
+// dx[r][i] += sum over j = i (mod in) of dy[r][j]: adjoint of the residual.
+template <typename T>
+__device__ void residual_adjoint(T* dx, const T* dy, long long rows, int in, int out) {
+    long long idx = (long long)blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx >= rows * in) return;
+    int i = (int)(idx % in);
+    long long r = idx / in;
+    T sum = T(0);
+    for (int j = i; j < out; j += in) sum += dy[r * out + j];
+    dx[idx] += sum;
 }
+
+#define INSTANTIATE(T, S)                                                                     \
+extern "C" __global__ void dense_epilogue_##S(T* y, T* slope, T* dy, const T* x, const T* dx, \
+        const T* bias, const T* dt, long long rows, int in, int out, int act, int residual) {   \
+    epilogue<T>(y, slope, dy, x, dx, bias, dt, rows, in, out, act, residual);                 \
+}                                                                                             \
+extern "C" __global__ void dense_scale_##S(T* out, const T* adjoint, const T* slope,          \
+        long long n) {                                                                        \
+    scale_by_slope<T>(out, adjoint, slope, n);                                                \
+}                                                                                             \
+extern "C" __global__ void dense_residual_adjoint_##S(T* dx, const T* dy, long long rows,     \
+        int in, int out) {                                                                    \
+    residual_adjoint<T>(dx, dy, rows, in, out);                                               \
+}
+INSTANTIATE(float, f32)
+INSTANTIATE(double, f64)
 "#;
 
 const BLOCK: u32 = 256;
+
+fn grid(total: usize) -> Result<LaunchConfig> {
+    let blocks = total.div_ceil(BLOCK as usize);
+    if total == 0 || blocks > u32::MAX as usize {
+        return Err(Error(format!(
+            "kernel over {total} elements is out of range"
+        )));
+    }
+    Ok(LaunchConfig {
+        grid_dim: (blocks as u32, 1, 1),
+        block_dim: (BLOCK, 1, 1),
+        shared_mem_bytes: 0,
+    })
+}
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Activation {
@@ -101,6 +152,12 @@ fn validate(
     Ok(())
 }
 
+struct Kernels {
+    epilogue: CudaFunction,
+    scale: CudaFunction,
+    residual_adjoint: CudaFunction,
+}
+
 pub struct DenseLayer<T: Scalar> {
     input: usize,
     output: usize,
@@ -109,7 +166,7 @@ pub struct DenseLayer<T: Scalar> {
     weights: CudaSlice<T>,
     bias: CudaSlice<T>,
     timestep: Option<CudaSlice<T>>,
-    epilogue: CudaFunction,
+    kernels: Kernels,
 }
 
 impl<T: Scalar> DenseLayer<T> {
@@ -133,7 +190,11 @@ impl<T: Scalar> DenseLayer<T> {
             timestep.map(<[T]>::len),
             residual,
         )?;
-        let name = format!("dense_epilogue_{}", T::SUFFIX);
+        let function = |name: &str| {
+            device
+                .kernels()
+                .function(SOURCE, &format!("{name}_{}", T::SUFFIX))
+        };
         Ok(Self {
             input,
             output,
@@ -142,7 +203,11 @@ impl<T: Scalar> DenseLayer<T> {
             weights: device.upload(weights)?,
             bias: device.upload(bias)?,
             timestep: timestep.map(|t| device.upload(t)).transpose()?,
-            epilogue: device.kernels().function(EPILOGUE, &name)?,
+            kernels: Kernels {
+                epilogue: function("dense_epilogue")?,
+                scale: function("dense_scale")?,
+                residual_adjoint: function("dense_residual_adjoint")?,
+            },
         })
     }
 
@@ -154,58 +219,149 @@ impl<T: Scalar> DenseLayer<T> {
         self.output
     }
 
+    fn shape(&self, rows: usize) -> MatmulShape {
+        MatmulShape {
+            m: rows,
+            k: self.input,
+            n: self.output,
+        }
+    }
+
     /// `rows` independent inputs `x[rows][input]` -> `y[rows][output]`.
     /// `slopes`, when given, receives `act'·dt` for the reverse pass.
     pub fn forward(
         &self,
         device: &Device,
-        x: &CudaSlice<T>,
+        x: &impl DevicePtr<T>,
         rows: usize,
-        y: &mut CudaSlice<T>,
+        y: &mut impl DevicePtrMut<T>,
         slopes: Option<&mut CudaSlice<T>>,
     ) -> Result<()> {
-        let total = rows
-            .checked_mul(self.output)
-            .filter(|&t| t > 0 && t.div_ceil(BLOCK as usize) <= u32::MAX as usize)
-            .ok_or_else(|| Error(format!("dense forward over {rows} rows is out of range")))?;
-        if let Some(slopes) = &slopes {
-            check_len("dense slopes", slopes.len(), total)?;
-        }
-        let shape = MatmulShape {
-            m: rows,
-            k: self.input,
-            n: self.output,
+        device.matmul(x, &self.weights, y, self.shape(rows), false)?;
+        let total = rows * self.output;
+        let stream = device.stream();
+        let (px, _gx) = x.device_ptr(stream);
+        let (py, _gy) = y.device_ptr_mut(stream);
+        let (pslope, _gs) = match slopes {
+            Some(s) => {
+                check_len("dense slopes", s.len(), total)?;
+                let (p, g) = s.device_ptr_mut(stream);
+                (p, Some(g))
+            }
+            None => (0, None),
         };
-        device.matmul(x, &self.weights, y, shape, false)?;
-        let null = 0u64;
+        self.epilogue(device, rows, [py, pslope, 0, px, 0])
+    }
+
+    /// Value and tangent: `dy` is the derivative of `y` along input direction `dx`.
+    pub fn forward_tangent(
+        &self,
+        device: &Device,
+        x: &impl DevicePtr<T>,
+        dx: &impl DevicePtr<T>,
+        rows: usize,
+        y: &mut impl DevicePtrMut<T>,
+        dy: &mut impl DevicePtrMut<T>,
+    ) -> Result<()> {
+        device.matmul(x, &self.weights, y, self.shape(rows), false)?;
+        device.matmul(dx, &self.weights, dy, self.shape(rows), false)?;
+        let stream = device.stream();
+        let (px, _gx) = x.device_ptr(stream);
+        let (pdx, _gdx) = dx.device_ptr(stream);
+        let (py, _gy) = y.device_ptr_mut(stream);
+        let (pdy, _gdy) = dy.device_ptr_mut(stream);
+        self.epilogue(device, rows, [py, 0, pdy, px, pdx])
+    }
+
+    /// Bias, activation, timestep and residual on `y = x·W` (and its tangent).
+    /// Pointers are `[y, slope, dy, x, dx]`, 0 when absent; callers check
+    /// lengths (cuBLAS already checked y, dy, x and dx) and hold the borrows.
+    fn epilogue(&self, device: &Device, rows: usize, pointers: [u64; 5]) -> Result<()> {
+        let config = grid(rows * self.output)?;
+        let stream = device.stream();
+        let (pdt, _gdt) = match &self.timestep {
+            Some(t) => {
+                let (p, g) = t.device_ptr(stream);
+                (p, Some(g))
+            }
+            None => (0, None),
+        };
+        let (pbias, _gbias) = self.bias.device_ptr(stream);
+        let [py, pslope, pdy, px, pdx] = pointers;
         let (rows, input, output) = (rows as i64, self.input as i32, self.output as i32);
         let (act, residual) = (self.activation.code(), i32::from(self.residual));
-        let mut launch = device.stream().launch_builder(&self.epilogue);
-        launch.arg(y);
-        match slopes {
-            Some(slopes) => launch.arg(slopes),
-            None => launch.arg(&null),
-        };
-        launch.arg(x).arg(&self.bias);
-        match &self.timestep {
-            Some(timestep) => launch.arg(timestep),
-            None => launch.arg(&null),
-        };
+        let mut launch = stream.launch_builder(&self.kernels.epilogue);
         launch
+            .arg(&py)
+            .arg(&pslope)
+            .arg(&pdy)
+            .arg(&px)
+            .arg(&pdx)
+            .arg(&pbias)
+            .arg(&pdt)
             .arg(&rows)
             .arg(&input)
             .arg(&output)
             .arg(&act)
             .arg(&residual);
-        let config = LaunchConfig {
-            grid_dim: (total.div_ceil(BLOCK as usize) as u32, 1, 1),
-            block_dim: (BLOCK, 1, 1),
-            shared_mem_bytes: 0,
-        };
         unsafe { launch.launch(config) }
             .map(drop)
             .map_err(cuda_error("dense epilogue launch"))
     }
+    /// Input adjoint `dx[rows][input]` from output adjoint `dy` and the slopes
+    /// recorded by `forward`. `dy` is not modified.
+    pub fn backward(
+        &self,
+        device: &Device,
+        dy: &impl DevicePtr<T>,
+        slopes: &CudaSlice<T>,
+        rows: usize,
+        dx: &mut impl DevicePtrMut<T>,
+    ) -> Result<()> {
+        let total = rows * self.output;
+        check_len("dense output adjoint", dy.len(), total)?;
+        check_len("dense slopes", slopes.len(), total)?;
+        let stream = device.stream();
+        // SAFETY: every element is written by the scale kernel below.
+        let mut scaled = unsafe { device.alloc_uninit::<T>(total)? };
+        {
+            let (pout, _g0) = scaled.device_ptr_mut(stream);
+            let (pdy, _g1) = dy.device_ptr(stream);
+            let (ps, _g2) = slopes.device_ptr(stream);
+            let n = total as i64;
+            let mut launch = stream.launch_builder(&self.kernels.scale);
+            launch.arg(&pout).arg(&pdy).arg(&ps).arg(&n);
+            unsafe { launch.launch(grid(total)?) }
+                .map(drop)
+                .map_err(cuda_error("dense slope scaling"))?;
+        }
+        // dx = (dy ⊙ slope) · Wᵀ, with W stored [input][output] = [n][k].
+        let shape = MatmulShape {
+            m: rows,
+            k: self.output,
+            n: self.input,
+        };
+        device.matmul_bt(&scaled, &self.weights, dx, shape, false)?;
+        if self.residual {
+            let (pdx, _g0) = dx.device_ptr_mut(stream);
+            let (pdy, _g1) = dy.device_ptr(stream);
+            let (r, i, o) = (rows as i64, self.input as i32, self.output as i32);
+            let mut launch = stream.launch_builder(&self.kernels.residual_adjoint);
+            launch.arg(&pdx).arg(&pdy).arg(&r).arg(&i).arg(&o);
+            unsafe { launch.launch(grid(rows * self.input)?) }
+                .map(drop)
+                .map_err(cuda_error("dense residual adjoint"))?;
+        }
+        Ok(())
+    }
+}
+
+/// What `DenseNetwork::forward_record` keeps for `backward`: per-layer slopes
+/// and the final output.
+pub struct DenseTape<T: Scalar> {
+    rows: usize,
+    slopes: Vec<CudaSlice<T>>,
+    pub output: CudaSlice<T>,
 }
 
 /// A chain of dense layers, e.g. an embedding net [1->25->50->100].
@@ -236,15 +392,127 @@ impl<T: Scalar> DenseNetwork<T> {
     }
 
     /// Inference forward pass; intermediates come from the stream-ordered pool.
-    pub fn forward(&self, device: &Device, x: &CudaSlice<T>, rows: usize) -> Result<CudaSlice<T>> {
+    pub fn forward(
+        &self,
+        device: &Device,
+        x: &impl DevicePtr<T>,
+        rows: usize,
+    ) -> Result<CudaSlice<T>> {
+        // SAFETY: fully overwritten by the GEMM (beta = 0) and epilogue.
+        let mut out = unsafe { device.alloc_uninit(rows * self.output())? };
+        self.forward_into(device, x, rows, &mut out)?;
+        Ok(out)
+    }
+
+    /// Forward pass writing the final layer straight into `out`.
+    pub fn forward_into(
+        &self,
+        device: &Device,
+        x: &impl DevicePtr<T>,
+        rows: usize,
+        out: &mut impl DevicePtrMut<T>,
+    ) -> Result<()> {
         check_len("network input", x.len(), rows * self.input())?;
+        let (last, hidden) = self.layers.split_last().unwrap();
         let mut current: Option<CudaSlice<T>> = None;
-        for layer in &self.layers {
-            let mut y = device.zeros(rows * layer.output)?;
-            layer.forward(device, current.as_ref().unwrap_or(x), rows, &mut y, None)?;
+        for layer in hidden {
+            // SAFETY: fully overwritten by the GEMM (beta = 0) and epilogue.
+            let mut y = unsafe { device.alloc_uninit(rows * layer.output)? };
+            match &current {
+                Some(c) => layer.forward(device, c, rows, &mut y, None)?,
+                None => layer.forward(device, x, rows, &mut y, None)?,
+            }
             current = Some(y);
         }
-        Ok(current.unwrap())
+        match &current {
+            Some(c) => last.forward(device, c, rows, out, None),
+            None => last.forward(device, x, rows, out, None),
+        }
+    }
+
+    /// Value and tangent along input direction `dx`, written to `out`/`dout`.
+    pub fn forward_tangent_into(
+        &self,
+        device: &Device,
+        x: &impl DevicePtr<T>,
+        dx: &impl DevicePtr<T>,
+        rows: usize,
+        out: &mut impl DevicePtrMut<T>,
+        dout: &mut impl DevicePtrMut<T>,
+    ) -> Result<()> {
+        check_len("network input", x.len(), rows * self.input())?;
+        let (last, hidden) = self.layers.split_last().unwrap();
+        let mut current: Option<(CudaSlice<T>, CudaSlice<T>)> = None;
+        for layer in hidden {
+            // SAFETY: fully overwritten by the GEMM (beta = 0) and epilogue.
+            let mut y = unsafe { device.alloc_uninit(rows * layer.output)? };
+            // SAFETY: fully overwritten by the GEMM (beta = 0) and epilogue.
+            let mut dy = unsafe { device.alloc_uninit(rows * layer.output)? };
+            match &current {
+                Some((c, dc)) => layer.forward_tangent(device, c, dc, rows, &mut y, &mut dy)?,
+                None => layer.forward_tangent(device, x, dx, rows, &mut y, &mut dy)?,
+            }
+            current = Some((y, dy));
+        }
+        match &current {
+            Some((c, dc)) => last.forward_tangent(device, c, dc, rows, out, dout),
+            None => last.forward_tangent(device, x, dx, rows, out, dout),
+        }
+    }
+
+    /// Forward pass that records slopes for `backward`.
+    pub fn forward_record(
+        &self,
+        device: &Device,
+        x: &impl DevicePtr<T>,
+        rows: usize,
+    ) -> Result<DenseTape<T>> {
+        check_len("network input", x.len(), rows * self.input())?;
+        let mut slopes = Vec::with_capacity(self.layers.len());
+        let mut current: Option<CudaSlice<T>> = None;
+        for layer in &self.layers {
+            // SAFETY: fully overwritten by the GEMM (beta = 0) and epilogue.
+            let mut y = unsafe { device.alloc_uninit(rows * layer.output)? };
+            // SAFETY: fully overwritten by the GEMM (beta = 0) and epilogue.
+            let mut slope = unsafe { device.alloc_uninit(rows * layer.output)? };
+            match &current {
+                Some(c) => layer.forward(device, c, rows, &mut y, Some(&mut slope))?,
+                None => layer.forward(device, x, rows, &mut y, Some(&mut slope))?,
+            }
+            slopes.push(slope);
+            current = Some(y);
+        }
+        Ok(DenseTape {
+            rows,
+            slopes,
+            output: current.unwrap(),
+        })
+    }
+
+    /// Input adjoint `dx[rows][input]` for output adjoint `dout[rows][output]`.
+    pub fn backward(
+        &self,
+        device: &Device,
+        tape: &DenseTape<T>,
+        dout: &impl DevicePtr<T>,
+        dx: &mut impl DevicePtrMut<T>,
+    ) -> Result<()> {
+        let rows = tape.rows;
+        let (first, rest) = self.layers.split_first().unwrap();
+        let mut adjoint: Option<CudaSlice<T>> = None;
+        for (layer, slope) in rest.iter().zip(&tape.slopes[1..]).rev() {
+            // SAFETY: fully overwritten by the GEMM (beta = 0) and epilogue.
+            let mut previous = unsafe { device.alloc_uninit(rows * layer.input)? };
+            match &adjoint {
+                Some(a) => layer.backward(device, a, slope, rows, &mut previous)?,
+                None => layer.backward(device, dout, slope, rows, &mut previous)?,
+            }
+            adjoint = Some(previous);
+        }
+        match &adjoint {
+            Some(a) => first.backward(device, a, &tape.slopes[0], rows, dx),
+            None => first.backward(device, dout, &tape.slopes[0], rows, dx),
+        }
     }
 }
 

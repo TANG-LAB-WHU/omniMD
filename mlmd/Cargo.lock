@@ -335,6 +335,7 @@ dependencies = [
 name = "omnimd-native"
 version = "0.1.0"
 dependencies = [
+ "omnimd-gpu",
  "omnimd-ml-contract",
  "serde",
  "serde_json",

@@ -12,15 +12,23 @@ serde_json = { version = "1", features = ["float_roundtrip"] }
 
 # Already approved/shared by the engine; provenance hashing only.
 sha2 = "0.10"
+# cudarc-based device runtime (plan W5+); loads CUDA at run time.
+omnimd-gpu = { path = "../gpu", optional = true }
 
 [features]
 default = []
 cuda = []
+gpu = ["dep:omnimd-gpu"]
 
 [[bin]]
 name = "omnimd-native-cuda-eval"
 path = "src/bin/omnimd-native-cuda-eval.rs"
 required-features = ["cuda"]
+
+[[bin]]
+name = "omnimd-native-gpu-eval"
+path = "src/bin/omnimd-native-gpu-eval.rs"
+required-features = ["gpu"]
 
 [[bin]]
 name = "omnimd-native-cuda-check"
