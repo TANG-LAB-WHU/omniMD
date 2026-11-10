@@ -188,14 +188,17 @@ absolute and outputs are never overwritten.
    ([guide step 4](GETTING_STARTED.md#4-import-and-inspect-your-data)).
 
 1. **Train the ensemble.** One request per member, differing in seeds and
-   output names, all in one command so they share the card:
+   output names, all in one command:
 
        omnimd-native-gpu-train member-0.json member-1.json member-2.json member-3.json
 
    A request carries the `model`, `learning_rate`, `loss` and `training`
    sections of a DeePMD input script ([GPU_TRAINING.md](native/GPU_TRAINING.md)).
-   In a later round give the previous model's path as `model` to continue from
-   it instead of drawing fresh networks.
+   As in DeePMD-kit's PyTorch backend, a loss term with a zero prefactor at
+   either end is off: `"start_pref_v": 0` trains without virials. In a later
+   round give the previous model's path as `model` to continue from it
+   instead of drawing fresh networks. The members train at about the speed
+   of one after the other; one command is the convenient form.
 
 2. **Score against held-out labels** (the counterpart of `dp test`):
 

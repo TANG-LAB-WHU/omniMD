@@ -1,0 +1,431 @@
+{
+ "mode": "float32-compressed",
+ "window_ev_per_angstrom": [
+  0.1,
+  0.3
+ ],
+ "models": [
+  0,
+  1,
+  2,
+  3
+ ],
+ "runs": {
+  "CaCO3_20_T300": {
+   "recorded": {
+    "frames": 401,
+    "accurate": 1.0,
+    "candidate": 0.0,
+    "failed": 0.0,
+    "mean_max_devi_f": 0.028651701578553616,
+    "max_devi_f_max": 0.05222379
+   },
+   "omnimd": {
+    "frames": 401,
+    "accurate": 1.0,
+    "candidate": 0.0,
+    "failed": 0.0,
+    "mean_max_devi_f": 0.030465471554861418,
+    "max_devi_f_max": 0.05466941226522261,
+    "ms_per_step": 0.8058339149996755,
+    "protocol": {
+     "temperature_kelvin": 300.0,
+     "thermostat_fs": 50.0,
+     "timestep_fs": 0.5,
+     "steps": 20000,
+     "sample_every": 50
+    }
+   }
+  },
+  "CaCO3_20_T500": {
+   "recorded": {
+    "frames": 401,
+    "accurate": 0.9850374064837906,
+    "candidate": 0.014962593516209476,
+    "failed": 0.0,
+    "mean_max_devi_f": 0.051649685019950126,
+    "max_devi_f_max": 0.1597091
+   },
+   "omnimd": {
+    "frames": 401,
+    "accurate": 0.9925187032418953,
+    "candidate": 0.007481296758104738,
+    "failed": 0.0,
+    "mean_max_devi_f": 0.05278210239093085,
+    "max_devi_f_max": 0.11805624246361165,
+    "ms_per_step": 0.7972964499997033,
+    "protocol": {
+     "temperature_kelvin": 500.0,
+     "thermostat_fs": 50.0,
+     "timestep_fs": 0.5,
+     "steps": 20000,
+     "sample_every": 50
+    }
+   }
+  },
+  "calcite_CaCO3_T300": {
+   "recorded": {
+    "frames": 401,
+    "accurate": 1.0,
+    "candidate": 0.0,
+    "failed": 0.0,
+    "mean_max_devi_f": 0.026800898917705738,
+    "max_devi_f_max": 0.04957742
+   },
+   "omnimd": {
+    "frames": 401,
+    "accurate": 1.0,
+    "candidate": 0.0,
+    "failed": 0.0,
+    "mean_max_devi_f": 0.026612826614893306,
+    "max_devi_f_max": 0.05215350029943746,
+    "ms_per_step": 0.6433836800002609,
+    "protocol": {
+     "temperature_kelvin": 300.0,
+     "thermostat_fs": 50.0,
+     "timestep_fs": 0.5,
+     "steps": 20000,
+     "sample_every": 50
+    }
+   }
+  },
+  "calcite_CaCO3_T500": {
+   "recorded": {
+    "frames": 401,
+    "accurate": 0.9975062344139651,
+    "candidate": 0.0024937655860349127,
+    "failed": 0.0,
+    "mean_max_devi_f": 0.045391418842892765,
+    "max_devi_f_max": 0.1004941
+   },
+   "omnimd": {
+    "frames": 401,
+    "accurate": 0.9975062344139651,
+    "candidate": 0.0024937655860349127,
+    "failed": 0.0,
+    "mean_max_devi_f": 0.0460677977619937,
+    "max_devi_f_max": 0.10960262624386567,
+    "ms_per_step": 0.6446733950004273,
+    "protocol": {
+     "temperature_kelvin": 500.0,
+     "thermostat_fs": 50.0,
+     "timestep_fs": 0.5,
+     "steps": 20000,
+     "sample_every": 50
+    }
+   }
+  },
+  "hap001_co2_T300": {
+   "recorded": {
+    "frames": 401,
+    "accurate": 0.04488778054862843,
+    "candidate": 0.256857855361596,
+    "failed": 0.6982543640897756,
+    "mean_max_devi_f": 0.6694666259351622,
+    "max_devi_f_max": 2.595883
+   },
+   "omnimd": {
+    "frames": 401,
+    "accurate": 0.029925187032418952,
+    "candidate": 0.1396508728179551,
+    "failed": 0.830423940149626,
+    "mean_max_devi_f": 1.1728661694783966,
+    "max_devi_f_max": 3.210528569108179,
+    "ms_per_step": 0.6234958850000112,
+    "protocol": {
+     "temperature_kelvin": 300.0,
+     "thermostat_fs": 50.0,
+     "timestep_fs": 0.5,
+     "steps": 20000,
+     "sample_every": 50
+    }
+   }
+  },
+  "hap001_co2_T500": {
+   "recorded": {
+    "frames": 401,
+    "accurate": 0.04239401496259352,
+    "candidate": 0.4139650872817955,
+    "failed": 0.543640897755611,
+    "mean_max_devi_f": 0.5166228712219452,
+    "max_devi_f_max": 2.50407
+   },
+   "omnimd": {
+    "frames": 401,
+    "accurate": 0.034912718204488775,
+    "candidate": 0.24937655860349128,
+    "failed": 0.71571072319202,
+    "mean_max_devi_f": 0.9139765273454776,
+    "max_devi_f_max": 2.4862309320025813,
+    "ms_per_step": 0.640169920000335,
+    "protocol": {
+     "temperature_kelvin": 500.0,
+     "thermostat_fs": 50.0,
+     "timestep_fs": 0.5,
+     "steps": 20000,
+     "sample_every": 50
+    }
+   }
+  },
+  "hap001_water_co2_T300": {
+   "recorded": {
+    "frames": 401,
+    "accurate": 0.0,
+    "candidate": 0.0773067331670823,
+    "failed": 0.9226932668329177,
+    "mean_max_devi_f": 21.561160552618453,
+    "max_devi_f_max": 43.2446
+   },
+   "omnimd": {
+    "frames": 401,
+    "accurate": 0.0,
+    "candidate": 0.05236907730673317,
+    "failed": 0.9476309226932669,
+    "mean_max_devi_f": 45.03537776734756,
+    "max_devi_f_max": 414.15464061554,
+    "ms_per_step": 1.2129268299999239,
+    "protocol": {
+     "temperature_kelvin": 300.0,
+     "thermostat_fs": 50.0,
+     "timestep_fs": 0.5,
+     "steps": 20000,
+     "sample_every": 50
+    }
+   }
+  },
+  "hap001_water_co2_T500": {
+   "recorded": {
+    "frames": 401,
+    "accurate": 0.0,
+    "candidate": 0.017456359102244388,
+    "failed": 0.9825436408977556,
+    "mean_max_devi_f": 31.20048178054863,
+    "max_devi_f_max": 52.42548
+   },
+   "omnimd": {
+    "frames": 401,
+    "accurate": 0.0,
+    "candidate": 0.02493765586034913,
+    "failed": 0.9750623441396509,
+    "mean_max_devi_f": 44.18639548662051,
+    "max_devi_f_max": 354.6028255033086,
+    "ms_per_step": 0.9324083300001803,
+    "protocol": {
+     "temperature_kelvin": 500.0,
+     "thermostat_fs": 50.0,
+     "timestep_fs": 0.5,
+     "steps": 20000,
+     "sample_every": 50
+    }
+   }
+  },
+  "hap_bulk_T300": {
+   "recorded": {
+    "frames": 401,
+    "accurate": 1.0,
+    "candidate": 0.0,
+    "failed": 0.0,
+    "mean_max_devi_f": 0.03515905815461347,
+    "max_devi_f_max": 0.05376625
+   },
+   "omnimd": {
+    "frames": 401,
+    "accurate": 1.0,
+    "candidate": 0.0,
+    "failed": 0.0,
+    "mean_max_devi_f": 0.033127049068402206,
+    "max_devi_f_max": 0.05067301090823685,
+    "ms_per_step": 0.6385194900001807,
+    "protocol": {
+     "temperature_kelvin": 300.0,
+     "thermostat_fs": 50.0,
+     "timestep_fs": 0.5,
+     "steps": 20000,
+     "sample_every": 50
+    }
+   }
+  },
+  "hap_bulk_T500": {
+   "recorded": {
+    "frames": 401,
+    "accurate": 1.0,
+    "candidate": 0.0,
+    "failed": 0.0,
+    "mean_max_devi_f": 0.04954912496259352,
+    "max_devi_f_max": 0.08875418
+   },
+   "omnimd": {
+    "frames": 401,
+    "accurate": 0.9750623441396509,
+    "candidate": 0.02493765586034913,
+    "failed": 0.0,
+    "mean_max_devi_f": 0.04888823859081436,
+    "max_devi_f_max": 0.2559099891517924,
+    "ms_per_step": 0.608602019999671,
+    "protocol": {
+     "temperature_kelvin": 500.0,
+     "thermostat_fs": 50.0,
+     "timestep_fs": 0.5,
+     "steps": 20000,
+     "sample_every": 50
+    }
+   }
+  },
+  "lime_CaO_T300": {
+   "recorded": {
+    "frames": 401,
+    "accurate": 1.0,
+    "candidate": 0.0,
+    "failed": 0.0,
+    "mean_max_devi_f": 0.015273501665835418,
+    "max_devi_f_max": 0.04177817
+   },
+   "omnimd": {
+    "frames": 401,
+    "accurate": 1.0,
+    "candidate": 0.0,
+    "failed": 0.0,
+    "mean_max_devi_f": 0.01902918909909953,
+    "max_devi_f_max": 0.029488014654747874,
+    "ms_per_step": 0.5826451100001577,
+    "protocol": {
+     "temperature_kelvin": 300.0,
+     "thermostat_fs": 50.0,
+     "timestep_fs": 0.5,
+     "steps": 20000,
+     "sample_every": 50
+    }
+   }
+  },
+  "lime_CaO_T500": {
+   "recorded": {
+    "frames": 401,
+    "accurate": 0.9925187032418953,
+    "candidate": 0.007481296758104738,
+    "failed": 0.0,
+    "mean_max_devi_f": 0.027760680972568588,
+    "max_devi_f_max": 0.1981848
+   },
+   "omnimd": {
+    "frames": 401,
+    "accurate": 1.0,
+    "candidate": 0.0,
+    "failed": 0.0,
+    "mean_max_devi_f": 0.030943185382147013,
+    "max_devi_f_max": 0.08785784182675656,
+    "ms_per_step": 0.5884748399999807,
+    "protocol": {
+     "temperature_kelvin": 500.0,
+     "thermostat_fs": 50.0,
+     "timestep_fs": 0.5,
+     "steps": 20000,
+     "sample_every": 50
+    }
+   }
+  },
+  "monetite_CaHPO4_T300": {
+   "recorded": {
+    "frames": 401,
+    "accurate": 0.7182044887780549,
+    "candidate": 0.2817955112219451,
+    "failed": 0.0,
+    "mean_max_devi_f": 0.0957572204488778,
+    "max_devi_f_max": 0.1849132
+   },
+   "omnimd": {
+    "frames": 401,
+    "accurate": 0.628428927680798,
+    "candidate": 0.371571072319202,
+    "failed": 0.0,
+    "mean_max_devi_f": 0.09921249049402948,
+    "max_devi_f_max": 0.2082858578417608,
+    "ms_per_step": 0.8988889849999395,
+    "protocol": {
+     "temperature_kelvin": 300.0,
+     "thermostat_fs": 50.0,
+     "timestep_fs": 0.5,
+     "steps": 20000,
+     "sample_every": 50
+    }
+   }
+  },
+  "monetite_CaHPO4_T500": {
+   "recorded": {
+    "frames": 401,
+    "accurate": 0.004987531172069825,
+    "candidate": 0.02493765586034913,
+    "failed": 0.970074812967581,
+    "mean_max_devi_f": 29.505844014339154,
+    "max_devi_f_max": 45.95726
+   },
+   "omnimd": {
+    "frames": 401,
+    "accurate": 0.007481296758104738,
+    "candidate": 0.04488778054862843,
+    "failed": 0.9476309226932669,
+    "mean_max_devi_f": 33.19657464134277,
+    "max_devi_f_max": 195.8257325198894,
+    "ms_per_step": 1.0391449500006273,
+    "protocol": {
+     "temperature_kelvin": 500.0,
+     "thermostat_fs": 50.0,
+     "timestep_fs": 0.5,
+     "steps": 20000,
+     "sample_every": 50
+    }
+   }
+  },
+  "portlandite_CaOH2_T300": {
+   "recorded": {
+    "frames": 401,
+    "accurate": 1.0,
+    "candidate": 0.0,
+    "failed": 0.0,
+    "mean_max_devi_f": 0.027667891172069827,
+    "max_devi_f_max": 0.06805164
+   },
+   "omnimd": {
+    "frames": 401,
+    "accurate": 1.0,
+    "candidate": 0.0,
+    "failed": 0.0,
+    "mean_max_devi_f": 0.028306649517688083,
+    "max_devi_f_max": 0.062137996115301755,
+    "ms_per_step": 0.6601701350002258,
+    "protocol": {
+     "temperature_kelvin": 300.0,
+     "thermostat_fs": 50.0,
+     "timestep_fs": 0.5,
+     "steps": 20000,
+     "sample_every": 50
+    }
+   }
+  },
+  "portlandite_CaOH2_T500": {
+   "recorded": {
+    "frames": 401,
+    "accurate": 0.9850374064837906,
+    "candidate": 0.014962593516209476,
+    "failed": 0.0,
+    "mean_max_devi_f": 0.05262854249376559,
+    "max_devi_f_max": 0.1225998
+   },
+   "omnimd": {
+    "frames": 401,
+    "accurate": 0.9551122194513716,
+    "candidate": 0.04488778054862843,
+    "failed": 0.0,
+    "mean_max_devi_f": 0.05163022574428966,
+    "max_devi_f_max": 0.2576148198477251,
+    "ms_per_step": 0.667058344999532,
+    "protocol": {
+     "temperature_kelvin": 500.0,
+     "thermostat_fs": 50.0,
+     "timestep_fs": 0.5,
+     "steps": 20000,
+     "sample_every": 50
+    }
+   }
+  }
+ }
+}

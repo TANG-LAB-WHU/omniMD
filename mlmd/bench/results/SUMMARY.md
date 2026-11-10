@@ -1,36 +1,102 @@
 # Training on the HAP iteration-0 data, 2026-11-10
 
-`omnimd-native-gpu-train` from fresh networks on the training set the HAP
-pipeline's iteration-0 DeePMD models used (196 frames in 8 systems, 152 with
-virial labels), with the pipeline's DeePMD settings (se_e2_a, `sel`
-[44, 16, 60, 72, 20], embedding [25, 50, 100], fitting [240, 240, 240],
-2,664,455 parameters, float64; learning rate 1e-3 to 3e-8, 300,000 steps of
-one frame). Scored on the pipeline's 83-frame sealed test with
-`omnimd-native-gpu-test`. Raw numbers:
-`hap-train-omnimd-rtx4090-2026-11-10.json` and `.lcurve.out`.
+`omnimd-native-gpu-train` against the HAP pipeline's four iteration-0 DeePMD
+models, on the frames those were trained on (171 frames in 8 systems: the
+pipeline's iteration-0 training directory without the 25 lime frames that
+were labelled after that training had started), with the same settings
+(se_e2_a, `sel` [44, 16, 60, 72, 20], embedding [25, 50, 100], fitting
+[240, 240, 240], 2,664,455 parameters, learning rate 1e-3 to 3e-8, 300,000
+steps of one frame) and the same loss (energy and force terms; the virial
+prefactors 0 to 0.02 leave that term off in DeePMD-kit's PyTorch backend and
+in omniMD). Four omniMD models with seeds 11 to 14, trained at once with
+float32 networks over float64 parameters; DeePMD trained in float64. Scored
+on the pipeline's 83-frame sealed test with `omnimd-native-gpu-test`.
 
-| | omniMD, one run | DeePMD-kit 3.1.3, four models |
+| | omniMD, four models | DeePMD-kit 3.1.3, four models |
 |---|---:|---:|
-| 300,000 steps | 88 min (57 steps/s) | about 12.8 h each (6.5 steps/s) |
-| sealed test, force RMSE (eV/Å) | 0.0719 | 0.0699 to 0.0711 |
-| sealed test, energy RMSE (meV/atom) | 1.27 | 1.64 to 1.74 |
+| time for the four | 30 min at once | 30.8 h one after the other |
+| sealed test, force RMSE (eV/Å) | 0.0698 to 0.0723 | 0.0699 to 0.0711 |
+| sealed test, energy RMSE (meV/atom) | 1.64 to 1.78 | 1.64 to 1.74 |
 
-- Same quality: the force error is 1 to 3 percent above the DeePMD models',
-  the energy error about a quarter below; the DeePMD seeds spread by 2 and 6
-  percent among themselves. Per system the force errors are inside the DeePMD
-  range or up to 7 percent above it, except lime, where omniMD's is a quarter
-  lower.
-- About 8.8 times faster per step. The DeePMD errors and rate are the
-  pipeline's own records on this machine, not re-run here; the per-system
-  table is in [`native/GPU_TRAINING.md`](../../native/GPU_TRAINING.md).
-- The omniMD run shared the GPU for about 8 of its 88 minutes. Alone the
-  trainer measured 57 steps/s in float64 and 118 in float32.
-- The step time is set by about a thousand small device launches, not by
-  arithmetic, so it barely depends on the frame size here.
-- Several trainer processes on one card do not add up: two at once run at
-  24.8 steps/s each and four at 12.3 each (49 in total, against 57.9 for one
-  alone; 3,000 steps of this model in float64). An ensemble is therefore
-  trained one model after the other for now.
+- Same quality: the ranges of the two sets of four seeds overlap in every
+  system, lime included (per-system table in
+  [`native/GPU_TRAINING.md`](../../native/GPU_TRAINING.md)). omniMD's seeds
+  spread a little wider in the overall force RMSE (3.6 against 1.8 percent).
+- About sixty times less time for the ensemble. DeePMD's is the pipeline's
+  record on this machine (file times of the four runs; 12.3 steps/s for one
+  model alone, 6.5 each for two at once), not re-run here.
+- Same exploration. The pipeline's sixteen iteration-0 exploration runs
+  (20,000 steps each, a frame every 50) were repeated with omniMD's models
+  and, as a control, with DeePMD's own models converted, both through
+  `omnimd-mlmd` (`hap_explore.py`). In the eleven runs where the pipeline's
+  LAMMPS record has most frames below the 0.1 eV/Å edge of the window, the
+  fraction below it differs from the record by at most 0.09 with omniMD's
+  models (0.03 without monetite at 300 K, where the edge lies in the middle
+  of the distribution) and by at most 0.01 with DeePMD's models; the mean
+  deviation differs by -6 to +25 percent and by -14 to +9 percent. In the
+  other five runs (the HAP(001) interfaces, monetite at 500 K) the models
+  fail in all three. The sixteen runs with their four-model deviations took
+  5.1 minutes, 0.58 to 1.21 ms per MD step.
+- The same instrument: `omnimd-native-gpu-test` gives the pipeline's recorded
+  sealed-test errors of the converted DeePMD models to every printed digit
+  (`hap-test-deepmd-iter0-by-omnimd-rtx4090-2026-11-10.json`).
+- Which frames DeePMD saw is reconstructed from the pipeline's notes, the
+  times of the label files (five lime frames predate the training) and the
+  missing lime validation system; that the other systems' frames are
+  unchanged since then is an assumption.
+
+Raw numbers: `hap-train-ensemble-float32-omnimd-rtx4090-2026-11-10.json`
+(sealed test), `hap-explore-iter0-omnimd-float32-rtx4090-2026-11-10.json` and
+`hap-explore-iter0-deepmd-models-by-omnimd-rtx4090-2026-11-10.json`
+(exploration).
+
+**Runs on other frames or with another loss, kept as records.** They are
+not comparisons with the pipeline's models:
+
+| files (`hap-train-ensemble-float32-…`, `hap-explore-iter0-omnimd-float32-…`) | frames | loss | parameters | force RMSE | energy RMSE | lime force RMSE |
+|---|---|---|---|---:|---:|---:|
+| `with-lime-virial` | 196, all 30 lime | virial ramped in | float32 | 0.0711 to 0.0742 | 1.47 to 1.58 | 0.0125 to 0.0140 |
+| `with-lime` | 196, all 30 lime | energy, force | float32 | 0.0712 to 0.0735 | 1.76 to 1.84 | 0.0129 to 0.0144 |
+| `without-lime` | 166, no lime | energy, force | float64 | 0.0771 to 0.0938 | 242 to 763 | 0.1256 to 0.2307 |
+| (the comparison above) | 171, 5 lime | energy, force | float64 | 0.0698 to 0.0723 | 1.64 to 1.78 | 0.0183 to 0.0252 |
+
+- The pipeline's models score 0.020 to 0.021 on lime: between the runs with
+  thirty lime frames and with none, which is how the difference in the
+  training sets was found. Without lime frames the other systems are scored
+  like the pipeline's; only lime fails, and with it the overall numbers.
+- With float32 parameters the energy error is higher than with float64
+  parameters under the same float32 networks: steps at the end of the
+  schedule are below the spacing of float32 numbers. One member, last third
+  repeated: 1.84 meV/atom with float32 parameters, 1.61 with float64
+  networks, 1.61 with float32 networks over float64 parameters.
+- `hap-train-omnimd-rtx4090-2026-11-10.json` is one float64 model of the
+  first version of the trainer on the 196 frames with the virial ramped in,
+  in 88 minutes (force RMSE 0.0719, energy 1.27 meV/atom).
+
+**Trainer speed** on this model and the 196 frames (steps per second; 20,000
+steps in float32, 6,000 in float64, nothing else on the card):
+
+| requests at once | float32, each | float32, total | float64, each | float64, total |
+|---:|---:|---:|---:|---:|
+| 1, first version | 118 | 118 | 58 | 58 |
+| 1 | 604 | 604 | 289 | 289 |
+| 2 | 324 | 648 | 160 | 321 |
+| 4 | 179 | 715 | 88 | 352 |
+
+- From the first version to this one: networks evaluated as sets (284 and 92
+  for one request), parameter gradients in one kernel (402 and 191), no
+  embedding rows for empty neighbor slots, of which these frames have about
+  two thirds (567 and 297), neighbor lists kept per frame (661 and 294),
+  float64 parameters under float32 networks and float32 dot products in
+  partial sums (604 and 289).
+- A float32 step takes 1.87 ms with every stage timed, of which the two
+  fitting passes take 0.85; requests trained at once gain 7 to 22 percent in
+  total. Separate trainer processes did not add up with the first version
+  (two at once 24.8 steps/s each, four 12.3 each, against 57.9 for one).
+- The training set can be produced by omniMD alone: `import-deepmd` for each
+  system with `id_prefix` and the common `type_map`, then `merge-datasets`,
+  give the 196 frames of the directory in the order of the preparation
+  script, with no numeric difference.
 
 # Constant pressure against the pipeline's LAMMPS run, 2026-11-10
 

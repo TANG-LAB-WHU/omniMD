@@ -131,12 +131,13 @@ potential; see the [summary](mlmd/bench/results/SUMMARY.md) for the protocol.
 
 `omnimd-native-gpu-train` trains se_e2_a models of any size on the GPU with
 DeepMD-kit's `ener` loss, learning-rate schedule and Adam settings, from a DeepMD
-`model` section or an existing native model, with snapshots and restart. Trained
-from scratch on that pipeline's iteration-0 data (196 frames) with its DeepMD
-settings, 300,000 steps took 88 minutes, against about 12.8 hours per model
-recorded for DeepMD-kit on the same machine, and the model scores like the
-pipeline's four DeepMD models on its 83-frame sealed test: force RMSE 0.0719
-eV/angstrom (DeepMD 0.0699 to 0.0711), energy RMSE 1.27 meV/atom (DeepMD 1.64 to
+`model` section or an existing native model, with snapshots and restart. On the
+frames and with the settings of that pipeline's iteration-0 DeepMD training (171
+frames, 300,000 steps per model), four models train at once in 30 minutes with
+float32 networks, against 30.8 hours recorded for the pipeline's four DeepMD-kit
+models one after the other on the same machine, and they score like those on
+the pipeline's 83-frame sealed test: force RMSE 0.0698 to 0.0723 eV/angstrom
+(DeepMD 0.0699 to 0.0711), energy RMSE 1.64 to 1.78 meV/atom (DeepMD 1.64 to
 1.74). [Contract, checks and the full comparison](mlmd/native/GPU_TRAINING.md).
 
 `omnimd-native-stat` computes DeepMD-style dataset statistics: `dp neighbor-stat`,
