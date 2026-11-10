@@ -151,9 +151,24 @@ fn nve_on_the_gpu_runtime_follows_the_cpu_trajectory() {
             "gpu_runtime": {"precision": "float32", "compress_min_distance": 0.5}})),
     );
     assert_eq!(fast[0]["metadata"]["precision"], "float32");
+    // The pressure is the virial in bar (1 eV/angstrom^3 is 1.6e6 bar), so it
+    // is compared on its own scale.
     for (got, expected) in samples(&fast).iter().zip(&reference) {
-        let error = difference(got, expected);
+        let (mut got, mut expected) = (got.clone(), expected.clone());
+        let pressure =
+            got["pressure_bar"].as_f64().unwrap() - expected["pressure_bar"].as_f64().unwrap();
+        for record in [&mut got, &mut expected] {
+            let fields = record.as_object_mut().unwrap();
+            fields.remove("pressure_tensor_bar");
+            fields.remove("pressure_bar");
+        }
+        let error = difference(&got, &expected);
         assert!(error < 1e-4, "float32 step {}: {error}", expected["step"]);
+        assert!(
+            pressure.abs() < 0.01,
+            "float32 step {}: pressure differs by {pressure} bar",
+            expected["step"]
+        );
     }
     std::fs::remove_dir_all(directory).unwrap();
 }

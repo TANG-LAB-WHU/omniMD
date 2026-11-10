@@ -702,7 +702,8 @@ impl<P: Scalar> GpuPotential<P> {
             let ranges: Vec<(usize, usize, usize)> = (0..ntypes)
                 .filter_map(|t| {
                     let (lo, hi) = (block[t].max(first), block[t + 1].min(end));
-                    (hi > lo).then_some((t, lo - first, hi - first))
+                    // Lazy: `hi - first` underflows for a type that ends before the chunk.
+                    (hi > lo).then(|| (t, lo - first, hi - first))
                 })
                 .collect();
             {
