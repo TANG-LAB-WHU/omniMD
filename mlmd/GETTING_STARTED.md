@@ -1419,3 +1419,82 @@ implementation has Windows acceptance only; the older Linux v7/v8 record does no
 cover it. The public fit still fails scientific model-quality acceptance, and its
 43 validation frames are diagnostic, not an untouched final test. Faster training
 does not change that conclusion.
+
+## 28. Run se_e2_a on the GPU runtime and compute dataset statistics
+
+This step uses the `omnimd-gpu` runtime, which is separate from the bounded
+`cuda` feature of steps 7 and 13 to 27. It covers single-frame inference of a
+native se_e2_a model with any network size. The MD runner and the trainers do not
+use it yet.
+
+Requirements: an NVIDIA GPU with a current driver, and the CUDA 12 runtime
+libraries for NVRTC and cuBLAS on the library path (`%CUDA_PATH%\bin` on Windows,
+`LD_LIBRARY_PATH` on Linux). The libraries are loaded at run time, so the build
+itself needs no CUDA toolkit and a machine without a GPU reports an error instead
+of failing to start.
+
+```sh
+cargo build --release --locked --manifest-path mlmd/Cargo.toml -p omnimd-native --features gpu --bin omnimd-native-gpu-eval --bin omnimd-native-stat
+```
+
+Evaluate frames (one JSON `Frame` per input line, one `Evaluation` per output
+line, same formats as `omnimd-native-eval`):
+
+```text
+omnimd-native-gpu-eval MODEL.json [--precision float64|float32] [--compress RMIN[:STEP]] [--bench K] [--profile] [--chunk ATOMS] < frames.jsonl > evaluations.jsonl
+```
+
+- `--precision float32` runs the embedding and fitting networks in float32.
+  Geometry, reductions, forces and virial stay float64. On the benchmark model
+  float32 forces stay within 1e-8 eV/angstrom of float64.
+- `--compress RMIN` tabulates the embedding networks for neighbor distances from
+  `RMIN` angstrom to the cutoff (table step 0.01 in the normalized radial input
+  unless `:STEP` is given). Choose `RMIN` below the shortest distance you expect.
+  A frame with a closer pair is evaluated with the exact networks instead, so
+  the value affects speed only.
+- `--bench K` prints the mean time of K in-process evaluations per frame to
+  standard error; `--profile` adds per-stage times from one extra synchronized
+  evaluation. Model loading and JSON parsing are not included in either.
+- Frames larger than the device memory budget are processed in chunks of atoms
+  automatically; `--chunk ATOMS` overrides the chunk size.
+- A warning is printed when an atom has more neighbors than `sel`. The runtime
+  then keeps the nearest `sum(sel)` neighbors of any type and at most `sel[t]` of
+  each type, like DeepMD-kit 3. The CPU `omnimd-native-eval` rejects such frames.
+
+Compiled kernels are cached in `OMNIMD_KERNEL_CACHE` (default: `omnimd-kernel-cache`
+in the system temporary directory), so the first run of a build compiles for a few
+seconds and later runs do not.
+
+Always compare one frame with the CPU evaluator before relying on a new model:
+
+```text
+omnimd-native-eval MODEL.json < frame.jsonl > cpu.jsonl
+omnimd-native-gpu-eval MODEL.json < frame.jsonl > gpu.jsonl
+```
+
+Dataset statistics with DeepMD-kit semantics, for one imported JSONL dataset:
+
+```text
+omnimd-native-stat DATASET.jsonl --rcut 6.0 --rcut-smth 0.5 --sel auto
+```
+
+The JSON output holds `neighbor_stat` (smallest neighbor distance and the largest
+neighbor count per type), the `sel` used (`auto` is the largest count times 1.1,
+rounded up to a multiple of 4; `auto:FACTOR` or an explicit list `46,92` also
+work), `davg` and `dstd` per center type, and `energy_bias` from a minimum-norm
+least-squares fit of frame energies to type counts. Without `--rcut-smth` and
+`--sel` only `neighbor_stat` and `energy_bias` are printed. The values match
+DeepMD-kit 3.1.3 to 1e-8 on `native/fixtures/stats-dataset.jsonl`. They are not
+written into a model or applied by the trainers automatically.
+
+To run the device tests on a machine with a GPU (they skip without one unless
+`OMNIMD_REQUIRE_GPU` is set):
+
+```sh
+OMNIMD_REQUIRE_GPU=1 cargo test --release --locked --manifest-path mlmd/Cargo.toml -p omnimd-gpu -p omnimd-native --features omnimd-native/gpu
+```
+
+Timings against DeepMD-kit and how to reproduce them are in
+[`bench/README.md`](bench/README.md) and [`bench/results/SUMMARY.md`](bench/results/SUMMARY.md).
+The benchmark model has untrained weights: those results show throughput and
+same-model agreement, not physical accuracy.

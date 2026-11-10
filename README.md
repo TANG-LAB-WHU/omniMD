@@ -83,6 +83,46 @@ assessment. CPU remains the default; see [the bounds and checkpoint rules](mlmd/
 The recorded 3.46x ratio concerns a warmed 64-atom gradient stage only; the tiny
 complete training case was slower. This follow-up remains local.
 
+## GPU se_e2_a inference, compression and dataset statistics
+
+The `gpu` feature of `omnimd-native` evaluates se_e2_a energy, forces and virial
+entirely on one NVIDIA GPU through the `omnimd-gpu` crate (cudarc, NVRTC kernels
+with a disk cache, cuBLAS). It has no network-size limits, selects neighbors like
+DeepMD-kit 3, and splits large frames into chunks sized from free device memory.
+Networks run in float64 or float32; geometry, reductions, forces and virial stay
+float64. `--compress` replaces the embedding networks by piecewise quintic tables
+(DeepMD's `dp compress`) and falls back to the exact networks for any frame that
+leaves the table range.
+
+Measured on one RTX 4090 with the water se_e2_a benchmark model (sel [46, 92],
+embedding [25, 50, 100], fitting [240, 240, 240]). The weights are untrained, so
+these numbers show throughput and same-model agreement, not physical accuracy.
+Milliseconds per energy/force/virial evaluation; DeepMD-kit 3.1.3 is LAMMPS
+`pair_style deepmd` on the same card:
+
+| Atoms | Precision | DeepMD | omniMD | DeepMD compressed | omniMD compressed |
+| ---: | --- | ---: | ---: | ---: | ---: |
+| 192 | float32 | 10.4 | 0.70 | 7.58 | 0.69 |
+| 1,536 | float32 | 13.1 | 2.18 | 8.94 | 1.64 |
+| 12,288 | float32 | 66.1 | 14.2 | 32.5 | 10.4 |
+| 12,288 | float64 | 293 | 90.4 | 118 | 40.0 |
+| 98,304 | float32 | error | 118 | error | 84.9 |
+
+- Agreement with DeepMD-kit CPU float64 at 192 and 1,536 atoms: the float64
+  energy is identical with and without compression and forces differ by at most
+  9e-16 eV/angstrom; float32 forces are within 6e-9 eV/angstrom.
+- LAMMPS reuses its neighbor list for about 13 steps, while omniMD rebuilds it on
+  every evaluation. The 98,304-atom LAMMPS runs stopped with a TorchScript runtime
+  error (probably out of memory; not verified).
+- Scope: inference only, one GPU, se_e2_a with one embedding net per type pair.
+  The MD runner, the trainers and the CPU path do not use this runtime yet.
+  [Method and raw results](mlmd/bench/README.md), [summary](mlmd/bench/results/SUMMARY.md).
+
+`omnimd-native-stat` computes DeepMD-style dataset statistics: `dp neighbor-stat`,
+the se_e2_a input statistics `davg`/`dstd` and the per-type energy bias. They
+match DeepMD-kit 3.1.3 to 1e-8 on the recorded fixture; the trainers do not apply
+them automatically yet. Commands are in [guide step 28](mlmd/GETTING_STARTED.md#28-run-se_e2_a-on-the-gpu-runtime-and-compute-dataset-statistics).
+
 ## Stepwise setup and current feature coverage
 
 Start with the [complete English setup and usage guide](mlmd/GETTING_STARTED.md):
@@ -187,6 +227,8 @@ see [DeepMD setup and limits](mlmd/deepmd/README.md).
 
 - NPT/barostats, cell relaxation or constraints. Optional CUDA inference is
   available within the separate scopes above; training retains CPU stages.
+- The GPU se_e2_a runtime is inference only and is not connected to the MD runner
+  or the trainers.
 - Arbitrary DeepMD architectures, hybrid se_e3 or generic .pb/.pth/pickle import.
 - Partial PBC, mixed-type/virtual atoms or automatic unit/type-map guessing.
 - Classical-potential mixing and the full legacy Simulation/Propagator pipeline.
