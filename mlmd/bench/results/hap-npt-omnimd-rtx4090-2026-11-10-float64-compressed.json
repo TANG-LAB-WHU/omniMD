@@ -1,0 +1,155 @@
+{
+ "system": "hap_bulk_T300_npt",
+ "natoms": 88,
+ "protocol": {
+  "temperature_kelvin": 300.0,
+  "thermostat_fs": 50.0,
+  "pressure_bar": 1.01325,
+  "barostat_fs": 500.0,
+  "timestep_fs": 0.5,
+  "sample_every": 50
+ },
+ "steps": 100000,
+ "mode": "float64-compressed",
+ "ensemble": {
+  "kind": "npt_csvr_crescale",
+  "temperature_kelvin": 300.0,
+  "tau_fs": 50.0,
+  "seed": 1,
+  "pressure_bar": 1.01325,
+  "barostat_tau_fs": 500.0,
+  "compressibility_per_bar": 1e-06,
+  "coupling": "triclinic",
+  "barostat_every": 10
+ },
+ "omnimd": {
+  "volume_angstrom3": {
+   "mean": 1080.5653005560857,
+   "error": 1.113591431545186,
+   "std": 7.155905206144862,
+   "samples": 1600
+  },
+  "potential_energy_ev": {
+   "mean": -45045.16745826388,
+   "error": 0.025447080081706215,
+   "std": 0.3119150210166573,
+   "samples": 1600
+  },
+  "pressure_bar": {
+   "mean": -585.1227728688409,
+   "error": 752.5870029165014,
+   "std": 7261.166059483884,
+   "samples": 1600
+  },
+  "temperature_kelvin": {
+   "mean": 300.00817526529744,
+   "error": 1.6663952989186528,
+   "std": 26.6174686052974,
+   "samples": 1600
+  },
+  "a": {
+   "mean": 9.484381058634703,
+   "error": 0.012431959984680782,
+   "std": 0.05435856126422562,
+   "samples": 1600
+  },
+  "b": {
+   "mean": 9.466444230026987,
+   "error": 0.008823852090590778,
+   "std": 0.04384107825034906,
+   "samples": 1600
+  },
+  "c": {
+   "mean": 13.92130219172301,
+   "error": 0.019366800406342626,
+   "std": 0.07649505016907394,
+   "samples": 1600
+  },
+  "alpha": {
+   "mean": 90.04296463357825,
+   "error": 0.15470823012111845,
+   "std": 0.6285667608534244,
+   "samples": 1600
+  },
+  "beta": {
+   "mean": 89.86318662139966,
+   "error": 0.1104977532772971,
+   "std": 0.5033171336323614,
+   "samples": 1600
+  },
+  "gamma": {
+   "mean": 120.15467561854624,
+   "error": 0.11499934877550125,
+   "std": 0.48638554641483606,
+   "samples": 1600
+  },
+  "ms_per_step": 0.8983558119999361,
+  "whole_process_seconds": 89.83558119999361,
+  "barostat_moves": 10000,
+  "barostat_refused": 9,
+  "max_effective_energy_drift_ev": 0.00892421166645363
+ },
+ "lammps_recorded": {
+  "volume_angstrom3": {
+   "mean": 1080.1777915625,
+   "error": 0.12695511122483452,
+   "std": 7.003582353000502,
+   "samples": 1600
+  },
+  "potential_energy_ev": {
+   "mean": -45045.160458750004,
+   "error": 0.006729561302378332,
+   "std": 0.30305276899977046,
+   "samples": 1600
+  },
+  "pressure_bar": {
+   "mean": -1.27064187562499,
+   "error": 11.963012142146443,
+   "std": 7733.172449702253,
+   "samples": 1600
+  },
+  "temperature_kelvin": {
+   "mean": 301.995565075,
+   "error": 0.9054630067080188,
+   "std": 26.25218758077365,
+   "samples": 1600
+  },
+  "a": {
+   "mean": 9.469268868859182,
+   "error": 0.00044950884508010533,
+   "std": 0.05835093254000446,
+   "samples": 1600
+  },
+  "b": {
+   "mean": 9.471314917629098,
+   "error": 0.000783888559295108,
+   "std": 0.05200644888352311,
+   "samples": 1600
+  },
+  "c": {
+   "mean": 13.908756974903836,
+   "error": 0.0010805465799281415,
+   "std": 0.07597091376701648,
+   "samples": 1600
+  },
+  "alpha": {
+   "mean": 89.97231325456626,
+   "error": 0.02353920481168037,
+   "std": 0.5964245809463434,
+   "samples": 1600
+  },
+  "beta": {
+   "mean": 89.99636896483325,
+   "error": 0.017549831641183317,
+   "std": 0.5789296842094396,
+   "samples": 1600
+  },
+  "gamma": {
+   "mean": 119.99449578036281,
+   "error": 0.004588664217074137,
+   "std": 0.4530588842462078,
+   "samples": 1600
+  },
+  "ms_per_step": 45.87479999999999
+ }
+}

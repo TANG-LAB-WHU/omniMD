@@ -323,7 +323,15 @@ statistics follow the equation above; eleven single-line errors introduced
 into the barostat each fail these tests. The cell move maps cell, positions
 and velocities as stated, a refused or failed move leaves the state
 untouched, and the native model's virial equals minus the strain derivative
-of its energy. This is not a validation of any model's equation of state.
+of its energy. With forces, on a 32-atom Lennard-Jones crystal run through
+the engine, the diagonal average of `V (P - P0)` is `-kT` to within 0.3 kT for
+every coupling over four million steps each (the ignored test of
+`tests/npt.rs` repeats this with two million in a release build). On a
+trained five-element model, 400 ps with a fully flexible cell
+give the mean volume of a LAMMPS Nose-Hoover run of the same model to 0.01
+percent, within its error of 0.03 percent
+([benchmark summary](../bench/results/SUMMARY.md)). This is not a validation
+of any model's equation of state.
 
 For the C API backend replace the native `options` object with:
 

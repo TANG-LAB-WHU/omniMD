@@ -678,3 +678,199 @@ fn the_cli_runs_npt_writes_pressure_and_restarts_exactly() {
     assert!(fixed[1].get("barostat_work_ev").is_none());
     std::fs::remove_dir_all(directory).unwrap();
 }
+
+/// Lennard-Jones atoms, truncated and shifted at `cutoff`, with the minimum
+/// image taken in fractional coordinates (valid while the cutoff is below
+/// half the cell widths and the cell is nearly orthorhombic).
+struct LennardJones {
+    meta: ModelMetadata,
+    epsilon: f64,
+    sigma: f64,
+    cutoff: f64,
+}
+
+impl Potential for LennardJones {
+    fn metadata(&self) -> &ModelMetadata {
+        &self.meta
+    }
+    fn eval(&mut self, frame: &Frame) -> Result<Evaluation> {
+        let cell = frame.cell.expect("periodic test frame");
+        // Rows of `cell` are lattice vectors: x = s cell, s = x cell^-1.
+        let to_fractional = inverse(&cell);
+        let n = frame.positions.len();
+        let shift = {
+            let s6 = (self.sigma / self.cutoff).powi(6);
+            4. * self.epsilon * (s6 * s6 - s6)
+        };
+        let (mut energy, mut forces, mut virial) = (0., vec![[0.; 3]; n], [[0.; 3]; 3]);
+        for i in 0..n {
+            for j in i + 1..n {
+                let d: [f64; 3] =
+                    std::array::from_fn(|a| frame.positions[j][a] - frame.positions[i][a]);
+                let s: [f64; 3] = std::array::from_fn(|b| {
+                    let s: f64 = (0..3).map(|a| d[a] * to_fractional[a][b]).sum();
+                    s - s.round()
+                });
+                let d: [f64; 3] = std::array::from_fn(|b| (0..3).map(|a| s[a] * cell[a][b]).sum());
+                let r2: f64 = d.iter().map(|x| x * x).sum();
+                if r2 >= self.cutoff * self.cutoff {
+                    continue;
+                }
+                let s6 = (self.sigma * self.sigma / r2).powi(3);
+                energy += 4. * self.epsilon * (s6 * s6 - s6) - shift;
+                // Force on j along d; on i the opposite.
+                let scale = 24. * self.epsilon * (2. * s6 * s6 - s6) / r2;
+                for a in 0..3 {
+                    forces[j][a] += scale * d[a];
+                    forces[i][a] -= scale * d[a];
+                    for b in 0..3 {
+                        virial[a][b] += d[a] * scale * d[b];
+                    }
+                }
+            }
+        }
+        Ok(Evaluation {
+            energy,
+            forces,
+            virial,
+            units: Units::EvAngstrom,
+        })
+    }
+}
+
+/// 32 argon-like atoms on an fcc lattice (2 x 2 x 2 cells of edge `edge`).
+fn argon(edge: f64, timestep: f64) -> MlipDynamics<LennardJones> {
+    let basis = [[0., 0., 0.], [0.5, 0.5, 0.], [0.5, 0., 0.5], [0., 0.5, 0.5]];
+    let mut positions = Vec::new();
+    for x in 0..2 {
+        for y in 0..2 {
+            for z in 0..2 {
+                for b in basis {
+                    positions.push([
+                        (f64::from(x) + b[0]) * edge,
+                        (f64::from(y) + b[1]) * edge,
+                        (f64::from(z) + b[2]) * edge,
+                    ]);
+                }
+            }
+        }
+    }
+    let side = 2. * edge;
+    let frame = Frame {
+        species: vec!["Ar".into(); positions.len()],
+        positions,
+        cell: Some([[side, 0., 0.], [0., side, 0.], [0., 0., side]]),
+        units: Units::EvAngstrom,
+    };
+    let mut system = system_from_frame(&frame, &[39.948; 32], &[[0.; 3]; 32]).unwrap();
+    let settings = VelocityInitialization {
+        temperature_kelvin: 60.,
+        seed: 9,
+        rescale_to_temperature: true,
+    };
+    initialize_velocities(&mut system, &settings, true).unwrap();
+    let model = LennardJones {
+        meta: ModelMetadata {
+            type_map: vec!["Ar".into()],
+            cutoff: 4.76,
+            backend: "synthetic-lennard-jones".into(),
+            precision: "float64".into(),
+            units: Units::EvAngstrom,
+        },
+        epsilon: 0.0104,
+        sigma: 3.4,
+        cutoff: 4.76,
+    };
+    MlipDynamics::new(system, model, timestep).unwrap()
+}
+
+/// In the sampled ensemble the average of `V (P_ab - P0 delta_ab)` is
+/// `-kT delta_ab` for every strain component the barostat moves (the virial
+/// theorem of the isothermal-isobaric ensemble). Returns the mean and the
+/// block standard error of `delta_ab + V (P_ab - P0 delta_ab) / kT` for the
+/// three diagonal components, the xy component and the mean of the diagonal,
+/// and the refused fraction of the cell moves.
+fn pressure_balance(coupling: CellCoupling, steps: usize) -> ([(f64, f64); 5], f64) {
+    let mut md = argon(5.40, 4.);
+    let thermal = md.thermal_energy_ev(60.);
+    let pressure_bar = 500.;
+    let ensemble = Ensemble::NptCsvrCrescale {
+        temperature_kelvin: 60.,
+        tau_fs: 200.,
+        seed: 13,
+        pressure_bar,
+        barostat_tau_fs: 80.,
+        compressibility_per_bar: 3e-5,
+        coupling,
+        barostat_every: 2,
+    };
+    let mut state = EnsembleState::new(ensemble, 4.).unwrap();
+    let target = pressure_bar / BAR_PER_EV_PER_ANGSTROM3;
+    let mut samples: [Vec<f64>; 5] = Default::default();
+    for step in 0..steps {
+        state.advance(&mut md).unwrap();
+        if step >= steps / 10 && step % 2 == 1 {
+            let (tensor, volume) = md.pressure_tensor().unwrap();
+            let balance = |a: usize, b: usize| {
+                let delta = f64::from(a == b);
+                delta + volume * (tensor[a][b] - target * delta) / thermal
+            };
+            let diagonal = [balance(0, 0), balance(1, 1), balance(2, 2)];
+            for (slot, value) in diagonal.into_iter().enumerate() {
+                samples[slot].push(value);
+            }
+            samples[3].push(balance(0, 1));
+            samples[4].push(diagonal.iter().sum::<f64>() / 3.);
+        }
+    }
+    let summary = |values: &Vec<f64>| {
+        const BLOCKS: usize = 20;
+        let size = values.len() / BLOCKS;
+        let means: Vec<f64> = values
+            .chunks_exact(size)
+            .map(|block| block.iter().sum::<f64>() / size as f64)
+            .collect();
+        let mean = means.iter().sum::<f64>() / means.len() as f64;
+        let variance =
+            means.iter().map(|m| (m - mean).powi(2)).sum::<f64>() / (means.len() - 1) as f64;
+        (mean, (variance / means.len() as f64).sqrt())
+    };
+    (
+        std::array::from_fn(|slot| summary(&samples[slot])),
+        state.barostat_refused as f64 / state.barostat_moves as f64,
+    )
+}
+
+/// The engine path on an interacting crystal: forces, thermostat and cell
+/// moves together. Six million steps; run it optimized:
+/// `cargo test --release -p omnimd-mlmd --test npt -- --ignored`.
+#[test]
+#[ignore = "about two minutes in a release build"]
+fn npt_of_an_interacting_crystal_keeps_the_pressure_balance() {
+    for coupling in [
+        CellCoupling::Isotropic,
+        CellCoupling::Anisotropic,
+        CellCoupling::Triclinic,
+    ] {
+        let (balance, refused) = pressure_balance(coupling, 2_000_000);
+        // The balance is zero where a missing or doubled kT term would give
+        // plus or minus one, so the error has to be well below one.
+        let (mean, error) = balance[4];
+        assert!(error < 0.45, "{coupling:?}: error {error}");
+        assert!(mean.abs() < 4. * error, "{coupling:?}: {mean} +- {error}");
+        // Components the coupling moves on their own, and the shear, which
+        // vanishes by symmetry for every coupling.
+        let independent: &[usize] = match coupling {
+            CellCoupling::Isotropic => &[3],
+            _ => &[0, 1, 2, 3],
+        };
+        for &slot in independent {
+            let (mean, error) = balance[slot];
+            assert!(
+                mean.abs() < 4. * error,
+                "{coupling:?} component {slot}: {mean} +- {error}"
+            );
+        }
+        assert!(refused < 0.02, "{coupling:?}: refused {refused}");
+    }
+}

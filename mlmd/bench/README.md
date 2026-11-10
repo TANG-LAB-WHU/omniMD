@@ -53,7 +53,17 @@ python mlmd/bench/hap_check.py mlmd/bench/cases/hap <target>/release report.json
 python mlmd/bench/hap_md.py mlmd/bench/cases/hap <target>/release mlmd/bench/results/hap-omnimd-<tag>.csv <system> ...
 # DeePMD image: LAMMPS with the pipeline's exploration protocol
 docker run --rm --gpus all -v $PWD/mlmd:/m -v <pipeline>/iter-004/explore:<path the models were written for>:ro -w /m <image> python bench/hap_lammps.py <that path> bench/cases/hap bench/results/hap-lammps-<tag>.csv <run> ...
+# Host: constant pressure through omnimd-mlmd against a finished LAMMPS fix npt run of the pipeline
+python mlmd/bench/hap_npt.py <pipeline>/iter-004/explore/<run>_npt mlmd/bench/cases/hap <target>/release mlmd/bench/results/hap-npt-omnimd-<tag>.json --mode float64
+# DeePMD image, then host: write the training systems as a dataset (no models), train from scratch, score on the test frames
+docker run --rm -v $PWD/mlmd:/m -v <pipeline>:/hap:ro -w /m <image> python bench/hap_prepare.py /hap/iter-000/train /hap/<training systems> bench/cases/hap-train --models
+omnimd-native-gpu-train request.json
+omnimd-native-gpu-test trained.native.json mlmd/bench/cases/hap/dataset.jsonl > report.json
 ```
+
+`hap_npt.py` reads the LAMMPS run's `conf.lmp`, `in.lmp`, `log.lammps` and
+`traj.dump` and starts no LAMMPS itself. The training request is the one in
+[`native/GPU_TRAINING.md`](../native/GPU_TRAINING.md).
 
 Run steps 3 and 4 one after the other, never at the same time, so they don't
 compete for the GPU. `cases/` is generated and git-ignored. Step 3 accepts

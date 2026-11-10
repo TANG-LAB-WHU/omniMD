@@ -2,7 +2,7 @@
 with a recorded LAMMPS `fix npt` run of the same model (host).
 
     python bench/hap_npt.py LAMMPS_RUN_DIR CASE_DIR <target>/release OUT.json
-        [--steps 100000] [--mode float64] [--compressibility 1e-6] [--every 10]
+        [--steps 100000] [--mode float64] [--compressibility 1e-6] [--every 10] [--deviation] [--seed 1]
 
 `LAMMPS_RUN_DIR` holds `conf.lmp` (the starting structure), `log.lammps`
 (thermo columns Step Temp PotEng TotEng Press Volume) and `traj.dump` (box per
@@ -18,6 +18,11 @@ agree within their statistical errors; the trajectories themselves differ.
 Reported for each: mean and standard error (block averages over the last 80
 percent) of volume, potential energy, pressure, temperature, cell lengths and
 angles, and the standard deviation of the volume.
+
+With `--deviation` the sampled frames then go through `import-trajectory` and
+`model-deviation` with every prepared model (float64 on the GPU runtime) and
+the force window 0.1 to 0.3 eV/A of the pipeline, and the per-frame largest and
+mean force deviation are compared with `model_devi.out` of the LAMMPS run.
 """
 import argparse
 import json
@@ -115,6 +120,19 @@ def read_start(run, type_map):
             'units': 'EvAngstrom'}
 
 
+def read_deviation(run):
+    """Per-frame (max_devi_f, avg_devi_f) of the recorded run."""
+    rows = [line.split() for line in (run / 'model_devi.out').read_text(encoding='utf-8', errors='replace').splitlines()
+            if line.strip() and not line.startswith('#')]
+    return [float(r[4]) for r in rows], [float(r[6]) for r in rows]
+
+
+def deviation_summary(largest, mean, low, high):
+    return {'max_devi_f': statistics(largest), 'avg_devi_f': statistics(mean), 'max_devi_f_max': max(largest),
+            'frames': len(largest), 'accurate': sum(x < low for x in largest),
+            'candidate': sum(low <= x < high for x in largest), 'failed': sum(x >= high for x in largest)}
+
+
 def protocol(run):
     """Temperature (K), thermostat time (fs), pressure (bar), barostat time (fs), timestep (fs), thermo interval."""
     text = (run / 'in.lmp').read_text(encoding='utf-8', errors='replace')
@@ -138,6 +156,8 @@ def main():
                         choices=['float64', 'float32', 'float64-compressed', 'float32-compressed'])
     parser.add_argument('--compressibility', type=float, default=1e-6, help='assumed, per bar')
     parser.add_argument('--every', type=int, default=10, help='steps between cell moves')
+    parser.add_argument('--deviation', action='store_true', help='also compare the model deviation of the frames')
+    parser.add_argument('--seed', type=int, default=1, help='seed of thermostat and barostat')
     args = parser.parse_args()
     manifest = json.loads((args.case_dir / 'manifest.json').read_text(encoding='utf-8', errors='replace'))
     exe = args.release / 'omnimd-mlmd'
@@ -158,7 +178,8 @@ def main():
                                   'rescale_to_temperature': True},
         'remove_center_of_mass': True,
         'ensemble': {'kind': 'npt_csvr_crescale', 'temperature_kelvin': settings['temperature_kelvin'],
-                     'tau_fs': settings['thermostat_fs'], 'seed': 1, 'pressure_bar': settings['pressure_bar'],
+                     'tau_fs': settings['thermostat_fs'], 'seed': args.seed,
+                     'pressure_bar': settings['pressure_bar'],
                      'barostat_tau_fs': settings['barostat_fs'], 'compressibility_per_bar': args.compressibility,
                      'coupling': 'triclinic', 'barostat_every': args.every},
         'timestep_fs': settings['timestep_fs'], 'steps': args.steps, 'sample_every': settings['sample_every']}
@@ -172,6 +193,35 @@ def main():
         if proc.returncode != 0:
             raise SystemExit((proc.stderr.strip().splitlines() or ['engine failed'])[-1][:400])
         records = [json.loads(line) for line in (work / 'out.jsonl').read_text(encoding='utf-8', errors='replace').splitlines()]
+        deviation = None
+        if args.deviation:
+            low, high = 0.1, 0.3
+            (work / 'import.json').write_text(json.dumps({
+                'schema': 'omnimd-trajectory-import-v1', 'trajectory': str(work / 'out.jsonl'),
+                'id_prefix': args.lammps_run.name}))
+            members = [{'id': f'model-{k}', 'options': {
+                'native_model': str((args.case_dir / f'model-{k}.native.json').resolve()), 'device': 'cuda:0',
+                'gpu_runtime': {}}} for k in manifest['models']]
+            (work / 'deviation.json').write_text(json.dumps({
+                'schema': 'omnimd-model-deviation-v1', 'dataset': str(work / 'explored.jsonl'), 'models': members,
+                'force_window': {'min_ev_per_angstrom': low, 'max_ev_per_angstrom': high}}))
+            start = time.perf_counter()
+            for command, source, target in (('import-trajectory', 'import.json', 'explored.jsonl'),
+                                            ('model-deviation', 'deviation.json', 'deviation.jsonl')):
+                step = subprocess.run([str(exe), command, str(work / source), str(work / target)],
+                                      capture_output=True, text=True)
+                if step.returncode != 0:
+                    raise SystemExit((step.stderr.strip().splitlines() or [command + ' failed'])[-1][:400])
+            seconds = time.perf_counter() - start
+            lines = [json.loads(line) for line in (work / 'deviation.jsonl').read_text(encoding='utf-8').splitlines()]
+            forces = [r['statistics']['force_ev_per_angstrom'] for r in lines if r['kind'] == 'deviation']
+            ours_deviation = deviation_summary([f['max'] for f in forces], [f['mean'] for f in forces], low, high)
+            done = lines[-1]
+            assert (done['accurate_frames'], done['candidate_frames'], done['failed_frames']) == (
+                ours_deviation['accurate'], ours_deviation['candidate'], ours_deviation['failed'])
+            ours_deviation.update(models=len(members), import_and_deviation_seconds=seconds)
+            deviation = {'force_window_ev_per_angstrom': [low, high], 'omnimd': ours_deviation,
+                         'lammps_recorded': deviation_summary(*read_deviation(args.lammps_run), low, high)}
     frames = [r for r in records if r['kind'] == 'frame']
     completed = records[-1]
     ours = summarize({'volume_angstrom3': [f['volume_angstrom3'] for f in frames],
@@ -186,6 +236,8 @@ def main():
     report = {'system': args.lammps_run.name, 'natoms': len(frame['species']), 'protocol': settings,
               'steps': args.steps, 'mode': args.mode, 'ensemble': request['ensemble'],
               'omnimd': ours, 'lammps_recorded': theirs}
+    if deviation:
+        report['model_deviation'] = deviation
     with args.output_json.open('x') as handle:
         json.dump(report, handle, indent=1)
     print(f"{'quantity':22} {'omniMD':>24} {'LAMMPS (recorded)':>24} {'difference / error':>20}")
@@ -198,6 +250,16 @@ def main():
     print(f"volume std: {ours['volume_angstrom3']['std']:.3f} vs {theirs['volume_angstrom3']['std']:.3f}; "
           f"{ours['ms_per_step']:.3f} ms/step vs {theirs['ms_per_step']:.1f} recorded; refused "
           f"{ours['barostat_refused']}/{ours['barostat_moves']}")
+    if deviation:
+        for key in ('max_devi_f', 'avg_devi_f'):
+            a, b = deviation['omnimd'][key], deviation['lammps_recorded'][key]
+            print(f"{key:22} {a['mean']:14.5f} +- {a['error']:7.5f} {b['mean']:14.5f} +- {b['error']:7.5f} "
+                  f"{(a['mean'] - b['mean']) / math.hypot(a['error'], b['error']):14.2f} sigma")
+        for name in ('omnimd', 'lammps_recorded'):
+            d = deviation[name]
+            print(f"{name}: {d['frames']} frames, accurate {d['accurate']}, candidate {d['candidate']}, "
+                  f"failed {d['failed']}, largest {d['max_devi_f_max']:.4f}")
+        print(f"import and deviation: {deviation['omnimd']['import_and_deviation_seconds']:.1f} s")
 
 
 if __name__ == '__main__':
