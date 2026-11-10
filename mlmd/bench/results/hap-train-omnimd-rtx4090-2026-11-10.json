@@ -1,0 +1,324 @@
+{
+ "date": "2026-11-10",
+ "gpu": "NVIDIA GeForce RTX 4090",
+ "data": "HAP pipeline v2 iteration-0 training set as used for its DeePMD models (iter-000/data.pre-20261105/train): 196 frames, 8 systems, 54 to 224 atoms, 152 frames with virial labels",
+ "request": {
+  "model": {
+   "type_map": [
+    "Ca",
+    "P",
+    "O",
+    "H",
+    "C"
+   ],
+   "descriptor": {
+    "type": "se_e2_a",
+    "sel": [
+     44,
+     16,
+     60,
+     72,
+     20
+    ],
+    "rcut_smth": 0.5,
+    "rcut": 6.0,
+    "neuron": [
+     25,
+     50,
+     100
+    ],
+    "axis_neuron": 16,
+    "resnet_dt": false,
+    "type_one_side": false,
+    "seed": 11
+   },
+   "fitting_net": {
+    "neuron": [
+     240,
+     240,
+     240
+    ],
+    "resnet_dt": true,
+    "seed": 11
+   }
+  },
+  "dataset": "<dataset>",
+  "output": "<output>",
+  "precision": "float64",
+  "learning_rate": {
+   "start_lr": 0.001,
+   "stop_lr": 3e-08,
+   "decay_steps": 5000
+  },
+  "loss": {
+   "start_pref_e": 0.02,
+   "limit_pref_e": 1.0,
+   "start_pref_f": 1000.0,
+   "limit_pref_f": 1.0,
+   "start_pref_v": 0.0,
+   "limit_pref_v": 0.02
+  },
+  "training": {
+   "numb_steps": 300000,
+   "batch_size": 1,
+   "seed": 11,
+   "disp_freq": 1000,
+   "disp_file": "<lcurve>"
+  }
+ },
+ "training": {
+  "steps": 300000,
+  "seconds": 5267.1698206,
+  "steps_per_second": 56.95658393748657,
+  "parameters": 2664455,
+  "precision": "f64",
+  "frames": 196,
+  "final_batch": {
+   "loss": 0.0011279042597757004,
+   "rmse_e_per_atom": 0.0002643858360897866,
+   "rmse_f": 0.032911688115443115,
+   "rmse_v_per_atom": 0.0005685358907655146
+  }
+ },
+ "note": "The GPU was shared with an MD run for about 8 of the 88 minutes and the host was compiling during the run.",
+ "sealed_test": {
+  "frames": 83,
+  "frames_exceeding_sel": 0,
+  "omnimd": {
+   "force_rmse_ev_per_angstrom": 0.07190838269931649,
+   "force_mae_ev_per_angstrom": 0.04908671333304244,
+   "energy_rmse_ev_per_atom": 0.0012651847933685218,
+   "energy_mae_ev_per_atom": 0.0008736276969689708
+  },
+  "deepmd_recorded": {
+   "model-0": {
+    "force_rmse_ev_per_angstrom": 0.07114170091502442,
+    "energy_rmse_ev_per_atom": 0.001644189022985152
+   },
+   "model-1": {
+    "force_rmse_ev_per_angstrom": 0.07020315363372115,
+    "energy_rmse_ev_per_atom": 0.001741065269617499
+   },
+   "model-2": {
+    "force_rmse_ev_per_angstrom": 0.07010285202999894,
+    "energy_rmse_ev_per_atom": 0.001722699402448448
+   },
+   "model-3": {
+    "force_rmse_ev_per_angstrom": 0.06988933140521018,
+    "energy_rmse_ev_per_atom": 0.0016486522070333328
+   }
+  },
+  "deepmd_source": "iter-000/train/sealed_test.json of the pipeline (per system); the overall values are aggregated here over force components and frames",
+  "systems": {
+   "CaCO3_20__C32Ca32O96": {
+    "frames": 9,
+    "atoms_per_frame": 160,
+    "omnimd": {
+     "force_rmse_ev_per_angstrom": 0.05429019156682504,
+     "energy_rmse_ev_per_atom": 0.00044923549091310246
+    },
+    "deepmd_recorded": {
+     "model-0": {
+      "force_rmse_ev_per_angstrom": 0.05279688,
+      "energy_rmse_ev_per_atom": 0.0003951223
+     },
+     "model-1": {
+      "force_rmse_ev_per_angstrom": 0.05278149,
+      "energy_rmse_ev_per_atom": 0.0007049447
+     },
+     "model-2": {
+      "force_rmse_ev_per_angstrom": 0.05291963,
+      "energy_rmse_ev_per_atom": 0.0004633023
+     },
+     "model-3": {
+      "force_rmse_ev_per_angstrom": 0.05193397,
+      "energy_rmse_ev_per_atom": 0.0003773745
+     }
+    }
+   },
+   "calcite_CaCO3__C16Ca16O48": {
+    "frames": 12,
+    "atoms_per_frame": 80,
+    "omnimd": {
+     "force_rmse_ev_per_angstrom": 0.04258054236022976,
+     "energy_rmse_ev_per_atom": 0.0004750819340071606
+    },
+    "deepmd_recorded": {
+     "model-0": {
+      "force_rmse_ev_per_angstrom": 0.039936,
+      "energy_rmse_ev_per_atom": 0.000503204
+     },
+     "model-1": {
+      "force_rmse_ev_per_angstrom": 0.0401281,
+      "energy_rmse_ev_per_atom": 0.0003189519
+     },
+     "model-2": {
+      "force_rmse_ev_per_angstrom": 0.03993382,
+      "energy_rmse_ev_per_atom": 0.0004940969
+     },
+     "model-3": {
+      "force_rmse_ev_per_angstrom": 0.03914544,
+      "energy_rmse_ev_per_atom": 0.0005751288
+     }
+    }
+   },
+   "hap001_co2__CH4Ca20O54P12": {
+    "frames": 9,
+    "atoms_per_frame": 91,
+    "omnimd": {
+     "force_rmse_ev_per_angstrom": 0.08684390942759929,
+     "energy_rmse_ev_per_atom": 0.0009811451294797272
+    },
+    "deepmd_recorded": {
+     "model-0": {
+      "force_rmse_ev_per_angstrom": 0.08489732,
+      "energy_rmse_ev_per_atom": 0.000755818
+     },
+     "model-1": {
+      "force_rmse_ev_per_angstrom": 0.08462834,
+      "energy_rmse_ev_per_atom": 0.0009356279
+     },
+     "model-2": {
+      "force_rmse_ev_per_angstrom": 0.08431026,
+      "energy_rmse_ev_per_atom": 0.001095613
+     },
+     "model-3": {
+      "force_rmse_ev_per_angstrom": 0.08383668,
+      "energy_rmse_ev_per_atom": 0.0008926331
+     }
+    }
+   },
+   "hap001_water_co2__C2H54Ca20O81P12": {
+    "frames": 9,
+    "atoms_per_frame": 169,
+    "omnimd": {
+     "force_rmse_ev_per_angstrom": 0.10904981758416166,
+     "energy_rmse_ev_per_atom": 0.0015661681766309386
+    },
+    "deepmd_recorded": {
+     "model-0": {
+      "force_rmse_ev_per_angstrom": 0.1089347,
+      "energy_rmse_ev_per_atom": 0.001522627
+     },
+     "model-1": {
+      "force_rmse_ev_per_angstrom": 0.1063656,
+      "energy_rmse_ev_per_atom": 0.001745303
+     },
+     "model-2": {
+      "force_rmse_ev_per_angstrom": 0.1062267,
+      "energy_rmse_ev_per_atom": 0.001606611
+     },
+     "model-3": {
+      "force_rmse_ev_per_angstrom": 0.1089995,
+      "energy_rmse_ev_per_atom": 0.001638433
+     }
+    }
+   },
+   "hap_bulk__H4Ca20O52P12": {
+    "frames": 12,
+    "atoms_per_frame": 88,
+    "omnimd": {
+     "force_rmse_ev_per_angstrom": 0.044532965657642525,
+     "energy_rmse_ev_per_atom": 0.0004927612996515006
+    },
+    "deepmd_recorded": {
+     "model-0": {
+      "force_rmse_ev_per_angstrom": 0.04515172,
+      "energy_rmse_ev_per_atom": 0.0004562973
+     },
+     "model-1": {
+      "force_rmse_ev_per_angstrom": 0.04470698,
+      "energy_rmse_ev_per_atom": 0.0007030672
+     },
+     "model-2": {
+      "force_rmse_ev_per_angstrom": 0.0440671,
+      "energy_rmse_ev_per_atom": 0.0006594359
+     },
+     "model-3": {
+      "force_rmse_ev_per_angstrom": 0.04295529,
+      "energy_rmse_ev_per_atom": 0.0005334328
+     }
+    }
+   },
+   "lime_CaO__Ca27O27": {
+    "frames": 12,
+    "atoms_per_frame": 54,
+    "omnimd": {
+     "force_rmse_ev_per_angstrom": 0.014743159946381819,
+     "energy_rmse_ev_per_atom": 0.0007172467238508409
+    },
+    "deepmd_recorded": {
+     "model-0": {
+      "force_rmse_ev_per_angstrom": 0.020457,
+      "energy_rmse_ev_per_atom": 0.001187476
+     },
+     "model-1": {
+      "force_rmse_ev_per_angstrom": 0.02138841,
+      "energy_rmse_ev_per_atom": 0.001727494
+     },
+     "model-2": {
+      "force_rmse_ev_per_angstrom": 0.02011241,
+      "energy_rmse_ev_per_atom": 0.001442168
+     },
+     "model-3": {
+      "force_rmse_ev_per_angstrom": 0.01998378,
+      "energy_rmse_ev_per_atom": 0.001343161
+     }
+    }
+   },
+   "monetite_CaHPO4__H32Ca32O128P32": {
+    "frames": 9,
+    "atoms_per_frame": 224,
+    "omnimd": {
+     "force_rmse_ev_per_angstrom": 0.08598856785256824,
+     "energy_rmse_ev_per_atom": 0.00042193292391924967
+    },
+    "deepmd_recorded": {
+     "model-0": {
+      "force_rmse_ev_per_angstrom": 0.08456352,
+      "energy_rmse_ev_per_atom": 0.000772899
+     },
+     "model-1": {
+      "force_rmse_ev_per_angstrom": 0.08374115,
+      "energy_rmse_ev_per_atom": 0.0007143544
+     },
+     "model-2": {
+      "force_rmse_ev_per_angstrom": 0.08371549,
+      "energy_rmse_ev_per_atom": 0.0003984856
+     },
+     "model-3": {
+      "force_rmse_ev_per_angstrom": 0.08094943,
+      "energy_rmse_ev_per_atom": 0.0006337426
+     }
+    }
+   },
+   "portlandite_CaOH2__H36Ca18O36": {
+    "frames": 11,
+    "atoms_per_frame": 90,
+    "omnimd": {
+     "force_rmse_ev_per_angstrom": 0.03858037059133749,
+     "energy_rmse_ev_per_atom": 0.0028107529524901767
+    },
+    "deepmd_recorded": {
+     "model-0": {
+      "force_rmse_ev_per_angstrom": 0.03879398,
+      "energy_rmse_ev_per_atom": 0.003921179
+     },
+     "model-1": {
+      "force_rmse_ev_per_angstrom": 0.03758496,
+      "energy_rmse_ev_per_atom": 0.003864486
+     },
+     "model-2": {
+      "force_rmse_ev_per_angstrom": 0.03828794,
+      "energy_rmse_ev_per_atom": 0.003997925
+     },
+     "model-3": {
+      "force_rmse_ev_per_angstrom": 0.03968019,
+      "energy_rmse_ev_per_atom": 0.003817876
+     }
+    }
+   }
+  }
+ },
+ "deepmd_training_rate": "about 6.5 steps/s per model, recorded by the pipeline on this machine (workflow/PIPELINE_V2.md); not re-measured here"
+}

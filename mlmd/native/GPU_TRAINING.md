@@ -130,7 +130,7 @@ like DeePMD's default `prob_sys_size`.
 - No validation set during training. Without `save_freq` a run that stops
   leaves no model.
 - No fine-tuning controls (frozen layers, bias adjustment).
-- Each step issues several hundred small device launches, so the time per step
+- Each step issues about a thousand small device launches, so the time per step
   depends little on the frame size for small frames.
 
 ## How it was checked
@@ -149,4 +149,60 @@ like DeePMD's default `prob_sys_size`.
 - Removing the second-derivative term, transposing the virial direction or
   dropping either descriptor adjoint term makes the gradient test fail.
 
-RESULTS_PLACEHOLDER
+## A full run on real data
+
+The iteration-0 training set of the HAP CO2-mineralization pipeline as its
+DeePMD models used it (196 DFT-labelled frames in 8 systems of 54 to 224
+atoms, 152 of them with virial labels), with that pipeline's DeePMD-kit
+settings: type map Ca P O H C, `sel` [44, 16, 60, 72, 20], cutoff 6.0,
+embedding [25, 50, 100], axis 16, fitting [240, 240, 240] with timesteps
+(2,664,455 parameters), float64, learning rate 1e-3 to 3e-8 with `decay_steps`
+5000, prefactors 0.02 to 1 (energy), 1000 to 1 (force) and 0 to 0.02 (virial),
+300,000 steps of one frame. omniMD started from fresh networks (seed 11) and
+computed normalization and energy bias from the 196 frames.
+
+| | omniMD, one run | DeePMD-kit 3.1.3, the pipeline's four models |
+|---|---:|---:|
+| Time for 300,000 steps | 88 min (57 steps/s) | about 12.8 h each (6.5 steps/s) |
+| Sealed test, force RMSE (eV/Å) | 0.0719 | 0.0699 to 0.0711 |
+| Sealed test, energy RMSE (meV/atom) | 1.27 | 1.64 to 1.74 |
+
+The sealed test is the pipeline's 83 held-out frames, scored with
+`omnimd-native-gpu-test`. Per system (force RMSE in eV/Å, energy RMSE in
+meV/atom; DeePMD: smallest and largest of the four models):
+
+| system (frames, atoms) | force, omniMD | force, DeePMD | energy, omniMD | energy, DeePMD |
+|---|---:|---:|---:|---:|
+| CaCO3_20 (9, 160) | 0.0543 | 0.0519 to 0.0529 | 0.45 | 0.38 to 0.71 |
+| calcite (12, 80) | 0.0426 | 0.0391 to 0.0401 | 0.48 | 0.32 to 0.58 |
+| HAP(001) + CO2 (9, 91) | 0.0868 | 0.0838 to 0.0849 | 0.98 | 0.76 to 1.10 |
+| HAP(001) + water + CO2 (9, 169) | 0.1090 | 0.1062 to 0.1090 | 1.57 | 1.52 to 1.75 |
+| HAP bulk (12, 88) | 0.0445 | 0.0430 to 0.0452 | 0.49 | 0.46 to 0.70 |
+| lime (12, 54) | 0.0147 | 0.0200 to 0.0214 | 0.72 | 1.19 to 1.73 |
+| monetite (9, 224) | 0.0860 | 0.0809 to 0.0846 | 0.42 | 0.40 to 0.77 |
+| portlandite (11, 90) | 0.0386 | 0.0376 to 0.0397 | 2.81 | 3.82 to 4.00 |
+
+How to read this:
+
+- The omniMD model is as accurate as the DeePMD models trained on the same
+  frames with the same settings: its force error is 1 to 3 percent above
+  theirs overall, its energy error about a quarter below. This is one omniMD
+  run against four DeePMD seeds; the DeePMD seeds differ among themselves by
+  about 2 percent in force and 6 percent in energy.
+- The two trainers are not expected to give the same numbers: the random
+  streams differ, omniMD takes the statistics from every frame, and its
+  frame order is its own.
+- The DeePMD errors are the pipeline's recorded sealed-test results and the
+  DeePMD rate is the pipeline's record on this machine; neither was re-run
+  here. For the pipeline's later models, omniMD's test command reproduces
+  such records to their printed precision.
+- The omniMD time includes about 8 minutes in which the GPU was shared with
+  another run, and the host was compiling meanwhile. Alone, the trainer
+  measured 57 steps/s in float64 and 118 in float32 on these frames.
+- The pipeline marks its models as not production-qualified. The comparison
+  says the two trainers reach the same quality on this data, nothing about
+  the quality of either model for science.
+
+Numbers and learning curve:
+[`bench/results/hap-train-omnimd-rtx4090-2026-11-10.json`](../bench/results/hap-train-omnimd-rtx4090-2026-11-10.json),
+[`.lcurve.out`](../bench/results/hap-train-omnimd-rtx4090-2026-11-10.lcurve.out).

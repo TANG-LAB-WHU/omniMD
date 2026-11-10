@@ -62,6 +62,12 @@ to a native model on `cuda:N`:
   not an error: neighbors are selected like DeepMD-kit 3.
 - `model-deviation` accepts the GPU runtime when every member uses the same
   `cuda:N` with `gpu_runtime`; mixed devices are rejected.
+- The forces a center exerts on its neighbors are accumulated with atomic
+  additions, whose order varies from run to run. Each evaluation is right to
+  rounding (float64 forces within 1e-12 eV/angstrom of DeepMD-kit on the 83
+  frames of the benchmark summary), but a trajectory is not reproduced bit for
+  bit: two runs of the same request, or a run and its restart, drift apart and
+  then agree only statistically. Exact replay is a property of the CPU path.
 
 Each evaluation still passes one frame from the host and returns energy, forces
 and virial to it, so very large systems pay a per-step host cost that the

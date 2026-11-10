@@ -114,9 +114,10 @@ Milliseconds per energy/force/virial evaluation; DeepMD-kit 3.1.3 is LAMMPS
 - LAMMPS reuses its neighbor list for about 13 steps, while omniMD rebuilds it on
   every evaluation. The 98,304-atom LAMMPS runs stopped with a TorchScript runtime
   error (probably out of memory; not verified).
-- Scope: inference only, one GPU, se_e2_a with one embedding net per type pair.
-  The engine can select it for dynamics, minimization, batch evaluation and model
-  deviation (`gpu_runtime` in the model options); the trainers do not use it yet.
+- Scope: one GPU, se_e2_a with one embedding net per type pair. The engine can
+  select it for dynamics, minimization, batch evaluation and model deviation
+  (`gpu_runtime` in the model options). It has a trainer of its own (below); the
+  bounded `train-native` trainers do not use it.
   [Method and raw results](mlmd/bench/README.md), [summary](mlmd/bench/results/SUMMARY.md).
 
 On a trained five-element se_e2_a ensemble (the HAP pipeline's iteration-4
@@ -128,10 +129,20 @@ against 13.6 to 15.7 ms for LAMMPS `pair_style deepmd` with the same models and
 a neighbor list rebuilt every step. The ensemble is not a production-qualified
 potential; see the [summary](mlmd/bench/results/SUMMARY.md) for the protocol.
 
+`omnimd-native-gpu-train` trains se_e2_a models of any size on the GPU with
+DeepMD-kit's `ener` loss, learning-rate schedule and Adam settings, from a DeepMD
+`model` section or an existing native model, with snapshots and restart. Trained
+from scratch on that pipeline's iteration-0 data (196 frames) with its DeepMD
+settings, 300,000 steps took 88 minutes, against about 12.8 hours per model
+recorded for DeepMD-kit on the same machine, and the model scores like the
+pipeline's four DeepMD models on its 83-frame sealed test: force RMSE 0.0719
+eV/angstrom (DeepMD 0.0699 to 0.0711), energy RMSE 1.27 meV/atom (DeepMD 1.64 to
+1.74). [Contract, checks and the full comparison](mlmd/native/GPU_TRAINING.md).
+
 `omnimd-native-stat` computes DeepMD-style dataset statistics: `dp neighbor-stat`,
 the se_e2_a input statistics `davg`/`dstd` and the per-type energy bias. They
-match DeepMD-kit 3.1.3 to 1e-8 on the recorded fixture; the trainers do not apply
-them automatically yet. Commands are in [guide step 28](mlmd/GETTING_STARTED.md#28-run-se_e2_a-on-the-gpu-runtime-and-compute-dataset-statistics).
+match DeepMD-kit 3.1.3 to 1e-8 on the recorded fixture; the GPU trainer applies
+them when it starts from a DeepMD `model` section. Commands are in [guide step 28](mlmd/GETTING_STARTED.md#28-run-se_e2_a-on-the-gpu-runtime-and-compute-dataset-statistics).
 
 ## Stepwise setup and current feature coverage
 
@@ -243,8 +254,9 @@ see [DeepMD setup and limits](mlmd/deepmd/README.md).
   flexible coupling but no semi-isotropic or surface-tension coupling. Optional
   CUDA inference is available within the separate scopes above; training
   retains CPU stages.
-- The GPU se_e2_a runtime is inference only; the trainers do not use it, and the
-  engine passes each frame through the host.
+- The GPU se_e2_a trainer takes one frame per step on one GPU and has no
+  validation set or fine-tuning controls; the bounded `train-native` trainers do
+  not use the GPU runtime, and the engine passes each frame through the host.
 - Arbitrary DeepMD architectures, hybrid se_e3 or generic .pb/.pth/pickle import.
 - Partial PBC, mixed-type/virtual atoms or automatic unit/type-map guessing.
 - Classical-potential mixing and the full legacy Simulation/Propagator pipeline.
