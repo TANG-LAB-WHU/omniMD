@@ -1,3 +1,86 @@
+# HAP pipeline ensemble: agreement and exploration-style speed, 2026-11-10
+
+Models and frames from the HAP CO2-mineralization pipeline v2 on this machine
+(iteration 4: four se_e2_a models, type map Ca P O H C, sel [44, 16, 60, 72, 20],
+embedding [25, 50, 100], fitting [240, 240, 240], float64; sealed test of 83
+DFT-labelled frames in 8 systems, 54 to 224 atoms). The pipeline marks these
+models as not production-qualified; the numbers below are agreement and speed
+only. Prepared with `hap_prepare.py`, which reads the pipeline tree and writes
+only to `cases/hap/`.
+
+**Agreement with DeePMD-kit 3.1.3** (`hap_check.py`; DeepPot on CPU, all 83
+frames, largest difference over the four models):
+
+| omniMD mode | energy per atom (eV) | force (eV/Å) | virial (eV) |
+|---|---:|---:|---:|
+| float64 | 1.8e-13 | 5.6e-13 | 1.1e-12 |
+| float64, compressed | 8.4e-10 | 3.9e-6 | 2.0e-5 |
+| float32 | 2.4e-7 | 7.5e-6 | 7.9e-5 |
+| float32, compressed | 2.8e-7 | 8.7e-6 | 7.2e-5 |
+
+- The sealed-test errors against the DFT labels come out the same from omniMD
+  as from DeePMD (largest shift 6e-14 in float64, 2.4e-7 in float32
+  compressed, in eV/atom or eV/Å), and both reproduce the pipeline's recorded
+  `sealed_test.json` to its printed precision (3.6e-7 relative).
+- No frame exceeds `sel`, and no frame leaves the table range at
+  `--compress 0.5`.
+- Compression costs more accuracy here than on the untrained water model
+  (4e-6 against 9e-16 eV/Å) because trained embedding nets vary faster. It
+  remains four orders of magnitude below the models' own test error
+  (0.014 to 0.098 eV/Å per system and model).
+- Model deviation (`hap_md.py`): `omnimd-mlmd model-deviation` with the four
+  models on the GPU runtime gives max/min/mean force deviations within 1e-14
+  eV/Å of those computed from DeePMD's reference forces. The whole run over
+  83 frames takes about 2 s, including loading four models.
+
+**Speed, ms per MD step** (NVT at 300 K, 0.5 fs). DeePMD: LAMMPS
+`pair_style deepmd` with the pipeline's protocol and models (TensorFlow
+graphs, skin 0 with a rebuild every step, 2 OpenMP threads;
+`hap-lammps-rtx4090-2026-11-10.csv`). omniMD: `omnimd-mlmd run` on the GPU
+runtime with the CSVR thermostat, sampled every 50 steps
+(`hap-omnimd-rtx4090-2026-11-10.csv`):
+
+| system (atoms) | DeePMD 1 model | DeePMD 4 models | omniMD fp64 | fp64 compressed | fp32 | fp32 compressed |
+|---|---:|---:|---:|---:|---:|---:|
+| HAP bulk (88) | 13.6 | 12.8 | 1.50 | 0.78 | 0.52 | 0.49 |
+| HAP(001) + water + CO2 (169) | 15.7 | 16.5 | 2.57 | 1.19 | 0.80 | 0.69 |
+| monetite (224) | 14.6 | 15.5 | 3.10 | 1.26 | 0.86 | 0.75 |
+
+- omniMD float64 gives DeePMD's forces to rounding and is 4.7 to 9 times
+  faster per step; compressed float64 is 11 to 17 times faster and compressed
+  float32 19 to 28 times.
+- "4 models" is the pipeline's exploration setting: model 0 drives the
+  dynamics and all four are evaluated every 50 steps. omniMD runs the
+  deviation as a separate command over the sampled frames (about 25 ms per
+  frame including model loading, so under 1 ms per MD step at this sampling).
+- The pipeline's own 100,000-step exploration logs show 52 ms per step for the
+  169-atom system (three jobs sharing the GPU, 87 min per run).
+- The thermostats differ (Nose-Hoover in LAMMPS, CSVR in omniMD); this does
+  not affect the cost per step. omniMD has no NPT yet, which the pipeline uses
+  for its 300 K bulk runs.
+- These systems are bound by per-step latency, not arithmetic. What made
+  them fast here: one launch for all 25 embedding nets and one fused
+  forward-and-backward kernel for all five fitting nets (169 atoms, float32
+  compressed: 1.41 to 0.67 ms per evaluation).
+
+# Water benchmark rerun with the single-launch kernels, 2026-11-10 (r2)
+
+`omnimd-gpu-rtx4090-2026-11-10-r2.csv`, same protocol as the table below.
+
+| atoms | fp64 | fp64 compressed | fp32 | fp32 compressed |
+|---:|---:|---:|---:|---:|
+| 192 | 2.07 | 1.05 | 0.70 | 0.63 |
+| 1,536 | 12.4 | 5.88 | 2.38 | 1.81 |
+| 12,288 | 95.7 | 44.2 | 16.0 | 11.9 |
+| 98,304 | 763 | 352 | 128 | 94.8 |
+
+The machine ran about 10% slower during this run than during the morning run
+below: the morning build, rebuilt and alternated with the new one, also takes
+11.6 ms at 12,288 atoms in float32 compressed (10.4 in the morning). At equal
+conditions the new build is faster at 192 atoms (float64 2.77 to 2.07 ms,
+compressed 1.65 to 1.05) and within 1.5% elsewhere. Agreement with the DeePMD
+reference is unchanged.
+
 # Fused embedding, compression and DeePMD compressed baseline, 2026-11-10
 
 Same card, model and frames as below; ms per energy/force/virial evaluation.

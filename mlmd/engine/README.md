@@ -32,6 +32,41 @@ are never replaced. DeepMD inference uses a fresh device-isolated worker and one
 trusted official model handle. CPU requests disable GPU visibility. Native CPU
 inference needs no DeepMD, Python, GPU or LibTorch installation.
 
+## The omnimd-gpu se_e2_a runtime
+
+A second, independent GPU path runs native se_e2_a models of any network size
+entirely on the device (see [guide step 28](../GETTING_STARTED.md#28-run-se_e2_a-on-the-gpu-runtime-and-compute-dataset-statistics)).
+Build the engine with it:
+
+    cargo build --release --locked --manifest-path mlmd/Cargo.toml -p omnimd-mlmd --features native-gpu --bin omnimd-mlmd
+
+and select it in the options object of a `run`, `check`, `minimize`,
+`batch-eval`, `model-info` or `model-deviation` request by adding `gpu_runtime`
+to a native model on `cuda:N`:
+
+    {"native_model":"/absolute/native-model.json","device":"cuda:0",
+     "gpu_runtime":{"precision":"float32","compress_min_distance":0.5}}
+
+- `gpu_runtime: {}` runs the networks in float64. `"precision":"float32"` runs
+  them in float32; geometry, forces and virial stay float64.
+- `compress_min_distance` (angstrom) tabulates the embedding networks for
+  neighbor distances from that value to the cutoff, with `table_step` (default
+  0.01) in the normalized radial input. The tables continue at ten times the
+  step down to a fifth of that distance; a frame with an even closer pair is
+  evaluated with the exact networks, so the value affects speed only.
+- Without `gpu_runtime`, `cuda:N` keeps its earlier meaning (the bounded
+  `native-cuda` path below). `gpu_runtime` with `device: cpu`, or in a build
+  without `native-gpu`, is rejected before any worker starts.
+- The reported model metadata has `backend: native-gpu-se-e2-a` and the network
+  precision. Unlike the CPU path, a center with more neighbors than `sel` is
+  not an error: neighbors are selected like DeepMD-kit 3.
+- `model-deviation` accepts the GPU runtime when every member uses the same
+  `cuda:N` with `gpu_runtime`; mixed devices are rejected.
+
+Each evaluation still passes one frame from the host and returns energy, forces
+and virial to it, so very large systems pay a per-step host cost that the
+standalone evaluator's `--bench` figure does not include.
+
 ## Explicit native CUDA inference
 
 CPU remains the default for native options, including small systems. No atom

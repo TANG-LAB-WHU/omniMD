@@ -1423,9 +1423,10 @@ does not change that conclusion.
 ## 28. Run se_e2_a on the GPU runtime and compute dataset statistics
 
 This step uses the `omnimd-gpu` runtime, which is separate from the bounded
-`cuda` feature of steps 7 and 13 to 27. It covers single-frame inference of a
-native se_e2_a model with any network size. The MD runner and the trainers do not
-use it yet.
+`cuda` feature of steps 7 and 13 to 27. It covers inference of a native se_e2_a
+model with any network size, standalone or behind the engine's dynamics,
+minimization, batch evaluation and model deviation. The trainers do not use it
+yet.
 
 Requirements: an NVIDIA GPU with a current driver, and the CUDA 12 runtime
 libraries for NVRTC and cuBLAS on the library path (`%CUDA_PATH%\bin` on Windows,
@@ -1471,6 +1472,20 @@ Always compare one frame with the CPU evaluator before relying on a new model:
 omnimd-native-eval MODEL.json < frame.jsonl > cpu.jsonl
 omnimd-native-gpu-eval MODEL.json < frame.jsonl > gpu.jsonl
 ```
+
+To use the runtime for molecular dynamics, minimization, batch evaluation or
+model deviation, build the engine with `--features native-gpu` and add
+`"device":"cuda:0","gpu_runtime":{...}` to the native model options of an
+existing request, for example:
+
+```json
+{"native_model":"/absolute/model.native.json","device":"cuda:0",
+ "gpu_runtime":{"precision":"float32","compress_min_distance":0.5}}
+```
+
+[The engine README](engine/README.md#the-omnimd-gpu-se_e2_a-runtime) lists the
+fields. All other request fields, outputs, checkpoints and restart rules are
+unchanged.
 
 Dataset statistics with DeepMD-kit semantics, for one imported JSONL dataset:
 

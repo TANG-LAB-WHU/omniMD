@@ -39,6 +39,22 @@ For a compressed DeePMD baseline, run `compress_deepmd.py cases` in the image
 because the untrained models do not store one), then step 3 with
 `--skip-deeppot --compressed`.
 
+## A real ensemble: the HAP pipeline models
+
+`hap_*.py` repeat the comparison on a trained DeePMD se_e2_a ensemble and its
+DeePMD npy test systems (written for the HAP pipeline tree, which is only read):
+
+```bash
+# DeePMD image: convert the models, write frames, DeePMD reference E/F/V
+docker run --rm -v $PWD/mlmd:/m -v <pipeline>:/hap:ro -w /m <image> python bench/hap_prepare.py /hap/iter-004/train /hap/sealed-test/data/train bench/cases/hap
+# Host: agreement of every model and mode with DeePMD, and with recorded test errors
+python mlmd/bench/hap_check.py mlmd/bench/cases/hap <target>/release report.json --recorded <pipeline>/iter-004/train/sealed_test.json
+# Host: 4-model deviation check and NVT timing through omnimd-mlmd (--features native-gpu)
+python mlmd/bench/hap_md.py mlmd/bench/cases/hap <target>/release mlmd/bench/results/hap-omnimd-<tag>.csv <system> ...
+# DeePMD image: LAMMPS with the pipeline's exploration protocol
+docker run --rm --gpus all -v $PWD/mlmd:/m -v <pipeline>/iter-004/explore:<path the models were written for>:ro -w /m <image> python bench/hap_lammps.py <that path> bench/cases/hap bench/results/hap-lammps-<tag>.csv <run> ...
+```
+
 Run steps 3 and 4 one after the other, never at the same time, so they don't
 compete for the GPU. `cases/` is generated and git-ignored. Step 3 accepts
 `--skip-deeppot` or `--skip-lammps` to rerun one route into a separate CSV.

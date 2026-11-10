@@ -115,8 +115,18 @@ Milliseconds per energy/force/virial evaluation; DeepMD-kit 3.1.3 is LAMMPS
   every evaluation. The 98,304-atom LAMMPS runs stopped with a TorchScript runtime
   error (probably out of memory; not verified).
 - Scope: inference only, one GPU, se_e2_a with one embedding net per type pair.
-  The MD runner, the trainers and the CPU path do not use this runtime yet.
+  The engine can select it for dynamics, minimization, batch evaluation and model
+  deviation (`gpu_runtime` in the model options); the trainers do not use it yet.
   [Method and raw results](mlmd/bench/README.md), [summary](mlmd/bench/results/SUMMARY.md).
+
+On a trained five-element se_e2_a ensemble (the HAP pipeline's iteration-4
+models, 83 DFT-labelled test frames of 54 to 224 atoms), float64 omniMD matches
+DeepMD-kit to 6e-13 eV/angstrom in forces and reproduces the recorded test errors.
+Those systems are bound by per-step latency: NVT dynamics through `omnimd-mlmd`
+takes 1.5 to 3.1 ms per step in float64 (0.5 to 0.8 ms in compressed float32)
+against 13.6 to 15.7 ms for LAMMPS `pair_style deepmd` with the same models and
+a neighbor list rebuilt every step. The ensemble is not a production-qualified
+potential; see the [summary](mlmd/bench/results/SUMMARY.md) for the protocol.
 
 `omnimd-native-stat` computes DeepMD-style dataset statistics: `dp neighbor-stat`,
 the se_e2_a input statistics `davg`/`dstd` and the per-type energy bias. They
@@ -227,8 +237,8 @@ see [DeepMD setup and limits](mlmd/deepmd/README.md).
 
 - NPT/barostats, cell relaxation or constraints. Optional CUDA inference is
   available within the separate scopes above; training retains CPU stages.
-- The GPU se_e2_a runtime is inference only and is not connected to the MD runner
-  or the trainers.
+- The GPU se_e2_a runtime is inference only; the trainers do not use it, and the
+  engine passes each frame through the host.
 - Arbitrary DeepMD architectures, hybrid se_e3 or generic .pb/.pth/pickle import.
 - Partial PBC, mixed-type/virtual atoms or automatic unit/type-map guessing.
 - Classical-potential mixing and the full legacy Simulation/Propagator pipeline.

@@ -1,0 +1,7 @@
+engine,route,device,precision,natoms,ms_per_eval,us_per_atom_step,ns_per_day,peak_mem_mb,status,note
+deepmd-3.1.3,lammps-tf-1-model,gpu,float64,88,13.56665,154.16647727272726,3.184,,ok,"hap_bulk_T500; NVT 300 K 0.5 fs, skin 0, 2000 timed steps after 100 warmup steps"
+deepmd-3.1.3,lammps-tf-4-model,gpu,float64,88,12.82045,145.68693181818182,3.37,,ok,"hap_bulk_T500; NVT 300 K 0.5 fs, skin 0, 2000 timed steps after 100 warmup steps"
+deepmd-3.1.3,lammps-tf-1-model,gpu,float64,169,15.659200000000002,92.65798816568048,2.759,,ok,"hap001_water_co2_T300; NVT 300 K 0.5 fs, skin 0, 2000 timed steps after 100 warmup steps"
+deepmd-3.1.3,lammps-tf-4-model,gpu,float64,169,16.53305,97.82869822485206,2.613,,ok,"hap001_water_co2_T300; NVT 300 K 0.5 fs, skin 0, 2000 timed steps after 100 warmup steps"
+deepmd-3.1.3,lammps-tf-1-model,gpu,float64,224,14.57355,65.06049107142857,2.964,,ok,"monetite_CaHPO4_T500; NVT 300 K 0.5 fs, skin 0, 2000 timed steps after 100 warmup steps"
+deepmd-3.1.3,lammps-tf-4-model,gpu,float64,224,15.4798,69.10625,2.791,,ok,"monetite_CaHPO4_T500; NVT 300 K 0.5 fs, skin 0, 2000 timed steps after 100 warmup steps"
