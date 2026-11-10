@@ -1138,3 +1138,170 @@ fn neighbor_list_matches_brute_force() {
     let (p, t) = random_frame(300, cubic, 704);
     check_neighbors("truncated", &p, &t, Cell::Periodic(cubic), 4.0, &[5, 9]);
 }
+
+/// Packs CPU layers into a flat parameter vector and their training layout.
+fn training_layout(layers: &[CpuLayer]) -> (Vec<f64>, Vec<omnimd_gpu::TrainLayer>) {
+    let mut theta = Vec::new();
+    let mut layout = Vec::new();
+    for layer in layers {
+        let weights = theta.len();
+        theta.extend_from_slice(&layer.weights);
+        let bias = theta.len();
+        theta.extend_from_slice(&layer.bias);
+        let timestep = layer.timestep.as_ref().map(|t| {
+            let offset = theta.len();
+            theta.extend_from_slice(t);
+            offset
+        });
+        layout.push(omnimd_gpu::TrainLayer {
+            input: layer.input,
+            output: layer.output,
+            activation: layer.activation,
+            residual: layer.residual,
+            weights,
+            bias,
+            timestep,
+        });
+    }
+    (theta, layout)
+}
+
+#[test]
+fn training_network_gradients_match_finite_differences() {
+    let Some(device) = device() else { return };
+    let layers = [
+        CpuLayer::random(3, 6, Activation::Tanh, true, false, 1400),
+        CpuLayer::random(6, 6, Activation::Softplus, true, true, 1410),
+        CpuLayer::random(6, 4, Activation::Sigmoid, false, false, 1420),
+        CpuLayer::random(4, 2, Activation::Tanh, false, true, 1430),
+        CpuLayer::random(2, 1, Activation::Linear, false, false, 1440),
+    ];
+    let (theta, layout) = training_layout(&layers);
+    let network = omnimd_gpu::TrainNetwork::<f64>::new(device, layout.clone()).unwrap();
+    assert_eq!((network.input(), network.output()), (3, 1));
+    let rows = 9;
+    let (x, xdot) = (values(rows * 3, 1450), values(rows * 3, 1451));
+    // Phi = sum_r (wy_r y_r + wd_r ydot_r): depends on values and tangents.
+    let (wy, wd) = (values(rows, 1452), values(rows, 1453));
+    let phi = |theta: &[f64], x: &[f64], xdot: &[f64]| -> f64 {
+        let tape = network
+            .forward(
+                device,
+                &device.upload(theta).unwrap(),
+                &device.upload(x).unwrap(),
+                &device.upload(xdot).unwrap(),
+                rows,
+            )
+            .unwrap();
+        let y = device.download(tape.output()).unwrap();
+        let ydot = device.download(tape.tangent()).unwrap();
+        (0..rows).map(|r| wy[r] * y[r] + wd[r] * ydot[r]).sum()
+    };
+
+    // The forward values agree with the CPU chain, and the tangent with its
+    // directional finite difference.
+    let theta_d = device.upload(&theta).unwrap();
+    let (xd, xdotd) = (device.upload(&x).unwrap(), device.upload(&xdot).unwrap());
+    let tape = network
+        .forward(device, &theta_d, &xd, &xdotd, rows)
+        .unwrap();
+    assert!(
+        max_error(
+            device.download(tape.output()).unwrap(),
+            &cpu_chain(&layers, &x, rows)
+        ) < 1e-13
+    );
+    let h = 1e-6;
+    let moved = |s: f64| -> Vec<f64> { x.iter().zip(&xdot).map(|(a, b)| a + s * b).collect() };
+    let directional: Vec<f64> = cpu_chain(&layers, &moved(h), rows)
+        .iter()
+        .zip(&cpu_chain(&layers, &moved(-h), rows))
+        .map(|(p, m)| (p - m) / (2.0 * h))
+        .collect();
+    assert!(max_error(device.download(tape.tangent()).unwrap(), &directional) < 1e-8);
+
+    // Reverse pass: parameter gradient and input adjoints.
+    let mut gradient = device.zeros::<f64>(theta.len()).unwrap();
+    let (mut xbar, mut xdbar) = (
+        device.zeros::<f64>(rows * 3).unwrap(),
+        device.zeros::<f64>(rows * 3).unwrap(),
+    );
+    let ones = device.upload(&vec![1.0f64; rows]).unwrap();
+    network
+        .backward_to_input(
+            device,
+            &theta_d,
+            &mut gradient,
+            true,
+            &tape,
+            &xd,
+            &xdotd,
+            &device.upload(&wy).unwrap(),
+            &device.upload(&wd).unwrap(),
+            &ones,
+            &mut xbar,
+            &mut xdbar,
+        )
+        .unwrap();
+    let central = |f: &dyn Fn(f64) -> f64| (f(h) - f(-h)) / (2.0 * h);
+    let analytic = device.download(&gradient).unwrap();
+    for k in 0..theta.len() {
+        let numeric = central(&|s| {
+            let mut t = theta.clone();
+            t[k] += s;
+            phi(&t, &x, &xdot)
+        });
+        assert!(
+            (analytic[k] - numeric).abs() < 1e-7 * numeric.abs().max(1.0),
+            "parameter {k}: {} vs {numeric}",
+            analytic[k]
+        );
+    }
+    let (got_x, got_xdot) = (
+        device.download(&xbar).unwrap(),
+        device.download(&xdbar).unwrap(),
+    );
+    for k in 0..rows * 3 {
+        let numeric = central(&|s| {
+            let mut moved = x.clone();
+            moved[k] += s;
+            phi(&theta, &moved, &xdot)
+        });
+        assert!(
+            (got_x[k] - numeric).abs() < 1e-7 * numeric.abs().max(1.0),
+            "x {k}"
+        );
+        let numeric = central(&|s| {
+            let mut moved = xdot.clone();
+            moved[k] += s;
+            phi(&theta, &x, &moved)
+        });
+        assert!(
+            (got_xdot[k] - numeric).abs() < 1e-7 * numeric.abs().max(1.0),
+            "xdot {k}"
+        );
+    }
+
+    // Without input adjoints the parameter gradient is the same, and it
+    // accumulates into what the buffer already holds.
+    network
+        .backward(
+            device,
+            &theta_d,
+            &mut gradient,
+            &tape,
+            &xd,
+            &xdotd,
+            &device.upload(&wy).unwrap(),
+            &device.upload(&wd).unwrap(),
+            &ones,
+        )
+        .unwrap();
+    let doubled: Vec<f64> = analytic.iter().map(|g| 2.0 * g).collect();
+    assert!(max_error(device.download(&gradient).unwrap(), &doubled) < 1e-12);
+
+    // Layers that do not chain are rejected.
+    let mut broken = layout;
+    broken[1].input = 5;
+    assert!(omnimd_gpu::TrainNetwork::<f64>::new(device, broken).is_err());
+}

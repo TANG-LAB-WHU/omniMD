@@ -10,6 +10,7 @@ mod fused;
 mod kernels;
 mod nlist;
 mod table;
+mod train;
 
 pub use cudarc::driver::{
     CudaFunction, CudaSlice, CudaStream, CudaView, CudaViewMut, DevicePtr, DevicePtrMut,
@@ -20,6 +21,7 @@ pub use fused::{GradientNetwork, LayerParameters, ScalarNetwork};
 pub use kernels::{CacheStats, KernelCache};
 pub use nlist::{Cell, NeighborList, NeighborStats};
 pub use table::{quintic_coefficients, ScalarTable, TableSegments};
+pub use train::{TrainLayer, TrainNetwork, TrainTape};
 
 use cudarc::cublas::{CudaBlas, Gemm, GemmConfig, StridedBatchedConfig};
 use cudarc::driver::{CudaContext, DeviceRepr, ValidAsZeroBits};
@@ -290,6 +292,37 @@ impl Device {
         accumulate: bool,
     ) -> Result<()> {
         self.product(a, b, c, shape, accumulate, true)
+    }
+
+    /// Row-major `c[k][n] = aᵀ·b` (or `+=`) for `a[m][k]` and `b[m][n]`: the
+    /// weight gradient of a layer from its inputs and its output adjoints.
+    pub fn matmul_at<T: Scalar>(
+        &self,
+        a: &impl DevicePtr<T>,
+        b: &impl DevicePtr<T>,
+        c: &mut impl DevicePtrMut<T>,
+        shape: MatmulShape,
+        accumulate: bool,
+    ) -> Result<()> {
+        use cudarc::cublas::sys::cublasOperation_t::{CUBLAS_OP_N, CUBLAS_OP_T};
+        let (m, k, n) = shape.dims()?;
+        check_len("matmul a", a.len(), shape.m * shape.k)?;
+        check_len("matmul b", b.len(), shape.m * shape.n)?;
+        check_len("matmul c", c.len(), shape.k * shape.n)?;
+        // Column-major view: cᵀ[n×k] = bᵀ[n×m] · (aᵀ[k×m])ᵀ.
+        let cfg = GemmConfig {
+            transa: CUBLAS_OP_N,
+            transb: CUBLAS_OP_T,
+            m: n,
+            n: k,
+            k: m,
+            alpha: T::ONE,
+            lda: n,
+            ldb: k,
+            beta: if accumulate { T::ONE } else { T::ZERO },
+            ldc: n,
+        };
+        unsafe { T::gemm(&self.blas, cfg, b, a, c) }.map_err(cuda_error("cuBLAS GEMM"))
     }
 
     fn product<T: Scalar>(
