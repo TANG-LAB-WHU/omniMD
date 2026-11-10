@@ -259,6 +259,17 @@ fn labels(frame: &DatasetFrame) -> FrameLabels<'_> {
     }
 }
 
+thread_local! {
+    /// Prefix of this thread's progress lines: the request's file name when
+    /// several requests train at once, empty otherwise.
+    static TAG: std::cell::RefCell<String> = std::cell::RefCell::new(String::new());
+}
+
+/// A progress line on standard error.
+fn note(line: std::fmt::Arguments) {
+    TAG.with(|tag| eprintln!("{}{line}", tag.borrow()));
+}
+
 /// A fresh model for `spec`, with statistics from the training frames.
 fn fresh_model(spec: &ModelSpec, data: &Dataset) -> Result<Model, Box<dyn std::error::Error>> {
     let frames: Vec<&Frame> = data.frames.iter().map(|f| &f.frame).collect();
@@ -271,10 +282,10 @@ fn fresh_model(spec: &ModelSpec, data: &Dataset) -> Result<Model, Box<dyn std::e
     let sel = match (&d.sel, d.sel.auto_factor()?) {
         (_, Some(factor)) => {
             let stat = neighbor_stat(&frames, &spec.type_map, d.rcut)?;
-            eprintln!(
+            note(format_args!(
                 "neighbor statistics: nearest pair {:.4} A, most neighbors per type {:?}",
                 stat.min_nbor_dist, stat.max_nbor_size
-            );
+            ));
             stat.auto_sel(factor)
         }
         (omnimd_native::model_init::SelSpec::Counts(counts), None) => counts.clone(),
@@ -282,10 +293,10 @@ fn fresh_model(spec: &ModelSpec, data: &Dataset) -> Result<Model, Box<dyn std::e
     };
     let normalization = env_mat_stat(&frames, &spec.type_map, d.rcut, d.rcut_smth, &sel)?;
     let bias = energy_bias(&frames, &energies, &spec.type_map)?;
-    eprintln!(
+    note(format_args!(
         "sel {sel:?}; energy bias per type {:?} (rank {})",
         bias.bias, bias.rank
-    );
+    ));
     Ok(initialize(spec, sel, normalization, bias.bias)?)
 }
 
@@ -316,7 +327,7 @@ fn train<P: Scalar>(
                 .into());
             }
             trainer.set_optimizer_state(&state)?;
-            eprintln!("continuing from step {}", state.step);
+            note(format_args!("continuing from step {}", state.step));
             state.step
         }
         None => 0,
@@ -342,12 +353,12 @@ fn train<P: Scalar>(
         }
         None => None,
     };
-    eprintln!(
+    note(format_args!(
         "training {} parameters on {} frames, network {}",
         trainer.parameter_count(),
         data.frames.len(),
         P::SUFFIX
-    );
+    ));
     // A continued run draws a new frame order from its starting step.
     let mut rng = Rng(training.seed ^ first_step.wrapping_mul(0x9e37_79b9_7f4a_7c15));
     let mut order: Vec<usize> = (0..data.frames.len()).collect();
@@ -409,7 +420,7 @@ fn train<P: Scalar>(
             if let Some(file) = &mut curve {
                 writeln!(file, "{line}")?;
             }
-            eprintln!("{line}");
+            note(format_args!("{line}"));
         }
     }
     let trained = trainer.model()?;
@@ -435,11 +446,8 @@ fn train<P: Scalar>(
     Ok(())
 }
 
-fn run() -> Result<(), Box<dyn std::error::Error>> {
-    let args: Vec<String> = std::env::args().skip(1).collect();
-    let [path] = args.as_slice() else {
-        return Err("usage: omnimd-native-gpu-train REQUEST.json".into());
-    };
+/// One request, from its file to its trained model, on `device`.
+fn train_request(path: &str, device: Device) -> Result<(), Box<dyn std::error::Error>> {
     let request: Request = serde_json::from_str(&std::fs::read_to_string(path)?)?;
     if request.output.exists() {
         return Err(format!("output {} already exists", request.output.display()).into());
@@ -460,11 +468,55 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
         ModelSource::Path(path) => NativePotential::load(path)?.model().clone(),
         ModelSource::Spec(spec) => fresh_model(spec, &data)?,
     };
-    let device = Arc::new(Device::new(0)?);
-    eprintln!("device: {}", device.name());
+    let device = Arc::new(device);
     match request.precision {
         Precision::Float64 => train::<f64>(&request, &model, &data, device),
         Precision::Float32 => train::<f32>(&request, &model, &data, device),
+    }
+}
+
+fn run() -> Result<(), Box<dyn std::error::Error>> {
+    let paths: Vec<String> = std::env::args().skip(1).collect();
+    if paths.is_empty() {
+        return Err("usage: omnimd-native-gpu-train REQUEST.json [REQUEST.json ...]".into());
+    }
+    let first = Device::new(0)?;
+    eprintln!("device: {}", first.name());
+    // Every further request trains at the same time on a stream of its own.
+    let mut devices = Vec::with_capacity(paths.len());
+    for _ in 1..paths.len() {
+        devices.push(first.sibling()?);
+    }
+    devices.insert(0, first);
+    let several = paths.len() > 1;
+    let failures: Vec<String> = std::thread::scope(|scope| {
+        let workers: Vec<_> = paths
+            .iter()
+            .zip(devices)
+            .map(|(path, device)| {
+                scope.spawn(move || {
+                    if several {
+                        let name = std::path::Path::new(path)
+                            .file_name()
+                            .map_or(path.as_str().into(), |name| name.to_string_lossy());
+                        TAG.with(|tag| *tag.borrow_mut() = format!("[{name}] "));
+                    }
+                    train_request(path, device).map_err(|e| format!("{path}: {e}"))
+                })
+            })
+            .collect();
+        workers
+            .into_iter()
+            .filter_map(|worker| match worker.join() {
+                Ok(result) => result.err(),
+                Err(_) => Some("a training thread panicked".to_string()),
+            })
+            .collect()
+    });
+    if failures.is_empty() {
+        Ok(())
+    } else {
+        Err(failures.join("; ").into())
     }
 }
 

@@ -1,0 +1,144 @@
+//! `omnimd-native-gpu-train` as a program: one request, and several
+//! requests at once on streams of one device. Skips without a CUDA device
+//! unless OMNIMD_REQUIRE_GPU is set.
+#![cfg(feature = "gpu")]
+use serde_json::{json, Value};
+use std::path::{Path, PathBuf};
+use std::process::{Command, Output};
+
+fn gpu_available() -> bool {
+    match omnimd_gpu::Device::new(0) {
+        Ok(_) => true,
+        Err(error) if std::env::var_os("OMNIMD_REQUIRE_GPU").is_some() => {
+            panic!("OMNIMD_REQUIRE_GPU is set but no device: {error}")
+        }
+        Err(error) => {
+            eprintln!("skipping trainer CLI tests: {error}");
+            false
+        }
+    }
+}
+
+/// A twelve-step request on the statistics fixture (six frames of O, H, C).
+fn request(directory: &Path, name: &str, seed: u64) -> PathBuf {
+    let dataset = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("fixtures/stats-dataset.jsonl")
+        .canonicalize()
+        .unwrap();
+    let request = json!({
+        "model": {
+            "type_map": ["O", "H", "C"],
+            "descriptor": {"type": "se_e2_a", "sel": "auto", "rcut": 4.0, "rcut_smth": 0.5,
+                           "neuron": [4, 8], "axis_neuron": 2, "resnet_dt": false,
+                           "type_one_side": false, "seed": seed},
+            "fitting_net": {"neuron": [8, 8], "resnet_dt": true, "seed": seed}
+        },
+        "dataset": dataset,
+        "output": directory.join(format!("{name}.native.json")),
+        "precision": "float64",
+        "learning_rate": {"start_lr": 1e-3, "stop_lr": 1e-4, "decay_steps": 4},
+        "loss": {},
+        "training": {"numb_steps": 12, "batch_size": 1, "seed": seed, "disp_freq": 4,
+                     "disp_file": directory.join(format!("{name}.lcurve"))}
+    });
+    let path = directory.join(format!("{name}.json"));
+    std::fs::write(&path, request.to_string()).unwrap();
+    path
+}
+
+fn train(requests: &[&Path]) -> Output {
+    Command::new(env!("CARGO_BIN_EXE_omnimd-native-gpu-train"))
+        .args(requests)
+        .output()
+        .unwrap()
+}
+
+fn numbers(value: &Value, out: &mut Vec<f64>) {
+    match value {
+        Value::Number(n) => out.push(n.as_f64().unwrap()),
+        Value::Array(items) => items.iter().for_each(|item| numbers(item, out)),
+        Value::Object(map) => map.values().for_each(|item| numbers(item, out)),
+        _ => {}
+    }
+}
+
+/// Largest difference between the numbers of two trained models.
+fn difference(a: &Path, b: &Path) -> f64 {
+    let read = |path: &Path| -> Vec<f64> {
+        let model: Value = serde_json::from_str(&std::fs::read_to_string(path).unwrap()).unwrap();
+        let mut values = Vec::new();
+        numbers(&model, &mut values);
+        values
+    };
+    let (x, y) = (read(a), read(b));
+    assert_eq!(x.len(), y.len(), "models differ in shape");
+    assert!(x.len() > 500, "expected a model's worth of numbers");
+    x.iter()
+        .zip(&y)
+        .map(|(p, q)| (p - q).abs())
+        .fold(0.0, f64::max)
+}
+
+#[test]
+fn several_requests_train_at_once_like_one_by_one() {
+    if !gpu_available() {
+        return;
+    }
+    let root = std::env::temp_dir().join(format!("omnimd-train-cli-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&root);
+    let (alone, together) = (root.join("alone"), root.join("together"));
+    for directory in [&alone, &together] {
+        std::fs::create_dir_all(directory).unwrap();
+    }
+    // Each request by itself.
+    for (name, seed) in [("a", 5), ("b", 6)] {
+        let run = train(&[&request(&alone, name, seed)]);
+        assert!(
+            run.status.success(),
+            "{}",
+            String::from_utf8_lossy(&run.stderr)
+        );
+        let summary: Value = serde_json::from_slice(&run.stdout).unwrap();
+        assert_eq!(
+            (summary["steps"].as_u64(), summary["frames"].as_u64()),
+            (Some(12), Some(6))
+        );
+    }
+    // Both in one process: one summary line each, and the same models (the
+    // order of atomic additions on the device varies, so not bit for bit).
+    let (a, b) = (request(&together, "a", 5), request(&together, "b", 6));
+    let run = train(&[&a, &b]);
+    assert!(
+        run.status.success(),
+        "{}",
+        String::from_utf8_lossy(&run.stderr)
+    );
+    let summaries: Vec<Value> = String::from_utf8(run.stdout)
+        .unwrap()
+        .lines()
+        .map(|line| serde_json::from_str(line).unwrap())
+        .collect();
+    assert_eq!(summaries.len(), 2);
+    for name in ["a", "b"] {
+        let file = format!("{name}.native.json");
+        let apart = difference(&alone.join(&file), &together.join(&file));
+        assert!(apart < 1e-8, "{name}: models differ by {apart}");
+        assert!(together.join(format!("{name}.lcurve")).is_file());
+    }
+    // Different seeds give different models.
+    assert!(difference(&alone.join("a.native.json"), &alone.join("b.native.json")) > 1e-3);
+
+    // A request that cannot run fails the process and is named; the other
+    // one still trains.
+    let third = root.join("third");
+    std::fs::create_dir_all(&third).unwrap();
+    let good = request(&third, "good", 7);
+    let bad = third.join("missing.json");
+    let run = train(&[&good, &bad]);
+    assert!(!run.status.success());
+    assert!(String::from_utf8_lossy(&run.stderr).contains("missing.json"));
+    assert!(third.join("good.native.json").is_file());
+    // No request at all is a usage error.
+    assert!(!train(&[]).status.success());
+    std::fs::remove_dir_all(root).unwrap();
+}

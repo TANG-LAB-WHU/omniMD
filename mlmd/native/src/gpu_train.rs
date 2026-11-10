@@ -14,17 +14,19 @@
 //! directional derivative of `E` when every neighbor vector `d = r_j − r_i`
 //! moves along `c_j − c_i + wᵀd`. One forward pass carries that tangent
 //! through environment matrix, embedding, descriptor and fitting; one
-//! reverse pass through both gives the gradient (reverse-over-forward, see
-//! [`omnimd_gpu::TrainNetwork`]).
+//! reverse pass through both gives the gradient (reverse-over-forward). All
+//! embedding nets run as one [`omnimd_gpu::TrainSet`] and all fitting nets as
+//! another, so a step issues about a hundred device calls whatever the
+//! number of types.
 //!
 //! Networks run in `P`; geometry, the `B` accumulation, forces, virial and
 //! the loss are float64. A frame is processed in one piece (no chunking), so
 //! it must fit in device memory with its recorded intermediates.
-use crate::gpu_model::{copy_error, launch_error, SOURCE as MODEL_SOURCE};
+use crate::gpu_model::{launch_error, SOURCE as MODEL_SOURCE};
 use crate::{Activation, Layer, Model, Network, Residual};
 use omnimd_gpu::{
     Activation as DeviceActivation, Cell, CudaFunction, CudaSlice, Device, LaunchConfig,
-    NeighborList, PushKernelArg, Scalar, TrainLayer, TrainNetwork, TrainTape,
+    NeighborList, PushKernelArg, Scalar, TrainLayer, TrainSet,
 };
 use omnimd_ml_contract::{Error, Evaluation, Frame, ModelMetadata, Result, Units};
 use std::sync::Arc;
@@ -290,9 +292,13 @@ pub struct GpuTrainer<P: Scalar> {
     theta: CudaSlice<P>,
     gradient: CudaSlice<P>,
     adam: Option<AdamState<P>>,
-    /// Net `center type · ntypes + neighbor type`.
-    embedding: Vec<TrainNetwork<P>>,
-    fitting: Vec<TrainNetwork<P>>,
+    /// Net `center type · ntypes + neighbor type`: the layouts, and all of
+    /// them as one set that evaluates every row with the net it names.
+    embedding: Vec<Vec<TrainLayer>>,
+    embedding_set: TrainSet<P>,
+    /// One fitting net per center type, likewise.
+    fitting: Vec<Vec<TrainLayer>>,
+    fitting_set: TrainSet<P>,
     davg: CudaSlice<f64>,
     dstd: CudaSlice<f64>,
     slot_type: CudaSlice<i32>,
@@ -370,18 +376,22 @@ impl<P: Scalar> GpuTrainer<P> {
             )));
         }
         let mut theta = Vec::new();
-        let mut embedding = Vec::with_capacity(ntypes * ntypes);
-        for network in d.embedding.iter().flatten() {
-            embedding.push(TrainNetwork::new(&device, pack(network, 1, &mut theta))?);
-        }
+        let embedding: Vec<Vec<TrainLayer>> = d
+            .embedding
+            .iter()
+            .flatten()
+            .map(|network| pack(network, 1, &mut theta))
+            .collect();
+        let embedding_set = TrainSet::new(&device, embedding.clone())?;
         let mut fitting = Vec::with_capacity(ntypes);
         for network in &model.fitting {
             let layers = pack(network, width * d.axis_neuron, &mut theta);
             if layers.last().map(|l| l.output) != Some(1) {
                 return Err(Error("fitting networks must end in one output".into()));
             }
-            fitting.push(TrainNetwork::new(&device, layers)?);
+            fitting.push(layers);
         }
+        let fitting_set = TrainSet::new(&device, fitting.clone())?;
         let davg: Vec<f64> = d.normalization.iter().flat_map(|n| n.mean).collect();
         let dstd: Vec<f64> = d.normalization.iter().flat_map(|n| n.std).collect();
         let (mut slot_type, mut slot_local, mut offsets) = (Vec::new(), Vec::new(), Vec::new());
@@ -417,7 +427,9 @@ impl<P: Scalar> GpuTrainer<P> {
             theta: device.upload(&cast)?,
             adam: None,
             embedding,
+            embedding_set,
             fitting,
+            fitting_set,
             davg: device.upload(&davg)?,
             dstd: device.upload(&dstd)?,
             slot_type: device.upload(&slot_type)?,
@@ -462,15 +474,12 @@ impl<P: Scalar> GpuTrainer<P> {
     pub fn model(&self) -> Result<Model> {
         let theta = self.parameters()?;
         let mut model = self.model.clone();
-        let networks = model
-            .descriptor
-            .embedding
-            .iter_mut()
-            .flatten()
-            .zip(&self.embedding)
-            .chain(model.fitting.iter_mut().zip(&self.fitting));
-        for (network, layout) in networks {
-            unpack(&mut network.layers, layout.layers(), &theta);
+        let embedding = model.descriptor.embedding.iter_mut().flatten();
+        for (network, layout) in embedding.zip(&self.embedding) {
+            unpack(&mut network.layers, layout, &theta);
+        }
+        for (network, layout) in model.fitting.iter_mut().zip(&self.fitting) {
+            unpack(&mut network.layers, layout, &theta);
         }
         model.validate()?;
         Ok(model)
@@ -668,12 +677,10 @@ impl<P: Scalar> GpuTrainer<P> {
                 .map_err(launch_error("environment"))?;
         }
 
-        // Embedding with the unit tangent: G and dG/d(radial input), one net
-        // per (center type, neighbor type) block of rows.
+        // Embedding with the unit tangent: G and dG/d(radial input); every
+        // row names its (center type, neighbor type) net.
         let ones = device.upload(&vec![P::ONE; rows_total.max(natoms)])?;
-        let mut g = unsafe { device.alloc_uninit::<P>(rows_total * width)? };
-        let mut dg = unsafe { device.alloc_uninit::<P>(rows_total * width)? };
-        // (net, first row, rows) of every nonempty block.
+        // (net, first row, rows) of every nonempty block, for the gradient.
         let mut blocks = Vec::new();
         let mut start = 0;
         for (tj, &sel_j) in d.sel.iter().enumerate() {
@@ -685,29 +692,10 @@ impl<P: Scalar> GpuTrainer<P> {
             }
             start += natoms * sel_j;
         }
-        let mut embedding_tapes: Vec<TrainTape<P>> = Vec::with_capacity(blocks.len());
-        for &(net, first, rows) in &blocks {
-            let tape = self.embedding[net].forward(
-                device,
-                &self.theta,
-                &radial.slice(first..first + rows),
-                &ones.slice(0..rows),
-                rows,
-            )?;
-            stream
-                .memcpy_dtod(
-                    tape.output(),
-                    &mut g.slice_mut(first * width..(first + rows) * width),
-                )
-                .map_err(copy_error)?;
-            stream
-                .memcpy_dtod(
-                    tape.tangent(),
-                    &mut dg.slice_mut(first * width..(first + rows) * width),
-                )
-                .map_err(copy_error)?;
-            embedding_tapes.push(tape);
-        }
+        let embedding_tape =
+            self.embedding_set
+                .forward(device, &self.theta, &radial, &network, rows_total)?;
+        let (g, dg) = (embedding_tape.output(), embedding_tape.tangent());
 
         let mut b = unsafe { device.alloc_uninit::<f64>(natoms * width * 4)? };
         let mut descriptor = unsafe { device.alloc_uninit::<P>(natoms * features)? };
@@ -715,7 +703,7 @@ impl<P: Scalar> GpuTrainer<P> {
             let mut launch = stream.launch_builder(&self.kernels.descriptor);
             launch
                 .arg(&env)
-                .arg(&g)
+                .arg(g)
                 .arg(&self.slot_type)
                 .arg(&self.slot_local)
                 .arg(&self.sel_d)
@@ -732,45 +720,46 @@ impl<P: Scalar> GpuTrainer<P> {
         }
 
         // First fitting pass: atomic energies and dE/dD for forces and virial.
+        // (type, first atom, atoms) of every type present.
         let type_ranges: Vec<(usize, usize, usize)> = (0..ntypes)
             .filter(|&t| block[t + 1] > block[t])
-            .map(|t| (t, block[t], block[t + 1]))
+            .map(|t| (t, block[t], block[t + 1] - block[t]))
             .collect();
         let zeros = device.zeros::<P>(natoms * features)?;
         let mut d_descriptor = unsafe { device.alloc_uninit::<P>(natoms * features)? };
         let mut scratch = unsafe { device.alloc_uninit::<P>(natoms * features)? };
-        let mut atomic = unsafe { device.alloc_uninit::<P>(natoms)? };
-        for &(t, lo, hi) in &type_ranges {
-            let rows = hi - lo;
-            let x = descriptor.slice(lo * features..hi * features);
-            let xdot = zeros.slice(lo * features..hi * features);
-            let tape = self.fitting[t].forward(device, &self.theta, &x, &xdot, rows)?;
-            self.fitting[t].backward_to_input(
-                device,
-                &self.theta,
-                &mut self.gradient,
-                false,
-                &tape,
-                &x,
-                &xdot,
-                &ones.slice(0..rows),
-                &zeros.slice(0..rows),
-                &ones,
-                &mut d_descriptor.slice_mut(lo * features..hi * features),
-                &mut scratch.slice_mut(lo * features..hi * features),
-            )?;
-            stream
-                .memcpy_dtod(tape.output(), &mut atomic.slice_mut(lo..hi))
-                .map_err(copy_error)?;
-        }
+        // Every atom names the fitting net of its type.
+        let first_pass = self.fitting_set.forward_with_tangent(
+            device,
+            &self.theta,
+            &descriptor,
+            &zeros,
+            &atype,
+            natoms,
+        )?;
+        self.fitting_set.backward_to_input(
+            device,
+            &self.theta,
+            &mut self.gradient,
+            false,
+            &first_pass,
+            &atype,
+            &ones.slice(0..natoms),
+            &zeros.slice(0..natoms),
+            &type_ranges,
+            &ones,
+            &mut d_descriptor,
+            &mut scratch,
+        )?;
+        let atomic = first_pass.output();
         let mut force = device.zeros::<f64>(natoms * 3)?;
         let mut virial = unsafe { device.alloc_uninit::<f64>(natoms * 9)? };
         {
             let mut launch = stream.launch_builder(&self.kernels.force);
             launch
                 .arg(&env)
-                .arg(&g)
-                .arg(&dg)
+                .arg(g)
+                .arg(dg)
                 .arg(&b)
                 .arg(&d_descriptor)
                 .arg(&list.index)
@@ -798,7 +787,7 @@ impl<P: Scalar> GpuTrainer<P> {
         list.check(device)?;
 
         // Prediction, loss and the seeds of the gradient pass (host, float64).
-        let atomic_host = device.download(&atomic)?;
+        let atomic_host = device.download(atomic)?;
         let mut energy = 0.0;
         for t in 0..ntypes {
             let range = &atomic_host[block[t]..block[t + 1]];
@@ -891,8 +880,8 @@ impl<P: Scalar> GpuTrainer<P> {
             launch
                 .arg(&env)
                 .arg(&envdot)
-                .arg(&g)
-                .arg(&dg)
+                .arg(g)
+                .arg(dg)
                 .arg(&b)
                 .arg(&self.slot_type)
                 .arg(&self.slot_local)
@@ -915,26 +904,28 @@ impl<P: Scalar> GpuTrainer<P> {
         let tangent_bar = device.upload(&vec![P::from_f64(-1.0); natoms])?;
         let mut dbar = unsafe { device.alloc_uninit::<P>(natoms * features)? };
         let mut ddbar = unsafe { device.alloc_uninit::<P>(natoms * features)? };
-        for &(t, lo, hi) in &type_ranges {
-            let rows = hi - lo;
-            let x = descriptor.slice(lo * features..hi * features);
-            let xdot = ddot.slice(lo * features..hi * features);
-            let tape = self.fitting[t].forward(device, &self.theta, &x, &xdot, rows)?;
-            self.fitting[t].backward_to_input(
-                device,
-                &self.theta,
-                &mut self.gradient,
-                true,
-                &tape,
-                &x,
-                &xdot,
-                &energy_bar.slice(0..rows),
-                &tangent_bar.slice(0..rows),
-                &ones,
-                &mut dbar.slice_mut(lo * features..hi * features),
-                &mut ddbar.slice_mut(lo * features..hi * features),
-            )?;
-        }
+        let second_pass = self.fitting_set.forward_with_tangent(
+            device,
+            &self.theta,
+            &descriptor,
+            &ddot,
+            &atype,
+            natoms,
+        )?;
+        self.fitting_set.backward_to_input(
+            device,
+            &self.theta,
+            &mut self.gradient,
+            true,
+            &second_pass,
+            &atype,
+            &energy_bar,
+            &tangent_bar,
+            &type_ranges,
+            &ones,
+            &mut dbar,
+            &mut ddbar,
+        )?;
 
         // Back through the descriptor to every embedding row, then through
         // the embedding nets.
@@ -963,19 +954,17 @@ impl<P: Scalar> GpuTrainer<P> {
                 .map(drop)
                 .map_err(launch_error("descriptor reverse"))?;
         }
-        for (&(net, first, rows), tape) in blocks.iter().zip(&embedding_tapes) {
-            self.embedding[net].backward(
-                device,
-                &self.theta,
-                &mut self.gradient,
-                tape,
-                &radial.slice(first..first + rows),
-                &ones.slice(0..rows),
-                &gbar.slice(first * width..(first + rows) * width),
-                &gpbar.slice(first * width..(first + rows) * width),
-                &ones,
-            )?;
-        }
+        self.embedding_set.backward(
+            device,
+            &self.theta,
+            &mut self.gradient,
+            &embedding_tape,
+            &network,
+            &gbar,
+            &gpbar,
+            &blocks,
+            &ones,
+        )?;
         Ok((terms, evaluation))
     }
 }

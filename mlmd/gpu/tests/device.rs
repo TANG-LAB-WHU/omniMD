@@ -1305,3 +1305,325 @@ fn training_network_gradients_match_finite_differences() {
     broken[1].input = 5;
     assert!(omnimd_gpu::TrainNetwork::<f64>::new(device, broken).is_err());
 }
+
+/// A set of same-shaped networks against its networks evaluated one by one:
+/// outputs, tangents, parameter gradient and input adjoints, for inputs
+/// `x[rows][input]` with tangents `xdot`.
+fn compare_training_set<T: omnimd_gpu::Scalar>(
+    device: &Device,
+    theta: &[f64],
+    layouts: &[Vec<omnimd_gpu::TrainLayer>],
+    x: &[f64],
+    xdot: &[f64],
+    blocks: &[(usize, usize, usize)],
+    tolerance: f64,
+) {
+    let cast = |values: &[f64]| -> Vec<T> { values.iter().map(|&v| T::from_f64(v)).collect() };
+    let widen = |values: Vec<T>| -> Vec<f64> { values.into_iter().map(T::to_f64).collect() };
+    let (input, width) = (layouts[0][0].input, layouts[0].last().unwrap().output);
+    let rows = x.len() / input;
+    let (ybar, ydotbar) = (values(rows * width, 2501), values(rows * width, 2502));
+    let theta_d = device.upload(&cast(theta)).unwrap();
+    let ones = device.upload(&vec![T::ONE; rows]).unwrap();
+    let mut ids = vec![0i32; rows];
+    let (mut expected, mut expected_tangent) = (vec![0.0; rows * width], vec![0.0; rows * width]);
+    let (mut expected_xbar, mut expected_xdbar) =
+        (vec![0.0; rows * input], vec![0.0; rows * input]);
+    let mut reference = device.zeros::<T>(theta.len()).unwrap();
+    for &(net, first, count) in blocks {
+        ids[first..first + count].fill(net as i32);
+        let network = omnimd_gpu::TrainNetwork::<T>::new(device, layouts[net].clone()).unwrap();
+        let (inputs, outputs) = (
+            first * input..(first + count) * input,
+            first * width..(first + count) * width,
+        );
+        let block = device.upload(&cast(&x[inputs.clone()])).unwrap();
+        let block_dot = device.upload(&cast(&xdot[inputs.clone()])).unwrap();
+        let tape = network
+            .forward(device, &theta_d, &block, &block_dot, count)
+            .unwrap();
+        expected[outputs.clone()].copy_from_slice(&widen(device.download(tape.output()).unwrap()));
+        expected_tangent[outputs.clone()]
+            .copy_from_slice(&widen(device.download(tape.tangent()).unwrap()));
+        let (mut xbar, mut xdbar) = (
+            device.zeros::<T>(count * input).unwrap(),
+            device.zeros::<T>(count * input).unwrap(),
+        );
+        network
+            .backward_to_input(
+                device,
+                &theta_d,
+                &mut reference,
+                true,
+                &tape,
+                &block,
+                &block_dot,
+                &device.upload(&cast(&ybar[outputs.clone()])).unwrap(),
+                &device.upload(&cast(&ydotbar[outputs])).unwrap(),
+                &ones,
+                &mut xbar,
+                &mut xdbar,
+            )
+            .unwrap();
+        expected_xbar[inputs.clone()].copy_from_slice(&widen(device.download(&xbar).unwrap()));
+        expected_xdbar[inputs].copy_from_slice(&widen(device.download(&xdbar).unwrap()));
+    }
+    let reference = widen(device.download(&reference).unwrap());
+    let largest = reference.iter().fold(0.0f64, |m, g| m.max(g.abs()));
+    assert!(largest > 0.1, "the gradient should not vanish");
+
+    let set = omnimd_gpu::TrainSet::<T>::new(device, layouts.to_vec()).unwrap();
+    assert_eq!((set.input(), set.output()), (input, width));
+    let (xd, xdotd, idsd) = (
+        device.upload(&cast(x)).unwrap(),
+        device.upload(&cast(xdot)).unwrap(),
+        device.upload(&ids).unwrap(),
+    );
+    let tape = set
+        .forward_with_tangent(device, &theta_d, &xd, &xdotd, &idsd, rows)
+        .unwrap();
+    let close = |name: &str, got: Vec<T>, expected: &[f64], scale: f64| {
+        let error = max_error(widen(got), expected);
+        assert!(error < tolerance * scale, "set {name} differs by {error}");
+    };
+    close(
+        "outputs",
+        device.download(tape.output()).unwrap(),
+        &expected,
+        1.0,
+    );
+    close(
+        "tangents",
+        device.download(tape.tangent()).unwrap(),
+        &expected_tangent,
+        1.0,
+    );
+    let (ybar_d, ydotbar_d) = (
+        device.upload(&cast(&ybar)).unwrap(),
+        device.upload(&cast(&ydotbar)).unwrap(),
+    );
+    let mut gradient = device.zeros::<T>(theta.len()).unwrap();
+    let (mut xbar, mut xdbar) = (
+        device.zeros::<T>(rows * input).unwrap(),
+        device.zeros::<T>(rows * input).unwrap(),
+    );
+    for pass in 1..=2 {
+        // The gradient accumulates: a second pass doubles it.
+        set.backward_to_input(
+            device,
+            &theta_d,
+            &mut gradient,
+            true,
+            &tape,
+            &idsd,
+            &ybar_d,
+            &ydotbar_d,
+            blocks,
+            &ones,
+            &mut xbar,
+            &mut xdbar,
+        )
+        .unwrap();
+        let scaled: Vec<f64> = reference.iter().map(|g| g * f64::from(pass)).collect();
+        close(
+            "gradient",
+            device.download(&gradient).unwrap(),
+            &scaled,
+            1.0 + largest,
+        );
+        close(
+            "input adjoints",
+            device.download(&xbar).unwrap(),
+            &expected_xbar,
+            1.0,
+        );
+        close(
+            "input tangent adjoints",
+            device.download(&xdbar).unwrap(),
+            &expected_xdbar,
+            1.0,
+        );
+    }
+    // Without `parameters` only the input adjoints are produced, and
+    // `backward` alone gives the same gradient.
+    set.backward_to_input(
+        device,
+        &theta_d,
+        &mut gradient,
+        false,
+        &tape,
+        &idsd,
+        &ybar_d,
+        &ydotbar_d,
+        blocks,
+        &ones,
+        &mut xbar,
+        &mut xdbar,
+    )
+    .unwrap();
+    let doubled: Vec<f64> = reference.iter().map(|g| 2.0 * g).collect();
+    close(
+        "untouched gradient",
+        device.download(&gradient).unwrap(),
+        &doubled,
+        1.0 + largest,
+    );
+    let mut alone = device.zeros::<T>(theta.len()).unwrap();
+    set.backward(
+        device, &theta_d, &mut alone, &tape, &idsd, &ybar_d, &ydotbar_d, blocks, &ones,
+    )
+    .unwrap();
+    close(
+        "gradient alone",
+        device.download(&alone).unwrap(),
+        &reference,
+        1.0 + largest,
+    );
+    // Blocks outside the rows are refused.
+    let mut bad = blocks.to_vec();
+    bad[0].2 += rows;
+    assert!(set
+        .backward(device, &theta_d, &mut alone, &tape, &idsd, &ybar_d, &ydotbar_d, &bad, &ones)
+        .is_err());
+}
+
+/// Lays `count` networks of the shape `shapes(seed)` out back to back.
+fn set_layout(
+    count: u64,
+    shapes: impl Fn(u64) -> Vec<CpuLayer>,
+) -> (Vec<f64>, Vec<Vec<omnimd_gpu::TrainLayer>>) {
+    let (mut theta, mut layouts) = (Vec::new(), Vec::new());
+    for k in 0..count {
+        let (part, mut layout) = training_layout(&shapes(2000 + 100 * k));
+        for layer in &mut layout {
+            layer.weights += theta.len();
+            layer.bias += theta.len();
+            layer.timestep = layer.timestep.map(|t| t + theta.len());
+        }
+        theta.extend(part);
+        layouts.push(layout);
+    }
+    (theta, layouts)
+}
+
+#[test]
+fn training_set_matches_its_networks_one_by_one() {
+    let Some(device) = device() else { return };
+    // Blocks of 13, 3 and 21 rows (kernel blocks hold eight) in the network
+    // order 2, 0, 1.
+    let blocks = [(2, 0, 13), (0, 13, 3), (1, 16, 21)];
+    let rows = 37;
+
+    // One input, as the embedding nets: both residual kinds, timesteps and
+    // three activations.
+    let (theta, layouts) = set_layout(3, |seed| {
+        vec![
+            CpuLayer::random(1, 6, Activation::Tanh, false, false, seed),
+            CpuLayer::random(6, 12, Activation::Tanh, true, true, seed + 10),
+            CpuLayer::random(12, 12, Activation::Softplus, true, true, seed + 20),
+            CpuLayer::random(12, 5, Activation::Sigmoid, false, false, seed + 30),
+        ]
+    });
+    let (x, xdot) = (values(rows, 2500), values(rows, 2503));
+    compare_training_set::<f64>(device, &theta, &layouts, &x, &xdot, &blocks, 1e-12);
+    compare_training_set::<f32>(device, &theta, &layouts, &x, &xdot, &blocks, 2e-5);
+    // `forward` is the forward pass with unit tangents.
+    let set = omnimd_gpu::TrainSet::<f64>::new(device, layouts.clone()).unwrap();
+    let theta_d = device.upload(&theta).unwrap();
+    let ids: Vec<i32> = (0..rows as i32).map(|r| r % 3).collect();
+    let (xd, idsd) = (device.upload(&x).unwrap(), device.upload(&ids).unwrap());
+    let unit = set.forward(device, &theta_d, &xd, &idsd, rows).unwrap();
+    let ones = device.upload(&vec![1.0f64; rows]).unwrap();
+    let explicit = set
+        .forward_with_tangent(device, &theta_d, &xd, &ones, &idsd, rows)
+        .unwrap();
+    assert_eq!(
+        device.download(unit.tangent()).unwrap(),
+        device.download(explicit.tangent()).unwrap()
+    );
+
+    // Several inputs and one linear output, as the fitting nets, with a
+    // residual first layer.
+    let (theta, layouts) = set_layout(3, |seed| {
+        vec![
+            CpuLayer::random(7, 7, Activation::Tanh, true, false, seed),
+            CpuLayer::random(7, 6, Activation::Tanh, false, false, seed + 10),
+            CpuLayer::random(6, 6, Activation::Tanh, true, true, seed + 20),
+            CpuLayer::random(6, 1, Activation::Linear, false, false, seed + 30),
+        ]
+    });
+    let (x, xdot) = (values(rows * 7, 2510), values(rows * 7, 2511));
+    compare_training_set::<f64>(device, &theta, &layouts, &x, &xdot, &blocks, 1e-12);
+    compare_training_set::<f32>(device, &theta, &layouts, &x, &xdot, &blocks, 2e-5);
+
+    // A layer wider than a warp can serve: these rows get a whole thread
+    // block each.
+    let (wide_theta, wide_layouts) = set_layout(3, |seed| {
+        vec![
+            CpuLayer::random(140, 9, Activation::Tanh, false, false, seed),
+            CpuLayer::random(9, 9, Activation::Tanh, true, true, seed + 10),
+            CpuLayer::random(9, 1, Activation::Linear, false, false, seed + 20),
+        ]
+    });
+    let (wide_x, wide_xdot) = (values(rows * 140, 2520), values(rows * 140, 2521));
+    for (theta, layouts, x, xdot) in [(&wide_theta, &wide_layouts, &wide_x, &wide_xdot)] {
+        compare_training_set::<f64>(device, theta, layouts, x, xdot, &blocks, 1e-11);
+        compare_training_set::<f32>(device, theta, layouts, x, xdot, &blocks, 1e-4);
+    }
+
+    // Refused: no network, different shapes, a bias away from its weights.
+    let new = |networks: Vec<Vec<omnimd_gpu::TrainLayer>>| {
+        omnimd_gpu::TrainSet::<f64>::new(device, networks)
+    };
+    let layout = layouts[0].clone();
+    assert!(new(vec![]).is_err());
+    let mut other = layout.clone();
+    other[2].residual = false;
+    assert!(new(vec![layout.clone(), other]).is_err());
+    let mut apart = layout.clone();
+    apart[1].bias += 1;
+    assert!(new(vec![apart]).is_err());
+    let mut unchained = layout.clone();
+    unchained[1].input = 5;
+    assert!(new(vec![unchained]).is_err());
+    assert!(new(vec![layout]).is_ok());
+}
+
+#[test]
+fn sibling_handles_work_at_the_same_time() {
+    let Some(device) = device() else { return };
+    // Three threads, each with a handle of its own on the same context,
+    // multiply their own matrices while the others do.
+    let handles: Vec<Device> = (0..3).map(|_| device.sibling().unwrap()).collect();
+    assert_eq!(handles[0].name(), device.name());
+    std::thread::scope(|scope| {
+        for (index, handle) in handles.into_iter().enumerate() {
+            scope.spawn(move || {
+                let shape = MatmulShape {
+                    m: 40 + index,
+                    k: 30,
+                    n: 20,
+                };
+                for round in 0..25 {
+                    let seed = 3000 + 100 * index as u64 + round;
+                    let (a, b) = (
+                        values(shape.m * shape.k, seed),
+                        values(shape.k * shape.n, seed + 50),
+                    );
+                    let mut c = handle.zeros::<f64>(shape.m * shape.n).unwrap();
+                    handle
+                        .matmul(
+                            &handle.upload(&a).unwrap(),
+                            &handle.upload(&b).unwrap(),
+                            &mut c,
+                            shape,
+                            false,
+                        )
+                        .unwrap();
+                    let expected = matmul_cpu(&a, &b, shape.m, shape.k, shape.n);
+                    assert!(max_error(handle.download(&c).unwrap(), &expected) < 1e-12);
+                }
+            });
+        }
+    });
+}

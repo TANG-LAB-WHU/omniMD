@@ -21,7 +21,7 @@ use cudarc::driver::{
 };
 use omnimd_ml_contract::{Error, Result};
 
-const SOURCE: &str = r#"
+pub(crate) const ACTIVATE2: &str = r#"
 // Value, first and second derivative of the activation.
 template <typename T>
 __device__ void activate2(int act, T z, T* v, T* d1, T* d2) {
@@ -48,7 +48,9 @@ __device__ void activate2(int act, T z, T* v, T* d1, T* d2) {
         *d2 = T(0);
     }
 }
+"#;
 
+const SOURCE: &str = r#"
 // On entry y = x·W and zdot = ẋ·W. Writes y, ẏ and the records the reverse
 // pass needs: φ', φ'' and, for a trainable timestep, φ.
 template <typename T>
@@ -212,10 +214,11 @@ impl<T: Scalar> TrainNetwork<T> {
                 )));
             }
         }
+        let source = format!("{ACTIVATE2}{SOURCE}");
         let function = |name: &str| {
             device
                 .kernels()
-                .function(SOURCE, &format!("{name}_{}", T::SUFFIX))
+                .function(&source, &format!("{name}_{}", T::SUFFIX))
         };
         Ok(Self {
             layers,
