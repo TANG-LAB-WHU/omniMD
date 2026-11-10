@@ -9,6 +9,8 @@ mod full_loss;
 pub mod full_training;
 #[cfg(feature = "gpu")]
 pub mod gpu_model;
+#[cfg(feature = "gpu")]
+pub mod gpu_train;
 mod learning_rate;
 mod least_squares;
 pub mod minibatch;

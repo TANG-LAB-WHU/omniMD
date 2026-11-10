@@ -27,7 +27,7 @@ use omnimd_ml_contract::{Error, Evaluation, Frame, ModelMetadata, Potential, Res
 use std::sync::Arc;
 use std::time::Instant;
 
-const SOURCE: &str = r#"
+pub(crate) const SOURCE: &str = r#"
 __device__ void switch_fn(double r, double rmin, double rmax, double* q, double* dq) {
     if (r < rmin) { *q = 1.0; *dq = 0.0; return; }
     double t = (r - rmin) / (rmax - rmin), z = 1.0 - t;
@@ -360,11 +360,11 @@ fn dense_network<P: Scalar>(
     DenseNetwork::new(layers)
 }
 
-fn launch_error(what: &'static str) -> impl FnOnce(omnimd_gpu::DriverError) -> Error {
+pub(crate) fn launch_error(what: &'static str) -> impl FnOnce(omnimd_gpu::DriverError) -> Error {
     move |e| Error(format!("CUDA {what} launch failed: {e:?}"))
 }
 
-fn copy_error(e: omnimd_gpu::DriverError) -> Error {
+pub(crate) fn copy_error(e: omnimd_gpu::DriverError) -> Error {
     Error(format!("CUDA copy failed: {e:?}"))
 }
 
