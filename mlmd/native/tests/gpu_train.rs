@@ -290,3 +290,61 @@ fn training_fits_a_teacher_in_both_precisions() {
     eprintln!("float32: {start} -> {end}");
     assert!(end < 0.1 * start, "float32: {start} -> {end}");
 }
+
+#[test]
+fn a_saved_optimizer_state_continues_the_same_run() {
+    let Some(device) = device() else { return };
+    let mut teacher =
+        GpuPotential::<f64>::new(&model(2, vec![40, 80], 4.0, 26), device.clone()).unwrap();
+    let data = taught(&mut teacher, 37);
+    let student = model(2, vec![40, 80], 4.0, 27);
+    let step = |trainer: &mut GpuTrainer<f64>| {
+        trainer.zero_gradient().unwrap();
+        trainer
+            .accumulate(&data.frame, &data.labels(), &ALL, 1.0)
+            .unwrap();
+        trainer.adam_step(1e-3).unwrap();
+    };
+    let mut straight = GpuTrainer::<f64>::new(&student, device.clone()).unwrap();
+    assert_eq!(straight.optimizer_state().unwrap().step, 0);
+    for _ in 0..6 {
+        step(&mut straight);
+    }
+
+    let mut first = GpuTrainer::<f64>::new(&student, device.clone()).unwrap();
+    for _ in 0..3 {
+        step(&mut first);
+    }
+    let (snapshot, state) = (first.model().unwrap(), first.optimizer_state().unwrap());
+    assert_eq!(state.step, 3);
+    // A new trainer from the exported model and the saved state.
+    let mut second = GpuTrainer::<f64>::new(&snapshot, device.clone()).unwrap();
+    second.set_optimizer_state(&state).unwrap();
+    for _ in 0..3 {
+        step(&mut second);
+    }
+    assert_eq!(second.optimizer_steps(), 6);
+    let (a, b) = (straight.parameters().unwrap(), second.parameters().unwrap());
+    let worst = a
+        .iter()
+        .zip(&b)
+        .map(|(x, y)| (x - y).abs())
+        .fold(0.0, f64::max);
+    assert!(worst < 1e-11, "restart differs by {worst}");
+
+    // Without the optimizer state the continuation is a different run.
+    let mut cold = GpuTrainer::<f64>::new(&snapshot, device).unwrap();
+    for _ in 0..3 {
+        step(&mut cold);
+    }
+    let c = cold.parameters().unwrap();
+    let apart = a
+        .iter()
+        .zip(&c)
+        .map(|(x, y)| (x - y).abs())
+        .fold(0.0, f64::max);
+    assert!(apart > 1e-6);
+    let mut bad = state.clone();
+    bad.m.pop();
+    assert!(cold.set_optimizer_state(&bad).is_err());
+}

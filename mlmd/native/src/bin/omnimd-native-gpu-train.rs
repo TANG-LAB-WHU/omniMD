@@ -25,7 +25,7 @@
 //! Existing output files are never replaced.
 use omnimd_gpu::{Device, Scalar};
 use omnimd_ml_contract::Frame;
-use omnimd_native::gpu_train::{FrameLabels, GpuTrainer, LossTerms, LossWeights};
+use omnimd_native::gpu_train::{FrameLabels, GpuTrainer, LossTerms, LossWeights, OptimizerState};
 use omnimd_native::model_init::{initialize, ModelSpec};
 use omnimd_native::stats::{energy_bias, env_mat_stat, neighbor_stat};
 use omnimd_native::training_data::{Dataset, DatasetFrame};
@@ -98,6 +98,12 @@ struct Training {
     #[serde(default = "default_disp_freq")]
     disp_freq: u64,
     disp_file: Option<PathBuf>,
+    /// Write `<output>.step-N` (model) and `<output>.step-N.adam` (optimizer
+    /// state) every this many steps.
+    save_freq: Option<u64>,
+    /// An `.adam` file written by `save_freq`: continue from its step with
+    /// its optimizer state; `model` must then be the matching snapshot.
+    optimizer_state: Option<PathBuf>,
 }
 
 fn one_frame() -> usize {
@@ -171,6 +177,61 @@ impl Schedule {
     }
 }
 
+const ADAM_MAGIC: &[u8; 8] = b"OMDADAM1";
+
+/// Optimizer state file: magic, step, count, then the first and second
+/// moments as little-endian float64.
+fn write_optimizer_state(path: &std::path::Path, state: &OptimizerState) -> std::io::Result<()> {
+    let file = std::fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(path)?;
+    let mut out = std::io::BufWriter::new(file);
+    out.write_all(ADAM_MAGIC)?;
+    out.write_all(&state.step.to_le_bytes())?;
+    out.write_all(&(state.m.len() as u64).to_le_bytes())?;
+    for value in state.m.iter().chain(&state.v) {
+        out.write_all(&value.to_le_bytes())?;
+    }
+    out.flush()
+}
+
+fn read_optimizer_state(path: &std::path::Path) -> Result<OptimizerState, String> {
+    let bytes = std::fs::read(path).map_err(|e| format!("{}: {e}", path.display()))?;
+    let word = |at: usize| -> Option<u64> {
+        Some(u64::from_le_bytes(bytes.get(at..at + 8)?.try_into().ok()?))
+    };
+    let invalid = || format!("{} is not an optimizer state file", path.display());
+    if bytes.get(..8) != Some(ADAM_MAGIC.as_slice()) {
+        return Err(invalid());
+    }
+    let (step, count) = (
+        word(8).ok_or_else(invalid)?,
+        word(16).ok_or_else(invalid)? as usize,
+    );
+    if count.checked_mul(16).and_then(|n| n.checked_add(24)) != Some(bytes.len()) {
+        return Err(invalid());
+    }
+    let values = |first: usize| -> Vec<f64> {
+        (0..count)
+            .map(|k| f64::from_bits(word(24 + 8 * (first + k)).unwrap()))
+            .collect()
+    };
+    Ok(OptimizerState {
+        step,
+        m: values(0),
+        v: values(count),
+    })
+}
+
+fn snapshot_paths(output: &std::path::Path, step: u64) -> (PathBuf, PathBuf) {
+    let mut model = output.as_os_str().to_owned();
+    model.push(format!(".step-{step}"));
+    let mut adam = model.clone();
+    adam.push(".adam");
+    (PathBuf::from(model), PathBuf::from(adam))
+}
+
 /// SplitMix64, for a reproducible frame order.
 struct Rng(u64);
 
@@ -240,7 +301,26 @@ fn train<P: Scalar>(
     }
     let schedule = Schedule::new(&request.learning_rate, training.numb_steps)?;
     let loss = &request.loss;
+    if training.save_freq == Some(0) {
+        return Err("save_freq must be positive".into());
+    }
     let mut trainer = GpuTrainer::<P>::new(model, device)?;
+    let first_step = match &training.optimizer_state {
+        Some(path) => {
+            let state = read_optimizer_state(path)?;
+            if state.step >= training.numb_steps {
+                return Err(format!(
+                    "optimizer state is at step {}, at or past numb_steps {}",
+                    state.step, training.numb_steps
+                )
+                .into());
+            }
+            trainer.set_optimizer_state(&state)?;
+            eprintln!("continuing from step {}", state.step);
+            state.step
+        }
+        None => 0,
+    };
     // Reserve the outputs before any work; never replace existing files.
     let mut output = std::fs::OpenOptions::new()
         .write(true)
@@ -268,12 +348,13 @@ fn train<P: Scalar>(
         data.frames.len(),
         P::SUFFIX
     );
-    let mut rng = Rng(training.seed);
+    // A continued run draws a new frame order from its starting step.
+    let mut rng = Rng(training.seed ^ first_step.wrapping_mul(0x9e37_79b9_7f4a_7c15));
     let mut order: Vec<usize> = (0..data.frames.len()).collect();
     let mut cursor = order.len();
     let start = Instant::now();
     let mut last = LossTerms::default();
-    for step in 0..training.numb_steps {
+    for step in first_step..training.numb_steps {
         let lr = schedule.value(step);
         let coefficient = lr / schedule.start;
         let weights = LossWeights {
@@ -304,6 +385,18 @@ fn train<P: Scalar>(
         }
         trainer.adam_step(lr)?;
         last = batch;
+        let done = step + 1;
+        if training.save_freq.is_some_and(|f| done % f == 0) && done < training.numb_steps {
+            let (model_path, adam_path) = snapshot_paths(&request.output, done);
+            let file = std::fs::OpenOptions::new()
+                .write(true)
+                .create_new(true)
+                .open(&model_path)
+                .map_err(|e| format!("snapshot {}: {e}", model_path.display()))?;
+            serde_json::to_writer(std::io::BufWriter::new(file), &trainer.model()?)?;
+            write_optimizer_state(&adam_path, &trainer.optimizer_state()?)
+                .map_err(|e| format!("snapshot {}: {e}", adam_path.display()))?;
+        }
         if step % training.disp_freq == 0 || step + 1 == training.numb_steps {
             let line = format!(
                 "{:>7} {:>15.6e} {:>13.6e} {:>13.6e} {:>13.6e}",
@@ -327,12 +420,13 @@ fn train<P: Scalar>(
         "{}",
         serde_json::json!({
             "steps": training.numb_steps,
+            "first_step": first_step,
             "batch_size": training.batch_size,
             "frames": data.frames.len(),
             "parameters": trainer.parameter_count(),
             "precision": P::SUFFIX,
             "seconds": elapsed,
-            "steps_per_second": training.numb_steps as f64 / elapsed,
+            "steps_per_second": (training.numb_steps - first_step) as f64 / elapsed,
             "final_batch": {"loss": last.loss, "rmse_e_per_atom": last.rmse_energy_per_atom(),
                             "rmse_f": last.rmse_force(), "rmse_v_per_atom": last.rmse_virial_per_atom()},
             "output": request.output,
@@ -451,6 +545,33 @@ mod tests {
             decay_steps: 10,
         };
         assert!(Schedule::new(&bad, 100).is_err());
+    }
+
+    #[test]
+    fn optimizer_state_files_round_trip_and_reject_damage() {
+        let directory = std::env::temp_dir().join(format!("omnimd-adam-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&directory);
+        std::fs::create_dir_all(&directory).unwrap();
+        let (model, adam) = super::snapshot_paths(&directory.join("out.json"), 4000);
+        assert!(model.ends_with("out.json.step-4000") && adam.ends_with("out.json.step-4000.adam"));
+        let state = super::OptimizerState {
+            step: 4000,
+            m: vec![0.25, -1.5e-7, 3.0],
+            v: vec![1e-12, 2.0, 0.0],
+        };
+        super::write_optimizer_state(&adam, &state).unwrap();
+        assert_eq!(super::read_optimizer_state(&adam).unwrap(), state);
+        // Existing files are never replaced.
+        assert!(super::write_optimizer_state(&adam, &state).is_err());
+        let mut bytes = std::fs::read(&adam).unwrap();
+        bytes.pop();
+        let damaged = directory.join("damaged.adam");
+        std::fs::write(&damaged, &bytes).unwrap();
+        assert!(super::read_optimizer_state(&damaged).is_err());
+        bytes[0] = b'X';
+        std::fs::write(&damaged, &bytes).unwrap();
+        assert!(super::read_optimizer_state(&damaged).is_err());
+        std::fs::remove_dir_all(directory).unwrap();
     }
 
     #[test]

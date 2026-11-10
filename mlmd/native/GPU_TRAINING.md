@@ -33,7 +33,8 @@ omnimd-native-gpu-train REQUEST.json
   "loss": {"start_pref_e": 0.02, "limit_pref_e": 1.0, "start_pref_f": 1000.0,
            "limit_pref_f": 1.0, "start_pref_v": 0.0, "limit_pref_v": 0.02},
   "training": {"numb_steps": 300000, "batch_size": 1, "seed": 11,
-               "disp_freq": 1000, "disp_file": "/absolute/lcurve.out"}
+               "disp_freq": 1000, "disp_file": "/absolute/lcurve.out",
+               "save_freq": 20000}
 }
 ```
 
@@ -48,7 +49,15 @@ omnimd-native-gpu-train REQUEST.json
   rejected.
 - `precision` is the network precision, `float64` (default) or `float32`.
   Geometry, forces, virial and the loss are float64 either way.
-- `output` and `disp_file` must not exist; nothing is overwritten.
+- `training.save_freq` (optional) writes a snapshot every that many steps:
+  `<output>.step-N`, the model, and `<output>.step-N.adam`, the optimizer state.
+- `output`, `disp_file` and snapshot files must not exist; nothing is overwritten.
+
+To continue a stopped run, give the snapshot as `model` and its `.adam` file as
+`training.optimizer_state`, keep the other settings, and choose new `output` and
+`disp_file` names. The run resumes at the snapshot's step with the same
+schedule and Adam state. Its frame order is drawn afresh, so it is not
+identical to the uninterrupted run.
 
 ## What happens
 
@@ -118,9 +127,8 @@ like DeePMD's default `prob_sys_size`.
 - se_e2_a with one embedding net per type pair (`type_one_side: false`), tanh
   activations and an energy fitting net. No hybrid descriptors, type embedding,
   fparam/aparam, atomic energies or force-only prefactors (`pref_pf`, `pref_gf`).
-- No validation set during training, no optimizer checkpoint and no restart: a
-  run that stops leaves no output. Continue from a finished model by giving its
-  path as `model`; the optimizer state then starts fresh.
+- No validation set during training. Without `save_freq` a run that stops
+  leaves no model.
 - No fine-tuning controls (frozen layers, bias adjustment).
 - Each step issues several hundred small device launches, so the time per step
   depends little on the frame size for small frames.
@@ -135,6 +143,9 @@ like DeePMD's default `prob_sys_size`.
 - Batches average their frames; Adam matches a host implementation of
   `torch.optim.Adam`'s rule; a student network fits a teacher's labels in both
   precisions.
+- A run continued from an exported model and its optimizer state reaches the
+  same parameters as the uninterrupted run (to 1e-11); without the optimizer
+  state it does not.
 - Removing the second-derivative term, transposing the virial direction or
   dropping either descriptor adjoint term makes the gradient test fail.
 

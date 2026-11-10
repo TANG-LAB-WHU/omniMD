@@ -261,6 +261,17 @@ struct Kernels {
     adam: CudaFunction,
 }
 
+/// Adam's step count and moment estimates on the host, for checkpoints.
+#[derive(Clone, Debug, PartialEq)]
+pub struct OptimizerState {
+    /// Completed updates.
+    pub step: u64,
+    /// First and second moment estimates, in the layout of
+    /// [`GpuTrainer::parameters`].
+    pub m: Vec<f64>,
+    pub v: Vec<f64>,
+}
+
 /// Adam moments and step count.
 struct AdamState<P: Scalar> {
     m: CudaSlice<P>,
@@ -533,6 +544,44 @@ impl<P: Scalar> GpuTrainer<P> {
     /// Completed Adam updates.
     pub fn optimizer_steps(&self) -> u64 {
         self.adam.as_ref().map_or(0, |state| state.step)
+    }
+
+    /// The optimizer state (all zeros before the first update).
+    pub fn optimizer_state(&self) -> Result<OptimizerState> {
+        let widen = |values: Vec<P>| values.into_iter().map(P::to_f64).collect();
+        Ok(match &self.adam {
+            Some(state) => OptimizerState {
+                step: state.step,
+                m: widen(self.device.download(&state.m)?),
+                v: widen(self.device.download(&state.v)?),
+            },
+            None => OptimizerState {
+                step: 0,
+                m: vec![0.0; self.theta.len()],
+                v: vec![0.0; self.theta.len()],
+            },
+        })
+    }
+
+    /// Continues from a saved optimizer state.
+    pub fn set_optimizer_state(&mut self, state: &OptimizerState) -> Result<()> {
+        let n = self.theta.len();
+        if state.m.len() != n
+            || state.v.len() != n
+            || state.m.iter().any(|x| !x.is_finite())
+            || state.v.iter().any(|x| !(x.is_finite() && *x >= 0.0))
+        {
+            return Err(Error(format!(
+                "optimizer state needs {n} finite first moments and nonnegative second moments"
+            )));
+        }
+        let narrow = |values: &[f64]| values.iter().map(|&x| P::from_f64(x)).collect::<Vec<P>>();
+        self.adam = Some(AdamState {
+            m: self.device.upload(&narrow(&state.m))?,
+            v: self.device.upload(&narrow(&state.v))?,
+            step: state.step,
+        });
+        Ok(())
     }
 
     /// Evaluates one frame, adds `scale` times the gradient of its loss to
