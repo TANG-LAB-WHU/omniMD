@@ -304,3 +304,43 @@ fn forces_are_the_energy_gradient() {
         }
     }
 }
+
+#[derive(serde::Deserialize)]
+struct DeepmdReference {
+    frame: Frame,
+    energy: f64,
+    forces: Vec<[f64; 3]>,
+    virial: [[f64; 3]; 3],
+}
+
+/// `sel` = [4, 6] against ~27 neighbors per atom: the result depends on
+/// which neighbors are kept. Reference from DeePMD-kit 3.1.3 itself
+/// (`tools/make_truncation_fixture.py`); the CPU `NativePotential` rejects
+/// such frames, so this is the only check of the selection rule end to end.
+#[test]
+fn tight_sel_matches_deepmd_reference() {
+    let Some(device) = device() else { return };
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("fixtures");
+    let model = NativePotential::load(root.join("truncation-model.native.json")).unwrap();
+    let reference: DeepmdReference = serde_json::from_str(
+        &std::fs::read_to_string(root.join("truncation-deepmd-reference.json")).unwrap(),
+    )
+    .unwrap();
+    let expected = Evaluation {
+        energy: reference.energy,
+        forces: reference.forces,
+        virial: reference.virial,
+        units: Units::EvAngstrom,
+    };
+    let mut gpu = GpuPotential::<f64>::new(model.model(), device).unwrap();
+    let got = gpu.eval(&reference.frame).unwrap();
+    assert!(gpu.last_truncated(), "the fixture must truncate");
+    compare("tight sel vs DeePMD", &got, &expected, FLOAT64);
+    gpu.set_chunk_atoms(5);
+    compare(
+        "tight sel vs DeePMD (chunks)",
+        &gpu.eval(&reference.frame).unwrap(),
+        &expected,
+        FLOAT64,
+    );
+}

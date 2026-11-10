@@ -570,9 +570,14 @@ fn neighbors_cpu(
                 }
             }
         }
+        // DeePMD-kit 3 selection: the `slots` nearest of any type first.
+        let mut all: Vec<f64> = groups.iter().flatten().map(|e| e.0).collect();
+        all.sort_by(f64::total_cmp);
+        let limit = all.get(slots).copied();
         let mut slot = i * slots;
         for (t, group) in groups.iter_mut().enumerate() {
             counts[i * sel.len() + t] = group.len() as i32;
+            group.retain(|e| limit.is_none_or(|limit| e.0 < limit));
             group.sort_by(|x, y| x.0.total_cmp(&y.0).then(x.1.cmp(&y.1)));
             for (k, (_, j, d)) in group.iter().take(sel[t]).enumerate() {
                 index[slot + k] = *j as i32;

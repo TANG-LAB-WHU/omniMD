@@ -16,6 +16,7 @@ mod model;
 mod neighbor;
 mod network;
 pub mod readout;
+pub mod stats;
 pub mod training;
 pub mod training_data;
 

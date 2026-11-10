@@ -2,10 +2,12 @@
 //!
 //! Atoms are binned on the host (counting sort over a grid whose cells are at
 //! least `rcut` wide); one GPU warp per center then scans the stencil of
-//! cells, including periodic images, into shared memory and keeps for each
-//! neighbor type the `sel[type]` nearest neighbors ordered by (distance, atom,
-//! delta). Centers with more neighbors than the shared buffer holds fall back
-//! to one thread with insertion into the slots, which gives the same result. Neighbors
+//! cells, including periodic images, into shared memory and selects like
+//! DeePMD-kit 3 (`build_neighbor_list`): the `sum(sel)` nearest neighbors of
+//! any type, then at most `sel[type]` of each type, ordered by (distance,
+//! atom, delta). Centers with more neighbors than the shared buffer holds
+//! fall back to one thread with insertion into the slots, which gives the
+//! same result. Neighbors
 //! beyond `sel` are dropped like DeePMD's `format_nlist`, and the full per-type
 //! counts and the minimum distance are kept for `dp neighbor-stat`.
 //!
@@ -62,62 +64,87 @@ __device__ void unpack_image(int packed, int* q) {
     for (int a = 0; a < 3; ++a) q[a] = ((packed >> (10 * a)) & 1023) - 512;
 }
 
-// One thread does a whole center: insertion into the sorted per-type
-// segments in global memory. Used when a center has more neighbors than the
-// warp path's shared buffer holds.
+// One thread does a whole center, in two scans over the stencil. The first
+// keeps the `slots` nearest neighbors of any type, sorted, in the output
+// arrays; its last entry is the selection threshold. The second starts over
+// and inserts the neighbors at or inside the threshold into the sorted
+// per-type segments, at most sel[t] each. Used when a center has more
+// neighbors than the shared buffer of the warp path holds.
 __device__ void serial_center(int i,
         const double* pos, const int* types, const int* cell_of, const int* cell_start,
         const int* cell_atoms, const double* lattice, int ntypes, const int* n,
         const int* reach, int periodic, double rcut, const int* sel, const int* offset, int slots,
         int* index, double* delta, double* dist, int* count, double* min_dist, int* flags) {
     long long base = (long long)i * slots;
-    for (int s = 0; s < slots; ++s) {
-        index[base + s] = -1;
-        dist[base + s] = __longlong_as_double(0x7ff0000000000000LL);
-        for (int a = 0; a < 3; ++a) delta[(base + s) * 3 + a] = 0.0;
-    }
+    const double infinity = __longlong_as_double(0x7ff0000000000000LL);
     for (int t = 0; t < ntypes; ++t) count[(long long)i * ntypes + t] = 0;
-    double best = __longlong_as_double(0x7ff0000000000000LL);
+    double best = infinity;
     const double* pi = pos + 3 * (long long)i;
     int ci[3] = {cell_of[3 * i], cell_of[3 * i + 1], cell_of[3 * i + 2]};
-    for (int ox = -reach[0]; ox <= reach[0]; ++ox)
-    for (int oy = -reach[1]; oy <= reach[1]; ++oy)
-    for (int oz = -reach[2]; oz <= reach[2]; ++oz) {
-        int o[3] = {ox, oy, oz}, q[3], cell;
-        if (!stencil_cell(ci, o, n, periodic, &cell, q)) continue;
-        for (int k = cell_start[cell]; k < cell_start[cell + 1]; ++k) {
-            int j = cell_atoms[k];
-            if (j == i && q[0] == 0 && q[1] == 0 && q[2] == 0) continue;
-            double d[3];
-            image_delta(pos, lattice, pi, j, q, d);
-            double r2 = d[0] * d[0] + d[1] * d[1] + d[2] * d[2];
-            if (!(r2 < rcut * rcut)) continue;
-            double r = sqrt(r2);
-            if (r <= 1e-12) { atomicExch(&flags[0], 1); continue; }
-            int t = types[j];
-            count[(long long)i * ntypes + t] += 1;
-            if (r < best) best = r;
-            if (sel[t] == 0) continue;
-            long long first = base + offset[t];
-            int filled = min(count[(long long)i * ntypes + t], sel[t]);
-            int p = filled - 1;
-            // Full segment: the new neighbor must beat the current last entry.
-            if (count[(long long)i * ntypes + t] > sel[t]) {
-                long long last = first + sel[t] - 1;
-                if (!before(r, j, d, dist[last], index[last], delta + 3 * last)) continue;
+    int total = 0, limit_j = 0;
+    double limit_r = infinity, limit_d[3] = {0.0, 0.0, 0.0};
+    for (int pass = 0; pass < 2; ++pass) {
+        for (int s = 0; s < slots; ++s) {
+            index[base + s] = -1;
+            dist[base + s] = infinity;
+            for (int a = 0; a < 3; ++a) delta[(base + s) * 3 + a] = 0.0;
+        }
+        for (int ox = -reach[0]; ox <= reach[0]; ++ox)
+        for (int oy = -reach[1]; oy <= reach[1]; ++oy)
+        for (int oz = -reach[2]; oz <= reach[2]; ++oz) {
+            int o[3] = {ox, oy, oz}, q[3], cell;
+            if (!stencil_cell(ci, o, n, periodic, &cell, q)) continue;
+            for (int k = cell_start[cell]; k < cell_start[cell + 1]; ++k) {
+                int j = cell_atoms[k];
+                if (j == i && q[0] == 0 && q[1] == 0 && q[2] == 0) continue;
+                double d[3];
+                image_delta(pos, lattice, pi, j, q, d);
+                double r2 = d[0] * d[0] + d[1] * d[1] + d[2] * d[2];
+                if (!(r2 < rcut * rcut)) continue;
+                double r = sqrt(r2);
+                if (r <= 1e-12) { atomicExch(&flags[0], 1); continue; }
+                int t = types[j];
+                // Segment to insert into: all slots, then the slots of type t.
+                long long first = base;
+                int capacity = slots, filled;
+                if (pass == 0) {
+                    count[(long long)i * ntypes + t] += 1;
+                    if (r < best) best = r;
+                    filled = min(total, slots);
+                    ++total;
+                } else {
+                    if (sel[t] == 0 || before(limit_r, limit_j, limit_d, r, j, d)) continue;
+                    first = base + offset[t];
+                    capacity = sel[t];
+                    filled = 0;
+                    while (filled < capacity && index[first + filled] >= 0) ++filled;
+                }
+                int p = filled;
+                if (filled == capacity) {
+                    // Full segment: the new neighbor must beat the last entry.
+                    long long last = first + capacity - 1;
+                    if (!before(r, j, d, dist[last], index[last], delta + 3 * last)) continue;
+                    p = capacity - 1;
+                }
+                while (p > 0) {
+                    long long prev = first + p - 1;
+                    if (!before(r, j, d, dist[prev], index[prev], delta + 3 * prev)) break;
+                    dist[prev + 1] = dist[prev];
+                    index[prev + 1] = index[prev];
+                    for (int a = 0; a < 3; ++a) delta[3 * (prev + 1) + a] = delta[3 * prev + a];
+                    --p;
+                }
+                long long at = first + p;
+                dist[at] = r;
+                index[at] = j;
+                for (int a = 0; a < 3; ++a) delta[3 * at + a] = d[a];
             }
-            while (p > 0) {
-                long long prev = first + p - 1;
-                if (!before(r, j, d, dist[prev], index[prev], delta + 3 * prev)) break;
-                dist[prev + 1] = dist[prev];
-                index[prev + 1] = index[prev];
-                for (int a = 0; a < 3; ++a) delta[3 * (prev + 1) + a] = delta[3 * prev + a];
-                --p;
-            }
-            long long at = first + p;
-            dist[at] = r;
-            index[at] = j;
-            for (int a = 0; a < 3; ++a) delta[3 * at + a] = d[a];
+        }
+        if (pass == 0 && total > slots) {
+            long long last = base + slots - 1;
+            limit_r = dist[last];
+            limit_j = index[last];
+            for (int a = 0; a < 3; ++a) limit_d[a] = delta[3 * last + a];
         }
     }
     min_dist[i] = best;
@@ -127,8 +154,9 @@ __device__ void serial_center(int i,
 
 // One warp per center. The lanes scan each stencil cell together and append
 // accepted neighbors to a per-warp shared buffer (ballot + popc), then each
-// lane ranks its entries within their type by (distance, atom, delta) and
-// writes the `sel` nearest straight to their slots. Same result as
+// lane ranks its entries by (distance, atom, delta), overall and within
+// their type, and writes those among the `slots` nearest overall and the
+// sel[t] nearest of their type straight to their slots. Same result as
 // `serial_center`, which takes over when the buffer would overflow.
 extern "C" __global__ void neighbor_search(
         const double* pos, const int* types, const int* cell_of, const int* cell_start,
@@ -219,21 +247,26 @@ extern "C" __global__ void neighbor_search(
         int t = ctype[e];
         if (sel[t] == 0) continue;
         double re = cr[e], de[3];
-        int je = cj[e], qe[3], rank = 0;
+        int je = cj[e], qe[3], rank = 0, overall = 0;
         unpack_image(cimg[e], qe);
         image_delta(pos, lattice, pi, je, qe, de);
         for (int f = 0; f < total; ++f) {
-            if (f == e || ctype[f] != t) continue;
+            if (f == e) continue;
             double rf = cr[f];
-            if (rf < re) { ++rank; continue; }
-            if (rf > re) continue;
-            double df[3];
-            int qf[3];
-            unpack_image(cimg[f], qf);
-            image_delta(pos, lattice, pi, cj[f], qf, df);
-            if (before(rf, cj[f], df, re, je, de)) ++rank;
+            bool nearer = rf < re;
+            if (rf == re) {
+                double df[3];
+                int qf[3];
+                unpack_image(cimg[f], qf);
+                image_delta(pos, lattice, pi, cj[f], qf, df);
+                nearer = before(rf, cj[f], df, re, je, de);
+            }
+            if (nearer) {
+                ++overall;
+                if (ctype[f] == t) ++rank;
+            }
         }
-        if (rank < sel[t]) {
+        if (overall < slots && rank < sel[t]) {
             long long at = base + offset[t] + rank;
             index[at] = je;
             dist[at] = re;

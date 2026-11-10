@@ -14,8 +14,9 @@
 //! float32, like a DeePMD float32 model but with float64 reductions.
 //!
 //! Unlike the CPU `NativePotential`, which rejects frames with more
-//! neighbors than `sel`, this path keeps the nearest `sel` like DeePMD does;
-//! [`GpuPotential::last_truncated`] reports when that happened.
+//! neighbors than `sel`, this path selects neighbors like DeePMD-kit 3 (the
+//! nearest `sum(sel)` of any type, then at most `sel[t]` per type);
+//! [`GpuPotential::last_truncated`] reports when that dropped neighbors.
 use crate::{Activation, Model, Network, Residual};
 use omnimd_gpu::{
     Activation as DeviceActivation, Cell, CudaFunction, CudaSlice, DenseLayer, DenseNetwork,

@@ -71,6 +71,8 @@ impl Geometry {
         scale
     }
 
+    /// Neighbors of `center` per type, nearest first; an error when a type
+    /// has more than `sel` of them.
     pub fn neighbors(
         &self,
         frame: &Frame,
@@ -78,7 +80,63 @@ impl Geometry {
         center: usize,
         sel: &[usize],
     ) -> Result<Vec<Vec<Neighbor>>> {
-        let mut groups = vec![Vec::new(); sel.len()];
+        self.collect(frame, types, center, sel.len(), Some(sel))
+    }
+
+    /// Every neighbor of `center` within the cutoff per type, nearest first.
+    pub fn all_neighbors(
+        &self,
+        frame: &Frame,
+        types: &[i32],
+        center: usize,
+        ntypes: usize,
+    ) -> Result<Vec<Vec<Neighbor>>> {
+        self.collect(frame, types, center, ntypes, None)
+    }
+
+    /// DeePMD-kit 3 truncation (`build_neighbor_list` with distinct types):
+    /// the nearest `sum(sel)` neighbors of any type, then at most `sel[t]` of
+    /// each type, nearest first. A type can lose neighbors to this even when
+    /// it has fewer than `sel[t]`, if other types crowd the nearest set.
+    pub fn selected_neighbors(
+        &self,
+        frame: &Frame,
+        types: &[i32],
+        center: usize,
+        sel: &[usize],
+    ) -> Result<Vec<Vec<Neighbor>>> {
+        let mut groups = self.collect(frame, types, center, sel.len(), None)?;
+        let slots: usize = sel.iter().sum();
+        if groups.iter().map(Vec::len).sum::<usize>() > slots {
+            // The `slots` nearest overall: merge the sorted groups by taking
+            // the nearest remaining head `slots` times.
+            let mut taken = vec![0usize; groups.len()];
+            for _ in 0..slots {
+                let next = (0..groups.len())
+                    .filter(|&t| taken[t] < groups[t].len())
+                    .min_by(|&a, &b| order(&groups[a][taken[a]], &groups[b][taken[b]]))
+                    .expect("more neighbors than slots");
+                taken[next] += 1;
+            }
+            for (group, count) in groups.iter_mut().zip(taken) {
+                group.truncate(count);
+            }
+        }
+        for (group, &keep) in groups.iter_mut().zip(sel) {
+            group.truncate(keep);
+        }
+        Ok(groups)
+    }
+
+    fn collect(
+        &self,
+        frame: &Frame,
+        types: &[i32],
+        center: usize,
+        ntypes: usize,
+        sel: Option<&[usize]>,
+    ) -> Result<Vec<Vec<Neighbor>>> {
+        let mut groups = vec![Vec::new(); ntypes];
         let mut candidates = 0usize;
         for (atom, position) in frame.positions.iter().enumerate() {
             let delta = std::array::from_fn(|a| position[a] - frame.positions[center][a]);
@@ -146,7 +204,7 @@ impl Geometry {
                             #[cfg(feature = "cuda")]
                             image: [a, b, c],
                         });
-                        if groups[kind].len() > sel[kind] {
+                        if let Some(sel) = sel.filter(|sel| groups[kind].len() > sel[kind]) {
                             return Err(Error(format!("neighbor capacity overflow at atom {center}, type {}: more than sel={}",
                                 frame.species[atom], sel[kind])));
                         }
@@ -155,15 +213,18 @@ impl Geometry {
             }
         }
         for group in &mut groups {
-            group.sort_by(|a, b| {
-                a.distance
-                    .total_cmp(&b.distance)
-                    .then(a.atom.cmp(&b.atom))
-                    .then_with(|| a.delta[0].total_cmp(&b.delta[0]))
-                    .then_with(|| a.delta[1].total_cmp(&b.delta[1]))
-                    .then_with(|| a.delta[2].total_cmp(&b.delta[2]))
-            });
+            group.sort_by(order);
         }
         Ok(groups)
     }
+}
+
+/// Nearest first; ties by atom, then by image.
+fn order(a: &Neighbor, b: &Neighbor) -> std::cmp::Ordering {
+    a.distance
+        .total_cmp(&b.distance)
+        .then(a.atom.cmp(&b.atom))
+        .then_with(|| a.delta[0].total_cmp(&b.delta[0]))
+        .then_with(|| a.delta[1].total_cmp(&b.delta[1]))
+        .then_with(|| a.delta[2].total_cmp(&b.delta[2]))
 }
