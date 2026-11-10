@@ -320,17 +320,26 @@ the structure first.
 
 What was checked ([`src/barostat.rs`](src/barostat.rs), [`tests/npt.rs`](tests/npt.rs)):
 for an ideal gas whose cell has a shape energy, the sampled volume has the
-mean `(N + 1) kT / P` and the variance of the exact distribution for all three
-couplings, and the strain fluctuations satisfy the virial balance of the
-ensemble; a move and its reverse have opposite acceptance ratios; the move
-statistics follow the equation above; eleven single-line errors introduced
-into the barostat each fail these tests. The cell move maps cell, positions
+mean `(N + 1) kT / P` and the variance of the exact distribution for the four
+couplings with all axes moving, and so has the area times the fixed height
+with `axes: "xy"` and the height times the fixed area with `axes: "z"`; the
+strain fluctuations satisfy the virial balance of the ensemble along the
+directions a setting samples (between x and y, in shear, between the layer
+and its normal for `semi_isotropic`); a move and its reverse have opposite
+acceptance ratios and the move statistics follow the equation above for
+eight combinations of coupling and axes; eleven single-line errors introduced
+into the first version of the barostat and eight into the code for groups of
+axes and fixed axes each fail these tests. The cell move maps cell, positions
 and velocities as stated, a refused or failed move leaves the state
 untouched, and the native model's virial equals minus the strain derivative
 of its energy. With forces, on a 32-atom Lennard-Jones crystal run through
 the engine, the diagonal average of `V (P - P0)` is `-kT` to within 0.3 kT for
-every coupling over four million steps each (the ignored test of
-`tests/npt.rs` repeats this with two million in a release build). On a
+the isotropic, anisotropic and triclinic couplings over four million steps
+each. The ignored test of `tests/npt.rs` repeats this in a release build with
+two million steps for all four couplings and for cells with only x and y or
+only z moving: the average over each group of axes that moves together is
+`-kT` within 2.5 standard errors, which are 0.3 to 0.7 kT (kT / V is about 7 bar
+there, so this resolves the mean pressure to a few bar). On a
 trained five-element model, 400 ps with a fully flexible cell
 give the mean volume of a LAMMPS Nose-Hoover run of the same model to 0.01
 percent, within its error of 0.03 percent

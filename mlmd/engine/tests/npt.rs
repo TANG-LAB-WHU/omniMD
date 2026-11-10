@@ -3,8 +3,7 @@
 use omnimd_ml_contract::{Evaluation, Frame, ModelMetadata, Potential, Result, Units};
 use omnimd_mlmd::{
     barostat::BAR_PER_EV_PER_ANGSTROM3, initialize_velocities, system_from_frame, CellAxes,
-    CellCoupling,
-    Checkpoint, Ensemble, EnsembleState, MlipDynamics, VelocityInitialization,
+    CellCoupling, Checkpoint, Ensemble, EnsembleState, MlipDynamics, VelocityInitialization,
 };
 use omnimd_sim::md::Barostat;
 use serde_json::{json, Value};

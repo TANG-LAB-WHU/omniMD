@@ -704,7 +704,8 @@ mod tests {
         let sum = |m: &Matrix, power: i32| -> f64 {
             (0..3).map(|a| direction[a].powi(power) * m[a][a]).sum()
         };
-        2.0 * sum(&metric, 2) - sum(&metric, 1) * (2.0 * gas.kappa * sum(&metric, 1) - sum(&kinetic, 1))
+        2.0 * sum(&metric, 2)
+            - sum(&metric, 1) * (2.0 * gas.kappa * sum(&metric, 1) - sum(&kinetic, 1))
     }
 
     /// Samples of the test gas with all axes moving and the kinetic energy
