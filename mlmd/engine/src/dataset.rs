@@ -33,6 +33,16 @@ pub struct ImportRequest {
     pub pbc: Pbc,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub parameter_layout: Option<Layout>,
+    /// Frame IDs become `ID_PREFIX/set.NNN/K` instead of `set.NNN/K`, which
+    /// keeps the frames of several systems apart when their datasets are
+    /// merged.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub id_prefix: Option<String>,
+    /// Type map of the dataset when it should be wider than, or ordered
+    /// differently from, the system's `type_map.raw`; it must contain every
+    /// element of that file.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub type_map: Option<Vec<String>>,
 }
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -654,8 +664,32 @@ pub fn import_deepmd(request: &ImportRequest, output: &Path) -> Result<u64> {
             .split_whitespace()
             .map(str::to_owned)
             .collect();
-    let metadata = type_metadata(&type_map);
+    type_metadata(&type_map).validate()?;
+    // The dataset's own type map, by default the system's.
+    let dataset_types = match &request.type_map {
+        Some(wider) => {
+            if let Some(missing) = type_map.iter().find(|name| !wider.contains(name)) {
+                return Err(format!(
+                    "type_map of the request lacks {missing}, which type_map.raw lists"
+                )
+                .into());
+            }
+            wider.clone()
+        }
+        None => type_map.clone(),
+    };
+    let metadata = type_metadata(&dataset_types);
     metadata.validate()?;
+    if let Some(prefix) = &request.id_prefix {
+        if prefix.is_empty()
+            || prefix.len() > 128
+            || !prefix
+                .bytes()
+                .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'_' | b'-' | b'.'))
+        {
+            return Err("id_prefix must be 1..=128 characters of [A-Za-z0-9_.-]".into());
+        }
+    }
     let types = String::from_utf8(source_bytes(&root, "type.raw", &mut hashes)?)?;
     let species: Vec<String> = types
         .split_whitespace()
@@ -679,7 +713,7 @@ pub fn import_deepmd(request: &ImportRequest, output: &Path) -> Result<u64> {
         }
         .into(),
         parameter_layout: request.parameter_layout.clone(),
-        type_map,
+        type_map: dataset_types,
         units: request.units,
         virial_convention: VirialConvention::MinusDEpsilonRow,
         source: request.system.display().to_string(),
@@ -788,7 +822,10 @@ pub fn import_deepmd(request: &ImportRequest, output: &Path) -> Result<u64> {
             let data = DatasetFrame {
                 parameters,
                 index,
-                id: format!("{set}/{i}"),
+                id: match &request.id_prefix {
+                    Some(prefix) => format!("{prefix}/{set}/{i}"),
+                    None => format!("{set}/{i}"),
+                },
                 frame,
                 labels,
             };

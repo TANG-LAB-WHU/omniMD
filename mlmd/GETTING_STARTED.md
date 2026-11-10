@@ -249,6 +249,22 @@ the explicit `nopbc` convention and no conflicting boxes. Mixed-type arrays,
 parameters, object/pickle arrays and unsupported shapes/dtypes fail. No automatic
 set selection, physical unit conversion or splitting occurs.
 
+A DeepMD data set of several systems is imported one system at a time and then
+merged. Two optional fields make the results mergeable: `"id_prefix": "bulk"`
+names the frames `bulk/set.000/0` instead of `set.000/0`, and
+`"type_map": ["Ca", "P", "O", "H", "C"]` declares the type map of the dataset
+when it must be wider than, or ordered differently from, the system's
+`type_map.raw` (it has to contain every element of that file). Then
+
+```sh
+omnimd-mlmd merge-datasets merge.request.json new-training-set.jsonl
+```
+
+with `{"schema":"omnimd-dataset-merge-v1","datasets":["/absolute/bulk.jsonl","/absolute/slab.jsonl"]}`
+writes the frames of all of them, in that order, as one dataset. The label test
+of step 28 groups its errors by the ID prefix, so the prefix is also the name
+under which a system is reported.
+
 For labeled extxyz, create `import.request.json`:
 
 ```json

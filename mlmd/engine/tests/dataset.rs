@@ -73,6 +73,8 @@ fn system(periodic: bool) -> (PathBuf, ImportRequest) {
     }
     let request = ImportRequest {
         parameter_layout: None,
+        id_prefix: None,
+        type_map: None,
         system: root.clone(),
         sets: vec!["set.001".into(), "set.000".into()],
         units: Units::EvAngstrom,
@@ -118,6 +120,49 @@ fn import_preserves_explicit_order_symbols_tensor_layout_and_optional_labels() {
     );
     assert!(reader.next_frame().unwrap().is_none());
     assert!(import_deepmd(&request, &output).is_err());
+}
+#[test]
+fn import_can_prefix_ids_and_declare_a_wider_type_map() {
+    // Two systems with the same set names become mergeable datasets.
+    let mut datasets = Vec::new();
+    for name in ["bulk", "slab-1"] {
+        let (root, mut request) = system(true);
+        request.id_prefix = Some(name.into());
+        request.type_map = Some(vec!["C".into(), "O".into(), "H".into()]);
+        let output = root.join("dataset.jsonl");
+        assert_eq!(import_deepmd(&request, &output).unwrap(), 2);
+        let mut reader = DatasetReader::open(&output).unwrap();
+        assert_eq!(reader.header.type_map, ["C", "O", "H"]);
+        let first = reader.next_frame().unwrap().unwrap();
+        assert_eq!(first.id, format!("{name}/set.001/0"));
+        assert_eq!(first.frame.species, ["H", "O"]);
+        assert_eq!(
+            reader.next_frame().unwrap().unwrap().id,
+            format!("{name}/set.000/0")
+        );
+        datasets.push(output);
+    }
+    let merged = datasets[0].with_file_name("merged.jsonl");
+    let request: omnimd_mlmd::merge::MergeRequest = serde_json::from_value(serde_json::json!({
+        "schema": omnimd_mlmd::merge::REQUEST_SCHEMA, "datasets": datasets
+    }))
+    .unwrap();
+    assert_eq!(
+        omnimd_mlmd::merge::merge_datasets(&request, &merged).unwrap(),
+        4
+    );
+
+    // Refused: a type map without an element of the system, a repeated
+    // element, a prefix with a separator.
+    let refused = |change: &dyn Fn(&mut ImportRequest)| {
+        let (root, mut request) = system(true);
+        change(&mut request);
+        assert!(import_deepmd(&request, &root.join("dataset.jsonl")).is_err());
+    };
+    refused(&|r| r.type_map = Some(vec!["O".into(), "C".into()]));
+    refused(&|r| r.type_map = Some(vec!["O".into(), "H".into(), "O".into()]));
+    refused(&|r| r.id_prefix = Some("a/b".into()));
+    refused(&|r| r.id_prefix = Some(String::new()));
 }
 #[test]
 fn importer_rejects_wrong_pbc_dtype_shape_values_types_and_fields() {

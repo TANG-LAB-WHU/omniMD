@@ -182,6 +182,11 @@ its own request file; nothing loops over them. Build the engine with
 Requests and their fields are specified in the linked documents; paths are
 absolute and outputs are never overwritten.
 
+0. **Bring the data in.** DeePMD NPY systems are imported one by one with
+   `import-deepmd`, with an `id_prefix` per system and one common `type_map`,
+   and joined with `merge-datasets`
+   ([guide step 4](GETTING_STARTED.md#4-import-and-inspect-your-data)).
+
 1. **Train the ensemble.** One request per member, differing in seeds and
    output names, all in one command so they share the card:
 
