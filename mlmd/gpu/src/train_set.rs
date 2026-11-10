@@ -7,7 +7,7 @@
 //! overhead per training step, far more than its arithmetic in float32.
 //! [`TrainSet`] takes rows that each name their network and does the forward
 //! pass with tangent in one kernel, the reverse pass in a second, and the
-//! parameter gradients in one matrix product per network and layer.
+//! parameter gradients of all networks and layers in a third.
 //!
 //! The kernels keep everything a row needs in two "strips". For row `r` of
 //! the value strip, row `2r` holds `[x | 1 | y_1 | 1 | ... | y_L]` and row
@@ -18,9 +18,14 @@
 //! weights and bias, `sum_r (a^T zbar + da^T zdbar)` and `sum_r zbar`, is the
 //! product of two column blocks of the strips over the rows of one network,
 //! and it lands directly on the layer's `[input + 1][output]` block of the
-//! flat parameter vector (weights followed by bias).
+//! flat parameter vector (weights followed by bias). The gradient kernel
+//! forms these products for every network and layer in one launch, over
+//! pieces of the rows whose sums meet through atomic additions; with one
+//! library product per network and layer, the calls cost more than their
+//! arithmetic. The order of those additions is not fixed, so two runs agree
+//! to rounding, not bit for bit.
 use crate::train::{TrainLayer, ACTIVATE2};
-use crate::{check_len, cuda_error, Device, MatmulShape, Scalar};
+use crate::{check_len, cuda_error, Device, Scalar};
 use cudarc::driver::{
     CudaFunction, CudaSlice, DevicePtr, DevicePtrMut, LaunchConfig, PushKernelArg,
 };
@@ -187,6 +192,68 @@ __device__ void set_backward(const int* ids, long long rows, const int* shape, c
     }
 }
 
+// Parameter gradients from the two strips. One thread block per job and tile.
+// jobs: 3 ints per job {network, first row, rows}: a piece of the rows of one
+// network, short enough that the loop of a thread over it is not what a step
+// waits for. tiles: 4 ints per tile {layer, kind, first input, first output}.
+// Kind 0 is a tile of the layer's [in + 1][out] block (weights, then the bias
+// as the row of the constant): 64 inputs by 64 outputs, where thread (ti, to)
+// of sixteen by sixteen sums the inputs i0 + ti + {0, 16, 32, 48} against the
+// outputs o0 + to + {0, 16, 32, 48} over both strip rows of every row of the
+// job. Kind 1 is a tile of 256 timesteps, summed over the rows. The sums of
+// the jobs of one network meet in the gradient through atomic additions.
+template <typename T>
+__device__ void set_gradient(const int* jobs, int njobs, const int* tiles, int ntiles,
+        const int* shape, const int* cols, const int* offsets, int layers, const T* strip,
+        int strip_width, const T* zz, const T* dtacc, int record_width, T* gradient) {
+    int job = blockIdx.x / ntiles;
+    if (job >= njobs) return;
+    const int* tile = tiles + 4 * (blockIdx.x % ntiles);
+    int l = tile[0], kind = tile[1];
+    int in = shape[4 * l], on = shape[4 * l + 1];
+    long long first = jobs[3 * job + 1], count = jobs[3 * job + 2];
+    const int* off = offsets + 3 * (layers * jobs[3 * job] + l);
+    int rc = cols[3 * l + 2];
+    if (kind == 1) {
+        int o = tile[3] + threadIdx.x;
+        if (o >= on) return;
+        const T* term = dtacc + first * record_width + rc + o;
+        T sum = T(0);
+        for (long long r = 0; r < count; ++r) sum += term[r * record_width];
+        atomicAdd(gradient + off[2] + o, sum);
+        return;
+    }
+    int i = tile[2] + (threadIdx.x >> 4), o = tile[3] + (threadIdx.x & 15);
+    if (i > in || o >= on) return;
+    // Column offsets of the four inputs and outputs of this thread; a
+    // missing one repeats the first and is not written.
+    int ia[4] = {0, i + 16 <= in ? 16 : 0, i + 32 <= in ? 32 : 0, i + 48 <= in ? 48 : 0};
+    int oc[4] = {0, o + 16 < on ? 16 : 0, o + 32 < on ? 32 : 0, o + 48 < on ? 48 : 0};
+    const T* a = strip + 2 * first * strip_width + cols[3 * l] + i;
+    const T* z = zz + 2 * first * record_width + rc + o;
+    T sum[16];
+    for (int e = 0; e < 16; ++e) sum[e] = T(0);
+    for (long long r = 0; r < 2 * count; ++r) {
+        const T* input = a + r * strip_width;
+        const T* adjoint = z + r * record_width;
+        T x0 = input[0], x1 = input[ia[1]], x2 = input[ia[2]], x3 = input[ia[3]];
+        T z0 = adjoint[0], z1 = adjoint[oc[1]], z2 = adjoint[oc[2]], z3 = adjoint[oc[3]];
+        sum[0] += x0 * z0; sum[1] += x0 * z1; sum[2] += x0 * z2; sum[3] += x0 * z3;
+        sum[4] += x1 * z0; sum[5] += x1 * z1; sum[6] += x1 * z2; sum[7] += x1 * z3;
+        sum[8] += x2 * z0; sum[9] += x2 * z1; sum[10] += x2 * z2; sum[11] += x2 * z3;
+        sum[12] += x3 * z0; sum[13] += x3 * z1; sum[14] += x3 * z2; sum[15] += x3 * z3;
+    }
+    // Weights are [in][out] and the bias follows them: row `in`.
+    T* g = gradient + off[0] + (long long)i * on + o;
+    for (int p = 0; p < 4; ++p) {
+        if (p && !ia[p]) continue;
+        for (int q = 0; q < 4; ++q) {
+            if (q && !oc[q]) continue;
+            atomicAdd(g + (long long)ia[p] * on + oc[q], sum[4 * p + q]);
+        }
+    }
+}
+
 #define INSTANTIATE(T, S)                                                                     \
 extern "C" __global__ void set_forward_##S(const T* x, const T* xdot, const int* ids,         \
         long long rows, const int* shape, const int* cols, const int* offsets, int layers,    \
@@ -201,13 +268,20 @@ extern "C" __global__ void set_backward_##S(const int* ids, long long rows, cons
         const T* ydotbar, T* zz, T* adj, T* dtacc, T* xbar, T* xdbar, int wide) {             \
     set_backward<T>(ids, rows, shape, cols, offsets, layers, theta, record_width, p1, p2, zd, \
                     phi, ybar, ydotbar, zz, adj, dtacc, xbar, xdbar, wide);                   \
+}                                                                                             \
+extern "C" __global__ void set_gradient_##S(const int* jobs, int njobs, const int* tiles,   \
+        int ntiles, const int* shape, const int* cols, const int* offsets, int layers,        \
+        const T* strip, int strip_width, const T* zz, const T* dtacc, int record_width,       \
+        T* gradient) {                                                                        \
+    set_gradient<T>(jobs, njobs, tiles, ntiles, shape, cols, offsets, layers, strip,          \
+                    strip_width, zz, dtacc, record_width, gradient);                          \
 }
 INSTANTIATE(float, f32)
 INSTANTIATE(double, f64)
 "#;
 
 /// Warps per block of the row kernels.
-const WARPS: usize = 8;
+const WARPS: usize = THREADS / 32;
 
 /// What [`TrainSet::forward`] recorded for [`TrainSet::backward`].
 pub struct SetTape<T: Scalar> {
@@ -237,9 +311,6 @@ impl<T: Scalar> SetTape<T> {
 /// evaluated by the network it names.
 pub struct TrainSet<T: Scalar> {
     networks: Vec<Vec<TrainLayer>>,
-    /// Per layer: input and output columns of the value strip and the
-    /// column of the record and adjoint strips.
-    columns: Vec<[usize; 3]>,
     strip_width: usize,
     record_width: usize,
     timesteps: bool,
@@ -248,10 +319,28 @@ pub struct TrainSet<T: Scalar> {
     shape: CudaSlice<i32>,
     cols: CudaSlice<i32>,
     offsets: CudaSlice<i32>,
+    /// The pieces of one network's parameter gradient, four numbers each
+    /// (see the gradient kernel), and how many there are.
+    tiles: CudaSlice<i32>,
+    tile_count: usize,
+    /// One past the last parameter of any network.
+    extent: usize,
     forward: CudaFunction,
     backward: CudaFunction,
+    gradient: CudaFunction,
     _scalar: std::marker::PhantomData<T>,
 }
+
+/// Inputs and outputs per tile of the gradient kernel; its thread layout
+/// (sixteen by sixteen threads of four inputs and four outputs each) is
+/// fixed there.
+const GRADIENT_INPUTS: usize = 64;
+const GRADIENT_OUTPUTS: usize = 64;
+/// Rows per job of the gradient kernel: long enough that the additions of
+/// the jobs do not matter, short enough that no thread loops for long.
+const GRADIENT_ROWS: usize = 128;
+/// Threads per block of every kernel here.
+const THREADS: usize = 256;
 
 /// Layers wider than this get a whole thread block per row.
 const NARROW_LIMIT: usize = 128;
@@ -265,7 +354,7 @@ fn launch_config(rows: usize, wide: bool) -> Result<LaunchConfig> {
     }
     Ok(LaunchConfig {
         grid_dim: (blocks as u32, 1, 1),
-        block_dim: (32 * WARPS as u32, 1, 1),
+        block_dim: (THREADS as u32, 1, 1),
         shared_mem_bytes: 0,
     })
 }
@@ -284,6 +373,7 @@ impl<T: Scalar> TrainSet<T> {
             i32::try_from(value).map_err(|_| Error("network set offset exceeds i32".into()))
         };
         let mut offsets = Vec::with_capacity(networks.len() * first.len() * 3);
+        let mut extent = 0;
         for layers in &networks {
             if layers.len() != first.len() {
                 return Err(Error("networks of a set need the same depth".into()));
@@ -315,14 +405,16 @@ impl<T: Scalar> TrainSet<T> {
                     int(layer.bias)?,
                     layer.timestep.map_or(Ok(-1), int)?,
                 ]);
+                extent = extent
+                    .max(layer.bias + layer.output)
+                    .max(layer.timestep.map_or(0, |timestep| timestep + layer.output));
             }
         }
         // Value strip: [x | c | y_1 | c | ... | y_L]; records: [1 | ... | L].
-        let (mut columns, mut shape, mut cols) = (Vec::new(), Vec::new(), Vec::new());
+        let (mut shape, mut cols) = (Vec::new(), Vec::new());
         let (mut input_column, mut record_column) = (0, 0);
         for layer in &first {
             let output_column = input_column + layer.input + 1;
-            columns.push([input_column, output_column, record_column]);
             shape.extend([
                 int(layer.input)?,
                 int(layer.output)?,
@@ -335,6 +427,21 @@ impl<T: Scalar> TrainSet<T> {
         }
         let strip_width = input_column + first.last().unwrap().output;
         int(2 * strip_width.max(record_column))?;
+        // The parameter gradient of one network in pieces: every layer's
+        // [input + 1][output] block, then its timesteps.
+        let mut tiles = Vec::new();
+        for (index, layer) in first.iter().enumerate() {
+            for input in (0..=layer.input).step_by(GRADIENT_INPUTS) {
+                for output in (0..layer.output).step_by(GRADIENT_OUTPUTS) {
+                    tiles.extend([int(index)?, 0, int(input)?, int(output)?]);
+                }
+            }
+            if layer.timestep.is_some() {
+                for output in (0..layer.output).step_by(THREADS) {
+                    tiles.extend([int(index)?, 1, 0, int(output)?]);
+                }
+            }
+        }
         let source = format!("{ACTIVATE2}{SOURCE}");
         let function = |name: &str| {
             device
@@ -346,14 +453,17 @@ impl<T: Scalar> TrainSet<T> {
             wide: first
                 .iter()
                 .any(|layer| layer.input.max(layer.output) > NARROW_LIMIT),
-            columns,
             strip_width,
             record_width: record_column,
             shape: device.upload(&shape)?,
             cols: device.upload(&cols)?,
             offsets: device.upload(&offsets)?,
+            tile_count: tiles.len() / 4,
+            tiles: device.upload(&tiles)?,
+            extent,
             forward: function("set_forward")?,
             backward: function("set_backward")?,
+            gradient: function("set_gradient")?,
             networks,
             _scalar: std::marker::PhantomData,
         })
@@ -481,8 +591,7 @@ impl<T: Scalar> TrainSet<T> {
     /// parameter, given its derivatives `ybar` with respect to the outputs
     /// and `ydotbar` with respect to their tangents (both `[rows][output]`).
     /// `blocks` lists the rows of each network as `(network, first row,
-    /// rows)`; `ones` holds at least as many ones as the longest block and is
-    /// read only for layers with a timestep.
+    /// rows)`.
     #[allow(clippy::too_many_arguments)]
     pub fn backward(
         &self,
@@ -494,11 +603,10 @@ impl<T: Scalar> TrainSet<T> {
         ybar: &impl DevicePtr<T>,
         ydotbar: &impl DevicePtr<T>,
         blocks: &[(usize, usize, usize)],
-        ones: &CudaSlice<T>,
     ) -> Result<()> {
         let inputs = None::<(&mut CudaSlice<T>, &mut CudaSlice<T>)>;
         self.reverse(
-            device, theta, gradient, true, tape, ids, ybar, ydotbar, blocks, ones, inputs,
+            device, theta, gradient, true, tape, ids, ybar, ydotbar, blocks, inputs,
         )
     }
 
@@ -517,7 +625,6 @@ impl<T: Scalar> TrainSet<T> {
         ybar: &impl DevicePtr<T>,
         ydotbar: &impl DevicePtr<T>,
         blocks: &[(usize, usize, usize)],
-        ones: &CudaSlice<T>,
         xbar: &mut impl DevicePtrMut<T>,
         xdbar: &mut impl DevicePtrMut<T>,
     ) -> Result<()> {
@@ -534,7 +641,6 @@ impl<T: Scalar> TrainSet<T> {
             ybar,
             ydotbar,
             blocks,
-            ones,
             Some((xbar, xdbar)),
         )
     }
@@ -551,7 +657,6 @@ impl<T: Scalar> TrainSet<T> {
         ybar: &impl DevicePtr<T>,
         ydotbar: &impl DevicePtr<T>,
         blocks: &[(usize, usize, usize)],
-        ones: &CudaSlice<T>,
         inputs: Option<(&mut A, &mut B)>,
     ) -> Result<()> {
         let rows = tape.rows;
@@ -622,54 +727,70 @@ impl<T: Scalar> TrainSet<T> {
         if !parameters {
             return Ok(());
         }
-        // One product per network and layer: its rows of the value strip
-        // (inputs and the constant) against its rows of the adjoint strip.
+        // The rows of every network in pieces, for the gradient kernel.
+        check_len("network set gradient", gradient.len(), self.extent)?;
+        let int = |value: usize| {
+            i32::try_from(value).map_err(|_| Error("network set block exceeds i32".into()))
+        };
+        let mut ranges = Vec::with_capacity(3 * blocks.len());
         for &(network, first, count) in blocks {
-            if count == 0 {
-                continue;
-            }
             if first + count > rows || network >= self.networks.len() {
                 return Err(Error(format!(
                     "network set block ({network}, {first}, {count}) is out of range"
                 )));
             }
-            for (layer, columns) in self.networks[network].iter().zip(&self.columns) {
-                let inputs = tape
-                    .strip
-                    .slice(2 * first * self.strip_width + columns[0]..);
-                let adjoints = zz.slice(2 * first * self.record_width + columns[2]..);
-                let block = (layer.input + 1) * layer.output;
-                device.matmul_at_strided(
-                    &inputs,
-                    self.strip_width,
-                    &adjoints,
-                    self.record_width,
-                    &mut gradient.slice_mut(layer.weights..layer.weights + block),
-                    MatmulShape {
-                        m: 2 * count,
-                        k: layer.input + 1,
-                        n: layer.output,
-                    },
-                    true,
-                )?;
-                if let (Some(timestep), Some(dtacc)) = (layer.timestep, dtacc.as_ref()) {
-                    let terms = dtacc.slice(first * self.record_width + columns[2]..);
-                    device.matmul_at_strided(
-                        &ones.slice(0..count),
-                        1,
-                        &terms,
-                        self.record_width,
-                        &mut gradient.slice_mut(timestep..timestep + layer.output),
-                        MatmulShape {
-                            m: count,
-                            k: 1,
-                            n: layer.output,
-                        },
-                        true,
-                    )?;
-                }
+            for piece in (0..count).step_by(GRADIENT_ROWS) {
+                ranges.extend([
+                    int(network)?,
+                    int(first + piece)?,
+                    int(GRADIENT_ROWS.min(count - piece))?,
+                ]);
             }
         }
+        let count = ranges.len() / 3;
+        let launches = count * self.tile_count;
+        if count == 0 {
+            return Ok(());
+        }
+        if launches > u32::MAX as usize {
+            return Err(Error(format!(
+                "gradient kernel over {launches} tiles is out of range"
+            )));
+        }
+        let ranges = device.upload(&ranges)?;
+        let (count, tile_count) = (count as i32, self.tile_count as i32);
+        let strip_width = self.strip_width as i32;
+        let stream = device.stream();
+        let mut launch = stream.launch_builder(&self.gradient);
+        launch
+            .arg(&ranges)
+            .arg(&count)
+            .arg(&self.tiles)
+            .arg(&tile_count)
+            .arg(&self.shape)
+            .arg(&self.cols)
+            .arg(&self.offsets)
+            .arg(&layers)
+            .arg(&tape.strip)
+            .arg(&strip_width)
+            .arg(&zz);
+        match dtacc.as_ref() {
+            Some(dtacc) => launch.arg(dtacc),
+            None => launch.arg(&null),
+        };
+        launch.arg(&record_width).arg(&mut *gradient);
+        let config = LaunchConfig {
+            grid_dim: (launches as u32, 1, 1),
+            block_dim: (THREADS as u32, 1, 1),
+            shared_mem_bytes: 0,
+        };
+        // SAFETY: the arguments match the kernel's parameters; every index it
+        // forms was checked above (blocks within the rows, parameters within
+        // the gradient) or at construction (columns within the strips), and
+        // threads that meet in a parameter add to it atomically.
+        unsafe { launch.launch(config) }
+            .map(drop)
+            .map_err(cuda_error("network set gradient kernel"))?;
         Ok(())
     }
 }

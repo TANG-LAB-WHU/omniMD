@@ -25,7 +25,9 @@
 //! Existing output files are never replaced.
 use omnimd_gpu::{Device, Scalar};
 use omnimd_ml_contract::Frame;
-use omnimd_native::gpu_train::{FrameLabels, GpuTrainer, LossTerms, LossWeights, OptimizerState};
+use omnimd_native::gpu_train::{
+    FrameLabels, GpuTrainer, LossTerms, LossWeights, OptimizerState, TrainStageTimes,
+};
 use omnimd_native::model_init::{initialize, ModelSpec};
 use omnimd_native::stats::{energy_bias, env_mat_stat, neighbor_stat};
 use omnimd_native::training_data::{Dataset, DatasetFrame};
@@ -75,6 +77,37 @@ struct Loss {
     limit_pref_v: f64,
 }
 
+impl Loss {
+    /// `(name, start, limit)` of the three terms.
+    fn terms(&self) -> [(&'static str, f64, f64); 3] {
+        [
+            ("energy", self.start_pref_e, self.limit_pref_e),
+            ("force", self.start_pref_f, self.limit_pref_f),
+            ("virial", self.start_pref_v, self.limit_pref_v),
+        ]
+    }
+
+    /// The prefactors when the learning rate is `coefficient` times its
+    /// starting value. A term is part of the loss only when both of its
+    /// prefactors are nonzero: the rule of DeePMD-kit's PyTorch backend,
+    /// where `start_pref_v: 0` switches the virial term off whatever
+    /// `limit_pref_v` is.
+    fn weights(&self, coefficient: f64) -> LossWeights {
+        let [energy, force, virial] = self.terms().map(|(_, start, limit)| {
+            if start != 0.0 && limit != 0.0 {
+                limit + (start - limit) * coefficient
+            } else {
+                0.0
+            }
+        });
+        LossWeights {
+            energy,
+            force,
+            virial,
+        }
+    }
+}
+
 fn pref_e_start() -> f64 {
     0.02
 }
@@ -107,6 +140,22 @@ struct Training {
     /// Frames that are scored, but never trained on, whenever a line of the
     /// learning curve is written.
     validation_data: Option<ValidationData>,
+    /// Time every stage of a step and report the means in the summary. The
+    /// device is synchronized after each stage, so the run is slower.
+    #[serde(default)]
+    profile_stages: bool,
+}
+
+/// Stage times as milliseconds per step.
+fn stages_per_step(times: &TrainStageTimes, steps: u64) -> serde_json::Value {
+    let mut value = serde_json::to_value(times).unwrap_or_default();
+    if let Some(stages) = value.as_object_mut() {
+        stages.remove("frames");
+        for time in stages.values_mut() {
+            *time = (time.as_f64().unwrap_or(0.0) / steps as f64).into();
+        }
+    }
+    value
 }
 
 #[derive(Deserialize)]
@@ -382,6 +431,14 @@ fn train<P: Scalar>(
         data.frames.len(),
         P::SUFFIX
     ));
+    for (name, start, limit) in loss.terms() {
+        if (start == 0.0) != (limit == 0.0) {
+            note(format_args!(
+                "the {name} term is off: one of its prefactors is zero ({start} to {limit}), and as in DeePMD-kit's PyTorch backend a term needs both"
+            ));
+        }
+    }
+    trainer.set_profiling(training.profile_stages);
     // A continued run draws a new frame order from its starting step.
     let mut rng = Rng(training.seed ^ first_step.wrapping_mul(0x9e37_79b9_7f4a_7c15));
     let mut order: Vec<usize> = (0..data.frames.len()).collect();
@@ -400,11 +457,7 @@ fn train<P: Scalar>(
     for step in first_step..training.numb_steps {
         let lr = schedule.value(step);
         let coefficient = lr / schedule.start;
-        let weights = LossWeights {
-            energy: loss.limit_pref_e + (loss.start_pref_e - loss.limit_pref_e) * coefficient,
-            force: loss.limit_pref_f + (loss.start_pref_f - loss.limit_pref_f) * coefficient,
-            virial: loss.limit_pref_v + (loss.start_pref_v - loss.limit_pref_v) * coefficient,
-        };
+        let weights = loss.weights(coefficient);
         trainer.zero_gradient()?;
         // Batch means of the squared errors, as DeePMD reports them.
         let mut batch = LossTerms::default();
@@ -505,6 +558,9 @@ fn train<P: Scalar>(
             "precision": P::SUFFIX,
             "seconds": elapsed,
             "steps_per_second": (training.numb_steps - first_step) as f64 / elapsed,
+            "stages_ms_per_step": trainer
+                .stage_times()
+                .map(|times| stages_per_step(times, training.numb_steps - first_step)),
             "final_batch": {"loss": last.loss, "rmse_e_per_atom": last.rmse_energy_per_atom(),
                             "rmse_f": last.rmse_force(), "rmse_v_per_atom": last.rmse_virial_per_atom()},
             "final_validation": last_validation.map(|v: LossTerms| serde_json::json!({
@@ -609,7 +665,32 @@ fn main() {
 
 #[cfg(test)]
 mod tests {
-    use super::{LearningRate, Rng, Schedule};
+    use super::{LearningRate, Loss, Rng, Schedule};
+
+    #[test]
+    fn a_loss_term_needs_both_prefactors() {
+        let loss = |start_pref_v, limit_pref_v| Loss {
+            start_pref_e: 0.02,
+            limit_pref_e: 1.0,
+            start_pref_f: 1000.0,
+            limit_pref_f: 1.0,
+            start_pref_v,
+            limit_pref_v,
+        };
+        // Between start and limit in proportion to the learning rate.
+        let weights = loss(0.5, 0.02).weights(0.25);
+        assert!((weights.energy - (1.0 - 0.98 * 0.25)).abs() < 1e-15);
+        assert!((weights.force - (1.0 + 999.0 * 0.25)).abs() < 1e-12);
+        assert!((weights.virial - (0.02 + 0.48 * 0.25)).abs() < 1e-15);
+        // DeePMD-kit 3.1.3, deepmd/pt/loss/ener.py: has_v is
+        // `start_pref_v != 0.0 and limit_pref_v != 0.0`.
+        for (start, limit) in [(0.0, 0.02), (0.02, 0.0), (0.0, 0.0)] {
+            for coefficient in [1.0, 0.3, 0.0] {
+                assert_eq!(loss(start, limit).weights(coefficient).virial, 0.0);
+            }
+        }
+        assert!(loss(1e-9, 0.02).weights(0.0).virial == 0.02);
+    }
 
     /// Values printed by DeePMD-kit 3.1.3's `LearningRateExp(...).value(step)`.
     #[test]

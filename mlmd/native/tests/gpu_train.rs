@@ -186,6 +186,152 @@ fn loss_gradient_matches_finite_differences() {
     }
 }
 
+/// Neighbors of every atom within `rcut`, per neighbor type (types by first
+/// appearance of their name, which is not the model's order but enough to
+/// tell full slots from empty ones here).
+fn neighbor_counts(frame: &Frame, rcut: f64) -> Vec<[usize; 2]> {
+    let lattice = frame.cell.unwrap();
+    let kind = |i: usize| usize::from(frame.species[i] != frame.species[0]);
+    (0..frame.positions.len())
+        .map(|i| {
+            let mut counts = [0; 2];
+            for j in 0..frame.positions.len() {
+                for image in 0..27 {
+                    let shift = [image / 9, image / 3 % 3, image % 3].map(|k| k as f64 - 1.0);
+                    let d: [f64; 3] = std::array::from_fn(|c| {
+                        frame.positions[j][c] - frame.positions[i][c]
+                            + (0..3).map(|a| shift[a] * lattice[a][c]).sum::<f64>()
+                    });
+                    let r = d.iter().map(|x| x * x).sum::<f64>().sqrt();
+                    if r > 1e-9 && r < rcut {
+                        counts[kind(j)] += 1;
+                    }
+                }
+            }
+            counts
+        })
+        .collect()
+}
+
+/// The embedding nets run on one row per neighbor and one shared row for the
+/// empty slots of each pair of types. With few slots some atoms fill theirs
+/// (no shared row to use) or have more neighbors than slots (the list is
+/// truncated and its slots are counted one by one); both must give the
+/// prediction of the inference path and the gradient of the loss.
+#[test]
+fn full_and_truncated_neighbor_slots_train_correctly() {
+    let Some(device) = device() else { return };
+    // The frame `labeled` makes for this seed, and its fewest and most
+    // neighbors of one type around one atom.
+    let lattice = [[7.0, 0.0, 0.0], [0.5, 7.0, 0.0], [0.0, 0.3, 7.2]];
+    let counts = neighbor_counts(&frame(lattice, 3, 2, true, 33), 4.0);
+    let fewest = *counts.iter().flatten().min().unwrap();
+    let most = *counts.iter().flatten().max().unwrap();
+    assert!(fewest >= 3 && most >= fewest + 4, "{fewest}..{most}");
+    let middle = (fewest + most) / 2;
+    // Slots per neighbor type: never full, always full, and in between.
+    for sel in [
+        vec![most + 3, most + 5],
+        vec![fewest - 1, fewest - 2],
+        vec![middle, middle + 1],
+    ] {
+        let model = model(2, sel.clone(), 4.0, 23);
+        let mut trainer = GpuTrainer::<f64>::new(&model, device.clone()).unwrap();
+        let data = labeled(&mut trainer, 33);
+        let (_, prediction) = trainer
+            .accumulate(&data.frame, &data.labels(), &ALL, 1.0)
+            .unwrap();
+        let expected = GpuPotential::<f64>::new(&model, device.clone())
+            .unwrap()
+            .eval(&data.frame)
+            .unwrap();
+        assert!(
+            (prediction.energy - expected.energy).abs() < 1e-10,
+            "{sel:?}"
+        );
+        for (ours, theirs) in prediction.forces.iter().zip(&expected.forces) {
+            for a in 0..3 {
+                assert!((ours[a] - theirs[a]).abs() < 1e-10, "{sel:?}");
+            }
+        }
+        let theta = trainer.parameters().unwrap();
+        trainer.zero_gradient().unwrap();
+        trainer
+            .accumulate(&data.frame, &data.labels(), &ALL, 1.0)
+            .unwrap();
+        let gradient = trainer.gradient().unwrap();
+        let scale = gradient.iter().fold(0.0_f64, |m, g| m.max(g.abs()));
+        let (h, mut checked) = (1e-5, 0);
+        for k in (0..theta.len()).step_by(61) {
+            let mut loss = |shift: f64| {
+                let mut moved = theta.clone();
+                moved[k] += shift;
+                trainer.set_parameters(&moved).unwrap();
+                trainer
+                    .accumulate(&data.frame, &data.labels(), &ALL, 1.0)
+                    .unwrap()
+                    .0
+                    .loss
+            };
+            let numeric = (loss(h) - loss(-h)) / (2.0 * h);
+            assert!(
+                (gradient[k] - numeric).abs() < 1e-6 * scale + 1e-5 * numeric.abs(),
+                "{sel:?}: parameter {k}: {} vs {numeric} (scale {scale})",
+                gradient[k]
+            );
+            checked += 1;
+        }
+        assert!(checked > 60, "{sel:?}: only {checked} parameters checked");
+    }
+}
+
+/// A frame seen before reuses its neighbor list; the same numbers come out,
+/// and a frame that differs in one coordinate is not taken for it.
+#[test]
+fn a_frame_seen_before_is_not_prepared_again() {
+    let Some(device) = device() else { return };
+    let model = model(2, vec![40, 80], 4.0, 24);
+    let mut trainer = GpuTrainer::<f64>::new(&model, device.clone()).unwrap();
+    let data = labeled(&mut trainer, 34);
+    // `labeled` evaluated the frame once already.
+    assert_eq!(trainer.cached_frames(), 1);
+    let mut gradient = |trainer: &mut GpuTrainer<f64>, frame: &Frame| {
+        trainer.zero_gradient().unwrap();
+        let (terms, _) = trainer
+            .accumulate(frame, &data.labels(), &ALL, 1.0)
+            .unwrap();
+        (terms.loss, trainer.gradient().unwrap())
+    };
+    let (loss, kept) = gradient(&mut trainer, &data.frame);
+    assert_eq!(trainer.cached_frames(), 1);
+    // The same frame without the cache.
+    let mut fresh = GpuTrainer::<f64>::new(&model, device).unwrap();
+    fresh.set_frame_cache(0);
+    let (fresh_loss, afresh) = gradient(&mut fresh, &data.frame);
+    assert_eq!(fresh.cached_frames(), 0);
+    assert!((loss - fresh_loss).abs() < 1e-12 * loss.abs());
+    let scale = kept.iter().fold(0.0_f64, |m, g| m.max(g.abs()));
+    for (a, b) in kept.iter().zip(&afresh) {
+        assert!((a - b).abs() < 1e-11 * scale, "{a} vs {b}");
+    }
+    // One coordinate moved: another frame, with another loss.
+    let mut moved = data.frame.clone();
+    moved.positions[5][1] += 0.01;
+    let (moved_loss, _) = gradient(&mut trainer, &moved);
+    assert_eq!(trainer.cached_frames(), 2);
+    assert!((moved_loss - loss).abs() > 1e-6 * loss.abs());
+    // And the first one still gives its own.
+    let (again, _) = gradient(&mut trainer, &data.frame);
+    assert!((again - loss).abs() < 1e-12 * loss.abs());
+    assert_eq!(trainer.cached_frames(), 2);
+    // Without room nothing more is kept.
+    trainer.set_frame_cache(0);
+    let mut third = data.frame.clone();
+    third.positions[0][0] += 0.02;
+    gradient(&mut trainer, &third);
+    assert_eq!(trainer.cached_frames(), 2);
+}
+
 #[test]
 fn batches_average_and_adam_matches_a_host_reference() {
     let Some(device) = device() else { return };

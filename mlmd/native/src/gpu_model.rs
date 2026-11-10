@@ -39,11 +39,23 @@ __device__ long long embed_row(int count, int i, int t, int local, const int* se
     return (long long)count * offset[t] + (long long)i * sel[t] + local;
 }
 
+// Row of the embedding input and output of slot `local` of neighbor type `t`
+// of atom `i`. Without `rows` every slot has a row of its own. With it (per
+// atom and neighbor type three ints: first row, neighbors, shared row) only
+// the neighbors do, and all empty slots of one pair of types share a row:
+// their input, the normalized zero, is the same.
+__device__ long long slot_row(const int* rows, int ntypes, int count, int i, int t, int local,
+        const int* sel, const int* offset) {
+    if (!rows) return embed_row(count, i, t, local, sel, offset);
+    const int* entry = rows + 3 * ((long long)i * ntypes + t);
+    return local < entry[1] ? entry[0] + local : entry[2];
+}
+
 template <typename P>
 __device__ void env_impl(const int* index, const double* delta, const int* atype, const double* davg,
         const double* dstd, const int* slot_type, const int* slot_local, const int* sel,
         const int* offset, int first, int count, int slots, int ntypes, double rmin, double rmax,
-        double* env, P* radial, int* network) {
+        double* env, P* radial, int* network, const int* rows) {
     long long idx = (long long)blockIdx.x * blockDim.x + threadIdx.x;
     if (idx >= (long long)count * slots) return;
     int li = (int)(idx / slots), s = (int)(idx % slots), i = first + li, c = atype[i];
@@ -61,7 +73,8 @@ __device__ void env_impl(const int* index, const double* delta, const int* atype
         r4[a] = (r4[a] - davg[4 * c + a]) / dstd[4 * c + a];
         env[4 * idx + a] = r4[a];
     }
-    long long row = embed_row(count, li, slot_type[s], slot_local[s], sel, offset);
+    // Every empty slot of a shared row writes the same two values there.
+    long long row = slot_row(rows, ntypes, count, li, slot_type[s], slot_local[s], sel, offset);
     radial[row] = (P)r4[0];
     // Embedding net of this row: (center type, neighbor type).
     network[row] = c * ntypes + slot_type[s];
@@ -72,13 +85,13 @@ __device__ void env_impl(const int* index, const double* delta, const int* atype
 template <typename P>
 __device__ void descriptor_impl(const double* env, const P* g, const int* slot_type,
         const int* slot_local, const int* sel, const int* offset, int count, int slots,
-        int width, int axis, double* b_out, P* d_out) {
+        int width, int axis, double* b_out, P* d_out, const int* rows, int ntypes) {
     extern __shared__ double b[];
     int i = blockIdx.x;
     for (int m = threadIdx.x; m < width; m += blockDim.x) {
         double acc[4] = {0.0, 0.0, 0.0, 0.0};
         for (int s = 0; s < slots; ++s) {
-            double gm = (double)g[embed_row(count, i, slot_type[s], slot_local[s], sel, offset) * width + m];
+            double gm = (double)g[slot_row(rows, ntypes, count, i, slot_type[s], slot_local[s], sel, offset) * width + m];
             const double* r = env + ((long long)i * slots + s) * 4;
             for (int a = 0; a < 4; ++a) acc[a] += gm * r[a];
         }
@@ -117,7 +130,7 @@ __device__ void backward_impl(const double* env, const P* g, const P* dg, const 
         const P* dd_in, const int* index, const double* delta, const int* atype,
         const double* dstd, const int* slot_type, const int* slot_local, const int* sel,
         const int* offset, int first, int count, int slots, int width, int axis, double rmin,
-        double rmax, double* force, double* virial) {
+        double rmax, double* force, double* virial, const int* rows, int ntypes) {
     extern __shared__ double shared[];
     double* b = shared;                  // [width][4]
     double* dr_all = b + 4 * width;      // [slots][4]
@@ -146,7 +159,7 @@ __device__ void backward_impl(const double* env, const P* g, const P* dg, const 
     for (int s = warp; s < slots; s += warps) {
         long long slot = (long long)i * slots + s;
         if (index[slot] < 0) continue;
-        long long row = embed_row(count, li, slot_type[s], slot_local[s], sel, offset) * width;
+        long long row = slot_row(rows, ntypes, count, li, slot_type[s], slot_local[s], sel, offset) * width;
         const double* r = env + 4 * ((long long)li * slots + s);
         P rp[4] = {(P)r[0], (P)r[1], (P)r[2], (P)r[3]};
         P dr[4] = {0, 0, 0, 0}, tangent = 0;
@@ -201,6 +214,8 @@ __device__ void backward_impl(const double* env, const P* g, const P* dg, const 
     for (int e = threadIdx.x; e < 9; e += blockDim.x) virial[(long long)i * 9 + e] = red[3 + e];
 }
 
+// The `_rows` kernels take the row table of `slot_row` (and the number of
+// types it is laid out by); the others give every slot a row.
 #define INSTANTIATE(P, S)                                                                         \
 extern "C" __global__ void se_e2_a_env_##S(const int* index, const double* delta,                 \
         const int* atype, const double* davg, const double* dstd, const int* slot_type,           \
@@ -208,13 +223,28 @@ extern "C" __global__ void se_e2_a_env_##S(const int* index, const double* delta
         int slots, int ntypes, double rmin, double rmax, double* env, P* radial,                  \
         int* network) {                                                                           \
     env_impl<P>(index, delta, atype, davg, dstd, slot_type, slot_local, sel, offset, first,       \
-                count, slots, ntypes, rmin, rmax, env, radial, network);                          \
+                count, slots, ntypes, rmin, rmax, env, radial, network, nullptr);                 \
+}                                                                                                 \
+extern "C" __global__ void se_e2_a_env_rows_##S(const int* index, const double* delta,            \
+        const int* atype, const double* davg, const double* dstd, const int* slot_type,           \
+        const int* slot_local, const int* sel, const int* offset, int first, int count,           \
+        int slots, int ntypes, double rmin, double rmax, double* env, P* radial,                  \
+        int* network, const int* rows) {                                                          \
+    env_impl<P>(index, delta, atype, davg, dstd, slot_type, slot_local, sel, offset, first,       \
+                count, slots, ntypes, rmin, rmax, env, radial, network, rows);                    \
 }                                                                                                 \
 extern "C" __global__ void se_e2_a_descriptor_##S(const double* env, const P* g,                  \
         const int* slot_type, const int* slot_local, const int* sel, const int* offset,           \
         int count, int slots, int width, int axis, double* b_out, P* d_out) {                     \
     descriptor_impl<P>(env, g, slot_type, slot_local, sel, offset, count, slots, width, axis,     \
-                       b_out, d_out);                                                             \
+                       b_out, d_out, nullptr, 0);                                                 \
+}                                                                                                 \
+extern "C" __global__ void se_e2_a_descriptor_rows_##S(const double* env, const P* g,             \
+        const int* slot_type, const int* slot_local, const int* sel, const int* offset,           \
+        int count, int slots, int width, int axis, double* b_out, P* d_out, const int* rows,      \
+        int ntypes) {                                                                             \
+    descriptor_impl<P>(env, g, slot_type, slot_local, sel, offset, count, slots, width, axis,     \
+                       b_out, d_out, rows, ntypes);                                               \
 }                                                                                                 \
 extern "C" __global__ void se_e2_a_backward_##S(const double* env, const P* g, const P* dg,       \
         const double* b_in, const P* dd_in, const int* index, const double* delta,                \
@@ -222,7 +252,17 @@ extern "C" __global__ void se_e2_a_backward_##S(const double* env, const P* g, c
         const int* sel, const int* offset, int first, int count, int slots, int width, int axis,  \
         double rmin, double rmax, double* force, double* virial) {                                \
     backward_impl<P>(env, g, dg, b_in, dd_in, index, delta, atype, dstd, slot_type, slot_local,   \
-                     sel, offset, first, count, slots, width, axis, rmin, rmax, force, virial);   \
+                     sel, offset, first, count, slots, width, axis, rmin, rmax, force, virial,    \
+                     nullptr, 0);                                                                 \
+}                                                                                                 \
+extern "C" __global__ void se_e2_a_backward_rows_##S(const double* env, const P* g,               \
+        const P* dg, const double* b_in, const P* dd_in, const int* index, const double* delta,   \
+        const int* atype, const double* dstd, const int* slot_type, const int* slot_local,        \
+        const int* sel, const int* offset, int first, int count, int slots, int width, int axis,  \
+        double rmin, double rmax, double* force, double* virial, const int* rows, int ntypes) {   \
+    backward_impl<P>(env, g, dg, b_in, dd_in, index, delta, atype, dstd, slot_type, slot_local,   \
+                     sel, offset, first, count, slots, width, axis, rmin, rmax, force, virial,    \
+                     rows, ntypes);                                                               \
 }
 INSTANTIATE(float, f32)
 INSTANTIATE(double, f64)

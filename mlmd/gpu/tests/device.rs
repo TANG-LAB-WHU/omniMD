@@ -1419,7 +1419,6 @@ fn compare_training_set<T: omnimd_gpu::Scalar>(
             &ybar_d,
             &ydotbar_d,
             blocks,
-            &ones,
             &mut xbar,
             &mut xdbar,
         )
@@ -1456,7 +1455,6 @@ fn compare_training_set<T: omnimd_gpu::Scalar>(
         &ybar_d,
         &ydotbar_d,
         blocks,
-        &ones,
         &mut xbar,
         &mut xdbar,
     )
@@ -1470,7 +1468,7 @@ fn compare_training_set<T: omnimd_gpu::Scalar>(
     );
     let mut alone = device.zeros::<T>(theta.len()).unwrap();
     set.backward(
-        device, &theta_d, &mut alone, &tape, &idsd, &ybar_d, &ydotbar_d, blocks, &ones,
+        device, &theta_d, &mut alone, &tape, &idsd, &ybar_d, &ydotbar_d, blocks,
     )
     .unwrap();
     close(
@@ -1483,7 +1481,12 @@ fn compare_training_set<T: omnimd_gpu::Scalar>(
     let mut bad = blocks.to_vec();
     bad[0].2 += rows;
     assert!(set
-        .backward(device, &theta_d, &mut alone, &tape, &idsd, &ybar_d, &ydotbar_d, &bad, &ones)
+        .backward(device, &theta_d, &mut alone, &tape, &idsd, &ybar_d, &ydotbar_d, &bad)
+        .is_err());
+    // So is a gradient buffer that does not reach the last parameter.
+    let mut short = device.zeros::<T>(theta.len() - 1).unwrap();
+    assert!(set
+        .backward(device, &theta_d, &mut short, &tape, &idsd, &ybar_d, &ydotbar_d, blocks)
         .is_err());
 }
 
@@ -1570,6 +1573,80 @@ fn training_set_matches_its_networks_one_by_one() {
         compare_training_set::<f64>(device, theta, layouts, x, xdot, &blocks, 1e-11);
         compare_training_set::<f32>(device, theta, layouts, x, xdot, &blocks, 1e-4);
     }
+
+    // Layers larger than one piece of the gradient kernel (16 inputs by 64
+    // outputs, four outputs per thread): the widths of the se_e2_a embedding
+    // nets, with a last piece of 36 outputs and of 3 inputs and the constant.
+    let (tiled_theta, tiled_layouts) = set_layout(3, |seed| {
+        vec![
+            CpuLayer::random(1, 25, Activation::Tanh, false, false, seed),
+            CpuLayer::random(25, 50, Activation::Tanh, true, true, seed + 10),
+            CpuLayer::random(50, 100, Activation::Tanh, true, false, seed + 20),
+        ]
+    });
+    let (x, xdot) = (values(rows, 2530), values(rows, 2531));
+    compare_training_set::<f64>(
+        device,
+        &tiled_theta,
+        &tiled_layouts,
+        &x,
+        &xdot,
+        &blocks,
+        1e-11,
+    );
+    compare_training_set::<f32>(
+        device,
+        &tiled_theta,
+        &tiled_layouts,
+        &x,
+        &xdot,
+        &blocks,
+        1e-4,
+    );
+    // More rows of one network than a piece of the gradient kernel holds
+    // (128): the sums of its pieces meet in the gradient.
+    let long = [(1, 0, 290), (0, 290, 10)];
+    let (x, xdot) = (values(300, 2550), values(300, 2551));
+    compare_training_set::<f64>(
+        device,
+        &tiled_theta,
+        &tiled_layouts,
+        &x,
+        &xdot,
+        &long,
+        1e-11,
+    );
+    compare_training_set::<f32>(device, &tiled_theta, &tiled_layouts, &x, &xdot, &long, 1e-4);
+    // The same with a whole thread block per row, timesteps wider than one
+    // warp, and output counts that end inside every position of a thread's
+    // four outputs (70, 140, 37, 1).
+    let (tiled_theta, tiled_layouts) = set_layout(3, |seed| {
+        vec![
+            CpuLayer::random(20, 70, Activation::Tanh, false, false, seed),
+            CpuLayer::random(70, 140, Activation::Tanh, true, true, seed + 10),
+            CpuLayer::random(140, 37, Activation::Tanh, false, false, seed + 20),
+            CpuLayer::random(37, 1, Activation::Linear, false, false, seed + 30),
+        ]
+    });
+    let (x, xdot) = (values(rows * 20, 2540), values(rows * 20, 2541));
+    compare_training_set::<f64>(
+        device,
+        &tiled_theta,
+        &tiled_layouts,
+        &x,
+        &xdot,
+        &blocks,
+        1e-11,
+    );
+    compare_training_set::<f32>(
+        device,
+        &tiled_theta,
+        &tiled_layouts,
+        &x,
+        &xdot,
+        &blocks,
+        1e-4,
+    );
 
     // Refused: no network, different shapes, a bias away from its weights.
     let new = |networks: Vec<Vec<omnimd_gpu::TrainLayer>>| {

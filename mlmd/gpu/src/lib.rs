@@ -176,6 +176,14 @@ impl Device {
             )));
         }
         let context = CudaContext::new(ordinal).map_err(cuda_error("context creation"))?;
+        // cudarc can attach events to every buffer to order its uses across
+        // streams, at the price of extra driver calls around every launch
+        // once a second stream exists. No buffer of this crate crosses
+        // streams: a handle allocates, uses and frees its buffers on its own
+        // stream (see `sibling`).
+        // SAFETY: the conditions of `disable_event_tracking` are that
+        // invariant.
+        unsafe { context.disable_event_tracking() };
         if context.has_async_alloc() {
             // Keep freed pool memory mapped: with the default release
             // threshold of 0 every synchronization hands it back to the OS
@@ -216,8 +224,9 @@ impl Device {
     /// A second handle on the same GPU context with a stream, a cuBLAS
     /// handle and a kernel cache of its own. Work issued through it is
     /// ordered only against itself, so two threads that each drive one handle
-    /// overlap on the device; buffers must stay with the handle that made
-    /// them.
+    /// overlap on the device. Buffers must stay with the handle that made
+    /// them: nothing orders a buffer's use on one stream against its use or
+    /// release on another.
     pub fn sibling(&self) -> Result<Self> {
         let stream = self
             .context
@@ -342,54 +351,6 @@ impl Device {
             alpha: T::ONE,
             lda: n,
             ldb: k,
-            beta: if accumulate { T::ONE } else { T::ZERO },
-            ldc: n,
-        };
-        unsafe { T::gemm(&self.blas, cfg, b, a, c) }.map_err(cuda_error("cuBLAS GEMM"))
-    }
-
-    /// [`matmul_at`](Self::matmul_at) for column blocks of wider row-major
-    /// matrices: row `r` of `a` is the `k` values at `a[r * stride_a..]` and
-    /// row `r` of `b` the `n` values at `b[r * stride_b..]`.
-    #[allow(clippy::too_many_arguments)]
-    pub fn matmul_at_strided<T: Scalar>(
-        &self,
-        a: &impl DevicePtr<T>,
-        stride_a: usize,
-        b: &impl DevicePtr<T>,
-        stride_b: usize,
-        c: &mut impl DevicePtrMut<T>,
-        shape: MatmulShape,
-        accumulate: bool,
-    ) -> Result<()> {
-        use cudarc::cublas::sys::cublasOperation_t::{CUBLAS_OP_N, CUBLAS_OP_T};
-        let (m, k, n) = shape.dims()?;
-        let stride = |value: usize, least: usize| {
-            i32::try_from(value)
-                .ok()
-                .filter(|_| value >= least)
-                .ok_or_else(|| Error(format!("stride {value} is out of range")))
-        };
-        let (lda, ldb) = (stride(stride_b, shape.n)?, stride(stride_a, shape.k)?);
-        // The last row may end before a full stride.
-        let needs = |rows: usize, stride: usize, used: usize| (rows - 1) * stride + used;
-        if a.len() < needs(shape.m, stride_a, shape.k)
-            || b.len() < needs(shape.m, stride_b, shape.n)
-        {
-            return Err(Error("strided matmul operand is too short".into()));
-        }
-        check_len("matmul c", c.len(), shape.k * shape.n)?;
-        // Column-major view, as in `matmul_at`, with the strides as leading
-        // dimensions.
-        let cfg = GemmConfig {
-            transa: CUBLAS_OP_N,
-            transb: CUBLAS_OP_T,
-            m: n,
-            n: k,
-            k: m,
-            alpha: T::ONE,
-            lda,
-            ldb,
             beta: if accumulate { T::ONE } else { T::ZERO },
             ldc: n,
         };
