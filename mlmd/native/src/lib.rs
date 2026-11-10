@@ -15,6 +15,7 @@ mod learning_rate;
 mod least_squares;
 pub mod minibatch;
 mod model;
+pub mod model_init;
 mod neighbor;
 mod network;
 pub mod readout;

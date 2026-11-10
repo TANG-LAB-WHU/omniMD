@@ -1425,8 +1425,8 @@ does not change that conclusion.
 This step uses the `omnimd-gpu` runtime, which is separate from the bounded
 `cuda` feature of steps 7 and 13 to 27. It covers inference of a native se_e2_a
 model with any network size, standalone or behind the engine's dynamics,
-minimization, batch evaluation and model deviation. The trainers do not use it
-yet.
+minimization, batch evaluation and model deviation, and a trainer and a
+label test of their own (below). The `train-native` trainers do not use it.
 
 Requirements: an NVIDIA GPU with a current driver, and the CUDA 12 runtime
 libraries for NVRTC and cuBLAS on the library path (`%CUDA_PATH%\bin` on Windows,
@@ -1508,6 +1508,26 @@ To run the device tests on a machine with a GPU (they skip without one unless
 ```sh
 OMNIMD_REQUIRE_GPU=1 cargo test --release --locked --manifest-path mlmd/Cargo.toml -p omnimd-gpu -p omnimd-native --features omnimd-native/gpu
 ```
+
+To score a native model against the labels of a dataset (the counterpart of
+`dp test`; the group of a frame is its id up to the first `/`):
+
+```text
+omnimd-native-gpu-test MODEL.json DATASET.jsonl [--precision float64|float32] > report.json
+```
+
+To train a model of any network size on the GPU, write a request with the
+`model`, `learning_rate`, `loss` and `training` sections of a DeePMD input
+script plus `dataset` and `output` paths, and run:
+
+```text
+omnimd-native-gpu-train REQUEST.json
+```
+
+[`native/GPU_TRAINING.md`](native/GPU_TRAINING.md) gives the request format, the
+loss and schedule definitions, what is computed from the data, the limits and
+the checks. This trainer is separate from `omnimd-mlmd train-native` (steps 5
+and 13 to 27), whose requests and bounds are unchanged.
 
 Timings against DeepMD-kit and how to reproduce them are in
 [`bench/README.md`](bench/README.md) and [`bench/results/SUMMARY.md`](bench/results/SUMMARY.md).

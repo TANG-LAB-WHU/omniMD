@@ -4,9 +4,13 @@
 //! omnimd-native-gpu-train REQUEST.json
 //! ```
 //!
-//! The request names an initial model, a dataset and a new output file, and
-//! carries the `learning_rate`, `loss` and `training` sections of a DeePMD
-//! input script with the same meaning (see `GPU_TRAINING.md`):
+//! The request names a dataset and a new output file, and carries the
+//! `learning_rate`, `loss` and `training` sections of a DeePMD input script
+//! with the same meaning (see `GPU_TRAINING.md`). `model` is either the path
+//! of a native model to continue from, or the `model` section of a DeePMD
+//! input script: then the networks are drawn afresh, and the normalization
+//! (`davg`, `dstd`), the energy bias and an `"auto"` `sel` are computed from
+//! the dataset.
 //!
 //! ```json
 //! {"model": "/abs/initial.native.json", "dataset": "/abs/train.jsonl",
@@ -20,9 +24,12 @@
 //!
 //! Existing output files are never replaced.
 use omnimd_gpu::{Device, Scalar};
+use omnimd_ml_contract::Frame;
 use omnimd_native::gpu_train::{FrameLabels, GpuTrainer, LossTerms, LossWeights};
+use omnimd_native::model_init::{initialize, ModelSpec};
+use omnimd_native::stats::{energy_bias, env_mat_stat, neighbor_stat};
 use omnimd_native::training_data::{Dataset, DatasetFrame};
-use omnimd_native::NativePotential;
+use omnimd_native::{Model, NativePotential};
 use serde::Deserialize;
 use std::io::Write;
 use std::path::PathBuf;
@@ -101,10 +108,18 @@ fn default_disp_freq() -> u64 {
     100
 }
 
+/// A native model file to continue from, or a DeePMD `model` section.
+#[derive(Deserialize)]
+#[serde(untagged)]
+enum ModelSource {
+    Path(PathBuf),
+    Spec(ModelSpec),
+}
+
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct Request {
-    model: PathBuf,
+    model: ModelSource,
     dataset: PathBuf,
     output: PathBuf,
     #[serde(default)]
@@ -183,9 +198,39 @@ fn labels(frame: &DatasetFrame) -> FrameLabels<'_> {
     }
 }
 
+/// A fresh model for `spec`, with statistics from the training frames.
+fn fresh_model(spec: &ModelSpec, data: &Dataset) -> Result<Model, Box<dyn std::error::Error>> {
+    let frames: Vec<&Frame> = data.frames.iter().map(|f| &f.frame).collect();
+    let energies: Vec<f64> = data
+        .frames
+        .iter()
+        .map(|f| f.labels.energy.ok_or("frame without an energy label"))
+        .collect::<Result<_, _>>()?;
+    let d = &spec.descriptor;
+    let sel = match (&d.sel, d.sel.auto_factor()?) {
+        (_, Some(factor)) => {
+            let stat = neighbor_stat(&frames, &spec.type_map, d.rcut)?;
+            eprintln!(
+                "neighbor statistics: nearest pair {:.4} A, most neighbors per type {:?}",
+                stat.min_nbor_dist, stat.max_nbor_size
+            );
+            stat.auto_sel(factor)
+        }
+        (omnimd_native::model_init::SelSpec::Counts(counts), None) => counts.clone(),
+        _ => unreachable!("auto_factor is None only for explicit counts"),
+    };
+    let normalization = env_mat_stat(&frames, &spec.type_map, d.rcut, d.rcut_smth, &sel)?;
+    let bias = energy_bias(&frames, &energies, &spec.type_map)?;
+    eprintln!(
+        "sel {sel:?}; energy bias per type {:?} (rank {})",
+        bias.bias, bias.rank
+    );
+    Ok(initialize(spec, sel, normalization, bias.bias)?)
+}
+
 fn train<P: Scalar>(
     request: &Request,
-    model: &NativePotential,
+    model: &Model,
     data: &Dataset,
     device: Arc<Device>,
 ) -> Result<(), Box<dyn std::error::Error>> {
@@ -195,7 +240,7 @@ fn train<P: Scalar>(
     }
     let schedule = Schedule::new(&request.learning_rate, training.numb_steps)?;
     let loss = &request.loss;
-    let mut trainer = GpuTrainer::<P>::new(model.model(), device)?;
+    let mut trainer = GpuTrainer::<P>::new(model, device)?;
     // Reserve the outputs before any work; never replace existing files.
     let mut output = std::fs::OpenOptions::new()
         .write(true)
@@ -305,16 +350,22 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
     if request.output.exists() {
         return Err(format!("output {} already exists", request.output.display()).into());
     }
-    let model = NativePotential::load(&request.model)?;
     let data = Dataset::load(&request.dataset)?;
-    if data.header.type_map != model.model().type_map {
+    let declared = match &request.model {
+        ModelSource::Path(path) => NativePotential::load(path)?.model().type_map.clone(),
+        ModelSource::Spec(spec) => spec.type_map.clone(),
+    };
+    if data.header.type_map != declared {
         return Err(format!(
-            "dataset type map {:?} differs from the model's {:?}",
-            data.header.type_map,
-            model.model().type_map
+            "dataset type map {:?} differs from the model's {declared:?}",
+            data.header.type_map
         )
         .into());
     }
+    let model = match &request.model {
+        ModelSource::Path(path) => NativePotential::load(path)?.model().clone(),
+        ModelSource::Spec(spec) => fresh_model(spec, &data)?,
+    };
     let device = Arc::new(Device::new(0)?);
     eprintln!("device: {}", device.name());
     match request.precision {

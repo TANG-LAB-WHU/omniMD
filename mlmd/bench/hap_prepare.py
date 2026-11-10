@@ -10,8 +10,8 @@ Nothing is written outside `OUT_DIR`:
 - `model-K.native.json`: the model converted for omniMD (`dp convert-backend`
   to the dpmodel format, then `native/tools/convert_deepmd.py`);
 - `frames.jsonl`: every frame of every system, one omniMD `Frame` per line;
-- `dataset.jsonl`: the same frames with their labels in the
-  omnimd-dataset-jsonl-v1 format;
+- `dataset.jsonl`: the same frames with their energy, force and (where the
+  system has them) virial labels in the omnimd-dataset-jsonl-v1 format;
 - `deepmd-ref-model-K.jsonl`: DeePMD's own energy, forces and virial for each
   frame (DeepPot on CPU);
 - `manifest.json`: systems, frame ids and atom counts.
@@ -39,10 +39,13 @@ def load_systems(data_dir):
             boxes = np.load(data_set / 'box.npy').reshape(-1, 3, 3)
             energies = np.load(data_set / 'energy.npy').reshape(-1)
             forces = np.load(data_set / 'force.npy').reshape(-1, len(types), 3)
+            virial_file = data_set / 'virial.npy'
+            virials = np.load(virial_file).reshape(-1, 3, 3) if virial_file.is_file() else None
             for k in range(len(coords)):
                 frames.append({'id': f'{system.name}/{data_set.name}/{k}', 'system': system.name,
                                'type_map': type_map, 'types': types, 'coords': coords[k], 'cell': boxes[k],
-                               'energy': float(energies[k]), 'forces': forces[k]})
+                               'energy': float(energies[k]), 'forces': forces[k],
+                               'virial': None if virials is None else virials[k].tolist()})
     return frames
 
 
@@ -51,7 +54,8 @@ def main():
     parser.add_argument('train_dir', type=Path)
     parser.add_argument('data_dir', type=Path)
     parser.add_argument('out_dir', type=Path)
-    parser.add_argument('--models', type=int, nargs='+', default=[0, 1, 2, 3])
+    parser.add_argument('--models', type=int, nargs='*', default=[0, 1, 2, 3],
+                        help='models to convert and evaluate; none writes only the frames and dataset')
     args = parser.parse_args()
     args.out_dir.mkdir(parents=True, exist_ok=True)
     converter = Path(__file__).resolve().parent.parent / 'native' / 'tools' / 'convert_deepmd.py'
@@ -68,7 +72,7 @@ def main():
             frame = {'positions': f['coords'].tolist(), 'species': [type_map[t] for t in f['types']],
                      'cell': f['cell'].tolist(), 'units': 'EvAngstrom'}
             plain.write(json.dumps(frame) + '\n')
-            labels = {'energy': f['energy'], 'forces': f['forces'].tolist(), 'virial': None}
+            labels = {'energy': f['energy'], 'forces': f['forces'].tolist(), 'virial': f['virial']}
             dataset.write(json.dumps({'kind': 'frame', 'data': {'index': index, 'id': f['id'], 'frame': frame,
                                                                 'labels': labels}}) + '\n')
         dataset.write(json.dumps({'kind': 'completed', 'frames': len(frames), 'source_sha256': {}}) + '\n')

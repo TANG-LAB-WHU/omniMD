@@ -36,6 +36,11 @@ path = "src/bin/omnimd-native-gpu-train.rs"
 required-features = ["gpu"]
 
 [[bin]]
+name = "omnimd-native-gpu-test"
+path = "src/bin/omnimd-native-gpu-test.rs"
+required-features = ["gpu"]
+
+[[bin]]
 name = "omnimd-native-cuda-check"
 path = "src/bin/omnimd-native-cuda-check.rs"
 required-features = ["cuda"]
