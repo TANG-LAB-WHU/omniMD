@@ -14,7 +14,7 @@ cargo build --release --locked --manifest-path mlmd/Cargo.toml -p omnimd-native 
 ## Request
 
 ```text
-omnimd-native-gpu-train REQUEST.json
+omnimd-native-gpu-train REQUEST.json [REQUEST.json ...]
 ```
 
 ```json
@@ -49,9 +49,21 @@ omnimd-native-gpu-train REQUEST.json
   rejected.
 - `precision` is the network precision, `float64` (default) or `float32`.
   Geometry, forces, virial and the loss are float64 either way.
+- `training.validation_data` (optional), `{"dataset": "/absolute/val.jsonl",
+  "numb_btch": 1}`: frames that are never trained on. Whenever a line of the
+  learning curve is written, `numb_btch` of them are scored with the current
+  parameters, in a shuffled order of their own. Training is the same with and
+  without them.
 - `training.save_freq` (optional) writes a snapshot every that many steps:
   `<output>.step-N`, the model, and `<output>.step-N.adam`, the optimizer state.
 - `output`, `disp_file` and snapshot files must not exist; nothing is overwritten.
+
+Several requests on one command line train at the same time, each on a stream
+of its own on the same device: for example the members of an ensemble, which
+differ in their seeds and output names. Each prints its own summary line, and
+the models are those of the requests run one by one (not bit for bit: the
+order of atomic additions on the device varies). A request that fails is named
+and makes the exit status nonzero; the others still finish.
 
 To continue a stopped run, give the snapshot as `model` and its `.adam` file as
 `training.optimizer_state`, keep the other settings, and choose new `output` and
@@ -104,7 +116,12 @@ of their loss terms needs second-order information. With `a = dL/dE`,
 neighbor vector `d = r_j - r_i` moves along `c_j - c_i + w^T d`. One forward
 pass carries that tangent through the environment matrix, the embedding nets,
 the descriptor and the fitting nets, and one reverse pass through both gives
-the gradient (`omnimd_gpu::TrainNetwork`, [`gpu_train.rs`](src/gpu_train.rs)).
+the gradient ([`gpu_train.rs`](src/gpu_train.rs)). All embedding nets are
+evaluated as one set and all fitting nets as another (`omnimd_gpu::TrainSet`):
+every row names its net, one kernel does the forward pass with tangent, a
+second the reverse pass, and the parameter gradients are one matrix product per
+net and layer. A step therefore issues about a hundred device calls whatever
+the number of types.
 
 **Frame order.** Frames are visited in shuffled epochs from `training.seed`.
 With `batch_size` 1 this samples systems in proportion to their frame counts,
@@ -117,21 +134,49 @@ like DeePMD's default `prob_sys_size`.
 - `disp_file`: one line every `disp_freq` steps with the step, the energy RMSE
   per atom, the force RMSE and the virial RMSE per atom of that batch, and the
   learning rate. These are DeePMD's `rmse_e_trn`, `rmse_f_trn` and `rmse_v_trn`.
+  With `validation_data` each of the three is preceded by the same quantity
+  over the validation frames of that line (`rmse_e_val` and so on); the header
+  line names the columns.
 - Standard output: one JSON object with the step count, time and steps per
   second.
 
 ## Limits
 
 - One GPU, one frame at a time: a frame and its recorded intermediates must fit
-  in device memory (frames of a few hundred atoms need well under 1 GB).
+  in device memory (about 1 GB per request in float64 for the model and the
+  frames of up to 224 atoms below; memory grows with atoms times `sum(sel)`).
 - se_e2_a with one embedding net per type pair (`type_one_side: false`), tanh
   activations and an energy fitting net. No hybrid descriptors, type embedding,
   fparam/aparam, atomic energies or force-only prefactors (`pref_pf`, `pref_gf`).
-- No validation set during training. Without `save_freq` a run that stops
-  leaves no model.
+- Without `save_freq` a run that stops leaves no model.
 - No fine-tuning controls (frozen layers, bias adjustment).
-- Each step issues about a thousand small device launches, so the time per step
-  depends little on the frame size for small frames.
+- Each step still issues about a hundred device calls and returns to the host
+  for the loss, so small frames are bound by that overhead in float32.
+
+## Speed
+
+Steps per second on an RTX 4090 for the model and frames of the full run below
+(2,664,455 parameters; frames of 54 to 224 atoms; one frame per step):
+
+| | float32 | float64 |
+|---|---:|---:|
+| one request | 284 | 92 |
+| two requests at once, in total | 330 | 122 |
+| four requests at once, in total | 347 | 152 |
+
+- DeePMD-kit 3.1.3 was recorded at 6.5 steps/s for this model on this machine
+  (PyTorch backend, float64).
+- In float32 the time goes to the device calls of a step and the host work
+  between them. In float64 it goes mostly to arithmetic: this card does
+  double-precision matrix products about twenty times slower than single
+  (0.37 ms against 0.017 ms for the first fitting layer over 224 atoms).
+- Requests trained at once share the card through separate streams and gain
+  about 20 percent in total in float32 and 60 percent in float64 with four of
+  them. Separate processes do not add up: two or four of them reach less in
+  total than one alone.
+- Before the embedding and fitting nets were evaluated as sets, a step issued
+  about eleven hundred device calls and reached 118 steps/s in float32 and 58
+  in float64; the full run below was made with that version.
 
 ## How it was checked
 
@@ -148,6 +193,15 @@ like DeePMD's default `prob_sys_size`.
   state it does not.
 - Removing the second-derivative term, transposing the virial direction or
   dropping either descriptor adjoint term makes the gradient test fail.
+- The network sets give the outputs, tangents, parameter gradients and input
+  adjoints of the same networks evaluated one by one with separate matrix
+  products (to 1e-12 in float64), for one input and for many, for narrow and
+  wide layers, with both residual kinds and timesteps (`omnimd-gpu`,
+  `tests/device.rs`). Eight single-line errors introduced into their kernels
+  each fail that test.
+- Two requests trained in one process give the models of the same requests
+  trained alone to 1e-8, and a request with validation frames gives the model
+  of the same request without them (`tests/gpu_train_cli.rs`).
 
 ## A full run on real data
 

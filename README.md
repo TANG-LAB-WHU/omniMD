@@ -255,8 +255,8 @@ see [DeepMD setup and limits](mlmd/deepmd/README.md).
   CUDA inference is available within the separate scopes above; training
   retains CPU stages.
 - The GPU se_e2_a trainer takes one frame per step on one GPU and has no
-  validation set or fine-tuning controls; the bounded `train-native` trainers do
-  not use the GPU runtime, and the engine passes each frame through the host.
+  fine-tuning controls; the bounded `train-native` trainers do not use the GPU
+  runtime, and the engine passes each frame through the host.
 - Arbitrary DeepMD architectures, hybrid se_e3 or generic .pb/.pth/pickle import.
 - Partial PBC, mixed-type/virtual atoms or automatic unit/type-map guessing.
 - Classical-potential mixing and the full legacy Simulation/Propagator pipeline.

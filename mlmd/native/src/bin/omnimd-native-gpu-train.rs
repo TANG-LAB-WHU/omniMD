@@ -104,6 +104,22 @@ struct Training {
     /// An `.adam` file written by `save_freq`: continue from its step with
     /// its optimizer state; `model` must then be the matching snapshot.
     optimizer_state: Option<PathBuf>,
+    /// Frames that are scored, but never trained on, whenever a line of the
+    /// learning curve is written.
+    validation_data: Option<ValidationData>,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ValidationData {
+    dataset: PathBuf,
+    /// Frames scored per line of the learning curve.
+    #[serde(default = "one_batch")]
+    numb_btch: usize,
+}
+
+fn one_batch() -> usize {
+    1
 }
 
 fn one_frame() -> usize {
@@ -304,6 +320,7 @@ fn train<P: Scalar>(
     request: &Request,
     model: &Model,
     data: &Dataset,
+    validation: Option<&Dataset>,
     device: Arc<Device>,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let training = &request.training;
@@ -345,10 +362,16 @@ fn train<P: Scalar>(
                 .create_new(true)
                 .open(path)
                 .map_err(|e| format!("disp_file {}: {e}", path.display()))?;
-            writeln!(
-                file,
-                "#  step      rmse_e_trn    rmse_f_trn    rmse_v_trn            lr"
-            )?;
+            match validation {
+                Some(_) => writeln!(
+                    file,
+                    "#  step      rmse_e_val    rmse_e_trn    rmse_f_val    rmse_f_trn    rmse_v_val    rmse_v_trn            lr"
+                )?,
+                None => writeln!(
+                    file,
+                    "#  step      rmse_e_trn    rmse_f_trn    rmse_v_trn            lr"
+                )?,
+            }
             Some(file)
         }
         None => None,
@@ -363,6 +386,15 @@ fn train<P: Scalar>(
     let mut rng = Rng(training.seed ^ first_step.wrapping_mul(0x9e37_79b9_7f4a_7c15));
     let mut order: Vec<usize> = (0..data.frames.len()).collect();
     let mut cursor = order.len();
+    // Validation frames in an order of their own.
+    let batches = training.validation_data.as_ref().map_or(0, |v| v.numb_btch);
+    if validation.is_some() && batches == 0 {
+        return Err("validation_data numb_btch must be positive".into());
+    }
+    let mut validation_rng = Rng(training.seed ^ 0x5851_f42d_4c95_7f2d);
+    let mut validation_order: Vec<usize> = (0..validation.map_or(0, |v| v.frames.len())).collect();
+    let mut validation_cursor = validation_order.len();
+    let mut last_validation = None;
     let start = Instant::now();
     let mut last = LossTerms::default();
     for step in first_step..training.numb_steps {
@@ -409,14 +441,49 @@ fn train<P: Scalar>(
                 .map_err(|e| format!("snapshot {}: {e}", adam_path.display()))?;
         }
         if step % training.disp_freq == 0 || step + 1 == training.numb_steps {
-            let line = format!(
-                "{:>7} {:>15.6e} {:>13.6e} {:>13.6e} {:>13.6e}",
-                step,
-                batch.rmse_energy_per_atom(),
-                batch.rmse_force(),
-                batch.rmse_virial_per_atom(),
-                lr
-            );
+            let line = match validation {
+                Some(held_out) => {
+                    // Scored with the updated parameters; a zero scale leaves
+                    // the gradient alone.
+                    let mut scored = LossTerms::default();
+                    for _ in 0..batches {
+                        if validation_cursor == validation_order.len() {
+                            validation_rng.shuffle(&mut validation_order);
+                            validation_cursor = 0;
+                        }
+                        let frame = &held_out.frames[validation_order[validation_cursor]];
+                        validation_cursor += 1;
+                        let (terms, _) =
+                            trainer.accumulate(&frame.frame, &labels(frame), &weights, 0.0)?;
+                        let share = 1.0 / batches as f64;
+                        scored.loss += terms.loss * share;
+                        scored.l2_energy += terms.l2_energy * share;
+                        scored.l2_force += terms.l2_force * share;
+                        scored.l2_virial += terms.l2_virial * share;
+                        scored.natoms = terms.natoms;
+                    }
+                    last_validation = Some(scored);
+                    format!(
+                        "{:>7} {:>15.6e} {:>13.6e} {:>13.6e} {:>13.6e} {:>13.6e} {:>13.6e} {:>13.6e}",
+                        step,
+                        scored.rmse_energy_per_atom(),
+                        batch.rmse_energy_per_atom(),
+                        scored.rmse_force(),
+                        batch.rmse_force(),
+                        scored.rmse_virial_per_atom(),
+                        batch.rmse_virial_per_atom(),
+                        lr
+                    )
+                }
+                None => format!(
+                    "{:>7} {:>15.6e} {:>13.6e} {:>13.6e} {:>13.6e}",
+                    step,
+                    batch.rmse_energy_per_atom(),
+                    batch.rmse_force(),
+                    batch.rmse_virial_per_atom(),
+                    lr
+                ),
+            };
             if let Some(file) = &mut curve {
                 writeln!(file, "{line}")?;
             }
@@ -440,6 +507,9 @@ fn train<P: Scalar>(
             "steps_per_second": (training.numb_steps - first_step) as f64 / elapsed,
             "final_batch": {"loss": last.loss, "rmse_e_per_atom": last.rmse_energy_per_atom(),
                             "rmse_f": last.rmse_force(), "rmse_v_per_atom": last.rmse_virial_per_atom()},
+            "final_validation": last_validation.map(|v: LossTerms| serde_json::json!({
+                "rmse_e_per_atom": v.rmse_energy_per_atom(), "rmse_f": v.rmse_force(),
+                "rmse_v_per_atom": v.rmse_virial_per_atom()})),
             "output": request.output,
         })
     );
@@ -468,10 +538,20 @@ fn train_request(path: &str, device: Device) -> Result<(), Box<dyn std::error::E
         ModelSource::Path(path) => NativePotential::load(path)?.model().clone(),
         ModelSource::Spec(spec) => fresh_model(spec, &data)?,
     };
+    let validation = match &request.training.validation_data {
+        Some(held_out) => {
+            let frames = Dataset::load(&held_out.dataset)?;
+            if frames.header.type_map != declared {
+                return Err("validation dataset and model type maps differ".into());
+            }
+            Some(frames)
+        }
+        None => None,
+    };
     let device = Arc::new(device);
     match request.precision {
-        Precision::Float64 => train::<f64>(&request, &model, &data, device),
-        Precision::Float32 => train::<f32>(&request, &model, &data, device),
+        Precision::Float64 => train::<f64>(&request, &model, &data, validation.as_ref(), device),
+        Precision::Float32 => train::<f32>(&request, &model, &data, validation.as_ref(), device),
     }
 }
 

@@ -19,13 +19,22 @@ fn gpu_available() -> bool {
     }
 }
 
-/// A twelve-step request on the statistics fixture (six frames of O, H, C).
-fn request(directory: &Path, name: &str, seed: u64) -> PathBuf {
-    let dataset = Path::new(env!("CARGO_MANIFEST_DIR"))
+fn fixture() -> PathBuf {
+    Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("fixtures/stats-dataset.jsonl")
         .canonicalize()
-        .unwrap();
-    let request = json!({
+        .unwrap()
+}
+
+/// A twelve-step request on the statistics fixture (six frames of O, H, C).
+fn request(directory: &Path, name: &str, seed: u64) -> PathBuf {
+    write_request(directory, name, seed, None)
+}
+
+/// The same, optionally scoring `validation` frames per learning-curve line.
+fn write_request(directory: &Path, name: &str, seed: u64, validation: Option<usize>) -> PathBuf {
+    let dataset = fixture();
+    let mut request = json!({
         "model": {
             "type_map": ["O", "H", "C"],
             "descriptor": {"type": "se_e2_a", "sel": "auto", "rcut": 4.0, "rcut_smth": 0.5,
@@ -41,6 +50,9 @@ fn request(directory: &Path, name: &str, seed: u64) -> PathBuf {
         "training": {"numb_steps": 12, "batch_size": 1, "seed": seed, "disp_freq": 4,
                      "disp_file": directory.join(format!("{name}.lcurve"))}
     });
+    if let Some(frames) = validation {
+        request["training"]["validation_data"] = json!({"dataset": fixture(), "numb_btch": frames});
+    }
     let path = directory.join(format!("{name}.json"));
     std::fs::write(&path, request.to_string()).unwrap();
     path
@@ -140,5 +152,89 @@ fn several_requests_train_at_once_like_one_by_one() {
     assert!(third.join("good.native.json").is_file());
     // No request at all is a usage error.
     assert!(!train(&[]).status.success());
+    std::fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn validation_frames_are_scored_but_not_trained_on() {
+    if !gpu_available() {
+        return;
+    }
+    let root = std::env::temp_dir().join(format!("omnimd-train-val-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&root);
+    std::fs::create_dir_all(&root).unwrap();
+    let plain = train(&[&request(&root, "plain", 5)]);
+    assert!(
+        plain.status.success(),
+        "{}",
+        String::from_utf8_lossy(&plain.stderr)
+    );
+    let scored = train(&[&write_request(&root, "scored", 5, Some(2))]);
+    assert!(
+        scored.status.success(),
+        "{}",
+        String::from_utf8_lossy(&scored.stderr)
+    );
+    // The same model with and without validation.
+    let apart = difference(
+        &root.join("plain.native.json"),
+        &root.join("scored.native.json"),
+    );
+    assert!(apart < 1e-8, "validation changed the model by {apart}");
+    // Lines at steps 0, 4, 8 and 11 with the validation columns first.
+    let curve = std::fs::read_to_string(root.join("scored.lcurve")).unwrap();
+    let mut lines = curve.lines();
+    let header: Vec<&str> = lines.next().unwrap().split_whitespace().collect();
+    assert_eq!(
+        header,
+        [
+            "#",
+            "step",
+            "rmse_e_val",
+            "rmse_e_trn",
+            "rmse_f_val",
+            "rmse_f_trn",
+            "rmse_v_val",
+            "rmse_v_trn",
+            "lr"
+        ]
+    );
+    let rows: Vec<Vec<f64>> = lines
+        .map(|line| {
+            line.split_whitespace()
+                .map(|x| x.parse().unwrap())
+                .collect()
+        })
+        .collect();
+    assert_eq!(
+        rows.iter().map(|r| r[0] as u64).collect::<Vec<_>>(),
+        [0, 4, 8, 11]
+    );
+    assert!(rows
+        .iter()
+        .all(|r| r.len() == 8 && r[1] > 0.0 && r[3] > 0.0));
+    let plain_curve = std::fs::read_to_string(root.join("plain.lcurve")).unwrap();
+    assert_eq!(
+        plain_curve
+            .lines()
+            .next()
+            .unwrap()
+            .split_whitespace()
+            .count(),
+        6
+    );
+    let summary: Value = serde_json::from_slice(&scored.stdout).unwrap();
+    assert!(summary["final_validation"]["rmse_f"].as_f64().unwrap() > 0.0);
+    let summary: Value = serde_json::from_slice(&plain.stdout).unwrap();
+    assert!(summary["final_validation"].is_null());
+    // A validation set with another type map, or no frame per line, is refused.
+    let mut bad: Value =
+        serde_json::from_str(&std::fs::read_to_string(root.join("scored.json")).unwrap()).unwrap();
+    bad["output"] = json!(root.join("bad.native.json"));
+    bad["training"]["disp_file"] = json!(root.join("bad.lcurve"));
+    bad["training"]["validation_data"]["numb_btch"] = json!(0);
+    let path = root.join("bad.json");
+    std::fs::write(&path, bad.to_string()).unwrap();
+    assert!(!train(&[&path]).status.success());
     std::fs::remove_dir_all(root).unwrap();
 }
