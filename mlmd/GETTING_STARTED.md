@@ -451,6 +451,8 @@ or data is needed for this tutorial.
 Use [the model-deviation workflow](engine/MODEL_DEVIATION.md) to load 2..16 models
 once and stream absolute E/F/virial population deviations on CPU. Start with an
 inspected dataset, explicit member IDs and identical ordered type maps/units.
+For the frames of an MD run, `import-trajectory` writes that dataset from the
+trajectory (request format in the same document).
 Run without a force window to inspect disagreements, then choose a justified
 half-open max-force interval and review candidate IDs. The completed output binds
 them to the consumed dataset SHA256. A candidate can enter existing MD or

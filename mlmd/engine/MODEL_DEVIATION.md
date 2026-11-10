@@ -15,6 +15,29 @@ limits. Use independently developed/trained models when interpreting disagreemen
 Byte-identical models are allowed for regression, counted in
 `distinct_model_byte_hashes`, and cannot establish ensemble diversity.
 
+To examine the configurations an MD run visited, turn its trajectory into an
+unlabeled dataset first:
+
+```json
+{
+  "schema": "omnimd-trajectory-import-v1",
+  "trajectory": "D:/work/explore.jsonl",
+  "id_prefix": "hap-bulk-300K",
+  "first_step": 2000,
+  "stride": 1
+}
+```
+
+`omnimd-mlmd import-trajectory IMPORT.json NEW_DATASET.jsonl` writes the sampled
+frames at or after `first_step` (default 0), every `stride`-th of them (default
+1), with the IDs `ID_PREFIX/step-N` for the absolute step N. The type map is the
+model's. Fixed-cell and constant-pressure trajectories are accepted; each frame
+keeps its own cell. The energies and forces the driving model predicted are not
+copied, because they are not reference labels. A trajectory without its
+`completed` record (a failed or interrupted run) is refused, and the SHA-256 of
+the trajectory file is recorded in the dataset. Sampled frames are those the run
+wrote, so choose `sample_every` of the run as the exploration interval.
+
 Run `inspect-dataset` first when preparing a dataset. Labels may be absent;
 provided labels must still have valid finite values and shapes. The deviation
 calculation never uses reference labels or fits energy offsets.

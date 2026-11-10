@@ -424,6 +424,9 @@ No new C API GPU parameter/batch acceptance is claimed.
 
 [model-deviation](MODEL_DEVIATION.md) retains 2..16 models on CPU and streams
 absolute population E/F/virial deviations with optional candidate marking.
+`import-trajectory` turns the sampled frames of a finished run into the
+unlabeled dataset it reads, so a run, its deviations and the selection of
+candidates chain without leaving the CLI.
 [select-dataset](DATASET_SELECTION.md) takes explicit IDs and an expected source
 SHA256, validates the entire input, then creates a new shared-format subset and
 receipt. It preserves scientific values and missing labels, with source-order

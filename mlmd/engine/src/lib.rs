@@ -4,6 +4,7 @@ pub mod dataset;
 pub mod deviation;
 pub mod labeling;
 mod thermal;
+pub mod trajectory;
 pub mod xyz;
 pub use barostat::CellCoupling;
 use omnimd_core::{Matrix3, Molecule, Particle, System, UnitCell, Vector3D};
