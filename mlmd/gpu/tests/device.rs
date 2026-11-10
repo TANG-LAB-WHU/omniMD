@@ -1648,6 +1648,18 @@ fn training_set_matches_its_networks_one_by_one() {
         1e-4,
     );
 
+    // As many inputs as a piece holds, like the 1600 of an se_e2_a fitting
+    // net: the bias, the row after the inputs, is a piece of its own.
+    let (edge_theta, edge_layouts) = set_layout(3, |seed| {
+        vec![
+            CpuLayer::random(64, 9, Activation::Tanh, false, false, seed),
+            CpuLayer::random(9, 1, Activation::Linear, false, false, seed + 10),
+        ]
+    });
+    let (x, xdot) = (values(rows * 64, 2560), values(rows * 64, 2561));
+    compare_training_set::<f64>(device, &edge_theta, &edge_layouts, &x, &xdot, &blocks, 1e-11);
+    compare_training_set::<f32>(device, &edge_theta, &edge_layouts, &x, &xdot, &blocks, 1e-4);
+
     // Refused: no network, different shapes, a bias away from its weights.
     let new = |networks: Vec<Vec<omnimd_gpu::TrainLayer>>| {
         omnimd_gpu::TrainSet::<f64>::new(device, networks)
