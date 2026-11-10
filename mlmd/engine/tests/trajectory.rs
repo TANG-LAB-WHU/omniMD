@@ -77,6 +77,10 @@ fn run(directory: &Path) -> PathBuf {
     output
 }
 
+/// Force window (eV/angstrom) of the deviation test, placed inside the
+/// spread of the six frames so all three classes can occur.
+const WINDOW: (f64, f64) = (1.25, 1.42);
+
 fn request(trajectory: &Path, first_step: u64, stride: u64) -> TrajectoryRequest {
     serde_json::from_value(json!({
         "schema": REQUEST_SCHEMA, "trajectory": trajectory, "id_prefix": "water-npt",
@@ -193,7 +197,7 @@ fn the_cli_chains_run_import_and_model_deviation() {
                 {"id": "a", "options": {"native_model": fixture("synthetic-v1.json")}},
                 {"id": "b", "options": {"native_model": fixture("full-tanh-v1.json")}}
             ],
-            "force_window": {"min_ev_per_angstrom": 0.0, "max_ev_per_angstrom": 1e9}
+            "force_window": {"min_ev_per_angstrom": WINDOW.0, "max_ev_per_angstrom": WINDOW.1}
         })
         .to_string(),
     )
@@ -214,6 +218,29 @@ fn the_cli_chains_run_import_and_model_deviation() {
             .as_f64()
             .unwrap()
             > 0.0));
-    assert_eq!(lines.last().unwrap()["frames"], 6);
+    // The window splits the frames into accurate, candidate and failed.
+    let completed = lines.last().unwrap();
+    assert_eq!(completed["frames"], 6);
+    let count = |low: f64, high: f64| {
+        frames
+            .iter()
+            .filter(|r| {
+                let max = r["statistics"]["force_ev_per_angstrom"]["max"]
+                    .as_f64()
+                    .unwrap();
+                low <= max && max < high
+            })
+            .count() as u64
+    };
+    assert_eq!(
+        (count(0.0, WINDOW.0), count(WINDOW.0, WINDOW.1)),
+        (1, 4),
+        "the window should split the frames"
+    );
+    assert_eq!(completed["accurate_frames"], count(0.0, WINDOW.0));
+    assert_eq!(completed["candidate_frames"], count(WINDOW.0, WINDOW.1));
+    assert_eq!(completed["failed_frames"], count(WINDOW.1, f64::INFINITY));
+    let candidates = frames.iter().filter(|r| r["candidate"] == true).count() as u64;
+    assert_eq!(completed["candidate_frames"], candidates);
     std::fs::remove_dir_all(directory).unwrap();
 }

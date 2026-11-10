@@ -59,8 +59,8 @@ calculation never uses reference labels or fits energy offsets.
 
 The thresholds above illustrate syntax, not scientific recommendations. Choose
 and assess them for the intended models and data. Omit `force_window` to compute
-statistics without selecting candidates; `candidate` and `candidate_frames` are
-then null. Omit `per_atom` to omit the per-atom vector while retaining aggregates.
+statistics without selecting candidates; `candidate` and the frame counts of the
+`completed` record are then null. Omit `per_atom` to omit the per-atom vector while retaining aggregates.
 IDs must be unique, nonempty and at most 128 bytes. Unknown fields are rejected.
 
 Parameter-free C API members can use the existing `LoadOptions` object as
@@ -80,7 +80,9 @@ record per input frame, then `completed`. Each frame retains the source `index`
 and `id`, its atom count, statistics and candidate flag. The header records
 member IDs, metadata, model hashes and C API library hashes when applicable.
 The terminal record contains exact SHA256 of the dataset bytes consumed, declared
-upstream source hashes, model/evaluation counts and candidate count. Upstream
+upstream source hashes, model/evaluation counts and, for a force window, the
+number of frames below it (`accurate_frames`), inside it (`candidate_frames`) and
+at or above it (`failed_frames`); the three add up to `frames`. Upstream
 source files are not reopened or verified. Keep model/input files stable while
 running; model hashes are file fingerprints taken before loading.
 

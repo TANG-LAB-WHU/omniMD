@@ -136,6 +136,8 @@ fn worker(input: &Path, output: &Path) -> Result<()> {
     )?;
     let mut frames = 0_u64;
     let mut candidates = 0_u64;
+    // Frames below and at or above the force window.
+    let (mut accurate, mut failed) = (0_u64, 0_u64);
     let mut maximum_force_deviation = 0_f64;
     while let Some(data) = reader.next_frame()? {
         let statistics = deviation::evaluate_frame(&mut models, &data.frame, request.per_atom)
@@ -150,6 +152,10 @@ fn worker(input: &Path, output: &Path) -> Result<()> {
                 .checked_add(1)
                 .ok_or("candidate count overflow")?;
         }
+        if let Some(window) = request.force_window {
+            accurate += u64::from(max_force < window.min_ev_per_angstrom);
+            failed += u64::from(max_force >= window.max_ev_per_angstrom);
+        }
         maximum_force_deviation = maximum_force_deviation.max(max_force);
         dataset::write_line(
             &mut writer,
@@ -162,6 +168,8 @@ fn worker(input: &Path, output: &Path) -> Result<()> {
         &mut writer,
         &json!({"kind":"completed","frames":frames,
         "candidate_frames":request.force_window.map(|_| candidates),
+        "accurate_frames":request.force_window.map(|_| accurate),
+        "failed_frames":request.force_window.map(|_| failed),
         "max_force_deviation_ev_per_angstrom":maximum_force_deviation,
         "model_loads":models.len(),"combined_evaluations":frames.checked_mul(models.len() as u64).ok_or("evaluation count overflow")?,
         "dataset_sha256":fingerprint.dataset_sha256,"declared_source_sha256":fingerprint.declared_source_sha256,
