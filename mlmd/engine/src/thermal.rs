@@ -1,6 +1,8 @@
 //! Thermal initialization, stateful reuse of omniMD's CSVR thermostat, and
 //! constant-pressure dynamics with the stochastic cell rescaling barostat.
-use crate::barostat::{CellCoupling, CellRescaling, BAR_PER_EV_PER_ANGSTROM3, MAX_STRAIN};
+use crate::barostat::{
+    CellAxes, CellCoupling, CellRescaling, BAR_PER_EV_PER_ANGSTROM3, MAX_STRAIN,
+};
 use crate::MlipDynamics;
 use omnimd_core::{DegreesOfFreedom, System};
 use omnimd_ml_contract::{Error, Potential, Result};
@@ -101,6 +103,9 @@ pub enum Ensemble {
         compressibility_per_bar: f64,
         #[serde(default)]
         coupling: CellCoupling,
+        /// The Cartesian axes the cell may change along (default all three).
+        #[serde(default, skip_serializing_if = "CellAxes::is_all")]
+        axes: CellAxes,
         /// Steps between cell moves; each move costs one model evaluation.
         #[serde(default = "default_barostat_every")]
         barostat_every: u64,
@@ -125,10 +130,13 @@ impl Ensemble {
             pressure_bar,
             barostat_tau_fs,
             compressibility_per_bar,
+            coupling,
+            axes,
             barostat_every,
             ..
         } = self
         {
+            coupling.groups(*axes)?;
             let interval = *barostat_every as f64 * dt;
             if !pressure_bar.is_finite()
                 || !(compressibility_per_bar.is_finite() && *compressibility_per_bar > 0.)
@@ -293,6 +301,7 @@ impl EnsembleState {
                 barostat_tau_fs,
                 compressibility_per_bar,
                 coupling,
+                axes,
                 barostat_every,
                 ..
             } => {
@@ -317,8 +326,9 @@ impl EnsembleState {
                     compressibility_per_bar * BAR_PER_EV_PER_ANGSTROM3 * interval
                         / (3. * barostat_tau_fs),
                     coupling,
+                    axes,
                     MAX_STRAIN,
-                );
+                )?;
                 // Moves fall on absolute step numbers, so a restart keeps the schedule.
                 let due = md.system().step.wrapping_add(1) % barostat_every == 0;
                 let barostat: Option<&mut dyn Barostat> =

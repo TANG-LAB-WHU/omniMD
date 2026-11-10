@@ -290,7 +290,8 @@ request for the synthetic fixture.
 | `pressure_bar` | Target pressure; any finite value |
 | `barostat_tau_fs` | Relaxation time of the cell, exact when `compressibility_per_bar` is the real compressibility; at least `barostat_every * timestep_fs` |
 | `compressibility_per_bar` | Assumed isothermal compressibility (1/bulk modulus). It only sets the time scale: twice the real value halves the relaxation time. Water is about 4.5e-5, oxides and phosphates about 1e-6 |
-| `coupling` | `isotropic` (default): one scale factor, the cell keeps its shape. `anisotropic`: independent factors along x, y and z, no shear. `triclinic`: all six strain components. These correspond to `iso`, `aniso` and `tri` of LAMMPS `fix npt` |
+| `coupling` | `isotropic` (default): one scale factor for all moving axes, the cell keeps its shape. `semi_isotropic`: one factor for x and y and another for z, for a layer or an interface normal to z. `anisotropic`: independent factors along the moving axes, no shear. `triclinic`: all six strain components. With all axes moving these correspond to `iso`, `x y z` with `couple xy`, `aniso` and `tri` of LAMMPS `fix npt` |
+| `axes` | The Cartesian axes along which the cell may change, as their letters (default `"xyz"`). `"xy"` holds z fixed: the setting for a slab with vacuum above it, where the pressure along z means nothing. `"z"` changes only the height. `semi_isotropic` and `triclinic` need all three |
 | `barostat_every` | Steps between cell moves (default 10). Each move costs one model evaluation, so 10 adds 10 percent |
 
 Every `barostat_every` steps, after the thermostat, the cell, the positions
@@ -302,10 +303,13 @@ strain = -g (P0 - P) + sqrt(2 kT g / V) * noise,   g = compressibility * barosta
 
 where `P` is the instantaneous pressure tensor
 `(sum m v v^T + virial) / V`. Positions and lattice vectors are multiplied by
-the deformation and velocities by its inverse transpose. `isotropic` uses one
-third of the trace of the strain on all axes, `anisotropic` its diagonal, and
-`triclinic` the full matrix with the rotation removed, so the cell does not
-tumble. The model is then evaluated at the new geometry, and the move is
+the deformation and velocities by its inverse transpose. The diagonal
+couplings give every group of axes that share a scale factor the mean of its
+diagonal strain entries, with the noise of that mean: all moving axes for
+`isotropic`, x and y for `semi_isotropic`, every axis on its own for
+`anisotropic`. `triclinic` uses the full matrix with the rotation removed, so
+the cell does not tumble. Along an axis left out of `axes` the cell vectors,
+positions and velocities keep their components. The model is then evaluated at the new geometry, and the move is
 accepted or refused by a Metropolis-Hastings test on the energy and pressure
 found there. With that test the barostat samples the ensemble exactly for any
 `barostat_tau_fs`; settings that are too aggressive show up as refused moves
@@ -407,7 +411,7 @@ The current System is exposed read-only to protect cached model outputs.
 Failed numerical/model/thermostat updates leave the published System unchanged;
 the CSVR wrapper advances its RNG only after a successful dynamics step.
 
-MPI, constraints, semi-isotropic or surface-tension pressure coupling, classical force-field mixing and legacy
+MPI, constraints, surface-tension pressure coupling, classical force-field mixing and legacy
 trajectory plugins are not enabled by this CLI. Explicit CUDA inference and the
 `train-native` wrapper (CPU default; optional CUDA readout features or full gradients/Adam) are available within their documented scopes.
 

@@ -7,7 +7,7 @@ pub mod merge;
 mod thermal;
 pub mod trajectory;
 pub mod xyz;
-pub use barostat::CellCoupling;
+pub use barostat::{CellAxes, CellCoupling};
 use omnimd_core::{Matrix3, Molecule, Particle, System, UnitCell, Vector3D};
 use omnimd_ml_contract::{Error, Frame, Result};
 pub use omnimd_sim::md::MlipDynamics;

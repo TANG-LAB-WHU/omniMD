@@ -2,7 +2,8 @@
 //! stochastic cell rescaling ensemble, its checkpoints and the CLI.
 use omnimd_ml_contract::{Evaluation, Frame, ModelMetadata, Potential, Result, Units};
 use omnimd_mlmd::{
-    barostat::BAR_PER_EV_PER_ANGSTROM3, initialize_velocities, system_from_frame, CellCoupling,
+    barostat::BAR_PER_EV_PER_ANGSTROM3, initialize_velocities, system_from_frame, CellAxes,
+    CellCoupling,
     Checkpoint, Ensemble, EnsembleState, MlipDynamics, VelocityInitialization,
 };
 use omnimd_sim::md::Barostat;
@@ -282,6 +283,15 @@ fn a_failing_cell_move_leaves_the_state_untouched() {
 }
 
 fn npt(coupling: CellCoupling, pressure_bar: f64, compressibility_per_bar: f64) -> Ensemble {
+    npt_along(coupling, "xyz", pressure_bar, compressibility_per_bar)
+}
+
+fn npt_along(
+    coupling: CellCoupling,
+    axes: &str,
+    pressure_bar: f64,
+    compressibility_per_bar: f64,
+) -> Ensemble {
     Ensemble::NptCsvrCrescale {
         temperature_kelvin: 300.,
         tau_fs: 50.,
@@ -290,6 +300,7 @@ fn npt(coupling: CellCoupling, pressure_bar: f64, compressibility_per_bar: f64) 
         barostat_tau_fs: 1000.,
         compressibility_per_bar,
         coupling,
+        axes: CellAxes::try_from(axes.to_string()).unwrap(),
         barostat_every: 2,
     }
 }
@@ -303,6 +314,7 @@ fn npt_settings_are_validated_and_have_defaults() {
     .unwrap();
     let Ensemble::NptCsvrCrescale {
         coupling,
+        axes,
         barostat_every,
         ..
     } = parsed
@@ -310,6 +322,10 @@ fn npt_settings_are_validated_and_have_defaults() {
         panic!("not an NPT ensemble")
     };
     assert_eq!((coupling, barostat_every), (CellCoupling::Isotropic, 10));
+    // All axes move unless the request says otherwise, and then it is not
+    // written back.
+    assert_eq!(axes, CellAxes::ALL);
+    assert!(serde_json::to_value(&parsed).unwrap().get("axes").is_none());
     assert!(parsed.is_variable_cell() && !Ensemble::Nve.is_variable_cell());
     parsed.validate(0.5).unwrap();
     for (key, value) in [
@@ -327,8 +343,11 @@ fn npt_settings_are_validated_and_have_defaults() {
         assert!(ensemble.validate(0.5).is_err(), "{key} accepted");
     }
     for bad in [
-        json!({"coupling": "semi_isotropic"}),
+        json!({"coupling": "cubic"}),
         json!({"pressure": 1.0}),
+        json!({"axes": "xq"}),
+        json!({"axes": ""}),
+        json!({"axes": ["x", "y"]}),
     ] {
         let mut request = serde_json::to_value(&parsed).unwrap();
         for (key, value) in bad.as_object().unwrap() {
@@ -336,10 +355,26 @@ fn npt_settings_are_validated_and_have_defaults() {
         }
         assert!(serde_json::from_value::<Ensemble>(request).is_err());
     }
-    for name in ["isotropic", "anisotropic", "triclinic"] {
+    // Every coupling with all axes; fewer axes only where the coupling has
+    // a meaning for them.
+    for (name, axes, valid) in [
+        ("isotropic", "xyz", true),
+        ("semi_isotropic", "xyz", true),
+        ("anisotropic", "xyz", true),
+        ("triclinic", "xyz", true),
+        ("isotropic", "xy", true),
+        ("anisotropic", "z", true),
+        ("semi_isotropic", "xy", false),
+        ("triclinic", "yz", false),
+    ] {
         let mut request = serde_json::to_value(&parsed).unwrap();
         request["coupling"] = json!(name);
-        serde_json::from_value::<Ensemble>(request).unwrap();
+        request["axes"] = json!(axes);
+        let ensemble: Ensemble = serde_json::from_value(request).unwrap();
+        assert_eq!(ensemble.validate(0.5).is_ok(), valid, "{name} along {axes}");
+        // Fixed axes are part of the setting and of every checkpoint.
+        let written = serde_json::to_value(&ensemble).unwrap();
+        assert_eq!(written.get("axes"), (axes != "xyz").then_some(&json!(axes)));
     }
     // A cell is required.
     let state = EnsembleState::new(parsed, 0.5).unwrap();
@@ -356,6 +391,7 @@ fn couplings_move_only_their_strain_components() {
     let orthorhombic = [[10., 0., 0.], [0., 11., 0.], [0., 0., 12.]];
     for coupling in [
         CellCoupling::Isotropic,
+        CellCoupling::SemiIsotropic,
         CellCoupling::Anisotropic,
         CellCoupling::Triclinic,
     ] {
@@ -380,6 +416,11 @@ fn couplings_move_only_their_strain_components() {
                 assert_close(&ratios, &[1.1, 1.2], 1e-12);
                 assert!((cell[0][0] - 10.).abs() > 1e-3);
             }
+            CellCoupling::SemiIsotropic => {
+                assert_eq!(off, 0.);
+                assert_close(&ratios[..1], &[1.1], 1e-12);
+                assert!((ratios[1] - 1.2).abs() > 1e-4);
+            }
             CellCoupling::Anisotropic => {
                 assert_eq!(off, 0.);
                 assert!((ratios[0] - 1.1).abs() > 1e-4 && (ratios[1] - 1.2).abs() > 1e-4);
@@ -395,6 +436,58 @@ fn couplings_move_only_their_strain_components() {
         assert!(
             (drift - initial).abs() < 1e-10,
             "{coupling:?}: {drift} vs {initial}"
+        );
+    }
+}
+
+#[test]
+fn fixed_axes_keep_their_length() {
+    let orthorhombic = [[10., 0., 0.], [0., 11., 0.], [0., 0., 12.]];
+    for (coupling, axes) in [
+        (CellCoupling::Isotropic, "xy"),
+        (CellCoupling::Anisotropic, "xy"),
+        (CellCoupling::Anisotropic, "z"),
+    ] {
+        let mut md = gas(8, orthorhombic, 0.3, 0.5);
+        let mut state = EnsembleState::new(npt_along(coupling, axes, 250., 4e-3), 0.5).unwrap();
+        for _ in 0..200 {
+            state.advance(&mut md).unwrap();
+        }
+        assert_eq!(state.barostat_moves, 100);
+        assert!(state.barostat_refused < 20, "{}", state.barostat_refused);
+        let cell = md.frame().cell.unwrap();
+        for a in 0..3 {
+            for b in 0..3 {
+                assert!(a == b || cell[a][b] == 0., "{coupling:?} {axes} sheared");
+            }
+        }
+        let moved: Vec<bool> = (0..3)
+            .map(|a| (cell[a][a] - orthorhombic[a][a]).abs() > 1e-3)
+            .collect();
+        // A fixed axis keeps its length to the last bit.
+        for (a, letter) in "xyz".chars().enumerate() {
+            if axes.contains(letter) {
+                assert!(moved[a], "{coupling:?} {axes}: {letter} did not move");
+            } else {
+                assert_eq!(cell[a][a], orthorhombic[a][a], "{coupling:?} {axes}");
+            }
+        }
+        // x and y share a factor except with the anisotropic coupling, and z
+        // never follows them.
+        let lateral = cell[1][1] / cell[0][0];
+        if coupling == CellCoupling::Anisotropic {
+            assert!(axes != "xy" || (lateral - 1.1).abs() > 1e-4);
+        } else {
+            assert_close(&[lateral], &[1.1], 1e-12);
+        }
+        assert!((cell[2][2] / cell[0][0] - 1.2).abs() > 1e-4);
+        // Thermostat heat and barostat work still account for every energy
+        // change of this force-free system.
+        let drift = md.total_energy_ev() - state.heat_ev - state.barostat_work_ev;
+        let initial = gas(8, orthorhombic, 0.3, 0.5).total_energy_ev();
+        assert!(
+            (drift - initial).abs() < 1e-10,
+            "{coupling:?} {axes}: {drift} vs {initial}"
         );
     }
 }
@@ -481,6 +574,7 @@ fn npt_brings_an_ideal_gas_to_its_equation_of_state() {
         // The compressibility of the gas, 1 / P.
         compressibility_per_bar: 1. / (pressure * BAR_PER_EV_PER_ANGSTROM3),
         coupling: CellCoupling::Isotropic,
+        axes: CellAxes::ALL,
         barostat_every: 1,
     };
     let mut state = EnsembleState::new(ensemble, 1.).unwrap();
@@ -788,9 +882,10 @@ fn argon(edge: f64, timestep: f64) -> MlipDynamics<LennardJones> {
 /// `-kT delta_ab` for every strain component the barostat moves (the virial
 /// theorem of the isothermal-isobaric ensemble). Returns the mean and the
 /// block standard error of `delta_ab + V (P_ab - P0 delta_ab) / kT` for the
-/// three diagonal components, the xy component and the mean of the diagonal,
-/// and the refused fraction of the cell moves.
-fn pressure_balance(coupling: CellCoupling, steps: usize) -> ([(f64, f64); 5], f64) {
+/// three diagonal components, the xy component, the mean of the diagonal and
+/// the mean of its x and y components, and the refused fraction of the cell
+/// moves.
+fn pressure_balance(coupling: CellCoupling, axes: &str, steps: usize) -> ([(f64, f64); 6], f64) {
     let mut md = argon(5.40, 4.);
     let thermal = md.thermal_energy_ev(60.);
     let pressure_bar = 500.;
@@ -802,11 +897,12 @@ fn pressure_balance(coupling: CellCoupling, steps: usize) -> ([(f64, f64); 5], f
         barostat_tau_fs: 80.,
         compressibility_per_bar: 3e-5,
         coupling,
+        axes: CellAxes::try_from(axes.to_string()).unwrap(),
         barostat_every: 2,
     };
     let mut state = EnsembleState::new(ensemble, 4.).unwrap();
     let target = pressure_bar / BAR_PER_EV_PER_ANGSTROM3;
-    let mut samples: [Vec<f64>; 5] = Default::default();
+    let mut samples: [Vec<f64>; 6] = Default::default();
     for step in 0..steps {
         state.advance(&mut md).unwrap();
         if step >= steps / 10 && step % 2 == 1 {
@@ -821,6 +917,7 @@ fn pressure_balance(coupling: CellCoupling, steps: usize) -> ([(f64, f64); 5], f
             }
             samples[3].push(balance(0, 1));
             samples[4].push(diagonal.iter().sum::<f64>() / 3.);
+            samples[5].push((diagonal[0] + diagonal[1]) / 2.);
         }
     }
     let summary = |values: &Vec<f64>| {
@@ -842,35 +939,46 @@ fn pressure_balance(coupling: CellCoupling, steps: usize) -> ([(f64, f64); 5], f
 }
 
 /// The engine path on an interacting crystal: forces, thermostat and cell
-/// moves together. Six million steps; run it optimized:
+/// moves together. Twelve million steps; run it optimized:
 /// `cargo test --release -p omnimd-mlmd --test npt -- --ignored`.
 #[test]
-#[ignore = "about two minutes in a release build"]
+#[ignore = "about four minutes in a release build"]
 fn npt_of_an_interacting_crystal_keeps_the_pressure_balance() {
-    for coupling in [
-        CellCoupling::Isotropic,
-        CellCoupling::Anisotropic,
-        CellCoupling::Triclinic,
+    // The balances every setting samples: the scale factors it moves on
+    // their own (slots 0 to 2 are the axes, 4 the mean of all three, 5 the
+    // mean of x and y), and the shear (3), which vanishes by symmetry.
+    for (coupling, axes, sampled) in [
+        (CellCoupling::Isotropic, "xyz", &[3, 4][..]),
+        (CellCoupling::SemiIsotropic, "xyz", &[2, 3, 4, 5]),
+        (CellCoupling::Anisotropic, "xyz", &[0, 1, 2, 3, 4]),
+        (CellCoupling::Triclinic, "xyz", &[0, 1, 2, 3, 4]),
+        (CellCoupling::Isotropic, "xy", &[3, 5]),
+        (CellCoupling::Anisotropic, "z", &[2, 3]),
     ] {
-        let (balance, refused) = pressure_balance(coupling, 2_000_000);
-        // The balance is zero where a missing or doubled kT term would give
-        // plus or minus one, so the error has to be well below one.
-        let (mean, error) = balance[4];
-        assert!(error < 0.45, "{coupling:?}: error {error}");
-        assert!(mean.abs() < 4. * error, "{coupling:?}: {mean} +- {error}");
-        // Components the coupling moves on their own, and the shear, which
-        // vanishes by symmetry for every coupling.
-        let independent: &[usize] = match coupling {
-            CellCoupling::Isotropic => &[3],
-            _ => &[0, 1, 2, 3],
-        };
-        for &slot in independent {
+        let (balance, refused) = pressure_balance(coupling, axes, 2_000_000);
+        // Shown with `--nocapture`: mean and standard error per slot.
+        let shown: Vec<String> = sampled
+            .iter()
+            .map(|&slot| format!("[{slot}] {:+.3} +- {:.3}", balance[slot].0, balance[slot].1))
+            .collect();
+        eprintln!(
+            "{coupling:?} {axes}: balance {}; refused {refused:.4}",
+            shown.join(", ")
+        );
+        for &slot in sampled {
             let (mean, error) = balance[slot];
+            // The balance is zero where a missing or doubled kT term would
+            // give plus or minus one, so the error of the mean over the
+            // moving axes has to be well below one.
+            assert!(
+                slot != 4 || error < 0.45,
+                "{coupling:?} {axes}: error {error}"
+            );
             assert!(
                 mean.abs() < 4. * error,
-                "{coupling:?} component {slot}: {mean} +- {error}"
+                "{coupling:?} {axes} component {slot}: {mean} +- {error}"
             );
         }
-        assert!(refused < 0.02, "{coupling:?}: refused {refused}");
+        assert!(refused < 0.02, "{coupling:?} {axes}: refused {refused}");
     }
 }

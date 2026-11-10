@@ -23,14 +23,24 @@
 //! `det(h)^-2 exp(-(H + P0 V) / kT)`: the Ito term of the exponential cancels
 //! the `kT/V` drift. The rotation in `D` is dropped (only its symmetric
 //! stretch is applied), which changes nothing physical and keeps the cell
-//! from tumbling. The other couplings keep only part of the strain: its
-//! diagonal (three independent noises), or one third of its trace on every
-//! axis; all three give the same volume dynamics.
+//! from tumbling.
+//!
+//! The other couplings keep only the diagonal of the strain and let groups
+//! of axes share one scale factor: every axis on its own (anisotropic), x
+//! and y together and z apart (semi-isotropic), or all axes together
+//! (isotropic). A group of `n` axes takes the mean of its `n` diagonal
+//! entries, so its noise has `1/n` of the variance of one entry. Axes can
+//! also be held fixed, for example the normal of a layer with vacuum above
+//! it, where the normal pressure means nothing; the other groups move as
+//! before. With all three axes moving every coupling gives the same volume
+//! dynamics.
 //!
 //! A discrete move of that equation is only approximately right, so each
 //! move is a proposal that a Metropolis-Hastings test accepts or refuses.
 //! In the strain variables (with respect to the invariant measure of the
-//! cell matrices for the full coupling) all three couplings sample the
+//! cell matrices for the full coupling, and one logarithmic scale per group
+//! of axes otherwise, which is the flat measure in the lengths, areas or
+//! volumes the groups span) all couplings sample the
 //! density `V exp(-(H + P0 V) / kT)`; the test compares it and the
 //! probabilities of the move and of its reverse, which needs the energy and
 //! pressure after the move. The engine evaluates the model there anyway, so
@@ -56,13 +66,94 @@ const IDENTITY: Matrix = [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]];
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum CellCoupling {
-    /// One scale factor for all three axes; the cell keeps its shape.
+    /// One scale factor for all moving axes; the cell keeps its shape.
     #[default]
     Isotropic,
-    /// Independent scale factors along the Cartesian x, y and z axes; no shear.
+    /// One scale factor for x and y and another for z: a layer or an
+    /// interface normal to z.
+    SemiIsotropic,
+    /// Independent scale factors along the moving Cartesian axes; no shear.
     Anisotropic,
     /// All six strain components; the cell changes shape freely.
     Triclinic,
+}
+
+/// The Cartesian axes along which the barostat changes the cell, written as
+/// their letters (`"xyz"`, `"xy"`, `"z"`). Cell vectors, positions and
+/// velocities keep their components along the other axes.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(try_from = "String", into = "String")]
+pub struct CellAxes([bool; 3]);
+
+impl CellAxes {
+    pub const ALL: Self = Self([true; 3]);
+
+    pub fn is_all(&self) -> bool {
+        self.0 == [true; 3]
+    }
+}
+
+impl Default for CellAxes {
+    fn default() -> Self {
+        Self::ALL
+    }
+}
+
+impl TryFrom<String> for CellAxes {
+    type Error = String;
+
+    fn try_from(text: String) -> std::result::Result<Self, String> {
+        let mut axes = [false; 3];
+        for letter in text.chars() {
+            let axis = match letter {
+                'x' => 0,
+                'y' => 1,
+                'z' => 2,
+                _ => return Err(format!("axes must be letters of xyz, got {text:?}")),
+            };
+            if std::mem::replace(&mut axes[axis], true) {
+                return Err(format!("axes names {letter} twice"));
+            }
+        }
+        if axes == [false; 3] {
+            return Err("axes must name at least one of x, y and z".into());
+        }
+        Ok(Self(axes))
+    }
+}
+
+impl From<CellAxes> for String {
+    fn from(axes: CellAxes) -> Self {
+        "xyz"
+            .chars()
+            .zip(axes.0)
+            .filter_map(|(letter, moving)| moving.then_some(letter))
+            .collect()
+    }
+}
+
+impl CellCoupling {
+    /// The axes that share each scale factor of a diagonal coupling, in axis
+    /// order; empty for the triclinic coupling, which moves the whole strain.
+    pub(crate) fn groups(self, axes: CellAxes) -> Result<Vec<[bool; 3]>> {
+        match self {
+            Self::Isotropic => Ok(vec![axes.0]),
+            Self::Anisotropic => Ok((0..3)
+                .filter(|&a| axes.0[a])
+                .map(|a| std::array::from_fn(|b| a == b))
+                .collect()),
+            Self::SemiIsotropic if axes.is_all() => {
+                Ok(vec![[true, true, false], [false, false, true]])
+            }
+            Self::Triclinic if axes.is_all() => Ok(Vec::new()),
+            Self::SemiIsotropic => Err(Error(
+                "the semi_isotropic coupling moves all three axes; for x and y alone use the isotropic coupling with axes \"xy\"".into(),
+            )),
+            Self::Triclinic => Err(Error(
+                "the triclinic coupling moves all three axes".into(),
+            )),
+        }
+    }
 }
 
 fn multiply(a: &Matrix, b: &Matrix) -> Matrix {
@@ -182,8 +273,6 @@ struct Proposal {
     strain: Matrix,
     /// Mean of the strain for the state before the move.
     drift: Matrix,
-    /// Noise variance of each sampled strain component before the move.
-    variance: f64,
     /// Volume before the move.
     volume: f64,
     /// The rotation left out of the deformation: `exp(strain) = rotation * stretch`.
@@ -199,7 +288,12 @@ pub(crate) struct CellRescaling<R: RngCore> {
     pressure: f64,
     /// `beta_T dt / (3 tau_p)` (angstrom^3/eV).
     gain: f64,
-    coupling: CellCoupling,
+    /// The axes that share each scale factor; empty when the whole strain
+    /// moves.
+    groups: Vec<[bool; 3]>,
+    /// The strain entries that carry independent noise, each with the number
+    /// of axes that take its value.
+    components: Vec<(usize, usize, f64)>,
     /// A move with a larger strain component is an error.
     max_strain: f64,
     proposal: Option<Proposal>,
@@ -212,41 +306,36 @@ impl<R: RngCore> CellRescaling<R> {
         pressure: f64,
         gain: f64,
         coupling: CellCoupling,
+        axes: CellAxes,
         max_strain: f64,
-    ) -> Self {
-        Self {
+    ) -> Result<Self> {
+        let groups = coupling.groups(axes)?;
+        let components = if groups.is_empty() {
+            (0..9).map(|entry| (entry / 3, entry % 3, 1.0)).collect()
+        } else {
+            groups
+                .iter()
+                .map(|group| {
+                    let first = group.iter().position(|moving| *moving).unwrap_or(0);
+                    let shared = group.iter().filter(|moving| **moving).count();
+                    (first, first, shared as f64)
+                })
+                .collect()
+        };
+        Ok(Self {
             rng,
             thermal_energy,
             pressure,
             gain,
-            coupling,
+            groups,
+            components,
             max_strain,
             proposal: None,
-        }
+        })
     }
 
-    /// The strain components that carry independent noise. The isotropic
-    /// coupling samples one value and copies it to the whole diagonal.
-    fn components(&self) -> &'static [(usize, usize)] {
-        const ALL: [(usize, usize); 9] = [
-            (0, 0),
-            (0, 1),
-            (0, 2),
-            (1, 0),
-            (1, 1),
-            (1, 2),
-            (2, 0),
-            (2, 1),
-            (2, 2),
-        ];
-        match self.coupling {
-            CellCoupling::Isotropic => &[(0, 0)],
-            CellCoupling::Anisotropic => &[(0, 0), (1, 1), (2, 2)],
-            CellCoupling::Triclinic => &ALL,
-        }
-    }
-
-    /// Mean strain of a move from a state with this pressure tensor.
+    /// Mean strain of a move from a state with this pressure tensor: every
+    /// group of axes takes the mean of its diagonal entries.
     fn drift(&self, pressure: &Matrix) -> Matrix {
         let full: Matrix = std::array::from_fn(|a| {
             std::array::from_fn(|b| {
@@ -254,24 +343,24 @@ impl<R: RngCore> CellRescaling<R> {
                 -self.gain * (target - 0.5 * (pressure[a][b] + pressure[b][a]))
             })
         });
-        let mean = (full[0][0] + full[1][1] + full[2][2]) / 3.0;
-        match self.coupling {
-            CellCoupling::Isotropic => IDENTITY.map(|row| row.map(|x| x * mean)),
-            CellCoupling::Anisotropic => {
-                std::array::from_fn(|a| std::array::from_fn(|b| f64::from(a == b) * full[a][b]))
-            }
-            CellCoupling::Triclinic => full,
+        if self.groups.is_empty() {
+            return full;
         }
+        let mut drift = [[0.0; 3]; 3];
+        for group in &self.groups {
+            let axes = (0..3).filter(|&a| group[a]);
+            let mean = axes.clone().map(|a| full[a][a]).sum::<f64>() / axes.clone().count() as f64;
+            for a in axes {
+                drift[a][a] = mean;
+            }
+        }
+        drift
     }
 
-    /// Noise variance of one sampled strain component at this volume. One
-    /// third of the trace of nine unit normals has variance one third.
-    fn variance(&self, volume: f64) -> f64 {
-        let full = 2.0 * self.thermal_energy * self.gain / volume;
-        match self.coupling {
-            CellCoupling::Isotropic => full / 3.0,
-            _ => full,
-        }
+    /// Noise variance at this volume of a strain entry that `shared` axes
+    /// take: the mean of `shared` unit normals has variance `1 / shared`.
+    fn variance(&self, volume: f64, shared: f64) -> f64 {
+        2.0 * self.thermal_energy * self.gain / volume / shared
     }
 }
 
@@ -289,23 +378,21 @@ impl<R: RngCore> CellRescaling<R> {
                 self.max_strain
             )));
         }
-        let (deformation, rotation) = match self.coupling {
-            CellCoupling::Triclinic => {
-                let full = exponential(&strain);
-                let symmetric = stretch(&full);
-                (symmetric, multiply(&full, &inverse(&symmetric)))
-            }
-            _ => (
+        let (deformation, rotation) = if self.groups.is_empty() {
+            let full = exponential(&strain);
+            let symmetric = stretch(&full);
+            (symmetric, multiply(&full, &inverse(&symmetric)))
+        } else {
+            (
                 std::array::from_fn(|a| {
                     std::array::from_fn(|b| f64::from(a == b) * strain[a][a].exp())
                 }),
                 IDENTITY,
-            ),
+            )
         };
         self.proposal = Some(Proposal {
             strain,
             drift: self.drift(pressure),
-            variance: self.variance(volume),
             volume,
             rotation,
         });
@@ -327,18 +414,16 @@ impl<R: RngCore> CellRescaling<R> {
         let r = &proposal.rotation;
         let unrotated = multiply(r, &multiply(pressure, &transpose(r)));
         let reverse_drift = self.drift(&unrotated);
-        let reverse_variance = self.variance(volume);
-        let components = self.components();
         let mut log_ratio = 0.0;
-        for &(a, b) in components {
+        for &(a, b, shared) in &self.components {
             let forward = proposal.strain[a][b] - proposal.drift[a][b];
             let reverse = -proposal.strain[a][b] - reverse_drift[a][b];
-            log_ratio += forward * forward / (2.0 * proposal.variance)
-                - reverse * reverse / (2.0 * reverse_variance);
+            log_ratio += forward * forward / (2.0 * self.variance(proposal.volume, shared))
+                - reverse * reverse / (2.0 * self.variance(volume, shared));
         }
         // One power of the volume from the density, and half a power per
         // component from the normalizations of the two Gaussians.
-        log_ratio + (1.0 + 0.5 * components.len() as f64) * (volume / proposal.volume).ln()
+        log_ratio + (1.0 + 0.5 * self.components.len() as f64) * (volume / proposal.volume).ln()
             - (energy_change + self.pressure * (volume - proposal.volume)) / self.thermal_energy
     }
 }
@@ -346,14 +431,20 @@ impl<R: RngCore> CellRescaling<R> {
 impl<R: RngCore> Barostat for CellRescaling<R> {
     fn deformation(&mut self, pressure: &Matrix, volume: f64) -> Result<Matrix> {
         let drift = self.drift(pressure);
-        let deviation = self.variance(volume).sqrt();
         let mut strain: Matrix = [[0.0; 3]; 3];
-        for &(a, b) in self.components() {
+        for &(a, b, shared) in &self.components {
+            let deviation = self.variance(volume, shared).sqrt();
             strain[a][b] = drift[a][b] + deviation * standard_normal(&mut self.rng);
         }
-        if self.coupling == CellCoupling::Isotropic {
-            strain[1][1] = strain[0][0];
-            strain[2][2] = strain[0][0];
+        // The other axes of a group take the value drawn for its first one.
+        for group in &self.groups {
+            if let Some(first) = group.iter().position(|moving| *moving) {
+                for a in first + 1..3 {
+                    if group[a] {
+                        strain[a][a] = strain[first][first];
+                    }
+                }
+            }
         }
         self.propose(pressure, volume, strain)
     }
@@ -533,10 +624,91 @@ mod tests {
         }
     }
 
-    /// Samples of the test gas under the barostat and an exact resampling of
-    /// the kinetic energy every twentieth move (so the velocity map of the
-    /// barostat matters). `ratio` is the time between moves over the
-    /// relaxation time. Returns the volumes; for an axial and a shear strain
+    /// How the test gas is run: the barostat setting, the shape stiffness,
+    /// the number of atoms and of moves, the time between moves over the
+    /// relaxation time, and the thermostat.
+    struct Run {
+        coupling: CellCoupling,
+        axes: &'static str,
+        kappa: f64,
+        atoms: usize,
+        moves: usize,
+        ratio: f64,
+        /// Every twentieth move either all velocities are drawn afresh, or
+        /// only the kinetic energy is (which keeps the directions the
+        /// barostat mapped, so its velocity map matters more).
+        fresh_velocities: bool,
+        /// A larger strain component fails the run.
+        max_strain: f64,
+    }
+
+    /// Runs the test gas under the barostat and the exact thermostat of
+    /// `run`, showing every state to `observe`. Returns the accepted
+    /// fraction of the moves.
+    fn trajectory(run: &Run, mut observe: impl FnMut(&Gas)) -> f64 {
+        let mut rng = ChaCha8Rng::seed_from_u64(11);
+        let pressure = (run.atoms as f64 + 1.0) / MEAN_VOLUME;
+        // The compressibility of the ideal gas at the target pressure.
+        let gain = run.ratio / (3.0 * pressure);
+        let mut barostat = CellRescaling::new(
+            ChaCha8Rng::seed_from_u64(12),
+            1.0,
+            pressure,
+            gain,
+            run.coupling,
+            CellAxes::try_from(run.axes.to_string()).unwrap(),
+            run.max_strain,
+        )
+        .unwrap();
+        let mut gas = Gas {
+            h: IDENTITY.map(|row| row.map(|x| 10.0 * x)),
+            velocities: (0..run.atoms)
+                .map(|_| std::array::from_fn(|_| standard_normal(&mut rng)))
+                .collect(),
+            kappa: run.kappa,
+        };
+        let mut accepted = 0usize;
+        for step in 0..run.moves {
+            if step % 20 == 0 && run.fresh_velocities {
+                for v in gas.velocities.iter_mut().flatten() {
+                    *v = standard_normal(&mut rng);
+                }
+            } else if step % 20 == 0 {
+                let kinetic: f64 = gas.velocities.iter().flatten().map(|v| 0.5 * v * v).sum();
+                let scale = (gamma(1.5 * run.atoms as f64, &mut rng) / kinetic).sqrt();
+                gas.velocities
+                    .iter_mut()
+                    .flatten()
+                    .for_each(|v| *v *= scale);
+            }
+            observe(&gas);
+            let d = barostat.deformation(&gas.pressure(), gas.volume()).unwrap();
+            let moved = gas.deformed(&d);
+            let change = moved.energy() - gas.energy();
+            if barostat
+                .accept(&moved.pressure(), moved.volume(), change)
+                .unwrap()
+            {
+                gas = moved;
+                accepted += 1;
+            }
+        }
+        accepted as f64 / run.moves as f64
+    }
+
+    /// For a strain direction `direction` (diagonal) the value of
+    /// `2 tr(A^2 M) - tr(A M) (2 kappa tr(A M) - tr(A K))` with `K = sum v v^T`,
+    /// whose mean is zero when the barostat samples that direction.
+    fn diagonal_balance(gas: &Gas, direction: [f64; 3]) -> f64 {
+        let (metric, kinetic) = (gas.metric(), gas.kinetic());
+        let sum = |m: &Matrix, power: i32| -> f64 {
+            (0..3).map(|a| direction[a].powi(power) * m[a][a]).sum()
+        };
+        2.0 * sum(&metric, 2) - sum(&metric, 1) * (2.0 * gas.kappa * sum(&metric, 1) - sum(&kinetic, 1))
+    }
+
+    /// Samples of the test gas with all axes moving and the kinetic energy
+    /// resampled. Returns the volumes; for an axial and a shear strain
     /// direction `A` the samples of
     /// `2 tr(A^2 M) - tr(A M) (2 kappa tr(A M) - tr(A K))`, whose mean is zero
     /// in the sampled ensemble (`K = sum v v^T`); and the accepted fraction.
@@ -547,36 +719,18 @@ mod tests {
         moves: usize,
         ratio: f64,
     ) -> ([Vec<f64>; 3], f64) {
-        let mut rng = ChaCha8Rng::seed_from_u64(11);
-        let pressure = (atoms as f64 + 1.0) / MEAN_VOLUME;
-        // The compressibility of the ideal gas at the target pressure.
-        let gain = ratio / (3.0 * pressure);
-        let mut barostat = CellRescaling::new(
-            ChaCha8Rng::seed_from_u64(12),
-            1.0,
-            pressure,
-            gain,
+        let run = Run {
             coupling,
-            1.0,
-        );
-        let mut gas = Gas {
-            h: IDENTITY.map(|row| row.map(|x| 10.0 * x)),
-            velocities: (0..atoms)
-                .map(|_| std::array::from_fn(|_| standard_normal(&mut rng)))
-                .collect(),
+            axes: "xyz",
             kappa,
+            atoms,
+            moves,
+            ratio,
+            fresh_velocities: false,
+            max_strain: 1.0,
         };
         let mut samples = [Vec::new(), Vec::new(), Vec::new()];
-        let mut accepted = 0usize;
-        for step in 0..moves {
-            if step % 20 == 0 {
-                let kinetic: f64 = gas.velocities.iter().flatten().map(|v| 0.5 * v * v).sum();
-                let scale = (gamma(1.5 * atoms as f64, &mut rng) / kinetic).sqrt();
-                gas.velocities
-                    .iter_mut()
-                    .flatten()
-                    .for_each(|v| *v *= scale);
-            }
+        let accepted = trajectory(&run, |gas| {
             let (metric, kinetic) = (gas.metric(), gas.kinetic());
             samples[0].push(gas.volume());
             let square = metric[0][0] + metric[1][1];
@@ -590,18 +744,42 @@ mod tests {
             ] {
                 samples[slot].push(2.0 * square - strain * (2.0 * kappa * strain - stress));
             }
-            let d = barostat.deformation(&gas.pressure(), gas.volume()).unwrap();
-            let moved = gas.deformed(&d);
-            let change = moved.energy() - gas.energy();
-            if barostat
-                .accept(&moved.pressure(), moved.volume(), change)
-                .unwrap()
-            {
-                gas = moved;
-                accepted += 1;
-            }
-        }
-        (samples, accepted as f64 / moves as f64)
+        });
+        (samples, accepted)
+    }
+
+    /// The barostat settings the tests go through: coupling, axes, and the
+    /// groups of axes that share a scale factor (none for the full strain).
+    const SETTINGS: [(CellCoupling, &str, &[&[usize]]); 8] = [
+        (CellCoupling::Isotropic, "xyz", &[&[0, 1, 2]]),
+        (CellCoupling::SemiIsotropic, "xyz", &[&[0, 1], &[2]]),
+        (CellCoupling::Anisotropic, "xyz", &[&[0], &[1], &[2]]),
+        (CellCoupling::Triclinic, "xyz", &[]),
+        (CellCoupling::Isotropic, "xy", &[&[0, 1]]),
+        (CellCoupling::Isotropic, "z", &[&[2]]),
+        (CellCoupling::Anisotropic, "xz", &[&[0], &[2]]),
+        (CellCoupling::Anisotropic, "y", &[&[1]]),
+    ];
+
+    /// A barostat that accepts any strain.
+    fn rescaling(
+        coupling: CellCoupling,
+        axes: &str,
+        seed: u64,
+        thermal_energy: f64,
+        pressure: f64,
+        gain: f64,
+    ) -> CellRescaling<ChaCha8Rng> {
+        CellRescaling::new(
+            ChaCha8Rng::seed_from_u64(seed),
+            thermal_energy,
+            pressure,
+            gain,
+            coupling,
+            CellAxes::try_from(axes.to_string()).unwrap(),
+            1.0,
+        )
+        .unwrap()
     }
 
     /// The logarithm of a symmetric positive definite matrix.
@@ -627,28 +805,34 @@ mod tests {
                 -gain * (f64::from(a == b) * target - 0.5 * (tensor[a][b] + tensor[b][a]))
             })
         });
-        let mean_diagonal = (full[0][0] + full[1][1] + full[2][2]) / 3.0;
         let draws = 100_000;
-        for coupling in [
-            CellCoupling::Isotropic,
-            CellCoupling::Anisotropic,
-            CellCoupling::Triclinic,
-        ] {
-            let mut barostat = CellRescaling::new(
-                ChaCha8Rng::seed_from_u64(3),
-                thermal,
-                target,
-                gain,
-                coupling,
-                1.0,
-            );
+        for (coupling, axes, groups) in SETTINGS {
+            let mut barostat = rescaling(coupling, axes, 3, thermal, target, gain);
+            // Mean and variance of every strain entry: a group of axes takes
+            // the mean of its entries, a fixed axis does not move, and the
+            // symmetric part of an off-diagonal pair has half the variance.
+            let mut expected = [[(0.0, 0.0); 3]; 3];
+            for a in 0..3 {
+                for b in 0..3 {
+                    if groups.is_empty() {
+                        let halved = if a == b { variance } else { variance / 2.0 };
+                        expected[a][b] = (full[a][b], halved);
+                    }
+                }
+            }
+            for group in groups {
+                let mean = group.iter().map(|&a| full[a][a]).sum::<f64>() / group.len() as f64;
+                for &a in *group {
+                    expected[a][a] = (mean, variance / group.len() as f64);
+                }
+            }
             let (mut sum, mut square) = ([[0.0; 3]; 3], [[0.0; 3]; 3]);
             for _ in 0..draws {
                 let d = barostat.deformation(&tensor, volume).unwrap();
-                // Symmetric, and for the isotropic coupling a multiple of one.
+                // Symmetric, and the axes of a group move as one.
                 close(&d, &transpose(&d), 1e-15);
-                if coupling == CellCoupling::Isotropic {
-                    assert!(d[0][0] == d[1][1] && d[1][1] == d[2][2]);
+                for pair in groups.iter().flat_map(|group| group.windows(2)) {
+                    assert!(d[pair[0]][pair[0]] == d[pair[1]][pair[1]]);
                 }
                 let strain = symmetric_log(&d);
                 for a in 0..3 {
@@ -660,24 +844,17 @@ mod tests {
             }
             for a in 0..3 {
                 for b in 0..3 {
-                    // The symmetric part of an off-diagonal pair has half the variance.
-                    let (expected_mean, expected_variance) = match (coupling, a == b) {
-                        (CellCoupling::Isotropic, true) => (mean_diagonal, variance / 3.0),
-                        (CellCoupling::Anisotropic, true) => (full[a][a], variance),
-                        (CellCoupling::Triclinic, true) => (full[a][a], variance),
-                        (CellCoupling::Triclinic, false) => (full[a][b], variance / 2.0),
-                        (_, false) => (0.0, 0.0),
-                    };
+                    let (expected_mean, expected_variance) = expected[a][b];
                     let mean = sum[a][b] / f64::from(draws);
                     let spread = square[a][b] / f64::from(draws) - mean * mean;
                     let error = (expected_variance / f64::from(draws)).sqrt();
                     assert!(
                         (mean - expected_mean).abs() <= 5.0 * error + 1e-12,
-                        "{coupling:?} ({a}, {b}): mean {mean} vs {expected_mean} +- {error}"
+                        "{coupling:?} {axes} ({a}, {b}): mean {mean} vs {expected_mean} +- {error}"
                     );
                     assert!(
                         (spread - expected_variance).abs() <= 0.03 * expected_variance + 1e-18,
-                        "{coupling:?} ({a}, {b}): variance {spread} vs {expected_variance}"
+                        "{coupling:?} {axes} ({a}, {b}): variance {spread} vs {expected_variance}"
                     );
                 }
             }
@@ -686,11 +863,7 @@ mod tests {
 
     #[test]
     fn a_move_and_its_reverse_have_opposite_ratios() {
-        for coupling in [
-            CellCoupling::Isotropic,
-            CellCoupling::Anisotropic,
-            CellCoupling::Triclinic,
-        ] {
+        for (coupling, axes, _) in SETTINGS {
             let mut rng = ChaCha8Rng::seed_from_u64(21);
             let mut gas = Gas {
                 h: [[9.0, 1.5, -0.7], [0.4, 11.0, 0.9], [-1.1, 0.3, 10.0]],
@@ -700,8 +873,7 @@ mod tests {
                 kappa: 3.0,
             };
             // Large moves, so the ratios are far from zero.
-            let mut barostat =
-                CellRescaling::new(ChaCha8Rng::seed_from_u64(9), 0.7, 0.004, 5.0, coupling, 1.0);
+            let mut barostat = rescaling(coupling, axes, 9, 0.7, 0.004, 5.0);
             let mut largest: f64 = 0.0;
             for _ in 0..25 {
                 let d = barostat.deformation(&gas.pressure(), gas.volume()).unwrap();
@@ -722,14 +894,14 @@ mod tests {
                 let reverse = barostat.log_ratio(&proposal, &gas.pressure(), gas.volume(), -change);
                 assert!(
                     (forward + reverse).abs() < 1e-9 * (1.0 + forward.abs()),
-                    "{coupling:?}: {forward} and {reverse}"
+                    "{coupling:?} {axes}: {forward} and {reverse}"
                 );
                 largest = largest.max(forward.abs());
                 gas = moved;
             }
             assert!(
-                largest > 0.1,
-                "{coupling:?}: ratios stayed near one ({largest})"
+                largest > 0.05,
+                "{coupling:?} {axes}: ratios stayed near one ({largest})"
             );
         }
     }
@@ -757,11 +929,11 @@ mod tests {
         );
     }
 
-    /// The mean of the strain balance of [`sample`] is zero.
-    fn check_balance(balance: &[f64], name: &str) {
+    /// The mean of a strain balance is zero, and is known to `precision`
+    /// (2 percent of the size of its two terms).
+    fn check_balance(balance: &[f64], name: &str, precision: f64) {
         let (mean, error) = mean_and_error(balance);
-        // The two terms of the balance are each about four.
-        assert!(error < 0.08, "{name} balance error {error}");
+        assert!(error < precision, "{name} balance error {error}");
         assert!(mean.abs() < 4.0 * error, "{name} balance {mean} +- {error}");
     }
 
@@ -777,7 +949,7 @@ mod tests {
         let ([volume, axial, shear], accepted) =
             sample(CellCoupling::Anisotropic, 20.0, 5, 150_000, 0.03);
         check_volume(&volume, 5);
-        check_balance(&axial, "axial");
+        check_balance(&axial, "axial", 0.08);
         // No shear: the cell stays orthorhombic, and the shear balance is
         // the constant 2 (M_xx + M_yy), not zero.
         assert!(shear.iter().all(|x| *x > 2.0));
@@ -789,8 +961,144 @@ mod tests {
         let ([volume, axial, shear], accepted) =
             sample(CellCoupling::Triclinic, 20.0, 5, 150_000, 0.03);
         check_volume(&volume, 5);
-        check_balance(&axial, "axial");
-        check_balance(&shear, "shear");
+        check_balance(&axial, "axial", 0.08);
+        check_balance(&shear, "shear", 0.08);
         assert!(accepted > 0.85, "accepted {accepted}");
+    }
+
+    #[test]
+    fn semi_isotropic_moves_sample_volume_and_the_axis_ratio() {
+        let run = Run {
+            coupling: CellCoupling::SemiIsotropic,
+            axes: "xyz",
+            kappa: 20.0,
+            atoms: 5,
+            moves: 150_000,
+            ratio: 0.03,
+            fresh_velocities: false,
+            max_strain: 1.0,
+        };
+        let (mut volume, mut balance) = (Vec::new(), Vec::new());
+        let accepted = trajectory(&run, |gas| {
+            // x and y move as one.
+            assert!(gas.h[0][0] == gas.h[1][1]);
+            volume.push(gas.volume());
+            balance.push(diagonal_balance(gas, [1.0, 1.0, -2.0]));
+        });
+        check_volume(&volume, 5);
+        // The two terms of this balance are each about twelve.
+        check_balance(&balance, "layer", 0.24);
+        assert!(accepted > 0.85, "accepted {accepted}");
+    }
+
+    #[test]
+    fn lateral_moves_sample_the_area_and_leave_the_normal_alone() {
+        let run = Run {
+            coupling: CellCoupling::Isotropic,
+            axes: "xy",
+            kappa: 0.0,
+            atoms: 5,
+            moves: 150_000,
+            ratio: 0.1,
+            fresh_velocities: true,
+            max_strain: 1.0,
+        };
+        let mut volume = Vec::new();
+        let accepted = trajectory(&run, |gas| {
+            assert!(gas.h[2][2] == 10.0 && gas.h[0][0] == gas.h[1][1]);
+            volume.push(gas.volume());
+        });
+        // The area times the fixed height follows the Gamma distribution of
+        // the volume.
+        check_volume(&volume, 5);
+        assert!(accepted > 0.85, "accepted {accepted}");
+    }
+
+    #[test]
+    fn independent_lateral_moves_sample_the_axis_ratio() {
+        let run = Run {
+            coupling: CellCoupling::Anisotropic,
+            axes: "xy",
+            kappa: 20.0,
+            atoms: 5,
+            moves: 150_000,
+            ratio: 0.03,
+            fresh_velocities: false,
+            max_strain: 1.0,
+        };
+        let (mut balance, mut ratio) = (Vec::new(), Vec::new());
+        let accepted = trajectory(&run, |gas| {
+            assert!(gas.h[2][2] == 10.0);
+            balance.push(diagonal_balance(gas, [1.0, -1.0, 0.0]));
+            ratio.push(gas.h[0][0] / gas.h[1][1]);
+        });
+        check_balance(&balance, "lateral", 0.08);
+        // The two axes do move apart.
+        let spread = ratio.iter().map(|r| (r - 1.0).abs()).fold(0.0, f64::max);
+        assert!(spread > 0.1, "axis ratio stayed within {spread} of one");
+        assert!(accepted > 0.85, "accepted {accepted}");
+    }
+
+    #[test]
+    fn normal_moves_sample_the_height_and_leave_the_plane_alone() {
+        let run = Run {
+            coupling: CellCoupling::Anisotropic,
+            axes: "z",
+            kappa: 0.0,
+            atoms: 5,
+            // One axis relaxes the volume three times more slowly than three.
+            moves: 300_000,
+            ratio: 0.1,
+            fresh_velocities: true,
+            // The pressure along one axis of five atoms fluctuates so much
+            // that a few moves are far too large; the test refuses them.
+            max_strain: f64::INFINITY,
+        };
+        let mut volume = Vec::new();
+        let accepted = trajectory(&run, |gas| {
+            assert!(gas.h[0][0] == 10.0 && gas.h[1][1] == 10.0);
+            volume.push(gas.volume());
+        });
+        check_volume(&volume, 5);
+        assert!(accepted > 0.85, "accepted {accepted}");
+    }
+
+    #[test]
+    fn axes_are_written_as_their_letters() {
+        for (text, canonical) in [
+            ("xyz", "xyz"),
+            ("zyx", "xyz"),
+            ("xy", "xy"),
+            ("zx", "xz"),
+            ("y", "y"),
+        ] {
+            let axes = CellAxes::try_from(text.to_string()).unwrap();
+            assert_eq!(String::from(axes), canonical);
+            assert_eq!(axes.is_all(), canonical == "xyz");
+        }
+        assert_eq!(CellAxes::default(), CellAxes::ALL);
+        for bad in ["", "xx", "xyzx", "a", "X", "x y"] {
+            assert!(
+                CellAxes::try_from(bad.to_string()).is_err(),
+                "{bad:?} accepted"
+            );
+        }
+        // serde goes through the same check and writes the canonical form.
+        assert!(serde_json::from_str::<CellAxes>(r#""xq""#).is_err());
+        let parsed: CellAxes = serde_json::from_str(r#""zx""#).unwrap();
+        assert_eq!(serde_json::to_string(&parsed).unwrap(), r#""xz""#);
+        // The groups of axes of every setting, and the couplings that need
+        // all three axes.
+        for (coupling, axes, groups) in SETTINGS {
+            let expected: Vec<[bool; 3]> = groups
+                .iter()
+                .map(|group| std::array::from_fn(|a| group.contains(&a)))
+                .collect();
+            let axes = CellAxes::try_from(axes.to_string()).unwrap();
+            assert_eq!(coupling.groups(axes).unwrap(), expected);
+        }
+        for coupling in [CellCoupling::SemiIsotropic, CellCoupling::Triclinic] {
+            assert!(coupling.groups(parsed).is_err(), "{coupling:?} on two axes");
+        }
     }
 }

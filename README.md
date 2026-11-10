@@ -205,8 +205,8 @@ command and executable tutorial are local follow-ups pending publication; the
   force plus energy-change stopping criteria, explicit failure/nonconvergence,
   and geometry-only extxyz/JSONL exports.
 - **MD:** NVE velocity Verlet, upstream CSVR NVT and constant-pressure NPT
-  (stochastic cell rescaling with isotropic, per-axis or fully flexible cell and
-  a Metropolis acceptance test; see the
+  (stochastic cell rescaling with isotropic, layer, per-axis or fully flexible
+  cell, optionally with fixed axes, and a Metropolis acceptance test; see the
   [engine README](mlmd/engine/README.md#configuration-and-units)), explicit masses,
   seeded thermal initialization, streamed trajectories with pressure and volume,
   and exact RNG restart.
@@ -250,8 +250,8 @@ see [DeepMD setup and limits](mlmd/deepmd/README.md).
 
 ## Current limitations
 
-- Cell relaxation or constraints; NPT has isotropic, per-axis and fully
-  flexible coupling but no semi-isotropic or surface-tension coupling. Optional
+- Cell relaxation or constraints; NPT has isotropic, semi-isotropic, per-axis
+  and fully flexible coupling and fixed axes, but no surface-tension coupling. Optional
   CUDA inference is available within the separate scopes above; training
   retains CPU stages.
 - The GPU se_e2_a trainer takes one frame per step on one GPU and has no
