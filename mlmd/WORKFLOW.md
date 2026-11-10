@@ -172,6 +172,81 @@ not validated production settings. Check model suitability and equilibration
 for the actual scientific problem. For seeded NVT and restart see
 [engine README](engine/README.md).
 
+## 6. An active-learning iteration on the GPU runtime
+
+The commands below cover one round of train, explore, compare and select for
+se_e2_a models of any size on one NVIDIA GPU. Each is a separate program with
+its own request file; nothing loops over them. Build the engine with
+`--features native-gpu` and the `omnimd-native` binaries with `--features gpu`
+([guide step 28](GETTING_STARTED.md#28-run-se_e2_a-on-the-gpu-runtime-and-compute-dataset-statistics)).
+Requests and their fields are specified in the linked documents; paths are
+absolute and outputs are never overwritten.
+
+1. **Train the ensemble.** One request per member, differing in seeds and
+   output names, all in one command so they share the card:
+
+       omnimd-native-gpu-train member-0.json member-1.json member-2.json member-3.json
+
+   A request carries the `model`, `learning_rate`, `loss` and `training`
+   sections of a DeePMD input script ([GPU_TRAINING.md](native/GPU_TRAINING.md)).
+   In a later round give the previous model's path as `model` to continue from
+   it instead of drawing fresh networks.
+
+2. **Score against held-out labels** (the counterpart of `dp test`):
+
+       omnimd-native-gpu-test member-0.native.json test.jsonl > test-0.json
+
+3. **Explore** with one member, at fixed cell or constant pressure, sampling
+   every frame you may want to examine:
+
+       omnimd-mlmd run explore.json explore.jsonl
+
+   with, in `explore.json`, the GPU runtime in `options` and for example
+
+       "options": {"native_model": "/abs/member-0.native.json", "device": "cuda:0",
+                   "gpu_runtime": {"precision": "float32", "compress_min_distance": 0.5}},
+       "ensemble": {"kind": "npt_csvr_crescale", "temperature_kelvin": 300, "tau_fs": 50,
+                    "seed": 1, "pressure_bar": 1.01325, "barostat_tau_fs": 500,
+                    "compressibility_per_bar": 1e-6, "coupling": "triclinic"},
+       "timestep_fs": 0.5, "steps": 100000, "sample_every": 50
+
+   ([engine README](engine/README.md#configuration-and-units)).
+
+4. **Turn the trajectory into a dataset** and **compare the members** on it:
+
+       omnimd-mlmd import-trajectory import.json explored.jsonl
+       omnimd-mlmd model-deviation deviation.json deviations.jsonl
+
+   `deviation.json` lists every member with the same `gpu_runtime` and a
+   `force_window`; each frame is marked as a candidate when its largest force
+   deviation lies in the window, and the `completed` record counts the frames
+   below, inside and above it ([MODEL_DEVIATION.md](engine/MODEL_DEVIATION.md)).
+
+5. **Select** the candidate IDs you reviewed, and hand them to the external
+   calculator:
+
+       omnimd-mlmd select-dataset select.json /abs/selected
+       omnimd-mlmd prepare-labels prepare.json /abs/label-job
+       omnimd-mlmd import-labels import-labels.json /abs/labelled
+
+   ([DATASET_SELECTION.md](engine/DATASET_SELECTION.md),
+   [EXTERNAL_LABELS.md](engine/EXTERNAL_LABELS.md)). No calculator is started
+   by these commands.
+
+6. **Add the labelled frames to the training set** for the next round:
+
+       omnimd-mlmd merge-datasets merge.json train-next.jsonl
+
+   with `{"schema": "omnimd-dataset-merge-v1", "datasets": ["/abs/train.jsonl",
+   "/abs/labelled/dataset.jsonl"]}`. The datasets must share type map and
+   units and have distinct frame IDs; frames and labels are copied unchanged.
+
+What these steps were compared with is in the
+[benchmark summary](bench/results/SUMMARY.md): training, a constant-pressure
+exploration and its model deviation against DeePMD-kit and LAMMPS records of
+one real pipeline. Thresholds, run lengths and the decision to label remain
+yours; a small deviation among members is not evidence of accuracy.
+
 ## Reproducible software evidence
 
 The stdlib/NumPy script validate_structure_workflow.py in mlmd/scripts accepts

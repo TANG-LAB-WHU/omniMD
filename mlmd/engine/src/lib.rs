@@ -3,6 +3,7 @@ pub mod barostat;
 pub mod dataset;
 pub mod deviation;
 pub mod labeling;
+pub mod merge;
 mod thermal;
 pub mod trajectory;
 pub mod xyz;

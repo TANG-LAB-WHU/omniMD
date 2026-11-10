@@ -440,7 +440,13 @@ No new C API GPU parameter/batch acceptance is claimed.
 absolute population E/F/virial deviations with optional candidate marking.
 `import-trajectory` turns the sampled frames of a finished run into the
 unlabeled dataset it reads, so a run, its deviations and the selection of
-candidates chain without leaving the CLI.
+candidates chain without leaving the CLI. `merge-datasets MERGE.json
+NEW_DATASET.jsonl` with `{"schema": "omnimd-dataset-merge-v1", "datasets":
+[...]}` concatenates 2 to 256 complete datasets that share type map, units and
+virial convention: frames, labels and IDs are copied unchanged in the order
+given, indices are renumbered, IDs must be distinct across the inputs, and the
+SHA-256 of every input is recorded. The [workflow](../WORKFLOW.md#6-an-active-learning-iteration-on-the-gpu-runtime)
+puts these commands in the order of one active-learning round.
 [select-dataset](DATASET_SELECTION.md) takes explicit IDs and an expected source
 SHA256, validates the entire input, then creates a new shared-format subset and
 receipt. It preserves scientific values and missing labels, with source-order
