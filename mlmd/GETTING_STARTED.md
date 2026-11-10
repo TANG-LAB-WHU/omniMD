@@ -336,8 +336,9 @@ omnimd-mlmd run md.request.json new-trajectory.jsonl
 ```
 
 `check` performs an actual initial evaluation on the selected device. `run`
-uses NVE (`{"kind":"nve"}`) or CSVR NVT, one combined E/F/V per step after
-initialization, and explicit eV/angstrom/fs/u dynamics units. Mass order must
+uses NVE (`{"kind":"nve"}`), CSVR NVT or constant-pressure NPT
+(`npt_csvr_crescale`), one combined E/F/V per step after initialization (plus
+one per cell move in NPT), and explicit eV/angstrom/fs/u dynamics units. Mass order must
 match atom order. The final checkpoint is `new-trajectory.jsonl.checkpoint.json`;
 interval checkpoints include `.step-N`. Validate the terminal completion record.
 
@@ -367,7 +368,9 @@ omnimd-mlmd minimize minimize.request.json new-minimization.jsonl
 Inspect convergence and both force/energy criteria, not just the output geometry.
 A limit or failed line search returns nonzero with an explicit reason. Exported
 extxyz and dataset files contain geometry only; they are not labeled training
-data. NPT, cell relaxation and constraints are not part of this runner.
+data. Cell relaxation and constraints are not part of this runner; constant-pressure
+dynamics is the `npt_csvr_crescale` ensemble of `run`
+([engine README](engine/README.md#configuration-and-units)).
 
 ## 7. Enable CUDA deliberately
 

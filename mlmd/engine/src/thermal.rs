@@ -1,9 +1,11 @@
-//! Thermal initialization and stateful reuse of omniMD's CSVR thermostat.
+//! Thermal initialization, stateful reuse of omniMD's CSVR thermostat, and
+//! constant-pressure dynamics with the stochastic cell rescaling barostat.
+use crate::barostat::{CellCoupling, CellRescaling, BAR_PER_EV_PER_ANGSTROM3, MAX_STRAIN};
 use crate::MlipDynamics;
 use omnimd_core::{DegreesOfFreedom, System};
 use omnimd_ml_contract::{Error, Potential, Result};
 use omnimd_sim::{
-    md::{CSVRThermostat, Control, RemoveTranslation},
+    md::{Barostat, CSVRThermostat, Control, RemoveTranslation},
     BoltzmannVelocities, InitVelocities,
 };
 use rand::{RngCore, SeedableRng};
@@ -85,14 +87,63 @@ pub enum Ensemble {
         tau_fs: f64,
         seed: u64,
     },
+    /// CSVR thermostat plus stochastic cell rescaling ([`crate::barostat`]).
+    NptCsvrCrescale {
+        temperature_kelvin: f64,
+        tau_fs: f64,
+        seed: u64,
+        /// Target pressure.
+        pressure_bar: f64,
+        /// Relaxation time of the volume for a system whose compressibility
+        /// equals `compressibility_per_bar`.
+        barostat_tau_fs: f64,
+        /// Assumed isothermal compressibility; it only sets the time scale.
+        compressibility_per_bar: f64,
+        #[serde(default)]
+        coupling: CellCoupling,
+        /// Steps between cell moves; each move costs one model evaluation.
+        #[serde(default = "default_barostat_every")]
+        barostat_every: u64,
+    },
+}
+
+fn default_barostat_every() -> u64 {
+    10
 }
 
 impl Ensemble {
+    /// True when the cell changes during the run.
+    pub fn is_variable_cell(&self) -> bool {
+        matches!(self, Self::NptCsvrCrescale { .. })
+    }
+
     pub fn validate(&self, dt: f64) -> Result<()> {
         if !dt.is_finite() || dt <= 0. {
             return Err(Error("timestep_fs must be positive and finite".into()));
         }
+        if let Self::NptCsvrCrescale {
+            pressure_bar,
+            barostat_tau_fs,
+            compressibility_per_bar,
+            barostat_every,
+            ..
+        } = self
+        {
+            let interval = *barostat_every as f64 * dt;
+            if !pressure_bar.is_finite()
+                || !(compressibility_per_bar.is_finite() && *compressibility_per_bar > 0.)
+                || *barostat_every == 0
+                || !(barostat_tau_fs.is_finite() && *barostat_tau_fs >= interval)
+            {
+                return Err(Error("NPT requires finite pressure_bar, positive finite compressibility_per_bar, positive barostat_every and barostat_tau_fs >= barostat_every * timestep_fs".into()));
+            }
+        }
         if let Self::NvtCsvr {
+            temperature_kelvin,
+            tau_fs,
+            ..
+        }
+        | Self::NptCsvrCrescale {
             temperature_kelvin,
             tau_fs,
             ..
@@ -104,7 +155,7 @@ impl Ensemble {
                 || *tau_fs < dt
                 || !(tau_fs / dt).is_finite()
             {
-                return Err(Error("NVT requires positive finite temperature_kelvin and tau_fs >= timestep_fs (finite ratio)".into()));
+                return Err(Error("NVT and NPT require positive finite temperature_kelvin and tau_fs >= timestep_fs (finite ratio)".into()));
             }
         }
         Ok(())
@@ -119,6 +170,23 @@ pub struct EnsembleState {
     rng: Option<ChaCha8Rng>,
     /// Accumulated energy delivered by the thermostat (eV).
     pub heat_ev: f64,
+    /// Accumulated kinetic plus potential energy delivered by the cell moves
+    /// of the barostat (eV).
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub barostat_work_ev: f64,
+    /// Cell moves tried, and how many of them the acceptance test refused.
+    #[serde(default, skip_serializing_if = "is_none")]
+    pub barostat_moves: u64,
+    #[serde(default, skip_serializing_if = "is_none")]
+    pub barostat_refused: u64,
+}
+
+fn is_zero(value: &f64) -> bool {
+    *value == 0.
+}
+
+fn is_none(count: &u64) -> bool {
+    *count == 0
 }
 
 #[derive(Clone)]
@@ -143,31 +211,46 @@ impl EnsembleState {
         ensemble.validate(dt)?;
         let rng = match ensemble {
             Ensemble::Nve => None,
-            Ensemble::NvtCsvr { seed, .. } => Some(ChaCha8Rng::seed_from_u64(seed)),
+            Ensemble::NvtCsvr { seed, .. } | Ensemble::NptCsvrCrescale { seed, .. } => {
+                Some(ChaCha8Rng::seed_from_u64(seed))
+            }
         };
         Ok(Self {
             ensemble,
             rng,
             heat_ev: 0.,
+            barostat_work_ev: 0.,
+            barostat_moves: 0,
+            barostat_refused: 0,
         })
     }
 
     pub fn validate(&self, dt: f64) -> Result<()> {
         self.ensemble.validate(dt)?;
         if !self.heat_ev.is_finite()
+            || !self.barostat_work_ev.is_finite()
             || matches!(self.ensemble, Ensemble::Nve) != self.rng.is_none()
             || (matches!(self.ensemble, Ensemble::Nve) && self.heat_ev != 0.)
+            || (!self.ensemble.is_variable_cell()
+                && (self.barostat_work_ev != 0. || self.barostat_moves != 0))
+            || self.barostat_refused > self.barostat_moves
         {
-            return Err(Error("invalid checkpoint thermostat/RNG/heat state".into()));
+            return Err(Error(
+                "invalid checkpoint thermostat/barostat/RNG/heat state".into(),
+            ));
         }
         Ok(())
     }
 
     pub fn validate_system(&self, system: &System) -> Result<()> {
-        if matches!(self.ensemble, Ensemble::NvtCsvr { .. }) && system.kinetic_energy() <= 0. {
+        if !matches!(self.ensemble, Ensemble::Nve) && system.kinetic_energy() <= 0. {
             return Err(Error(
-                "NVT requires nonzero initial kinetic energy; use initialize_velocities".into(),
+                "NVT and NPT require nonzero initial kinetic energy; use initialize_velocities"
+                    .into(),
             ));
+        }
+        if self.ensemble.is_variable_cell() && system.cell.is_infinite() {
+            return Err(Error("NPT requires a periodic cell".into()));
         }
         Ok(())
     }
@@ -201,6 +284,57 @@ impl EnsembleState {
                 self.heat_ev += heat;
                 if !self.heat_ev.is_finite() {
                     return Err(Error("accumulated thermostat heat overflow".into()));
+                }
+            }
+            Ensemble::NptCsvrCrescale {
+                temperature_kelvin,
+                tau_fs,
+                pressure_bar,
+                barostat_tau_fs,
+                compressibility_per_bar,
+                coupling,
+                barostat_every,
+                ..
+            } => {
+                // As above: the thermostat and the barostat draw from one
+                // stream, which advances only if the whole step succeeds.
+                let shared = SharedRng(Rc::new(RefCell::new(
+                    self.rng
+                        .as_ref()
+                        .ok_or_else(|| Error("missing CSVR RNG state".into()))?
+                        .clone(),
+                )));
+                let mut thermostat = CSVRThermostat::from_rng(
+                    temperature_kelvin,
+                    tau_fs / md.timestep_fs(),
+                    Box::new(shared.clone()),
+                );
+                let interval = barostat_every as f64 * md.timestep_fs();
+                let mut rescaling = CellRescaling::new(
+                    shared.clone(),
+                    md.thermal_energy_ev(temperature_kelvin),
+                    pressure_bar / BAR_PER_EV_PER_ANGSTROM3,
+                    compressibility_per_bar * BAR_PER_EV_PER_ANGSTROM3 * interval
+                        / (3. * barostat_tau_fs),
+                    coupling,
+                    MAX_STRAIN,
+                );
+                // Moves fall on absolute step numbers, so a restart keeps the schedule.
+                let due = md.system().step.wrapping_add(1) % barostat_every == 0;
+                let barostat: Option<&mut dyn Barostat> =
+                    if due { Some(&mut rescaling) } else { None };
+                let exchange = md.step_with_controls(Some(&mut thermostat), barostat)?;
+                self.rng = Some(shared.0.borrow().clone());
+                self.heat_ev += exchange.heat;
+                self.barostat_work_ev += exchange.work;
+                if let Some(accepted) = exchange.cell_move {
+                    self.barostat_moves += 1;
+                    self.barostat_refused += u64::from(!accepted);
+                }
+                if !(self.heat_ev.is_finite() && self.barostat_work_ev.is_finite()) {
+                    return Err(Error(
+                        "accumulated thermostat heat or barostat work overflow".into(),
+                    ));
                 }
             }
         }

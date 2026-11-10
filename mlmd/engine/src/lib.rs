@@ -1,9 +1,11 @@
 //! Input conversion for the fallible MLIP dynamics implemented in omnimd-sim.
+pub mod barostat;
 pub mod dataset;
 pub mod deviation;
 pub mod labeling;
 mod thermal;
 pub mod xyz;
+pub use barostat::CellCoupling;
 use omnimd_core::{Matrix3, Molecule, Particle, System, UnitCell, Vector3D};
 use omnimd_ml_contract::{Error, Frame, Result};
 pub use omnimd_sim::md::MlipDynamics;
@@ -46,8 +48,10 @@ pub fn system_from_frame(frame: &Frame, masses: &[f64], velocities: &[[f64; 3]])
 use omnimd_ml_contract::Potential;
 use serde::{Deserialize, Serialize};
 
-/// Portable restart state for the fixed-cell NVE/CSVR paths.
+/// Portable restart state for the NVE, CSVR and constant-pressure paths.
 /// Units are angstrom, fs, u and eV. The model file digest prevents silent swaps.
+/// Versions: 1 NVE; 2 adds thermal state; 3 is 2 with fixed parameters; 4 is a
+/// constant-pressure run (variable cell), with or without fixed parameters.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Checkpoint {
@@ -102,12 +106,23 @@ impl Checkpoint {
         timestep_fs: f64,
         expected: Option<&parameters::FixedParameters>,
     ) -> Result<System> {
-        if !matches!(self.schema_version, 1 | 2 | 3) {
+        if !matches!(self.schema_version, 1..=4) {
             return Err(Error("unsupported checkpoint version".into()));
         }
-        if (self.schema_version == 3) != self.fixed_parameters.is_some() {
+        let variable_cell = self
+            .ensemble_state
+            .as_ref()
+            .is_some_and(|state| state.ensemble.is_variable_cell());
+        if variable_cell != (self.schema_version == 4) {
             return Err(Error(
-                "only checkpoint v3 may contain fixed parameters, and v3 requires them".into(),
+                "checkpoint v4 is exactly the constant-pressure checkpoint".into(),
+            ));
+        }
+        if self.schema_version != 4 && (self.schema_version == 3) != self.fixed_parameters.is_some()
+        {
+            return Err(Error(
+                "below v4 only checkpoint v3 may contain fixed parameters, and v3 requires them"
+                    .into(),
             ));
         }
         if self.fixed_parameters.as_ref() != expected {

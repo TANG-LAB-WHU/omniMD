@@ -214,7 +214,7 @@ software fixture, not a physical production model.
 | `initialize_velocities` | Alternative to explicit velocities: positive `temperature_kelvin`, required `seed`, and `rescale_to_temperature` boolean |
 | `remove_center_of_mass` | Remove mass-weighted translation once, use 3N-3 DOF; default false (3N DOF) |
 | `timestep_fs` | Positive finite timestep in fs |
-| `ensemble` | `{"kind":"nve"}` (default), or CSVR settings below |
+| `ensemble` | `{"kind":"nve"}` (default), or the CSVR (NVT) or constant-pressure (NPT) settings below |
 | `steps` | Additional steps in this invocation |
 | `sample_every` | Positive trajectory sampling interval in steps |
 | `checkpoint_every` | Optional positive checkpoint interval; final checkpoint is always written |
@@ -222,7 +222,8 @@ software fixture, not a physical production model.
 
 A finite cell is periodic in all three directions; null is nonperiodic.
 Coordinates in output are unwrapped. Energy, force and virial use eV,
-eV/angstrom and eV. Virial is not stress or pressure. No rotation is removed
+eV/angstrom and eV. Virial is not stress or pressure; frames of periodic systems
+carry the pressure separately (see below). No rotation is removed
 during the new initialization path. One-atom COM removal is rejected.
 
 Gaussian initialization reuses upstream BoltzmannVelocities and its seeded
@@ -254,6 +255,70 @@ References: [Bussi et al., Appendix A](https://arxiv.org/pdf/0803.4060) and
 See the validation record for small statistical and oscillator tests; this is
 not broad production-ensemble validation.
 
+For constant pressure (NPT) use:
+
+```json
+"ensemble": {
+  "kind": "npt_csvr_crescale",
+  "temperature_kelvin": 300,
+  "tau_fs": 100,
+  "seed": 42,
+  "pressure_bar": 1.0,
+  "barostat_tau_fs": 500,
+  "compressibility_per_bar": 1e-6,
+  "coupling": "triclinic",
+  "barostat_every": 10
+}
+```
+
+The thermostat is the CSVR thermostat above. The barostat is stochastic cell
+rescaling ([Bernetti and Bussi, J. Chem. Phys. 153, 114107 (2020)](https://doi.org/10.1063/5.0020514);
+fully flexible cell: [Del Tatto et al., Appl. Sci. 12, 1139 (2022)](https://doi.org/10.3390/app12031139)),
+a first-order barostat with the noise that gives the volume fluctuations of the
+isothermal-isobaric ensemble. It needs a periodic cell and nonzero kinetic
+energy. [examples/native-npt.json](examples/native-npt.json) is a complete
+request for the synthetic fixture.
+
+| Field | Meaning |
+| --- | --- |
+| `pressure_bar` | Target pressure; any finite value |
+| `barostat_tau_fs` | Relaxation time of the cell, exact when `compressibility_per_bar` is the real compressibility; at least `barostat_every * timestep_fs` |
+| `compressibility_per_bar` | Assumed isothermal compressibility (1/bulk modulus). It only sets the time scale: twice the real value halves the relaxation time. Water is about 4.5e-5, oxides and phosphates about 1e-6 |
+| `coupling` | `isotropic` (default): one scale factor, the cell keeps its shape. `anisotropic`: independent factors along x, y and z, no shear. `triclinic`: all six strain components. These correspond to `iso`, `aniso` and `tri` of LAMMPS `fix npt` |
+| `barostat_every` | Steps between cell moves (default 10). Each move costs one model evaluation, so 10 adds 10 percent |
+
+Every `barostat_every` steps, after the thermostat, the cell, the positions
+and the velocities are deformed together by `exp(strain)`, with
+
+```text
+strain = -g (P0 - P) + sqrt(2 kT g / V) * noise,   g = compressibility * barostat_every * timestep / (3 barostat_tau)
+```
+
+where `P` is the instantaneous pressure tensor
+`(sum m v v^T + virial) / V`. Positions and lattice vectors are multiplied by
+the deformation and velocities by its inverse transpose. `isotropic` uses one
+third of the trace of the strain on all axes, `anisotropic` its diagonal, and
+`triclinic` the full matrix with the rotation removed, so the cell does not
+tumble. The model is then evaluated at the new geometry, and the move is
+accepted or refused by a Metropolis-Hastings test on the energy and pressure
+found there. With that test the barostat samples the ensemble exactly for any
+`barostat_tau_fs`; settings that are too aggressive show up as refused moves
+(`barostat_refused` in the `completed` record), not as a wrong volume
+distribution. A move whose strain exceeds 5 percent stops the run with an
+error: lengthen `barostat_tau_fs`, lower `compressibility_per_bar`, or relax
+the structure first.
+
+What was checked ([`src/barostat.rs`](src/barostat.rs), [`tests/npt.rs`](tests/npt.rs)):
+for an ideal gas whose cell has a shape energy, the sampled volume has the
+mean `(N + 1) kT / P` and the variance of the exact distribution for all three
+couplings, and the strain fluctuations satisfy the virial balance of the
+ensemble; a move and its reverse have opposite acceptance ratios; the move
+statistics follow the equation above; eleven single-line errors introduced
+into the barostat each fail these tests. The cell move maps cell, positions
+and velocities as stated, a refused or failed move leaves the state
+untouched, and the native model's virial equals minus the strain derivative
+of its energy. This is not a validation of any model's equation of state.
+
 For the C API backend replace the native `options` object with:
 
 ```json
@@ -279,7 +344,17 @@ velocities, time, thermostat heat delivered to the system and effective energy
 `E_total - Q_thermostat`. Each step evaluates the model once; snapshots do not
 trigger another model call.
 
-For NVT, total energy fluctuates due to heat exchange. The NVE drift field is
+Frames of periodic systems also carry `volume_angstrom3`, `pressure_bar` and
+`pressure_tensor_bar`: the instantaneous pressure `(sum m v v^T + virial) / V`
+of that frame, in every ensemble.
+
+A constant-pressure run writes JSONL v4: the cell differs from frame to frame,
+frames add `barostat_work_ev` (the kinetic plus potential energy the accepted
+cell moves delivered), the effective energy is
+`E_total - Q_thermostat - W_barostat`, and the `completed` record adds
+`barostat_work_ev`, `barostat_moves` and `barostat_refused`.
+
+For NVT and NPT, total energy fluctuates due to heat and work exchange. The NVE drift field is
 null and the effective-energy drift is reported separately. Neither a reasonable
 temperature nor a small short-run drift establishes physical model validity.
 
@@ -307,7 +382,10 @@ policy is rejected. Example:
 Checkpoint v2 stores coordinates/cell/species, masses, velocities, step,
 timestep, model-file SHA-256, COM/DOF policy, ensemble, accumulated heat and full
 ChaCha8 RNG state. A seed alone is insufficient for stochastic continuation.
-Old v1 NVE checkpoints remain readable. E/F/virial are recomputed on load;
+Old v1 NVE checkpoints remain readable. A constant-pressure run writes checkpoint
+v4, which adds the accumulated barostat work and the counts of tried and refused
+cell moves; cell moves fall on absolute step numbers, so a restart keeps their
+schedule. E/F/virial are recomputed on load;
 JSON uses float64 round-trip parsing. Exact replay is validated with the same
 binary/backend/environment, not promised across compilers, hardware or runtimes.
 
@@ -315,7 +393,7 @@ The current System is exposed read-only to protect cached model outputs.
 Failed numerical/model/thermostat updates leave the published System unchanged;
 the CSVR wrapper advances its RNG only after a successful dynamics step.
 
-MPI, NPT/barostats, constraints, classical force-field mixing and legacy
+MPI, constraints, semi-isotropic or surface-tension pressure coupling, classical force-field mixing and legacy
 trajectory plugins are not enabled by this CLI. Explicit CUDA inference and the
 `train-native` wrapper (CPU default; optional CUDA readout features or full gradients/Adam) are available within their documented scopes.
 

@@ -80,4 +80,4 @@ pub use self::molecular_dynamics::MolecularDynamics;
 #[cfg(feature = "mlip")]
 mod mlip;
 #[cfg(feature = "mlip")]
-pub use self::mlip::MlipDynamics;
+pub use self::mlip::{Barostat, Exchange, MlipDynamics};

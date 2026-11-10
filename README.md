@@ -147,8 +147,8 @@ Start with the [complete English setup and usage guide](mlmd/GETTING_STARTED.md)
    JSONL validation, byte SHA256 and E/F/V label coverage without loading a model.
 5. Run batch assessment, then the supported CPU readout/full-network trainer with
    explicit validation identities and loss scales.
-6. Minimize when appropriate, inspect convergence, run fixed-cell NVE/CSVR NVT,
-   and continue from a matching checkpoint.
+6. Minimize when appropriate, inspect convergence, run NVE, CSVR NVT or
+   constant-pressure NPT, and continue from a matching checkpoint.
 7. Select native CUDA or official C API CUDA explicitly, verify same-model E/F/V,
    and compare loading, warmed evaluations and full MD separately.
 8. Follow the guide's troubleshooting table and retain hashes and completed reports.
@@ -193,8 +193,12 @@ command and executable tutorial are local follow-ups pending publication; the
 - **Fixed-cell minimization:** both inference backends, bounded steepest descent,
   force plus energy-change stopping criteria, explicit failure/nonconvergence,
   and geometry-only extxyz/JSONL exports.
-- **MD:** fixed-cell NVE velocity Verlet and upstream CSVR NVT, explicit masses,
-  seeded thermal initialization, streamed trajectories and exact RNG restart.
+- **MD:** NVE velocity Verlet, upstream CSVR NVT and constant-pressure NPT
+  (stochastic cell rescaling with isotropic, per-axis or fully flexible cell and
+  a Metropolis acceptance test; see the
+  [engine README](mlmd/engine/README.md#configuration-and-units)), explicit masses,
+  seeded thermal initialization, streamed trajectories with pressure and volume,
+  and exact RNG restart.
   The runner uses the actual omniMD System through fallible MlipDynamics,
   caching combined E/F/virial and rolling back failed steps.
 
@@ -235,8 +239,10 @@ see [DeepMD setup and limits](mlmd/deepmd/README.md).
 
 ## Current limitations
 
-- NPT/barostats, cell relaxation or constraints. Optional CUDA inference is
-  available within the separate scopes above; training retains CPU stages.
+- Cell relaxation or constraints; NPT has isotropic, per-axis and fully
+  flexible coupling but no semi-isotropic or surface-tension coupling. Optional
+  CUDA inference is available within the separate scopes above; training
+  retains CPU stages.
 - The GPU se_e2_a runtime is inference only; the trainers do not use it, and the
   engine passes each frame through the host.
 - Arbitrary DeepMD architectures, hybrid se_e3 or generic .pb/.pth/pickle import.

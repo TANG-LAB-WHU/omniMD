@@ -430,18 +430,24 @@ fn write_snapshot<P: Potential>(
     let kinetic_energy_ev = md.kinetic_energy_ev();
     let total_energy_ev = md.evaluation().energy + kinetic_energy_ev;
     let temperature_kelvin = md.temperature_kelvin();
-    let effective_energy_ev = total_energy_ev - state.heat_ev;
+    let effective_energy_ev = total_energy_ev - state.heat_ev - state.barostat_work_ev;
     let diagnostics = [
         time_fs,
         kinetic_energy_ev,
         total_energy_ev,
         temperature_kelvin,
         state.heat_ev,
+        state.barostat_work_ev,
         effective_energy_ev,
     ];
     if diagnostics.iter().any(|v| !v.is_finite()) {
         return Err("nonfinite trajectory diagnostic".into());
     }
+    // Periodic frames also carry the instantaneous pressure and the volume.
+    let pressure = match md.frame().cell {
+        Some(_) => Some(md.pressure_tensor()?),
+        None => None,
+    };
     let velocities: Vec<[f64; 3]> = md
         .system()
         .particles()
@@ -449,18 +455,25 @@ fn write_snapshot<P: Potential>(
         .iter()
         .map(|v| [v[0], v[1], v[2]])
         .collect();
-    serde_json::to_writer(
-        &mut *writer,
-        &json!({
-            "kind":"frame", "step":md.system().step,
-            "time_fs": time_fs,
-            "frame":md.frame(), "velocities": velocities,
-            "evaluation":md.evaluation(), "kinetic_energy_ev": kinetic_energy_ev,
-            "total_energy_ev":total_energy_ev, "temperature_kelvin":temperature_kelvin,
-            "thermostat_heat_ev":state.heat_ev,
-            "effective_energy_ev":effective_energy_ev
-        }),
-    )?;
+    let mut record = json!({
+        "kind":"frame", "step":md.system().step,
+        "time_fs": time_fs,
+        "frame":md.frame(), "velocities": velocities,
+        "evaluation":md.evaluation(), "kinetic_energy_ev": kinetic_energy_ev,
+        "total_energy_ev":total_energy_ev, "temperature_kelvin":temperature_kelvin,
+        "thermostat_heat_ev":state.heat_ev,
+        "effective_energy_ev":effective_energy_ev
+    });
+    if let Some((tensor, volume)) = pressure {
+        let bar = omnimd_mlmd::barostat::BAR_PER_EV_PER_ANGSTROM3;
+        record["volume_angstrom3"] = json!(volume);
+        record["pressure_bar"] = json!((tensor[0][0] + tensor[1][1] + tensor[2][2]) / 3. * bar);
+        record["pressure_tensor_bar"] = json!(tensor.map(|row| row.map(|p| p * bar)));
+    }
+    if state.ensemble.is_variable_cell() {
+        record["barostat_work_ev"] = json!(state.barostat_work_ev);
+    }
+    serde_json::to_writer(&mut *writer, &record)?;
     writer.write_all(b"\n")?;
     Ok(())
 }
@@ -478,6 +491,9 @@ fn write_checkpoint<P: Potential>(
         fixed.validate(&md.frame())?;
         checkpoint.schema_version = 3;
         checkpoint.fixed_parameters = Some(fixed.clone());
+    }
+    if state.ensemble.is_variable_cell() {
+        checkpoint.schema_version = 4;
     }
     let mut file = fs::OpenOptions::new()
         .write(true)
@@ -514,7 +530,7 @@ fn worker(input: &Path, output: Option<&Path>) -> Result<(), Box<dyn Error>> {
         .open(output)?;
     let mut writer = BufWriter::new(file);
     let mut header = json!({
-        "kind":"header", "schema":if fixed_parameters.is_some() {"omnimd-mlmd-jsonl-v3"} else {"omnimd-mlmd-jsonl-v2"}, "ensemble":state.ensemble,
+        "kind":"header", "schema":if state.ensemble.is_variable_cell() {"omnimd-mlmd-jsonl-v4"} else if fixed_parameters.is_some() {"omnimd-mlmd-jsonl-v3"} else {"omnimd-mlmd-jsonl-v2"}, "ensemble":state.ensemble,
         "dynamics_units":request.dynamics_units,
         "metadata":md.metadata(), "timestep_fs":request.timestep_fs,
         "dataset_frame":request.dataset_frame,
@@ -533,15 +549,16 @@ fn worker(input: &Path, output: Option<&Path>) -> Result<(), Box<dyn Error>> {
     writer.write_all(b"\n")?;
     write_snapshot(&mut writer, &md, &state)?;
     let initial = md.total_energy_ev();
-    let initial_effective = initial - state.heat_ev;
+    let initial_effective = initial - state.heat_ev - state.barostat_work_ev;
     let mut max_drift = 0.0_f64;
     let mut max_effective_drift = 0.0_f64;
     for step in 1..=request.steps {
         state.advance(&mut md)?;
         let total_energy_ev = md.total_energy_ev();
         max_drift = max_drift.max((total_energy_ev - initial).abs());
-        max_effective_drift =
-            max_effective_drift.max((total_energy_ev - state.heat_ev - initial_effective).abs());
+        max_effective_drift = max_effective_drift.max(
+            (total_energy_ev - state.heat_ev - state.barostat_work_ev - initial_effective).abs(),
+        );
         if step % request.sample_every == 0 || step == request.steps {
             write_snapshot(&mut writer, &md, &state)?;
             writer.flush()?;
@@ -571,7 +588,9 @@ fn worker(input: &Path, output: Option<&Path>) -> Result<(), Box<dyn Error>> {
             "initial_total_energy_ev":initial, "final_total_energy_ev":md.total_energy_ev(),
             "max_absolute_energy_drift_ev":nve_drift,
             "max_absolute_effective_energy_drift_ev":max_effective_drift,
-            "thermostat_heat_ev":state.heat_ev, "checkpoint":restart_output
+            "thermostat_heat_ev":state.heat_ev, "barostat_work_ev":state.barostat_work_ev,
+            "barostat_moves":state.barostat_moves, "barostat_refused":state.barostat_refused,
+            "checkpoint":restart_output
         }),
     )?;
     writer.write_all(b"\n")?;
@@ -596,7 +615,7 @@ fn run() -> Result<(), Box<dyn Error>> {
 Usage:\n  omnimd-mlmd prepare-labels REQUEST.json NEW_DIRECTORY | import-labels REQUEST.json NEW_DIRECTORY\n  omnimd-mlmd model-deviation REQUEST.json NEW_DEVIATIONS.jsonl | select-dataset REQUEST.json NEW_DIRECTORY\n  omnimd-mlmd train-native TRAIN.json\n  omnimd-mlmd minimize REQUEST.json NEW_MINIMIZATION.jsonl\n  omnimd-mlmd import-xyz IMPORT.json NEW_DATASET.jsonl\n  omnimd-mlmd capabilities\n  omnimd-mlmd model-info OPTIONS.json NEW_INFO.json\n  omnimd-mlmd inspect-dataset DATASET.jsonl NEW_REPORT.json\n  omnimd-mlmd import-deepmd IMPORT.json NEW_DATASET.jsonl\n  omnimd-mlmd batch-eval EVAL.json NEW_PREDICTIONS.jsonl\n  omnimd-mlmd run REQUEST.json NEW_TRAJECTORY.jsonl\n\
   omnimd-mlmd check REQUEST.json\n\
   omnimd-mlmd REQUEST.json NEW_TRAJECTORY.jsonl\n\
-Units: angstrom, fs, u, K, eV. Ensembles: nve, nvt_csvr.\n\
+Units: angstrom, fs, u, K, eV, bar. Ensembles: nve, nvt_csvr, npt_csvr_crescale.\n\
 Use explicit velocities or seeded initialize_velocities; restart preserves RNG state.\n\
 Configuration: mlmd/engine/README.md"
         );
