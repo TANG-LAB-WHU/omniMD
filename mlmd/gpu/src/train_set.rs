@@ -67,7 +67,12 @@ __device__ void row_sync(const RowGroup& g) {
     if (g.wide) __syncthreads(); else __syncwarp();
 }
 
-template <typename T>
+// The dot products of a row run in U partial sums: one sum is a chain in
+// which every multiply-add waits for the one before it, and with one group
+// of threads per row that chain is what a layer of many inputs waits for in
+// float32 (U = 8). Float64 is bound by the double-precision units and
+// measures fastest with a single sum.
+template <typename T, int U>
 __device__ void set_forward(const T* x, const T* xdot, const int* ids, long long rows,
         const int* shape, const int* cols, const int* offsets, int layers, const T* theta,
         int strip_width, int record_width, T* strip, T* p1, T* p2, T* zd, T* phi, T* out,
@@ -101,11 +106,25 @@ __device__ void set_forward(const T* x, const T* xdot, const int* ids, long long
         int oc = cols[3 * l + 1];
         long long rec = row * record_width + cols[3 * l + 2];
         for (int j = lane; j < on; j += stride) {
+            T zs[U], zds[U];
+            for (int u = 0; u < U; ++u) zs[u] = zds[u] = T(0);
+            const T* wj = w + j;
+            int i = 0;
+            for (; i + U <= in; i += U)
+                for (int u = 0; u < U; ++u) {
+                    T weight = wj[(long long)(i + u) * on];
+                    zs[u] += a[i + u] * weight;
+                    zds[u] += ad[i + u] * weight;
+                }
+            for (; i < in; ++i) {
+                T weight = wj[(long long)i * on];
+                zs[0] += a[i] * weight;
+                zds[0] += ad[i] * weight;
+            }
             T z = b[j], zdot = T(0);
-            for (int i = 0; i < in; ++i) {
-                T weight = w[(long long)i * on + j];
-                z += a[i] * weight;
-                zdot += ad[i] * weight;
+            for (int u = 0; u < U; ++u) {
+                z += zs[u];
+                zdot += zds[u];
             }
             T v, d1, d2;
             activate2(act, z, &v, &d1, &d2);
@@ -135,7 +154,7 @@ __device__ void set_forward(const T* x, const T* xdot, const int* ids, long long
 // 2r + 1) from the adjoints of the outputs and of their tangents; `adj` is
 // scratch of the same shape for the adjoints of the hidden outputs. With
 // xbar, also the adjoints of the inputs and of their tangents.
-template <typename T>
+template <typename T, int U>
 __device__ void set_backward(const int* ids, long long rows, const int* shape, const int* cols,
         const int* offsets, int layers, const T* theta, int record_width, const T* p1,
         const T* p2, const T* zd, const T* phi, const T* ybar, const T* ydotbar, T* zz, T* adj,
@@ -169,10 +188,22 @@ __device__ void set_backward(const int* ids, long long rows, const int* shape, c
         int pc = l > 0 ? cols[3 * (l - 1) + 2] : 0;
         for (int i = lane; i < in; i += stride) {
             const T* wi = w + (long long)i * on;
+            T ss[U], sds[U];
+            for (int u = 0; u < U; ++u) ss[u] = sds[u] = T(0);
+            int j = 0;
+            for (; j + U <= on; j += U)
+                for (int u = 0; u < U; ++u) {
+                    ss[u] += zb[rc + j + u] * wi[j + u];
+                    sds[u] += zdb[rc + j + u] * wi[j + u];
+                }
+            for (; j < on; ++j) {
+                ss[0] += zb[rc + j] * wi[j];
+                sds[0] += zdb[rc + j] * wi[j];
+            }
             T s = T(0), sd = T(0);
-            for (int j = 0; j < on; ++j) {
-                s += zb[rc + j] * wi[j];
-                sd += zdb[rc + j] * wi[j];
+            for (int u = 0; u < U; ++u) {
+                s += ss[u];
+                sd += sds[u];
             }
             if (residual) {
                 for (int j = i; j < on; j += in) {
@@ -254,20 +285,20 @@ __device__ void set_gradient(const int* jobs, int njobs, const int* tiles, int n
     }
 }
 
-#define INSTANTIATE(T, S)                                                                     \
+#define INSTANTIATE(T, S, U)                                                                  \
 extern "C" __global__ void set_forward_##S(const T* x, const T* xdot, const int* ids,         \
         long long rows, const int* shape, const int* cols, const int* offsets, int layers,    \
         const T* theta, int strip_width, int record_width, T* strip, T* p1, T* p2, T* zd,     \
         T* phi, T* out, T* dout, int wide) {                                                  \
-    set_forward<T>(x, xdot, ids, rows, shape, cols, offsets, layers, theta, strip_width,      \
+    set_forward<T, U>(x, xdot, ids, rows, shape, cols, offsets, layers, theta, strip_width,   \
                    record_width, strip, p1, p2, zd, phi, out, dout, wide);                    \
 }                                                                                             \
 extern "C" __global__ void set_backward_##S(const int* ids, long long rows, const int* shape, \
         const int* cols, const int* offsets, int layers, const T* theta, int record_width,    \
         const T* p1, const T* p2, const T* zd, const T* phi, const T* ybar,                   \
         const T* ydotbar, T* zz, T* adj, T* dtacc, T* xbar, T* xdbar, int wide) {             \
-    set_backward<T>(ids, rows, shape, cols, offsets, layers, theta, record_width, p1, p2, zd, \
-                    phi, ybar, ydotbar, zz, adj, dtacc, xbar, xdbar, wide);                   \
+    set_backward<T, U>(ids, rows, shape, cols, offsets, layers, theta, record_width, p1, p2,  \
+                       zd, phi, ybar, ydotbar, zz, adj, dtacc, xbar, xdbar, wide);            \
 }                                                                                             \
 extern "C" __global__ void set_gradient_##S(const int* jobs, int njobs, const int* tiles,   \
         int ntiles, const int* shape, const int* cols, const int* offsets, int layers,        \
@@ -276,8 +307,8 @@ extern "C" __global__ void set_gradient_##S(const int* jobs, int njobs, const in
     set_gradient<T>(jobs, njobs, tiles, ntiles, shape, cols, offsets, layers, strip,          \
                     strip_width, zz, dtacc, record_width, gradient);                          \
 }
-INSTANTIATE(float, f32)
-INSTANTIATE(double, f64)
+INSTANTIATE(float, f32, 8)
+INSTANTIATE(double, f64, 1)
 "#;
 
 /// Warps per block of the row kernels.
