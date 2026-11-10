@@ -56,13 +56,15 @@ jobs:
           cargo build --locked --manifest-path $MLMD_MANIFEST
           -p omnimd-mlmd -p omnimd-native
           --features omnimd-mlmd/native-cuda,omnimd-native/cuda --bins
-      # The omnimd-gpu path: device tests skip without a driver, host-side
-      # tests (shapes, binning, cache keys) still run.
+      # The omnimd-gpu path, including the engine built against it: device
+      # tests skip without a driver, host-side tests (shapes, binning, cache
+      # keys, request validation) still run.
       - name: Test GPU feature (no GPU)
         shell: bash
         run: >
           cargo test --locked --manifest-path $MLMD_MANIFEST
-          -p omnimd-gpu -p omnimd-native --features omnimd-native/gpu
+          -p omnimd-gpu -p omnimd-native -p omnimd-mlmd
+          --features omnimd-native/gpu,omnimd-mlmd/native-gpu
 
   clippy:
     name: Clippy (advisory)

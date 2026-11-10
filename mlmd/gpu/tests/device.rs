@@ -493,6 +493,335 @@ fn scalar_table_interpolates_and_flags_inputs_outside_its_range() {
         let at_end = expected(&[end], 0);
         assert!(max_error(y[5 * width..6 * width].to_vec(), &at_end) < 1e-11);
     }
+
+    // The same table continued to 5 by a tail with ten times the step.
+    let tail_sample = |order: usize| -> Vec<f64> {
+        (0..=30)
+            .flat_map(|i| {
+                let x = 2.0 + i as f64 * 0.1;
+                (0..width).map(move |m| {
+                    let k = (m + 1) as f64;
+                    match order {
+                        0 => (k * x).sin(),
+                        1 => k * (k * x).cos(),
+                        _ => -k * k * (k * x).sin(),
+                    }
+                })
+            })
+            .collect()
+    };
+    let tail = omnimd_gpu::quintic_coefficients(
+        0.1,
+        width,
+        &tail_sample(0),
+        &tail_sample(1),
+        &tail_sample(2),
+    )
+    .unwrap();
+    let table = omnimd_gpu::ScalarTable::<f64>::with_tail(
+        device,
+        lower,
+        step,
+        width,
+        &coefficients,
+        0.1,
+        &tail,
+    )
+    .unwrap();
+    assert_eq!((table.intervals(), table.tail_intervals()), (300, 30));
+    // Main part, the junction, inside the tail and its far end.
+    let x = [-0.3, 1.999, 2.0, 2.004, 3.21, 4.95, 5.0];
+    let (mut y, mut dy) = (
+        device.upload(&vec![f64::NAN; x.len() * width]).unwrap(),
+        device.upload(&vec![f64::NAN; x.len() * width]).unwrap(),
+    );
+    let mut flag = device.zeros::<i32>(1).unwrap();
+    let mut evaluate = |x: &[f64]| {
+        table
+            .forward_tangent_into(
+                device,
+                &device.upload(x).unwrap(),
+                x.len(),
+                &mut y,
+                &mut dy,
+                &mut flag,
+            )
+            .unwrap();
+        (
+            device.download(&y).unwrap(),
+            device.download(&dy).unwrap(),
+            device.download(&flag).unwrap()[0],
+        )
+    };
+    let (values, slopes, flagged) = evaluate(&x);
+    assert_eq!(flagged, 0);
+    // Tail error ~ 0.1^6 k^6 / 46080 = 3e-7 for k = 5.
+    assert!(max_error(values, &expected(&x, 0)) < 1e-6);
+    assert!(max_error(slopes, &expected(&x, 1)) < 1e-4);
+    // Past the tail: flagged and held at its end.
+    let mut beyond = x;
+    beyond[3] = 5.5;
+    let (values, _, flagged) = evaluate(&beyond);
+    assert_eq!(flagged, 1);
+    assert!(max_error(values[3 * width..4 * width].to_vec(), &expected(&[5.0], 0)) < 1e-6);
+}
+
+fn layer_parameters<T: omnimd_gpu::Scalar>(
+    layers: &[CpuLayer],
+) -> Vec<omnimd_gpu::LayerParameters<T>> {
+    let cast = |v: &[f64]| v.iter().map(|&x| T::from_f64(x)).collect::<Vec<T>>();
+    layers
+        .iter()
+        .map(|l| omnimd_gpu::LayerParameters {
+            input: l.input,
+            output: l.output,
+            weights: cast(&l.weights),
+            bias: cast(&l.bias),
+            timestep: l.timestep.as_deref().map(cast),
+            activation: l.activation,
+            residual: l.residual,
+        })
+        .collect()
+}
+
+/// Value and input gradient of a scalar-output chain for one row, on the CPU.
+fn cpu_value_and_gradient(layers: &[CpuLayer], x: &[f64]) -> (f64, Vec<f64>) {
+    let mut inputs = vec![x.to_vec()];
+    let mut slopes = Vec::new();
+    for layer in layers {
+        let (y, s) = layer.forward(inputs.last().unwrap(), 1);
+        inputs.push(y);
+        slopes.push(s);
+    }
+    let mut adjoint = vec![1.0];
+    for (layer, slope) in layers.iter().zip(&slopes).rev() {
+        let mut previous = vec![0.0; layer.input];
+        for (i, p) in previous.iter_mut().enumerate() {
+            *p = (0..layer.output)
+                .map(|j| adjoint[j] * slope[j] * layer.weights[i * layer.output + j])
+                .sum();
+        }
+        if layer.residual {
+            for (j, a) in adjoint.iter().enumerate() {
+                previous[j % layer.input] += a;
+            }
+        }
+        adjoint = previous;
+    }
+    (inputs.last().unwrap()[0], adjoint)
+}
+
+#[test]
+fn fused_networks_select_one_of_a_set_per_row() {
+    let Some(device) = device() else { return };
+    // Three embedding nets of one shape with different parameters.
+    let nets: Vec<Vec<CpuLayer>> = (0..3)
+        .map(|k| {
+            vec![
+                CpuLayer::random(1, 20, Activation::Tanh, false, false, 700 + 50 * k),
+                CpuLayer::random(20, 40, Activation::Tanh, true, false, 710 + 50 * k),
+                CpuLayer::random(40, 40, Activation::Tanh, true, true, 720 + 50 * k),
+            ]
+        })
+        .collect();
+    let rows = 517;
+    let x: Vec<f64> = values(rows, 760).iter().map(|v| 0.5 * (v + 1.0)).collect();
+    let ids: Vec<i32> = (0..rows).map(|r| ((r * 7 + r / 5) % 3) as i32).collect();
+    let mut expected = vec![0.0; rows * 40];
+    for r in 0..rows {
+        let y = cpu_chain(&nets[ids[r] as usize], &x[r..r + 1], 1);
+        expected[r * 40..(r + 1) * 40].copy_from_slice(&y);
+    }
+    let parameters: Vec<_> = nets.iter().map(|n| layer_parameters::<f64>(n)).collect();
+    let set = omnimd_gpu::ScalarNetwork::new_set(device, &parameters).unwrap();
+    assert_eq!((set.networks(), set.output()), (3, 40));
+    let (mut y, mut dy) = (
+        device.upload(&vec![f64::NAN; rows * 40]).unwrap(),
+        device.upload(&vec![f64::NAN; rows * 40]).unwrap(),
+    );
+    let (xd, idsd) = (device.upload(&x).unwrap(), device.upload(&ids).unwrap());
+    set.forward_tangent_by_id(device, &xd, &idsd, rows, &mut y, &mut dy)
+        .unwrap();
+    assert!(max_error(device.download(&y).unwrap(), &expected) < 1e-12);
+    assert!(device.download(&dy).unwrap().iter().all(|v| v.is_finite()));
+    // A set needs ids; networks of different shapes do not form a set.
+    assert!(set
+        .forward_tangent_into(device, &xd, rows, &mut y, &mut dy)
+        .is_err());
+    let mut odd = parameters.clone();
+    odd[1][2].residual = false;
+    assert!(omnimd_gpu::ScalarNetwork::new_set(device, &odd).is_err());
+
+    // The same nets as tables: each row is looked up in its own table.
+    let (lower, step, knots) = (0.0, 0.01, 101);
+    let tables: Vec<omnimd_gpu::TableSegments> = nets
+        .iter()
+        .map(|net| {
+            // Value, slope and curvature at the knots by central differences
+            // of the CPU chain; accuracy is not the point of this check.
+            let h = 1e-4;
+            let at = |x: f64| cpu_chain(net, &[x], 1);
+            let (mut v, mut d, mut dd) = (Vec::new(), Vec::new(), Vec::new());
+            for k in 0..knots {
+                let x = lower + k as f64 * step;
+                let (m, c, p) = (at(x - h), at(x), at(x + h));
+                for j in 0..40 {
+                    v.push(c[j]);
+                    d.push((p[j] - m[j]) / (2.0 * h));
+                    dd.push((p[j] - 2.0 * c[j] + m[j]) / (h * h));
+                }
+            }
+            omnimd_gpu::TableSegments {
+                lower,
+                step,
+                coefficients: omnimd_gpu::quintic_coefficients(step, 40, &v, &d, &dd).unwrap(),
+                tail_step: step,
+                tail_coefficients: Vec::new(),
+            }
+        })
+        .collect();
+    let table = omnimd_gpu::ScalarTable::<f64>::new_set(device, 40, &tables).unwrap();
+    assert_eq!(table.tables(), 3);
+    let mut flag = device.zeros::<i32>(1).unwrap();
+    table
+        .forward_tangent_by_id(device, &xd, &idsd, rows, &mut y, &mut dy, &mut flag)
+        .unwrap();
+    assert_eq!(device.download(&flag).unwrap()[0], 0);
+    // Knot data from finite differences limits this to ~1e-6.
+    assert!(max_error(device.download(&y).unwrap(), &expected) < 1e-5);
+}
+
+#[test]
+fn gradient_network_matches_cpu_value_and_gradient() {
+    let Some(device) = device() else { return };
+    // Two shapes: every layer feature at small widths, and a fitting-like net
+    // wider than a block (so each thread owns several neurons and inputs).
+    let small = |seed: u64| {
+        vec![
+            CpuLayer::random(6, 12, Activation::Tanh, true, false, seed),
+            CpuLayer::random(12, 12, Activation::Softplus, true, true, seed + 10),
+            CpuLayer::random(12, 3, Activation::Sigmoid, false, false, seed + 20),
+            CpuLayer::random(3, 1, Activation::Linear, false, false, seed + 30),
+        ]
+    };
+    let scaled = |mut layer: CpuLayer| {
+        // Keep wide layers out of saturation.
+        let scale = 1.0 / (layer.input as f64).sqrt();
+        layer.weights.iter_mut().for_each(|w| *w *= scale);
+        layer
+    };
+    let wide = |seed: u64| {
+        vec![
+            scaled(CpuLayer::random(
+                600,
+                300,
+                Activation::Tanh,
+                false,
+                false,
+                seed,
+            )),
+            scaled(CpuLayer::random(
+                300,
+                300,
+                Activation::Tanh,
+                true,
+                true,
+                seed + 10,
+            )),
+            scaled(CpuLayer::random(
+                300,
+                1,
+                Activation::Linear,
+                false,
+                false,
+                seed + 20,
+            )),
+        ]
+    };
+    for (label, nets, rows) in [
+        ("small", vec![small(800), small(900)], 37usize),
+        ("wide", vec![wide(1000), wide(1100), wide(1200)], 11),
+    ] {
+        let input = nets[0][0].input;
+        let x = values(rows * input, 1300);
+        let ids: Vec<i32> = (0..rows).map(|r| (r % nets.len()) as i32).collect();
+        let (mut value, mut gradient) = (Vec::new(), Vec::new());
+        for r in 0..rows {
+            let (v, g) = cpu_value_and_gradient(&nets[ids[r] as usize], &x[r * input..][..input]);
+            value.push(v);
+            gradient.extend(g);
+        }
+        let parameters: Vec<_> = nets.iter().map(|n| layer_parameters::<f64>(n)).collect();
+        let network = omnimd_gpu::GradientNetwork::new_set(device, &parameters).unwrap();
+        assert_eq!((network.networks(), network.input()), (nets.len(), input));
+        let (mut v, mut g) = (
+            device.upload(&vec![f64::NAN; rows]).unwrap(),
+            device.upload(&vec![f64::NAN; rows * input]).unwrap(),
+        );
+        let (xd, idsd) = (device.upload(&x).unwrap(), device.upload(&ids).unwrap());
+        network
+            .forward_gradient_into(device, &xd, Some(&idsd), rows, &mut v, &mut g)
+            .unwrap();
+        let scale = gradient.iter().fold(1.0_f64, |m, v| m.max(v.abs()));
+        assert!(
+            max_error(device.download(&v).unwrap(), &value) < 1e-12,
+            "{label}: value"
+        );
+        assert!(
+            max_error(device.download(&g).unwrap(), &gradient) < 1e-12 * scale,
+            "{label}: gradient"
+        );
+
+        let single = omnimd_gpu::GradientNetwork::new_set(
+            device,
+            &nets
+                .iter()
+                .map(|n| layer_parameters::<f32>(n))
+                .collect::<Vec<_>>(),
+        )
+        .unwrap();
+        let x32: Vec<f32> = x.iter().map(|&v| v as f32).collect();
+        let (mut v, mut g) = (
+            device.zeros::<f32>(rows).unwrap(),
+            device.zeros::<f32>(rows * input).unwrap(),
+        );
+        single
+            .forward_gradient_into(
+                device,
+                &device.upload(&x32).unwrap(),
+                Some(&idsd),
+                rows,
+                &mut v,
+                &mut g,
+            )
+            .unwrap();
+        let widen = |v: Vec<f32>| v.into_iter().map(f64::from).collect::<Vec<f64>>();
+        assert!(
+            max_error(widen(device.download(&v).unwrap()), &value) < 1e-4,
+            "{label}: f32 value"
+        );
+        assert!(
+            max_error(widen(device.download(&g).unwrap()), &gradient) < 1e-4 * scale,
+            "{label}: f32 gradient"
+        );
+        // A set of several networks needs ids.
+        let none: Option<&omnimd_gpu::CudaSlice<i32>> = None;
+        assert!(network
+            .forward_gradient_into(
+                device,
+                &xd,
+                none,
+                rows,
+                &mut device.zeros(rows).unwrap(),
+                &mut device.zeros(rows * input).unwrap()
+            )
+            .is_err());
+    }
+    // More than one output is not a gradient network.
+    let vector = vec![CpuLayer::random(4, 2, Activation::Tanh, false, false, 1)];
+    assert!(
+        omnimd_gpu::GradientNetwork::new_set(device, &[layer_parameters::<f64>(&vector)]).is_err()
+    );
 }
 
 #[test]

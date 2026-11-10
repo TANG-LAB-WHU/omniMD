@@ -110,7 +110,11 @@ def load_data(path):
 
 
 def precision(obj, where):
-    need(obj['precision'] == 'float64', f'{where}: only explicit float64 precision is supported')
+    # "default" is DeepMD's global precision: float64 unless the model was built
+    # with DP_INTERFACE_PREC=low. Every stored array is separately required to
+    # be float64 (see `array` and `load_data`), so a float32 model still fails.
+    need(obj['precision'] in ('float64', 'default'),
+         f'{where}: only float64 precision (explicit or default) is supported')
 
 
 def activation(value, where):

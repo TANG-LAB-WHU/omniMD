@@ -23,3 +23,5 @@ py_literal = "=0.4.0"
 [features]
 default = []
 native-cuda = ["omnimd-native/cuda"]
+# The omnimd-gpu se_e2_a runtime, selected with options.gpu_runtime.
+native-gpu = ["omnimd-native/gpu"]

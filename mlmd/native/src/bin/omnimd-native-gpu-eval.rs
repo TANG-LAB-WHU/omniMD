@@ -12,7 +12,9 @@
 //! synchronized evaluation. `--chunk` overrides the per-chunk atom count.
 //! `--compress RMIN` tabulates the embedding nets for neighbor distances
 //! down to RMIN Å (table step 0.01 unless given); frames with closer pairs
-//! fall back to the exact networks.
+//! fall back to the exact networks. `--fused-fitting ATOMS` sets the largest
+//! chunk whose fitting nets run in the single fused kernel instead of cuBLAS
+//! (0 disables it); the default suits an RTX 4090.
 use omnimd_gpu::{Device, Scalar};
 use omnimd_ml_contract::{Frame, Potential};
 use omnimd_native::{gpu_model::GpuPotential, NativePotential};
@@ -22,7 +24,7 @@ use std::time::Instant;
 
 const USAGE: &str = "usage: omnimd-native-gpu-eval MODEL.json [--precision float64|float32] \
                      [--bench K] [--profile] [--chunk ATOMS] [--compress RMIN[:STEP]] \
-                     < frames.jsonl";
+                     [--fused-fitting ATOMS] < frames.jsonl";
 
 struct Options {
     model: String,
@@ -31,6 +33,7 @@ struct Options {
     profile: bool,
     chunk: Option<usize>,
     compress: Option<(f64, f64)>,
+    fused_fitting: Option<usize>,
 }
 
 fn options() -> Result<Options, Box<dyn std::error::Error>> {
@@ -42,6 +45,7 @@ fn options() -> Result<Options, Box<dyn std::error::Error>> {
         profile: false,
         chunk: None,
         compress: None,
+        fused_fitting: None,
     };
     while let Some(flag) = args.next() {
         let mut value = || args.next().ok_or(USAGE);
@@ -55,6 +59,7 @@ fn options() -> Result<Options, Box<dyn std::error::Error>> {
             }
             "--bench" => options.bench = value()?.parse()?,
             "--chunk" => options.chunk = Some(value()?.parse()?),
+            "--fused-fitting" => options.fused_fitting = Some(value()?.parse()?),
             "--compress" => {
                 let text = value()?;
                 let (rmin, step) = text.split_once(':').unwrap_or((&text, "0.01"));
@@ -75,6 +80,9 @@ fn evaluate<P: Scalar>(
     let mut gpu = GpuPotential::<P>::new(model.model(), device)?;
     if let Some(chunk) = options.chunk {
         gpu.set_chunk_atoms(chunk);
+    }
+    if let Some(atoms) = options.fused_fitting {
+        gpu.set_fused_fitting_max_atoms(atoms);
     }
     if let Some((min_distance, step)) = options.compress {
         gpu.compress(min_distance, step)?;
@@ -99,6 +107,9 @@ fn evaluate<P: Scalar>(
         let frame: Frame =
             serde_json::from_str(&line).map_err(|e| format!("frame {}: {e}", line_number + 1))?;
         let evaluation = gpu.eval(&frame)?;
+        if gpu.table_fallbacks() > 0 && line_number == 0 {
+            eprintln!("note: frame 1 left the embedding table range; the exact networks were used");
+        }
         if gpu.last_truncated() {
             eprintln!(
                 "warning: frame {} has more neighbors than sel; nearest kept",
@@ -115,7 +126,8 @@ fn evaluate<P: Scalar>(
             eprintln!(
                 "{}",
                 serde_json::json!({"frame": line_number + 1, "natoms": frame.positions.len(),
-                    "precision": P::SUFFIX, "ms_per_eval": ms, "evaluations": options.bench})
+                    "precision": P::SUFFIX, "ms_per_eval": ms, "evaluations": options.bench,
+                    "table_fallbacks": gpu.table_fallbacks()})
             );
         }
         if options.profile {

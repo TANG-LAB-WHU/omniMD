@@ -3,11 +3,17 @@
 //! An embedding net is a smooth function of one number, so it can be
 //! replaced by a piecewise quintic polynomial per output: on each interval
 //! of width `step` the polynomial matches the value, first and second
-//! derivative at both ends. With `step = 0.01` the difference from the
-//! network is at float64 rounding level, at about a tenth of the arithmetic
-//! and none of its intermediate storage.
+//! derivative at both ends. With `step = 0.01` the difference from a smooth
+//! network is near rounding level, at about a tenth of the arithmetic and
+//! none of its intermediate storage.
 //!
-//! Inputs outside the table are clamped and flagged; the caller decides what
+//! A table may continue past its upper end with a coarser tail (DeePMD's
+//! extrapolation region), so rare large inputs stay tabulated without paying
+//! for fine knots there. Several tables of the same width form one
+//! [`ScalarTable`]; each row names the table it uses, so one launch serves
+//! every embedding net.
+//!
+//! Inputs outside a table are clamped and flagged; the caller decides what
 //! to do (the se_e2_a path re-evaluates that frame with the exact network).
 use crate::{check_len, cuda_error, Device, Scalar};
 use cudarc::driver::{
@@ -16,32 +22,55 @@ use cudarc::driver::{
 use omnimd_ml_contract::{Error, Result};
 
 const SOURCE: &str = r#"
-// coef: [intervals][width][6], polynomial in u = (x - lower)/step - interval.
+// coef: [intervals][width][6] for every table in turn, polynomial in the
+// position within an interval, u in [0, 1]. Table t: shape[3t..] = {intervals,
+// tail intervals, first interval in coef}, range[3t..] = {lower, 1/step,
+// step/tail step}. The tail intervals follow the main ones.
+//
+// One warp per row: the row's table and interval are found once per lane,
+// then the lanes stride over the outputs, so coefficients are read and
+// results written coalesced.
 template <typename T>
-__device__ void scalar_table(const T* x, long long rows, const T* coef, int width, int intervals,
-        T lower, T inverse_step, T* out, T* dout, int* flag) {
-    long long idx = (long long)blockIdx.x * blockDim.x + threadIdx.x;
-    if (idx >= rows * width) return;
-    long long row = idx / width;
-    int m = (int)(idx % width);
-    T position = (x[row] - lower) * inverse_step;
+__device__ void scalar_table(const T* x, const int* ids, long long rows, const T* coef,
+        int width, const int* shape, const T* range, T* out, T* dout, int* flag) {
+    int warps = blockDim.x >> 5, warp = threadIdx.x >> 5, lane = threadIdx.x & 31;
+    long long row = (long long)blockIdx.x * warps + warp;
+    if (row >= rows) return;
+    int table = ids ? ids[row] : 0;
+    int intervals = shape[3 * table], tail = shape[3 * table + 1];
+    long long first = shape[3 * table + 2];
+    T inverse_step = range[3 * table + 1];
+    T position = (x[row] - range[3 * table]) * inverse_step;
+    T slope_scale = inverse_step;
+    int count = intervals;
+    if (tail > 0 && position > T(intervals)) {
+        position = (position - T(intervals)) * range[3 * table + 2];
+        slope_scale = inverse_step * range[3 * table + 2];
+        count = tail;
+        first += intervals;
+    }
     // Rounding may leave an input a hair outside; anything more is reported.
-    if (!(position >= T(-1e-3) && position <= T(intervals) + T(1e-3))) *flag = 1;
+    if (!(position >= T(-1e-3) && position <= T(count) + T(1e-3))) *flag = 1;
     if (!(position > T(0))) position = T(0);
-    if (position > T(intervals)) position = T(intervals);
+    if (position > T(count)) position = T(count);
     int i = (int)position;
-    if (i >= intervals) i = intervals - 1;
+    if (i >= count) i = count - 1;
     T u = position - T(i);
-    const T* c = coef + ((long long)i * width + m) * 6;
-    out[idx] = c[0] + u * (c[1] + u * (c[2] + u * (c[3] + u * (c[4] + u * c[5]))));
-    dout[idx] = inverse_step
-        * (c[1] + u * (T(2) * c[2] + u * (T(3) * c[3] + u * (T(4) * c[4] + u * T(5) * c[5]))));
+    const T* interval = coef + (first + i) * width * 6;
+    for (int m = lane; m < width; m += 32) {
+        const T* c = interval + m * 6;
+        long long idx = row * width + m;
+        out[idx] = c[0] + u * (c[1] + u * (c[2] + u * (c[3] + u * (c[4] + u * c[5]))));
+        dout[idx] = slope_scale
+            * (c[1] + u * (T(2) * c[2] + u * (T(3) * c[3] + u * (T(4) * c[4] + u * T(5) * c[5]))));
+    }
 }
 
 #define INSTANTIATE(T, S)                                                                    \
-extern "C" __global__ void scalar_table_##S(const T* x, long long rows, const T* coef,       \
-        int width, int intervals, T lower, T inverse_step, T* out, T* dout, int* flag) {      \
-    scalar_table<T>(x, rows, coef, width, intervals, lower, inverse_step, out, dout, flag);  \
+extern "C" __global__ void scalar_table_##S(const T* x, const int* ids, long long rows,      \
+        const T* coef, int width, const int* shape, const T* range, T* out, T* dout,         \
+        int* flag) {                                                                         \
+    scalar_table<T>(x, ids, rows, coef, width, shape, range, out, dout, flag);               \
 }
 INSTANTIATE(float, f32)
 INSTANTIATE(double, f64)
@@ -99,18 +128,34 @@ pub fn quintic_coefficients(
     Ok(coefficients)
 }
 
-/// A piecewise quintic table on `[lower, lower + intervals·step]`.
+/// One table of a [`ScalarTable`]: `coefficients` from
+/// [`quintic_coefficients`] for knots every `step` from `lower`, continued
+/// by `tail_coefficients` (possibly empty) for knots every `tail_step` from
+/// the last main knot.
+#[derive(Clone, Debug)]
+pub struct TableSegments {
+    pub lower: f64,
+    pub step: f64,
+    pub coefficients: Vec<f64>,
+    pub tail_step: f64,
+    pub tail_coefficients: Vec<f64>,
+}
+
+/// Piecewise quintic tables of one output width; rows select a table by
+/// index.
 pub struct ScalarTable<T: Scalar> {
     width: usize,
-    intervals: usize,
-    lower: T,
-    inverse_step: T,
+    /// Per table: (main intervals, tail intervals).
+    intervals: Vec<(usize, usize)>,
+    shape: CudaSlice<i32>,
+    range: CudaSlice<T>,
     coefficients: CudaSlice<T>,
     function: CudaFunction,
 }
 
 impl<T: Scalar> ScalarTable<T> {
-    /// `coefficients` from [`quintic_coefficients`].
+    /// A single table without a tail; `coefficients` from
+    /// [`quintic_coefficients`].
     pub fn new(
         device: &Device,
         lower: f64,
@@ -118,23 +163,75 @@ impl<T: Scalar> ScalarTable<T> {
         width: usize,
         coefficients: &[f64],
     ) -> Result<Self> {
-        let intervals = coefficients.len() / (6 * width.max(1));
-        if width == 0
-            || intervals == 0
-            || coefficients.len() != intervals * width * 6
-            || i32::try_from(intervals).is_err()
-            || i32::try_from(width).is_err()
-            || !(lower.is_finite() && step.is_finite() && step > 0.0)
-        {
-            return Err(Error("invalid scalar table shape or range".into()));
+        Self::with_tail(device, lower, step, width, coefficients, step, &[])
+    }
+
+    /// A single table whose last knot is the first knot of a tail with
+    /// intervals of width `tail_step`.
+    pub fn with_tail(
+        device: &Device,
+        lower: f64,
+        step: f64,
+        width: usize,
+        coefficients: &[f64],
+        tail_step: f64,
+        tail_coefficients: &[f64],
+    ) -> Result<Self> {
+        Self::new_set(
+            device,
+            width,
+            &[TableSegments {
+                lower,
+                step,
+                coefficients: coefficients.to_vec(),
+                tail_step,
+                tail_coefficients: tail_coefficients.to_vec(),
+            }],
+        )
+    }
+
+    /// Several tables with `width` outputs each.
+    pub fn new_set(device: &Device, width: usize, tables: &[TableSegments]) -> Result<Self> {
+        let per_interval = 6 * width;
+        if width == 0 || tables.is_empty() || i32::try_from(width).is_err() {
+            return Err(Error("a scalar table set needs tables and a width".into()));
         }
-        let cast: Vec<T> = coefficients.iter().map(|&c| T::from_f64(c)).collect();
+        let (mut shape, mut range) = (Vec::new(), Vec::new());
+        let (mut intervals, mut values) = (Vec::new(), Vec::<T>::new());
+        for table in tables {
+            let main = table.coefficients.len() / per_interval;
+            let tail = table.tail_coefficients.len() / per_interval;
+            let first = values.len() / per_interval;
+            if main == 0
+                || table.coefficients.len() != main * per_interval
+                || table.tail_coefficients.len() != tail * per_interval
+                || i32::try_from(first + main + tail).is_err()
+                || !(table.lower.is_finite() && table.step.is_finite() && table.step > 0.0)
+                || !(table.tail_step.is_finite() && table.tail_step > 0.0)
+            {
+                return Err(Error("invalid scalar table shape or range".into()));
+            }
+            shape.extend([main as i32, tail as i32, first as i32]);
+            range.extend([
+                T::from_f64(table.lower),
+                T::from_f64(1.0 / table.step),
+                T::from_f64(table.step / table.tail_step),
+            ]);
+            values.extend(
+                table
+                    .coefficients
+                    .iter()
+                    .chain(&table.tail_coefficients)
+                    .map(|&c| T::from_f64(c)),
+            );
+            intervals.push((main, tail));
+        }
         Ok(Self {
             width,
             intervals,
-            lower: T::from_f64(lower),
-            inverse_step: T::from_f64(1.0 / step),
-            coefficients: device.upload(&cast)?,
+            shape: device.upload(&shape)?,
+            range: device.upload(&range)?,
+            coefficients: device.upload(&values)?,
             function: device
                 .kernels()
                 .function(SOURCE, &format!("scalar_table_{}", T::SUFFIX))?,
@@ -145,13 +242,27 @@ impl<T: Scalar> ScalarTable<T> {
         self.width
     }
 
-    pub fn intervals(&self) -> usize {
-        self.intervals
+    pub fn tables(&self) -> usize {
+        self.intervals.len()
     }
 
-    /// `out[rows][width]` and its derivative with respect to `x[rows]`.
-    /// `flag[0]` is set to 1 when some input lies outside the table (its
-    /// row is then evaluated at the nearest end).
+    /// Intervals of the first table's main part (its tail is not counted).
+    pub fn intervals(&self) -> usize {
+        self.intervals[0].0
+    }
+
+    pub fn tail_intervals(&self) -> usize {
+        self.intervals[0].1
+    }
+
+    /// Device bytes held by the coefficients.
+    pub fn bytes(&self) -> usize {
+        self.coefficients.len() * std::mem::size_of::<T>()
+    }
+
+    /// `out[rows][width]` and its derivative with respect to `x[rows]`, for a
+    /// single table. `flag[0]` is set to 1 when some input lies outside the
+    /// table (its row is then evaluated at the nearest end).
     pub fn forward_tangent_into(
         &self,
         device: &Device,
@@ -161,31 +272,72 @@ impl<T: Scalar> ScalarTable<T> {
         dout: &mut impl DevicePtrMut<T>,
         flag: &mut CudaSlice<i32>,
     ) -> Result<()> {
+        self.launch(device, x, None::<&CudaSlice<i32>>, rows, out, dout, flag)
+    }
+
+    /// Like [`Self::forward_tangent_into`], with row `r` looked up in table
+    /// `ids[r]` (which must be below [`Self::tables`]).
+    #[allow(clippy::too_many_arguments)]
+    pub fn forward_tangent_by_id(
+        &self,
+        device: &Device,
+        x: &impl DevicePtr<T>,
+        ids: &impl DevicePtr<i32>,
+        rows: usize,
+        out: &mut impl DevicePtrMut<T>,
+        dout: &mut impl DevicePtrMut<T>,
+        flag: &mut CudaSlice<i32>,
+    ) -> Result<()> {
+        self.launch(device, x, Some(ids), rows, out, dout, flag)
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn launch(
+        &self,
+        device: &Device,
+        x: &impl DevicePtr<T>,
+        ids: Option<&impl DevicePtr<i32>>,
+        rows: usize,
+        out: &mut impl DevicePtrMut<T>,
+        dout: &mut impl DevicePtrMut<T>,
+        flag: &mut CudaSlice<i32>,
+    ) -> Result<()> {
         check_len("scalar table input", x.len(), rows)?;
         check_len("scalar table output", out.len(), rows * self.width)?;
         check_len("scalar table tangent", dout.len(), rows * self.width)?;
-        let total = rows * self.width;
-        let blocks = total.div_ceil(BLOCK as usize);
-        if total == 0 || blocks > u32::MAX as usize || flag.len() == 0 {
+        match ids {
+            Some(ids) => check_len("table ids", ids.len(), rows)?,
+            None if self.tables() == 1 => {}
+            None => {
+                return Err(Error(format!(
+                    "a set of {} tables needs one table id per row",
+                    self.tables()
+                )))
+            }
+        }
+        // One warp per row.
+        let blocks = rows.div_ceil(BLOCK as usize / 32);
+        if rows == 0 || blocks > u32::MAX as usize || flag.len() == 0 {
             return Err(Error(format!(
                 "scalar table over {rows} rows is out of range"
             )));
         }
         let stream = device.stream();
         let (px, _g0) = x.device_ptr(stream);
+        let ids = ids.map(|i| i.device_ptr(stream));
+        let pids = ids.as_ref().map_or(0, |(pointer, _)| *pointer);
         let (pout, _g1) = out.device_ptr_mut(stream);
         let (pdout, _g2) = dout.device_ptr_mut(stream);
-        let (rows_i, width_i, intervals_i) =
-            (rows as i64, self.width as i32, self.intervals as i32);
+        let (rows_i, width_i) = (rows as i64, self.width as i32);
         let mut launch = stream.launch_builder(&self.function);
         launch
             .arg(&px)
+            .arg(&pids)
             .arg(&rows_i)
             .arg(&self.coefficients)
             .arg(&width_i)
-            .arg(&intervals_i)
-            .arg(&self.lower)
-            .arg(&self.inverse_step)
+            .arg(&self.shape)
+            .arg(&self.range)
             .arg(&pout)
             .arg(&pdout)
             .arg(flag);

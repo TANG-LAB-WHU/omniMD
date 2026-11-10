@@ -16,10 +16,10 @@ pub use cudarc::driver::{
     DeviceSlice, DriverError, LaunchConfig, PushKernelArg,
 };
 pub use dense::{Activation, DenseLayer, DenseNetwork, DenseTape};
-pub use fused::{LayerParameters, ScalarNetwork};
+pub use fused::{GradientNetwork, LayerParameters, ScalarNetwork};
 pub use kernels::{CacheStats, KernelCache};
 pub use nlist::{Cell, NeighborList, NeighborStats};
-pub use table::{quintic_coefficients, ScalarTable};
+pub use table::{quintic_coefficients, ScalarTable, TableSegments};
 
 use cudarc::cublas::{CudaBlas, Gemm, GemmConfig, StridedBatchedConfig};
 use cudarc::driver::{CudaContext, DeviceRepr, ValidAsZeroBits};

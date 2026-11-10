@@ -19,12 +19,36 @@ use std::{
     process::Command,
 };
 
+#[derive(Clone, Copy, Default, Deserialize, PartialEq, Debug)]
+#[serde(rename_all = "lowercase")]
+enum NetworkPrecision {
+    #[default]
+    Float64,
+    Float32,
+}
+
+/// Selects the omnimd-gpu se_e2_a runtime for a native model on `cuda:N`.
+#[derive(Clone, Copy, Default, Deserialize, PartialEq, Debug)]
+#[serde(deny_unknown_fields)]
+struct GpuRuntimeOptions {
+    /// Network precision; geometry, forces and virial are always float64.
+    #[serde(default)]
+    precision: NetworkPrecision,
+    /// Tabulate the embedding nets for neighbor distances down to this many
+    /// angstrom; closer pairs fall back to the exact networks.
+    compress_min_distance: Option<f64>,
+    /// Table step in the normalized radial input (default 0.01).
+    table_step: Option<f64>,
+}
+
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct NativeOptions {
     native_model: PathBuf,
     #[serde(default)]
     device: Device,
+    /// Absent: the CPU path, or the bounded `native-cuda` path on `cuda:N`.
+    gpu_runtime: Option<GpuRuntimeOptions>,
 }
 
 #[derive(Deserialize)]
@@ -40,9 +64,19 @@ enum Backend {
     Native(omnimd_native::NativePotential),
     #[cfg(feature = "native-cuda")]
     NativeCuda(omnimd_native::cuda::CudaPotential),
+    #[cfg(feature = "native-gpu")]
+    NativeGpu(Box<dyn Potential>),
 }
 
 impl BackendOptions {
+    /// The omnimd-gpu runtime options, when this request selects it.
+    fn gpu_runtime(&self) -> Option<GpuRuntimeOptions> {
+        match self {
+            Self::Native(options) => options.gpu_runtime,
+            Self::DeepMd(_) => None,
+        }
+    }
+
     fn device(&self) -> Device {
         match self {
             Self::DeepMd(options) => options.device,
@@ -61,6 +95,29 @@ impl BackendOptions {
         if !self.model_path().is_absolute() || !self.model_path().is_file() {
             return Err("model path must be an existing absolute file path".into());
         }
+        if let Some(runtime) = self.gpu_runtime() {
+            if self.device() == Device::Cpu {
+                return Err("gpu_runtime requires device cuda:N; omit gpu_runtime for CPU".into());
+            }
+            if runtime
+                .compress_min_distance
+                .is_some_and(|r| !(r.is_finite() && r > 0.0))
+                || runtime
+                    .table_step
+                    .is_some_and(|s| !(s.is_finite() && s > 0.0))
+            {
+                return Err(
+                    "gpu_runtime compress_min_distance and table_step must be positive".into(),
+                );
+            }
+            if runtime.table_step.is_some() && runtime.compress_min_distance.is_none() {
+                return Err("gpu_runtime table_step requires compress_min_distance".into());
+            }
+            #[cfg(not(feature = "native-gpu"))]
+            return Err("gpu_runtime requires a build with --features native-gpu".into());
+            #[cfg(feature = "native-gpu")]
+            return Ok(());
+        }
         #[cfg(not(feature = "native-cuda"))]
         if matches!(
             self,
@@ -69,7 +126,7 @@ impl BackendOptions {
                 ..
             })
         ) {
-            return Err("native CUDA inference requires a build with --features native-cuda; select device=cpu explicitly for CPU".into());
+            return Err("native CUDA inference requires a build with --features native-cuda (or select the omnimd-gpu runtime with gpu_runtime and --features native-gpu); select device=cpu explicitly for CPU".into());
         }
         Ok(())
     }
@@ -81,6 +138,28 @@ impl BackendOptions {
             Self::DeepMd(options) => Ok(Backend::DeepMd(unsafe { DeepMd::load(options) }?)),
             Self::Native(options) => {
                 let model = omnimd_native::NativePotential::load(&options.native_model)?;
+                #[cfg(feature = "native-gpu")]
+                if let (Some(runtime), Device::Cuda(index)) = (options.gpu_runtime, options.device)
+                {
+                    // Same fresh-worker contract as the other CUDA paths: the
+                    // selected device is the only visible one, ordinal zero.
+                    let ordinal = native_cuda_ordinal(
+                        index,
+                        std::env::var("CUDA_VISIBLE_DEVICES").ok().as_deref(),
+                        std::env::var("OMNIMD_CUDA_INDEX").ok().as_deref(),
+                    )?;
+                    let gpu_options = omnimd_native::gpu_model::GpuOptions {
+                        float32: runtime.precision == NetworkPrecision::Float32,
+                        compress: runtime
+                            .compress_min_distance
+                            .map(|r| (r, runtime.table_step.unwrap_or(0.01))),
+                    };
+                    return Ok(Backend::NativeGpu(omnimd_native::gpu_model::open(
+                        model.model(),
+                        ordinal as usize,
+                        gpu_options,
+                    )?));
+                }
                 match options.device {
                     Device::Cpu => Ok(Backend::Native(model)),
                     Device::Cuda(index) => {
@@ -114,7 +193,7 @@ impl BackendOptions {
 
 // Validate only the launch contract; this helper never loads a CUDA library.
 // Native Driver API indices use the same isolated visibility mapping as C API.
-#[cfg(any(feature = "native-cuda", test))]
+#[cfg(any(feature = "native-cuda", feature = "native-gpu", test))]
 fn native_cuda_ordinal(
     index: u32,
     visible: Option<&str>,
@@ -140,6 +219,8 @@ impl Potential for Backend {
             Self::Native(model) => model.metadata(),
             #[cfg(feature = "native-cuda")]
             Self::NativeCuda(model) => model.metadata(),
+            #[cfg(feature = "native-gpu")]
+            Self::NativeGpu(model) => model.metadata(),
         }
     }
     fn eval(
@@ -152,6 +233,8 @@ impl Potential for Backend {
             Self::Native(model) => model.eval(frame),
             #[cfg(feature = "native-cuda")]
             Self::NativeCuda(model) => model.eval(frame),
+            #[cfg(feature = "native-gpu")]
+            Self::NativeGpu(model) => model.eval(frame),
         }
     }
 }
@@ -589,6 +672,58 @@ mod backend_tests {
             .contains("--features native-cuda"));
         #[cfg(feature = "native-cuda")]
         cuda.validate().unwrap(); // Validation only: never construct a GPU potential.
+    }
+    #[test]
+    fn gpu_runtime_options_are_validated_before_any_driver_load() {
+        let model =
+            Path::new(env!("CARGO_MANIFEST_DIR")).join("../native/fixtures/full-tanh-v1.json");
+        let parse = |device: Option<&str>, runtime: serde_json::Value| {
+            let mut value = json!({"native_model": model, "gpu_runtime": runtime});
+            if let Some(device) = device {
+                value["device"] = json!(device);
+            }
+            serde_json::from_value::<BackendOptions>(value)
+        };
+        // The runtime needs a CUDA device.
+        let cpu = parse(None, json!({})).unwrap();
+        assert!(cpu
+            .validate()
+            .unwrap_err()
+            .to_string()
+            .contains("requires device cuda"));
+        let gpu = parse(
+            Some("cuda:0"),
+            json!({"precision": "float32", "compress_min_distance": 0.5}),
+        )
+        .unwrap();
+        let runtime = gpu.gpu_runtime().unwrap();
+        assert_eq!(runtime.precision, NetworkPrecision::Float32);
+        assert_eq!(runtime.compress_min_distance, Some(0.5));
+        #[cfg(not(feature = "native-gpu"))]
+        assert!(gpu
+            .validate()
+            .unwrap_err()
+            .to_string()
+            .contains("--features native-gpu"));
+        #[cfg(feature = "native-gpu")]
+        gpu.validate().unwrap(); // Validation only: never construct a GPU potential.
+        assert_eq!(
+            parse(Some("cuda:1"), json!({})).unwrap().gpu_runtime(),
+            Some(GpuRuntimeOptions::default())
+        );
+        for bad in [
+            json!({"compress_min_distance": 0.0}),
+            json!({"table_step": 0.01}),
+            json!({"compress_min_distance": 0.5, "table_step": -1.0}),
+        ] {
+            assert!(parse(Some("cuda:0"), bad).unwrap().validate().is_err());
+        }
+        // Unknown precisions and fields do not parse.
+        for bad in [json!({"precision": "float16"}), json!({"tables": true})] {
+            assert!(parse(Some("cuda:0"), bad).is_err());
+        }
+        // Without gpu_runtime, cuda:N still means the bounded native-cuda path.
+        assert_eq!(native_options(Some("cuda:0")).gpu_runtime(), None);
     }
     #[test]
     fn parameter_requests_reject_native_and_cuda_before_loading_backends() {

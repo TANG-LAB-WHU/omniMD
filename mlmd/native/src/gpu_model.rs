@@ -20,8 +20,8 @@
 use crate::{Activation, Model, Network, Residual};
 use omnimd_gpu::{
     Activation as DeviceActivation, Cell, CudaFunction, CudaSlice, DenseLayer, DenseNetwork,
-    Device, LaunchConfig, LayerParameters, NeighborList, PushKernelArg, Scalar, ScalarNetwork,
-    ScalarTable,
+    Device, GradientNetwork, LaunchConfig, LayerParameters, NeighborList, PushKernelArg, Scalar,
+    ScalarNetwork, ScalarTable, TableSegments,
 };
 use omnimd_ml_contract::{Error, Evaluation, Frame, ModelMetadata, Potential, Result, Units};
 use std::sync::Arc;
@@ -42,8 +42,8 @@ __device__ long long embed_row(int count, int i, int t, int local, const int* se
 template <typename P>
 __device__ void env_impl(const int* index, const double* delta, const int* atype, const double* davg,
         const double* dstd, const int* slot_type, const int* slot_local, const int* sel,
-        const int* offset, int first, int count, int slots, double rmin, double rmax, double* env,
-        P* radial) {
+        const int* offset, int first, int count, int slots, int ntypes, double rmin, double rmax,
+        double* env, P* radial, int* network) {
     long long idx = (long long)blockIdx.x * blockDim.x + threadIdx.x;
     if (idx >= (long long)count * slots) return;
     int li = (int)(idx / slots), s = (int)(idx % slots), i = first + li, c = atype[i];
@@ -61,7 +61,10 @@ __device__ void env_impl(const int* index, const double* delta, const int* atype
         r4[a] = (r4[a] - davg[4 * c + a]) / dstd[4 * c + a];
         env[4 * idx + a] = r4[a];
     }
-    radial[embed_row(count, li, slot_type[s], slot_local[s], sel, offset)] = (P)r4[0];
+    long long row = embed_row(count, li, slot_type[s], slot_local[s], sel, offset);
+    radial[row] = (P)r4[0];
+    // Embedding net of this row: (center type, neighbor type).
+    network[row] = c * ntypes + slot_type[s];
 }
 
 // One block per atom: B[m][a] = sum_s G[s][m] env[s][a] / slots (float64),
@@ -202,9 +205,10 @@ __device__ void backward_impl(const double* env, const P* g, const P* dg, const 
 extern "C" __global__ void se_e2_a_env_##S(const int* index, const double* delta,                 \
         const int* atype, const double* davg, const double* dstd, const int* slot_type,           \
         const int* slot_local, const int* sel, const int* offset, int first, int count,           \
-        int slots, double rmin, double rmax, double* env, P* radial) {                            \
+        int slots, int ntypes, double rmin, double rmax, double* env, P* radial,                  \
+        int* network) {                                                                           \
     env_impl<P>(index, delta, atype, davg, dstd, slot_type, slot_local, sel, offset, first,       \
-                count, slots, rmin, rmax, env, radial);                                           \
+                count, slots, ntypes, rmin, rmax, env, radial, network);                          \
 }                                                                                                 \
 extern "C" __global__ void se_e2_a_descriptor_##S(const double* env, const P* g,                  \
         const int* slot_type, const int* slot_local, const int* sel, const int* offset,           \
@@ -227,6 +231,19 @@ INSTANTIATE(double, f64)
 const BLOCK: u32 = 128;
 /// Static shared-memory limit per block without opting in to more.
 const SHARED_LIMIT: usize = 48 * 1024;
+/// The embedding tables continue below `min_distance` down to
+/// `min_distance / TAIL_REACH` with `TAIL_STEP_FACTOR` times the step
+/// (DeePMD's defaults: extrapolate 5, stride ratio 10).
+const TAIL_REACH: f64 = 5.0;
+const TAIL_STEP_FACTOR: f64 = 10.0;
+/// Float32 chunks of at most this many atoms per center type run the fitting
+/// nets in the fused kernel instead of layer-by-layer cuBLAS, whose fixed cost
+/// (a dozen launches per type) dominates below that. Float64 always uses the
+/// fused kernel: both paths are bound by the double-precision units there and
+/// the fused one has no fixed cost. Measured on an RTX 4090 with
+/// [240, 240, 240] fitting nets on 1600 descriptor components (fitting stage,
+/// 2 types: 192 atoms 0.20 vs 0.32 ms, 1536 atoms 0.89 vs 0.30 ms).
+const FUSED_FITTING_ATOMS_PER_TYPE_F32: usize = 256;
 /// Fraction of the free device memory one chunk of per-atom work may use.
 const MEMORY_FRACTION: f64 = 0.5;
 
@@ -262,16 +279,24 @@ pub struct GpuPotential<P: Scalar> {
     width: usize,
     axis: usize,
     bias: Vec<f64>,
-    /// `[center type][neighbor type]`.
-    embedding: Vec<Vec<ScalarNetwork<P>>>,
+    /// Every embedding net in one set; net `center type · ntypes + neighbor
+    /// type` (the ids the environment kernel writes).
+    embedding: ScalarNetwork<P>,
     /// Host copies of the embedding nets and the radial (mean, std) per
     /// center type, for building tables.
     embedding_host: Vec<Vec<Network>>,
     radial_normalization: Vec<(f64, f64)>,
-    /// Tabulated embedding nets, when compressed.
-    tables: Option<Vec<Vec<ScalarTable<P>>>>,
+    /// Tabulated embedding nets in the same order, when compressed.
+    tables: Option<ScalarTable<P>>,
     table_fallbacks: usize,
+    /// Layer-by-layer fitting nets per center type (cuBLAS): best for many
+    /// atoms.
     fitting: Vec<DenseNetwork<P>>,
+    /// All fitting nets in one kernel, forward and backward: best for few
+    /// atoms, where the launches of the layer-by-layer path dominate.
+    fused_fitting: Option<GradientNetwork<P>>,
+    /// Chunks of at most this many atoms use `fused_fitting`.
+    fused_fitting_max_atoms: usize,
     davg: CudaSlice<f64>,
     dstd: CudaSlice<f64>,
     slot_type: CudaSlice<i32>,
@@ -366,7 +391,7 @@ impl Clock<'_> {
 /// embedding values and tangents, B, descriptor and its adjoint, fitting tapes.
 fn bytes_per_atom<P>(slots: usize, width: usize, axis: usize, fitting_width: usize) -> usize {
     let p = std::mem::size_of::<P>();
-    slots * (4 * 8 + p + 2 * width * p)
+    slots * (4 * 8 + p + 4 + 2 * width * p)
         + width * 4 * 8
         + 2 * width * axis * p
         + 4 * fitting_width * p
@@ -374,7 +399,14 @@ fn bytes_per_atom<P>(slots: usize, width: usize, axis: usize, fitting_width: usi
 
 impl<P: Scalar> GpuPotential<P> {
     pub fn new(model: &Model, device: Arc<Device>) -> Result<Self> {
-        let metadata = model.validate()?;
+        let mut metadata = model.validate()?;
+        metadata.backend = "native-gpu-se-e2-a".into();
+        // Network precision; geometry, forces and virial are float64 either way.
+        metadata.precision = if std::mem::size_of::<P>() == 4 {
+            "float32".into()
+        } else {
+            "float64".into()
+        };
         let d = &model.descriptor;
         let ntypes = model.type_map.len();
         let width = d.embedding[0][0].output_size();
@@ -386,15 +418,20 @@ impl<P: Scalar> GpuPotential<P> {
                 "GPU se_e2_a needs {backward_shared} bytes of shared memory per atom                  (embedding width {width}, {slots} neighbor slots); the limit is {SHARED_LIMIT}"
             )));
         }
-        let embedding = d
+        let embedding_layers: Vec<_> = d
             .embedding
             .iter()
-            .map(|row| {
-                row.iter()
-                    .map(|n| ScalarNetwork::new(&device, &layer_parameters(n, 1)))
-                    .collect()
-            })
-            .collect::<Result<Vec<Vec<_>>>>()?;
+            .flatten()
+            .map(|n| layer_parameters::<P>(n, 1))
+            .collect();
+        let embedding = ScalarNetwork::new_set(&device, &embedding_layers)?;
+        let fitting_layers: Vec<_> = model
+            .fitting
+            .iter()
+            .map(|n| layer_parameters::<P>(n, width * d.axis_neuron))
+            .collect();
+        // Not every fitting net fits in shared memory; those keep cuBLAS only.
+        let fused_fitting = GradientNetwork::new_set(&device, &fitting_layers).ok();
         let fitting = model
             .fitting
             .iter()
@@ -448,6 +485,12 @@ impl<P: Scalar> GpuPotential<P> {
             tables: None,
             table_fallbacks: 0,
             fitting,
+            fused_fitting,
+            fused_fitting_max_atoms: if std::mem::size_of::<P>() == 4 {
+                FUSED_FITTING_ATOMS_PER_TYPE_F32 * ntypes
+            } else {
+                usize::MAX
+            },
             davg: device.upload(&davg)?,
             dstd: device.upload(&dstd)?,
             slot_type: device.upload(&slot_type)?,
@@ -487,9 +530,11 @@ impl<P: Scalar> GpuPotential<P> {
     /// net by a piecewise quintic table with knots every `step` in the
     /// normalized radial input, covering neighbor distances from
     /// `min_distance` out to the cutoff. With `step = 0.01` the table agrees
-    /// with the network to rounding level. A frame with a pair closer than
-    /// `min_distance` is evaluated with the exact networks instead (see
-    /// [`Self::table_fallbacks`]), so results never depend on the range.
+    /// with the network to rounding level. Like DeePMD's extrapolation
+    /// region, the tables continue with ten times the step down to a fifth
+    /// of `min_distance`. A frame with a pair closer than that is evaluated
+    /// with the exact networks instead (see [`Self::table_fallbacks`]), so
+    /// results never depend on the range.
     pub fn compress(&mut self, min_distance: f64, step: f64) -> Result<()> {
         if !(min_distance.is_finite() && 0.0 < min_distance && min_distance < self.rcut) {
             return Err(Error(format!(
@@ -501,42 +546,58 @@ impl<P: Scalar> GpuPotential<P> {
                 "table step must be in [1e-4, 1], got {step}"
             )));
         }
-        // s(r) = switch(r)/r at the closest distance the table covers.
-        let t = ((min_distance - self.rcut_smth) / (self.rcut - self.rcut_smth)).max(0.0);
-        let closest = (t * t * t * (-6.0 * t * t + 15.0 * t - 10.0) + 1.0) / min_distance;
-        let mut tables = Vec::with_capacity(self.embedding_host.len());
+        // s(r) = switch(r)/r, the unnormalized radial input at distance r.
+        let radial = |r: f64| {
+            let t = ((r - self.rcut_smth) / (self.rcut - self.rcut_smth)).max(0.0);
+            (t * t * t * (-6.0 * t * t + 15.0 * t - 10.0) + 1.0) / r
+        };
+        let width = self.width;
+        // Coefficients of `count` intervals of width `h` starting at `start`.
+        let segment = |network: &Network, start: f64, h: f64, count: usize| -> Result<Vec<f64>> {
+            let (mut values, mut first, mut second) = (Vec::new(), Vec::new(), Vec::new());
+            for knot in 0..=count {
+                let [v, d, dd] = network.scalar_jet(start + knot as f64 * h)?;
+                values.extend(v);
+                first.extend(d);
+                second.extend(dd);
+            }
+            omnimd_gpu::quintic_coefficients(h, width, &values, &first, &second)
+        };
+        let mut tables = Vec::new();
         for (row, &(mean, std)) in self.embedding_host.iter().zip(&self.radial_normalization) {
             // Empty slots and the cutoff sit at s = 0, the lower end.
             let lower = -mean / std;
-            let upper = (closest - mean) / std;
-            let intervals = ((upper - lower) / step).ceil().max(1.0) as usize;
-            let mut built = Vec::with_capacity(row.len());
+            let intervals = (((radial(min_distance) - mean) / std - lower) / step)
+                .ceil()
+                .max(1.0) as usize;
+            let upper = lower + intervals as f64 * step;
+            let tail_step = TAIL_STEP_FACTOR * step;
+            let tail = (((radial(min_distance / TAIL_REACH) - mean) / std - upper) / tail_step)
+                .ceil()
+                .max(1.0) as usize;
             for network in row {
-                let (mut values, mut first, mut second) = (Vec::new(), Vec::new(), Vec::new());
-                for knot in 0..=intervals {
-                    let [v, d, dd] = network.scalar_jet(lower + knot as f64 * step)?;
-                    values.extend(v);
-                    first.extend(d);
-                    second.extend(dd);
-                }
-                let coefficients =
-                    omnimd_gpu::quintic_coefficients(step, self.width, &values, &first, &second)?;
-                built.push(ScalarTable::new(
-                    &self.device,
+                tables.push(TableSegments {
                     lower,
                     step,
-                    self.width,
-                    &coefficients,
-                )?);
+                    coefficients: segment(network, lower, step, intervals)?,
+                    tail_step,
+                    tail_coefficients: segment(network, upper, tail_step, tail)?,
+                });
             }
-            tables.push(built);
         }
-        self.tables = Some(tables);
+        self.tables = Some(ScalarTable::new_set(&self.device, width, &tables)?);
         Ok(())
     }
 
     pub fn is_compressed(&self) -> bool {
         self.tables.is_some()
+    }
+
+    /// Chunks of at most this many atoms evaluate the fitting nets in one
+    /// fused kernel; larger chunks use layer-by-layer cuBLAS. Zero disables
+    /// the fused kernel.
+    pub fn set_fused_fitting_max_atoms(&mut self, atoms: usize) {
+        self.fused_fitting_max_atoms = atoms;
     }
 
     /// Evaluations that left the table range and used the exact networks.
@@ -617,6 +678,7 @@ impl<P: Scalar> GpuPotential<P> {
         // reads was written earlier in the same chunk.
         let mut env = unsafe { device.alloc_uninit::<f64>(chunk * slots * 4)? };
         let mut radial = unsafe { device.alloc_uninit::<P>(chunk * slots)? };
+        let mut network = unsafe { device.alloc_uninit::<i32>(chunk * slots)? };
         let mut g = unsafe { device.alloc_uninit::<P>(chunk * slots * width)? };
         let mut dg = unsafe { device.alloc_uninit::<P>(chunk * slots * width)? };
         let mut b = unsafe { device.alloc_uninit::<f64>(chunk * width * 4)? };
@@ -628,6 +690,7 @@ impl<P: Scalar> GpuPotential<P> {
         let mut force = device.zeros::<f64>(natoms * 3)?;
         let mut virial = unsafe { device.alloc_uninit::<f64>(natoms * 9)? };
         let (slots_i, w_i, axis_i) = (slots as i32, width as i32, axis as i32);
+        let ntypes_i = ntypes as i32;
         let mut outside_table = device.zeros::<i32>(1)?;
         let tables = self.tables.as_ref().filter(|_| compressed);
 
@@ -657,10 +720,12 @@ impl<P: Scalar> GpuPotential<P> {
                     .arg(&first_i)
                     .arg(&count_i)
                     .arg(&slots_i)
+                    .arg(&ntypes_i)
                     .arg(&self.rcut_smth)
                     .arg(&self.rcut)
                     .arg(&mut env)
-                    .arg(&mut radial);
+                    .arg(&mut radial)
+                    .arg(&mut network);
                 let total = count * slots;
                 let config = LaunchConfig {
                     grid_dim: (total.div_ceil(BLOCK as usize) as u32, 1, 1),
@@ -673,33 +738,28 @@ impl<P: Scalar> GpuPotential<P> {
             }
             clock.lap(|t| &mut t.environment)?;
 
-            // Embedding values and d/d(radial) tangents,
-            // [neighbor type][local atom][slot][width].
-            let mut start = 0;
-            for (tj, &sel_j) in self.sel.iter().enumerate() {
-                for &(ti, lo, hi) in &ranges {
-                    let rows = (hi - lo) * sel_j;
-                    if rows == 0 {
-                        continue;
-                    }
-                    let row0 = start + lo * sel_j;
-                    let x = radial.slice(row0..row0 + rows);
-                    let mut out = g.slice_mut(row0 * width..(row0 + rows) * width);
-                    let mut dout = dg.slice_mut(row0 * width..(row0 + rows) * width);
-                    match tables {
-                        Some(tables) => tables[ti][tj].forward_tangent_into(
-                            device,
-                            &x,
-                            rows,
-                            &mut out,
-                            &mut dout,
-                            &mut outside_table,
-                        )?,
-                        None => self.embedding[ti][tj]
-                            .forward_tangent_into(device, &x, rows, &mut out, &mut dout)?,
-                    }
+            // Embedding values and d/d(radial) tangents for every row of the
+            // chunk in one launch, [neighbor type][local atom][slot][width].
+            {
+                let rows = count * slots;
+                let x = radial.slice(0..rows);
+                let ids = network.slice(0..rows);
+                let mut out = g.slice_mut(0..rows * width);
+                let mut dout = dg.slice_mut(0..rows * width);
+                match tables {
+                    Some(tables) => tables.forward_tangent_by_id(
+                        device,
+                        &x,
+                        &ids,
+                        rows,
+                        &mut out,
+                        &mut dout,
+                        &mut outside_table,
+                    )?,
+                    None => self
+                        .embedding
+                        .forward_tangent_by_id(device, &x, &ids, rows, &mut out, &mut dout)?,
                 }
-                start += count * sel_j;
             }
             clock.lap(|t| &mut t.embedding)?;
 
@@ -729,18 +789,38 @@ impl<P: Scalar> GpuPotential<P> {
             }
             clock.lap(|t| &mut t.descriptor)?;
 
-            // Fitting per center type: atomic energies (copied out so the tape
-            // can go) and dE/dD.
-            for &(ti, lo, hi) in &ranges {
-                let rows = hi - lo;
-                let x = descriptor.slice(lo * features..hi * features);
-                let tape = self.fitting[ti].forward_record(device, &x, rows)?;
-                let mut dx = d_descriptor.slice_mut(lo * features..hi * features);
-                self.fitting[ti].backward(device, &tape, &ones.slice(0..rows), &mut dx)?;
-                let mut energies = atomic.slice_mut(first + lo..first + hi);
-                stream
-                    .memcpy_dtod(&tape.output, &mut energies)
-                    .map_err(copy_error)?;
+            // Fitting: atomic energies and dE/dD. Few atoms: every center type
+            // in one fused kernel. Many atoms: cuBLAS per center type, with
+            // the energies copied out so the tape can go.
+            let fused = self
+                .fused_fitting
+                .as_ref()
+                .filter(|_| count <= self.fused_fitting_max_atoms);
+            if let Some(fused) = fused {
+                let x = descriptor.slice(0..count * features);
+                let ids = atype.slice(first..end);
+                let mut energies = atomic.slice_mut(first..end);
+                let mut dx = d_descriptor.slice_mut(0..count * features);
+                fused.forward_gradient_into(
+                    device,
+                    &x,
+                    Some(&ids),
+                    count,
+                    &mut energies,
+                    &mut dx,
+                )?;
+            } else {
+                for &(ti, lo, hi) in &ranges {
+                    let rows = hi - lo;
+                    let x = descriptor.slice(lo * features..hi * features);
+                    let tape = self.fitting[ti].forward_record(device, &x, rows)?;
+                    let mut dx = d_descriptor.slice_mut(lo * features..hi * features);
+                    self.fitting[ti].backward(device, &tape, &ones.slice(0..rows), &mut dx)?;
+                    let mut energies = atomic.slice_mut(first + lo..first + hi);
+                    stream
+                        .memcpy_dtod(&tape.output, &mut energies)
+                        .map_err(copy_error)?;
+                }
             }
             clock.lap(|t| &mut t.fitting)?;
 
@@ -820,6 +900,38 @@ impl<P: Scalar> GpuPotential<P> {
         };
         result.validate(natoms)?;
         Ok(Some(result))
+    }
+}
+
+/// Runtime choices for [`open`].
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct GpuOptions {
+    /// Run the networks in float32; geometry, forces and virial stay float64.
+    pub float32: bool,
+    /// Tabulate the embedding nets: (shortest neighbor distance in Å the
+    /// tables cover, table step). See [`GpuPotential::compress`].
+    pub compress: Option<(f64, f64)>,
+}
+
+/// Opens `model` on CUDA device `ordinal` behind the [`Potential`] trait, for
+/// callers that do not care about the network precision type.
+pub fn open(model: &Model, ordinal: usize, options: GpuOptions) -> Result<Box<dyn Potential>> {
+    fn build<P: Scalar>(
+        model: &Model,
+        device: Arc<Device>,
+        options: GpuOptions,
+    ) -> Result<Box<dyn Potential>> {
+        let mut potential = GpuPotential::<P>::new(model, device)?;
+        if let Some((min_distance, step)) = options.compress {
+            potential.compress(min_distance, step)?;
+        }
+        Ok(Box::new(potential))
+    }
+    let device = Arc::new(Device::new(ordinal)?);
+    if options.float32 {
+        build::<f32>(model, device, options)
+    } else {
+        build::<f64>(model, device, options)
     }
 }
 

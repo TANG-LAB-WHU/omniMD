@@ -56,9 +56,14 @@ impl Request {
             if member.id.trim().is_empty() || member.id.len() > 128 || !ids.insert(&member.id) {
                 return Err("model IDs must be nonempty, unique and at most 128 bytes".into());
             }
-            if !matches!(member.options.device(), Device::Cpu) {
+            // One worker, one device: CPU for every member, or the same
+            // cuda:N with the omnimd-gpu runtime for every member.
+            let device = member.options.device();
+            if device != request.models[0].options.device()
+                || (device != Device::Cpu && member.options.gpu_runtime().is_none())
+            {
                 return Err(
-                    "model-deviation currently requires explicit/default CPU for every member"
+                    "model-deviation requires CPU for every member, or the same cuda:N with gpu_runtime for every member"
                         .into(),
                 );
             }
@@ -120,7 +125,10 @@ fn worker(input: &Path, output: &Path) -> Result<()> {
         &mut writer,
         &json!({"kind":"header","schema":"omnimd-model-deviation-jsonl-v1",
         "dataset_header":reader.header,"models":provenance,"distinct_model_byte_hashes":hashes.len(),
-        "device":"cpu","per_atom":request.per_atom,"force_window":request.force_window,
+        "device":match request.models[0].options.device() {
+            Device::Cpu => "cpu".to_string(),
+            Device::Cuda(index) => format!("cuda:{index}"),
+        },"per_atom":request.per_atom,"force_window":request.force_window,
         "statistics":"absolute population std over models; E and all 9 V components per atom; F vector std norm; force mean is arithmetic, virial aggregate is RMS",
         "selection":"min <= max force deviation < max; candidate=null when no force window",
         "interpretation":"Model disagreement only; no calibrated uncertainty, physical accuracy, energy-offset alignment or use of reference labels. Duplicate byte hashes reduce ensemble diversity.",
@@ -171,13 +179,16 @@ pub fn dispatch(args: &[OsString]) -> Result<bool> {
         if Path::new(&args[2]).exists() {
             return Err("output already exists".into());
         }
-        Request::read(Path::new(&args[1]))?;
+        let request = Request::read(Path::new(&args[1]))?;
         let mut command = Command::new(std::env::current_exe()?);
         command.arg("--deviation-worker").args(&args[1..]);
-        Device::Cpu.configure_worker(&mut command)?;
+        request.models[0]
+            .options
+            .device()
+            .configure_worker(&mut command)?;
         let status = command.status()?;
         if !status.success() {
-            return Err(format!("CPU model-deviation worker failed: {status}; partial output without completed is invalid").into());
+            return Err(format!("model-deviation worker failed: {status}; partial output without completed is invalid").into());
         }
         return Ok(true);
     }
