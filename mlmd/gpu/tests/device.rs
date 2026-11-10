@@ -330,6 +330,89 @@ fn embedding_network_matches_cpu_chain() {
     assert!(DenseNetwork::new(mismatched).is_err());
 }
 
+fn scalar_network<T: omnimd_gpu::Scalar>(
+    device: &Device,
+    layers: &[CpuLayer],
+) -> omnimd_gpu::ScalarNetwork<T> {
+    let cast = |v: &[f64]| v.iter().map(|&x| T::from_f64(x)).collect::<Vec<T>>();
+    let parameters: Vec<_> = layers
+        .iter()
+        .map(|l| omnimd_gpu::LayerParameters {
+            input: l.input,
+            output: l.output,
+            weights: cast(&l.weights),
+            bias: cast(&l.bias),
+            timestep: l.timestep.as_deref().map(cast),
+            activation: l.activation,
+            residual: l.residual,
+        })
+        .collect();
+    omnimd_gpu::ScalarNetwork::new(device, &parameters).unwrap()
+}
+
+#[test]
+fn fused_scalar_network_matches_cpu_chain_and_its_derivative() {
+    let Some(device) = device() else { return };
+    // Every layer feature: doubling and same-width residuals, a timestep, all
+    // activations, widths that are not multiples of the warp size, and a row
+    // count that leaves the last block partly empty.
+    let layers = [
+        CpuLayer::random(1, 25, Activation::Tanh, false, false, 600),
+        CpuLayer::random(25, 50, Activation::Tanh, true, false, 610),
+        CpuLayer::random(50, 100, Activation::Softplus, true, false, 620),
+        CpuLayer::random(100, 100, Activation::Sigmoid, true, true, 630),
+        CpuLayer::random(100, 37, Activation::Linear, false, false, 640),
+    ];
+    let rows = 1003;
+    let x: Vec<f64> = values(rows, 650).iter().map(|v| 0.5 * (v + 1.0)).collect();
+    let expected = cpu_chain(&layers, &x, rows);
+    let h = 1e-6;
+    let shifted = |s: f64| cpu_chain(&layers, &x.iter().map(|v| v + s).collect::<Vec<_>>(), rows);
+    let derivative: Vec<f64> = shifted(h)
+        .iter()
+        .zip(&shifted(-h))
+        .map(|(p, m)| (p - m) / (2.0 * h))
+        .collect();
+
+    let network = scalar_network::<f64>(device, &layers);
+    assert_eq!(network.output(), 37);
+    // Poisoned outputs: every element must be written.
+    let (mut y, mut dy) = (
+        device.upload(&vec![f64::NAN; rows * 37]).unwrap(),
+        device.upload(&vec![f64::NAN; rows * 37]).unwrap(),
+    );
+    network
+        .forward_tangent_into(device, &device.upload(&x).unwrap(), rows, &mut y, &mut dy)
+        .unwrap();
+    assert!(max_error(device.download(&y).unwrap(), &expected) < 1e-12);
+    assert!(max_error(device.download(&dy).unwrap(), &derivative) < 1e-6);
+
+    let single = scalar_network::<f32>(device, &layers);
+    let x32: Vec<f32> = x.iter().map(|&v| v as f32).collect();
+    let (mut y, mut dy) = (
+        device.zeros::<f32>(rows * 37).unwrap(),
+        device.zeros::<f32>(rows * 37).unwrap(),
+    );
+    single
+        .forward_tangent_into(device, &device.upload(&x32).unwrap(), rows, &mut y, &mut dy)
+        .unwrap();
+    let widen = |v: Vec<f32>| v.into_iter().map(f64::from).collect::<Vec<f64>>();
+    assert!(max_error(widen(device.download(&y).unwrap()), &expected) < 2e-4);
+    assert!(max_error(widen(device.download(&dy).unwrap()), &derivative) < 2e-3);
+
+    // A network whose first layer does not take one input is rejected.
+    let wide = omnimd_gpu::LayerParameters {
+        input: 2,
+        output: 2,
+        weights: vec![0.0f64; 4],
+        bias: vec![0.0; 2],
+        timestep: None,
+        activation: Activation::Tanh,
+        residual: false,
+    };
+    assert!(omnimd_gpu::ScalarNetwork::new(device, &[wide]).is_err());
+}
+
 #[test]
 fn transposed_matmul_matches_cpu() {
     let Some(device) = device() else { return };

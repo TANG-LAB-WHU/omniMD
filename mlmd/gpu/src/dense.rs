@@ -114,7 +114,7 @@ pub enum Activation {
 }
 
 impl Activation {
-    fn code(self) -> i32 {
+    pub(crate) fn code(self) -> i32 {
         match self {
             Self::Linear => 0,
             Self::Tanh => 1,
@@ -125,7 +125,7 @@ impl Activation {
 }
 
 /// Host-side shape rules, checked before anything touches the device.
-fn validate(
+pub(crate) fn validate(
     input: usize,
     output: usize,
     weights: usize,

@@ -2,7 +2,7 @@
 //!
 //! Pipeline per frame, all on the device after one upload:
 //! cell-list neighbors (DeePMD truncation to `sel`) → environment matrix →
-//! embedding nets per (center type, neighbor type) with forward tangents →
+//! embedding nets per (center type, neighbor type), fused with their tangents →
 //! descriptor `D = B·B[:, :axis]ᵀ` → fitting nets per center type with a
 //! recorded reverse pass → forces and virial from the chain rule back to the
 //! neighbor deltas. Atoms are sorted by type so every network sees
@@ -19,7 +19,7 @@
 use crate::{Activation, Model, Network, Residual};
 use omnimd_gpu::{
     Activation as DeviceActivation, Cell, CudaFunction, CudaSlice, DenseLayer, DenseNetwork,
-    Device, LaunchConfig, NeighborList, PushKernelArg, Scalar,
+    Device, LaunchConfig, LayerParameters, NeighborList, PushKernelArg, Scalar, ScalarNetwork,
 };
 use omnimd_ml_contract::{Error, Evaluation, Frame, ModelMetadata, Potential, Result, Units};
 use std::sync::Arc;
@@ -261,7 +261,7 @@ pub struct GpuPotential<P: Scalar> {
     axis: usize,
     bias: Vec<f64>,
     /// `[center type][neighbor type]`.
-    embedding: Vec<Vec<DenseNetwork<P>>>,
+    embedding: Vec<Vec<ScalarNetwork<P>>>,
     fitting: Vec<DenseNetwork<P>>,
     davg: CudaSlice<f64>,
     dstd: CudaSlice<f64>,
@@ -277,34 +277,52 @@ pub struct GpuPotential<P: Scalar> {
     profile: Option<StageTimes>,
 }
 
-fn device_network<P: Scalar>(
+fn layer_parameters<P: Scalar>(network: &Network, mut input: usize) -> Vec<LayerParameters<P>> {
+    let cast = |values: &[f64]| values.iter().map(|&v| P::from_f64(v)).collect::<Vec<P>>();
+    network
+        .layers
+        .iter()
+        .map(|layer| {
+            let parameters = LayerParameters {
+                input,
+                output: layer.bias.len(),
+                weights: cast(&layer.weights.concat()),
+                bias: cast(&layer.bias),
+                timestep: layer.timestep.as_deref().map(cast),
+                activation: match layer.activation {
+                    Activation::Linear => DeviceActivation::Linear,
+                    Activation::Tanh => DeviceActivation::Tanh,
+                    Activation::Sigmoid => DeviceActivation::Sigmoid,
+                    Activation::Softplus => DeviceActivation::Softplus,
+                },
+                residual: !matches!(layer.residual, Residual::None),
+            };
+            input = parameters.output;
+            parameters
+        })
+        .collect()
+}
+
+fn dense_network<P: Scalar>(
     device: &Device,
     network: &Network,
-    mut input: usize,
+    input: usize,
 ) -> Result<DenseNetwork<P>> {
-    let cast = |values: &[f64]| values.iter().map(|&v| P::from_f64(v)).collect::<Vec<P>>();
-    let mut layers = Vec::with_capacity(network.layers.len());
-    for layer in &network.layers {
-        let output = layer.bias.len();
-        let activation = match layer.activation {
-            Activation::Linear => DeviceActivation::Linear,
-            Activation::Tanh => DeviceActivation::Tanh,
-            Activation::Sigmoid => DeviceActivation::Sigmoid,
-            Activation::Softplus => DeviceActivation::Softplus,
-        };
-        let timestep = layer.timestep.as_deref().map(cast);
-        layers.push(DenseLayer::new(
-            device,
-            input,
-            output,
-            &cast(&layer.weights.concat()),
-            &cast(&layer.bias),
-            timestep.as_deref(),
-            activation,
-            !matches!(layer.residual, Residual::None),
-        )?);
-        input = output;
-    }
+    let layers = layer_parameters::<P>(network, input)
+        .iter()
+        .map(|l| {
+            DenseLayer::new(
+                device,
+                l.input,
+                l.output,
+                &l.weights,
+                &l.bias,
+                l.timestep.as_deref(),
+                l.activation,
+                l.residual,
+            )
+        })
+        .collect::<Result<Vec<_>>>()?;
     DenseNetwork::new(layers)
 }
 
@@ -336,11 +354,10 @@ impl Clock<'_> {
 }
 
 /// Device bytes per center atom in one chunk: environment, radial input,
-/// embedding values and tangents plus the hidden-layer intermediates (bounded
-/// by twice the output width), B, descriptor and its adjoint, fitting tapes.
+/// embedding values and tangents, B, descriptor and its adjoint, fitting tapes.
 fn bytes_per_atom<P>(slots: usize, width: usize, axis: usize, fitting_width: usize) -> usize {
     let p = std::mem::size_of::<P>();
-    slots * (4 * 8 + p + 4 * width * p)
+    slots * (4 * 8 + p + 2 * width * p)
         + width * 4 * 8
         + 2 * width * axis * p
         + 4 * fitting_width * p
@@ -363,12 +380,16 @@ impl<P: Scalar> GpuPotential<P> {
         let embedding = d
             .embedding
             .iter()
-            .map(|row| row.iter().map(|n| device_network(&device, n, 1)).collect())
+            .map(|row| {
+                row.iter()
+                    .map(|n| ScalarNetwork::new(&device, &layer_parameters(n, 1)))
+                    .collect()
+            })
             .collect::<Result<Vec<Vec<_>>>>()?;
         let fitting = model
             .fitting
             .iter()
-            .map(|n| device_network(&device, n, width * d.axis_neuron))
+            .map(|n| dense_network(&device, n, width * d.axis_neuron))
             .collect::<Result<Vec<_>>>()?;
         let davg: Vec<f64> = d.normalization.iter().flat_map(|n| n.mean).collect();
         let dstd: Vec<f64> = d.normalization.iter().flat_map(|n| n.std).collect();
@@ -511,8 +532,7 @@ impl<P: Scalar> GpuPotential<P> {
         let mut b = unsafe { device.alloc_uninit::<f64>(chunk * width * 4)? };
         let mut descriptor = unsafe { device.alloc_uninit::<P>(chunk * features)? };
         let mut d_descriptor = unsafe { device.alloc_uninit::<P>(chunk * features)? };
-        let max_sel = self.sel.iter().copied().max().unwrap_or(0).max(1);
-        let ones = device.upload(&vec![P::ONE; chunk * max_sel])?;
+        let ones = device.upload(&vec![P::ONE; chunk])?;
         // Per-frame results; every atom's energy and virial row is written once.
         let mut atomic = unsafe { device.alloc_uninit::<P>(natoms)? };
         let mut force = device.zeros::<f64>(natoms * 3)?;
@@ -572,11 +592,10 @@ impl<P: Scalar> GpuPotential<P> {
                     }
                     let row0 = start + lo * sel_j;
                     let x = radial.slice(row0..row0 + rows);
-                    let dx = ones.slice(0..rows);
                     let mut out = g.slice_mut(row0 * width..(row0 + rows) * width);
                     let mut dout = dg.slice_mut(row0 * width..(row0 + rows) * width);
                     self.embedding[ti][tj]
-                        .forward_tangent_into(device, &x, &dx, rows, &mut out, &mut dout)?;
+                        .forward_tangent_into(device, &x, rows, &mut out, &mut dout)?;
                 }
                 start += count * sel_j;
             }

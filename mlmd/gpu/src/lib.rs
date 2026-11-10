@@ -6,6 +6,7 @@
 //! then returns an error instead of panicking. Allocations go through the
 //! stream-ordered driver allocator (`cuMemAllocAsync`), which already pools.
 mod dense;
+mod fused;
 mod kernels;
 mod nlist;
 
@@ -14,6 +15,7 @@ pub use cudarc::driver::{
     DeviceSlice, DriverError, LaunchConfig, PushKernelArg,
 };
 pub use dense::{Activation, DenseLayer, DenseNetwork, DenseTape};
+pub use fused::{LayerParameters, ScalarNetwork};
 pub use kernels::{CacheStats, KernelCache};
 pub use nlist::{Cell, NeighborList, NeighborStats};
 
