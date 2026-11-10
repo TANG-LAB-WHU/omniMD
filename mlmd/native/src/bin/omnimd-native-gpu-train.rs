@@ -618,13 +618,19 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
     }
     let first = Device::new(0)?;
     eprintln!("device: {}", first.name());
-    // Every further request trains at the same time on a stream of its own.
-    let mut devices = Vec::with_capacity(paths.len());
-    for _ in 1..paths.len() {
-        devices.push(first.sibling()?);
-    }
-    devices.insert(0, first);
     let several = paths.len() > 1;
+    // Several requests train at the same time, each on a stream of its own.
+    // None of them takes the device's default stream: work on that one waits
+    // for the others, which slowed its request to 0.6 of their speed.
+    let devices = if several {
+        let mut devices = Vec::with_capacity(paths.len());
+        for _ in &paths {
+            devices.push(first.sibling()?);
+        }
+        devices
+    } else {
+        vec![first]
+    };
     let failures: Vec<String> = std::thread::scope(|scope| {
         let workers: Vec<_> = paths
             .iter()
