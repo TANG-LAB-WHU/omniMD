@@ -1657,7 +1657,15 @@ fn training_set_matches_its_networks_one_by_one() {
         ]
     });
     let (x, xdot) = (values(rows * 64, 2560), values(rows * 64, 2561));
-    compare_training_set::<f64>(device, &edge_theta, &edge_layouts, &x, &xdot, &blocks, 1e-11);
+    compare_training_set::<f64>(
+        device,
+        &edge_theta,
+        &edge_layouts,
+        &x,
+        &xdot,
+        &blocks,
+        1e-11,
+    );
     compare_training_set::<f32>(device, &edge_theta, &edge_layouts, &x, &xdot, &blocks, 1e-4);
 
     // Refused: no network, different shapes, a bias away from its weights.
