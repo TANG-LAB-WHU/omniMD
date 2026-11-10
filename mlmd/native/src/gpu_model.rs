@@ -21,6 +21,7 @@ use crate::{Activation, Model, Network, Residual};
 use omnimd_gpu::{
     Activation as DeviceActivation, Cell, CudaFunction, CudaSlice, DenseLayer, DenseNetwork,
     Device, LaunchConfig, LayerParameters, NeighborList, PushKernelArg, Scalar, ScalarNetwork,
+    ScalarTable,
 };
 use omnimd_ml_contract::{Error, Evaluation, Frame, ModelMetadata, Potential, Result, Units};
 use std::sync::Arc;
@@ -263,6 +264,13 @@ pub struct GpuPotential<P: Scalar> {
     bias: Vec<f64>,
     /// `[center type][neighbor type]`.
     embedding: Vec<Vec<ScalarNetwork<P>>>,
+    /// Host copies of the embedding nets and the radial (mean, std) per
+    /// center type, for building tables.
+    embedding_host: Vec<Vec<Network>>,
+    radial_normalization: Vec<(f64, f64)>,
+    /// Tabulated embedding nets, when compressed.
+    tables: Option<Vec<Vec<ScalarTable<P>>>>,
+    table_fallbacks: usize,
     fitting: Vec<DenseNetwork<P>>,
     davg: CudaSlice<f64>,
     dstd: CudaSlice<f64>,
@@ -431,6 +439,14 @@ impl<P: Scalar> GpuPotential<P> {
             axis: d.axis_neuron,
             bias: model.atom_energy_bias.clone(),
             embedding,
+            embedding_host: d.embedding.clone(),
+            radial_normalization: d
+                .normalization
+                .iter()
+                .map(|n| (n.mean[0], n.std[0]))
+                .collect(),
+            tables: None,
+            table_fallbacks: 0,
             fitting,
             davg: device.upload(&davg)?,
             dstd: device.upload(&dstd)?,
@@ -467,6 +483,67 @@ impl<P: Scalar> GpuPotential<P> {
         self.chunk_atoms = atoms.max(1);
     }
 
+    /// Model compression (DeePMD `dp compress`): replaces every embedding
+    /// net by a piecewise quintic table with knots every `step` in the
+    /// normalized radial input, covering neighbor distances from
+    /// `min_distance` out to the cutoff. With `step = 0.01` the table agrees
+    /// with the network to rounding level. A frame with a pair closer than
+    /// `min_distance` is evaluated with the exact networks instead (see
+    /// [`Self::table_fallbacks`]), so results never depend on the range.
+    pub fn compress(&mut self, min_distance: f64, step: f64) -> Result<()> {
+        if !(min_distance.is_finite() && 0.0 < min_distance && min_distance < self.rcut) {
+            return Err(Error(format!(
+                "compression needs 0 < min_distance < rcut, got {min_distance}"
+            )));
+        }
+        if !(step.is_finite() && 1e-4 <= step && step <= 1.0) {
+            return Err(Error(format!(
+                "table step must be in [1e-4, 1], got {step}"
+            )));
+        }
+        // s(r) = switch(r)/r at the closest distance the table covers.
+        let t = ((min_distance - self.rcut_smth) / (self.rcut - self.rcut_smth)).max(0.0);
+        let closest = (t * t * t * (-6.0 * t * t + 15.0 * t - 10.0) + 1.0) / min_distance;
+        let mut tables = Vec::with_capacity(self.embedding_host.len());
+        for (row, &(mean, std)) in self.embedding_host.iter().zip(&self.radial_normalization) {
+            // Empty slots and the cutoff sit at s = 0, the lower end.
+            let lower = -mean / std;
+            let upper = (closest - mean) / std;
+            let intervals = ((upper - lower) / step).ceil().max(1.0) as usize;
+            let mut built = Vec::with_capacity(row.len());
+            for network in row {
+                let (mut values, mut first, mut second) = (Vec::new(), Vec::new(), Vec::new());
+                for knot in 0..=intervals {
+                    let [v, d, dd] = network.scalar_jet(lower + knot as f64 * step)?;
+                    values.extend(v);
+                    first.extend(d);
+                    second.extend(dd);
+                }
+                let coefficients =
+                    omnimd_gpu::quintic_coefficients(step, self.width, &values, &first, &second)?;
+                built.push(ScalarTable::new(
+                    &self.device,
+                    lower,
+                    step,
+                    self.width,
+                    &coefficients,
+                )?);
+            }
+            tables.push(built);
+        }
+        self.tables = Some(tables);
+        Ok(())
+    }
+
+    pub fn is_compressed(&self) -> bool {
+        self.tables.is_some()
+    }
+
+    /// Evaluations that left the table range and used the exact networks.
+    pub fn table_fallbacks(&self) -> usize {
+        self.table_fallbacks
+    }
+
     /// Turn per-stage timing on (adds a device sync per stage) or off.
     pub fn set_profiling(&mut self, on: bool) {
         self.profile = on.then(StageTimes::default);
@@ -484,12 +561,24 @@ impl<P: Scalar> GpuPotential<P> {
             times: self.profile.take().map(|_| StageTimes::default()),
             last: Instant::now(),
         };
-        let result = self.run(&device, frame, &mut clock);
+        let mut result = self.run(&device, frame, &mut clock, self.tables.is_some());
+        if matches!(result, Ok(None)) {
+            // Some input was outside the tables: use the exact networks.
+            self.table_fallbacks += 1;
+            result = self.run(&device, frame, &mut clock, false);
+        }
         self.profile = clock.times;
-        result
+        result?.ok_or_else(|| Error("exact evaluation reported a table range".into()))
     }
 
-    fn run(&mut self, device: &Device, frame: &Frame, clock: &mut Clock) -> Result<Evaluation> {
+    /// `None` when `compressed` and an embedding input left the table range.
+    fn run(
+        &mut self,
+        device: &Device,
+        frame: &Frame,
+        clock: &mut Clock,
+        compressed: bool,
+    ) -> Result<Option<Evaluation>> {
         frame.validate()?;
         let types = frame.type_ids(&self.metadata)?;
         let natoms = types.len();
@@ -539,6 +628,8 @@ impl<P: Scalar> GpuPotential<P> {
         let mut force = device.zeros::<f64>(natoms * 3)?;
         let mut virial = unsafe { device.alloc_uninit::<f64>(natoms * 9)? };
         let (slots_i, w_i, axis_i) = (slots as i32, width as i32, axis as i32);
+        let mut outside_table = device.zeros::<i32>(1)?;
+        let tables = self.tables.as_ref().filter(|_| compressed);
 
         for first in (0..natoms).step_by(chunk) {
             let end = (first + chunk).min(natoms);
@@ -595,8 +686,18 @@ impl<P: Scalar> GpuPotential<P> {
                     let x = radial.slice(row0..row0 + rows);
                     let mut out = g.slice_mut(row0 * width..(row0 + rows) * width);
                     let mut dout = dg.slice_mut(row0 * width..(row0 + rows) * width);
-                    self.embedding[ti][tj]
-                        .forward_tangent_into(device, &x, rows, &mut out, &mut dout)?;
+                    match tables {
+                        Some(tables) => tables[ti][tj].forward_tangent_into(
+                            device,
+                            &x,
+                            rows,
+                            &mut out,
+                            &mut dout,
+                            &mut outside_table,
+                        )?,
+                        None => self.embedding[ti][tj]
+                            .forward_tangent_into(device, &x, rows, &mut out, &mut dout)?,
+                    }
                 }
                 start += count * sel_j;
             }
@@ -684,6 +785,9 @@ impl<P: Scalar> GpuPotential<P> {
         }
 
         self.last_truncated = list.check(device)?;
+        if tables.is_some() && device.download(&outside_table)?[0] != 0 {
+            return Ok(None);
+        }
         let atomic = device.download(&atomic)?;
         let sorted_forces = device.download(&force)?;
         let per_atom_virial = device.download(&virial)?;
@@ -715,7 +819,7 @@ impl<P: Scalar> GpuPotential<P> {
             units: Units::EvAngstrom,
         };
         result.validate(natoms)?;
-        Ok(result)
+        Ok(Some(result))
     }
 }
 

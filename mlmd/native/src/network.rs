@@ -40,6 +40,20 @@ impl Activation {
     }
 }
 
+impl Activation {
+    /// Second derivative, for the curvature the embedding table needs.
+    fn second_derivative(self, x: f64) -> f64 {
+        let (value, slope) = self.value_derivative(x);
+        match self {
+            Self::Linear => 0.0,
+            Self::Tanh => -2.0 * value * slope,
+            Self::Sigmoid => slope * (1.0 - 2.0 * value),
+            // Softplus' is the sigmoid.
+            Self::Softplus => slope * (1.0 - slope),
+        }
+    }
+}
+
 impl Layer {
     fn forward(&self, input: &[f64]) -> Result<(Vec<f64>, Vec<f64>)> {
         check(input)?;
@@ -89,6 +103,41 @@ impl Network {
             dx = dy;
         }
         Ok((x, dx))
+    }
+
+    /// Value, first and second derivative of every output with respect to
+    /// the scalar input (second-order forward mode).
+    pub(crate) fn scalar_jet(&self, input: f64) -> Result<[Vec<f64>; 3]> {
+        let (mut x, mut dx, mut ddx) = (vec![input], vec![1.0], vec![0.0]);
+        for layer in &self.layers {
+            let n = layer.bias.len();
+            let (mut y, mut dy, mut ddy) = (vec![0.0; n], vec![0.0; n], vec![0.0; n]);
+            for j in 0..n {
+                let (mut z, mut dz, mut ddz) = (layer.bias[j], 0.0, 0.0);
+                for i in 0..x.len() {
+                    let w = layer.weights[i][j];
+                    z += x[i] * w;
+                    dz += dx[i] * w;
+                    ddz += ddx[i] * w;
+                }
+                let (value, slope) = layer.activation.value_derivative(z);
+                let curvature = layer.activation.second_derivative(z);
+                let scale = layer.timestep.as_ref().map_or(1.0, |s| s[j]);
+                y[j] = value * scale;
+                dy[j] = slope * scale * dz;
+                ddy[j] = scale * (curvature * dz * dz + slope * ddz);
+                if !matches!(layer.residual, Residual::None) {
+                    y[j] += x[j % x.len()];
+                    dy[j] += dx[j % x.len()];
+                    ddy[j] += ddx[j % x.len()];
+                }
+            }
+            check(&y)?;
+            check(&dy)?;
+            check(&ddy)?;
+            (x, dx, ddx) = (y, dy, ddy);
+        }
+        Ok([x, dx, ddx])
     }
 
     /// Reverse chain rule for the scalar atomic fitting output.

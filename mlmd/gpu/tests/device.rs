@@ -414,6 +414,88 @@ fn fused_scalar_network_matches_cpu_chain_and_its_derivative() {
 }
 
 #[test]
+fn scalar_table_interpolates_and_flags_inputs_outside_its_range() {
+    let Some(device) = device() else { return };
+    // f_m(x) = sin((m + 1) x) on [-1, 2], step 0.01.
+    let (lower, step, width, knots) = (-1.0, 0.01, 5, 301);
+    let sample = |order: usize| -> Vec<f64> {
+        (0..knots)
+            .flat_map(|i| {
+                let x = lower + i as f64 * step;
+                (0..width).map(move |m| {
+                    let k = (m + 1) as f64;
+                    match order {
+                        0 => (k * x).sin(),
+                        1 => k * (k * x).cos(),
+                        _ => -k * k * (k * x).sin(),
+                    }
+                })
+            })
+            .collect()
+    };
+    let coefficients =
+        omnimd_gpu::quintic_coefficients(step, width, &sample(0), &sample(1), &sample(2)).unwrap();
+    let table =
+        omnimd_gpu::ScalarTable::<f64>::new(device, lower, step, width, &coefficients).unwrap();
+    assert_eq!((table.output(), table.intervals()), (5, 300));
+
+    let rows = 777;
+    // Inside the range, including both ends exactly.
+    let mut x: Vec<f64> = values(rows, 900).iter().map(|v| 0.5 + 1.5 * v).collect();
+    (x[0], x[1]) = (-1.0, 2.0);
+    let expected = |x: &[f64], order: usize| -> Vec<f64> {
+        x.iter()
+            .flat_map(|&x| {
+                (0..width).map(move |m| {
+                    let k = (m + 1) as f64;
+                    if order == 0 {
+                        (k * x).sin()
+                    } else {
+                        k * (k * x).cos()
+                    }
+                })
+            })
+            .collect()
+    };
+    let run = |x: &[f64]| {
+        let (mut y, mut dy) = (
+            device.upload(&vec![f64::NAN; x.len() * width]).unwrap(),
+            device.upload(&vec![f64::NAN; x.len() * width]).unwrap(),
+        );
+        let mut flag = device.zeros::<i32>(1).unwrap();
+        table
+            .forward_tangent_into(
+                device,
+                &device.upload(x).unwrap(),
+                x.len(),
+                &mut y,
+                &mut dy,
+                &mut flag,
+            )
+            .unwrap();
+        (
+            device.download(&y).unwrap(),
+            device.download(&dy).unwrap(),
+            device.download(&flag).unwrap()[0],
+        )
+    };
+    let (y, dy, flag) = run(&x);
+    assert_eq!(flag, 0);
+    // Error ~ step^6 k^6 / 46080 with k up to 5.
+    assert!(max_error(y, &expected(&x, 0)) < 1e-11);
+    assert!(max_error(dy, &expected(&x, 1)) < 1e-8);
+
+    // One input past either end: flagged, and evaluated at that end.
+    for (outside, end) in [(2.5, 2.0), (-1.2, -1.0)] {
+        x[5] = outside;
+        let (y, _, flag) = run(&x);
+        assert_eq!(flag, 1, "input {outside}");
+        let at_end = expected(&[end], 0);
+        assert!(max_error(y[5 * width..6 * width].to_vec(), &at_end) < 1e-11);
+    }
+}
+
+#[test]
 fn transposed_matmul_matches_cpu() {
     let Some(device) = device() else { return };
     let (m, k, n) = (13, 9, 21);

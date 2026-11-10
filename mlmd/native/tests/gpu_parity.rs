@@ -344,3 +344,66 @@ fn tight_sel_matches_deepmd_reference() {
         FLOAT64,
     );
 }
+
+#[test]
+fn compressed_embedding_matches_cpu_and_falls_back_outside_the_table() {
+    let Some(device) = device() else { return };
+    let lattice = [[9.0, 0.0, 0.0], [1.5, 8.5, 0.0], [-1.0, 0.8, 9.2]];
+    let model = model(2, vec![80, 160], 4.5, 6);
+    let frame = frame(lattice, 5, 2, true, 16);
+    let mut cpu = NativePotential::new(model.clone()).unwrap();
+    let expected = cpu.eval(&frame).unwrap();
+
+    // Tables down to 0.8 Å cover this frame (nearest pair ~1.2 Å). Quintic
+    // interpolation at step 0.01 is good to ~1e-12; allow 1e-9.
+    let mut gpu = GpuPotential::<f64>::new(&model, device.clone()).unwrap();
+    assert!(!gpu.is_compressed());
+    gpu.compress(0.8, 0.01).unwrap();
+    assert!(gpu.is_compressed());
+    compare(
+        "compressed",
+        &gpu.eval(&frame).unwrap(),
+        &expected,
+        (1e-11, 1e-9),
+    );
+    gpu.set_chunk_atoms(11);
+    compare(
+        "compressed chunks",
+        &gpu.eval(&frame).unwrap(),
+        &expected,
+        (1e-11, 1e-9),
+    );
+    assert_eq!(gpu.table_fallbacks(), 0);
+
+    // A coarse table is visibly worse, so the fine one is really in use.
+    let mut coarse = GpuPotential::<f64>::new(&model, device.clone()).unwrap();
+    coarse.compress(0.8, 0.5).unwrap();
+    let rough = coarse.eval(&frame).unwrap();
+    let difference = rough
+        .forces
+        .iter()
+        .flatten()
+        .zip(expected.forces.iter().flatten())
+        .map(|(a, b)| (a - b).abs())
+        .fold(0.0, f64::max);
+    assert!(difference > 1e-9, "coarse table too accurate: {difference}");
+
+    // Tables that stop at 2 Å do not cover the frame: exact fallback, same
+    // answer as without compression.
+    let mut short = GpuPotential::<f64>::new(&model, device.clone()).unwrap();
+    short.compress(2.0, 0.01).unwrap();
+    compare("fallback", &short.eval(&frame).unwrap(), &expected, FLOAT64);
+    assert_eq!(short.table_fallbacks(), 1);
+
+    let mut single = GpuPotential::<f32>::new(&model, device).unwrap();
+    single.compress(0.8, 0.01).unwrap();
+    compare(
+        "compressed float32",
+        &single.eval(&frame).unwrap(),
+        &expected,
+        (1e-6, 1e-4),
+    );
+    assert_eq!(single.table_fallbacks(), 0);
+    assert!(single.compress(0.0, 0.01).is_err());
+    assert!(single.compress(0.8, 0.0).is_err());
+}

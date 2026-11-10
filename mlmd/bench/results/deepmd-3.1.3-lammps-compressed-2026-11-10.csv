@@ -1,0 +1,9 @@
+engine,route,device,precision,natoms,ms_per_eval,us_per_atom_step,ns_per_day,peak_mem_mb,status,note
+deepmd-3.1.3,lammps-pair-deepmd-compressed,gpu,float64,192,8.5714,44.64270833333333,5.04,,ok,"NVE 0.5 fs, 1000 timed steps after 20 warmup steps"
+deepmd-3.1.3,lammps-pair-deepmd-compressed,gpu,float64,1536,20.233923076923077,13.17312700320513,2.135,,ok,"NVE 0.5 fs, 130 timed steps after 20 warmup steps"
+deepmd-3.1.3,lammps-pair-deepmd-compressed,gpu,float64,12288,117.69019999999999,9.577652994791666,0.367,,ok,"NVE 0.5 fs, 50 timed steps after 20 warmup steps"
+deepmd-3.1.3,lammps-pair-deepmd-compressed,gpu,float64,98304,,,,,error,ERROR on proc 0: DeePMD-kit C API Error: DeePMD-kit Error: DeePMD-kit PyTorch backend error: The following operation failed in the TorchScript interpreter.
+deepmd-3.1.3,lammps-pair-deepmd-compressed,gpu,float32,192,7.57693,39.463177083333335,5.702,,ok,"NVE 0.5 fs, 1000 timed steps after 20 warmup steps"
+deepmd-3.1.3,lammps-pair-deepmd-compressed,gpu,float32,1536,8.936769230769231,5.818209134615384,4.834,,ok,"NVE 0.5 fs, 130 timed steps after 20 warmup steps"
+deepmd-3.1.3,lammps-pair-deepmd-compressed,gpu,float32,12288,32.5128,2.6458984375,1.329,,ok,"NVE 0.5 fs, 50 timed steps after 20 warmup steps"
+deepmd-3.1.3,lammps-pair-deepmd-compressed,gpu,float32,98304,,,,,error,ERROR on proc 0: DeePMD-kit C API Error: DeePMD-kit Error: DeePMD-kit PyTorch backend error: The following operation failed in the TorchScript interpreter.

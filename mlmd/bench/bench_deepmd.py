@@ -136,6 +136,8 @@ def main():
     parser.add_argument('--cpu-max-atoms', type=int, default=1536)
     parser.add_argument('--skip-lammps', action='store_true')
     parser.add_argument('--skip-deeppot', action='store_true')
+    parser.add_argument('--compressed', action='store_true',
+                        help='time the models written by compress_deepmd.py')
     args = parser.parse_args()
     manifest = json.loads((args.case_dir / 'manifest.json').read_text())
     work_dir = args.case_dir / 'lammps'
@@ -146,11 +148,13 @@ def main():
         writer.writeheader()
 
         def record(row):
+            if args.compressed:
+                row['route'] += '-compressed'
             writer.writerow(row)
             handle.flush()
             print(json.dumps(row), flush=True)
 
-        for precision, stem in manifest['models'].items():
+        for precision, stem in manifest['compressed_models' if args.compressed else 'models'].items():
             model = f'{stem}.pth'
             for case in manifest['cases']:
                 name, natoms = case['name'], case['natoms']

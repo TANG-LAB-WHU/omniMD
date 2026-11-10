@@ -1,3 +1,39 @@
+# Fused embedding, compression and DeePMD compressed baseline, 2026-11-10
+
+Same card, model and frames as below; ms per energy/force/virial evaluation.
+DeePMD rows are LAMMPS `pair_style deepmd` (uncompressed from 2026-11-09,
+compressed from `deepmd-3.1.3-lammps-compressed-2026-11-10.csv`, models from
+`compress_deepmd.py`). omniMD rows are `omnimd-gpu-rtx4090-2026-11-10.csv`:
+10 to 100 in-process evaluations each; "compressed" is `--compress 0.5`
+(piecewise quintic embedding tables, step 0.01).
+
+| atoms | precision | DeePMD | omniMD | speed-up | DeePMD compressed | omniMD compressed | speed-up |
+|---:|---|---:|---:|---:|---:|---:|---:|
+| 192 | fp32 | 10.4 | 0.70 | 14.9× | 7.58 | 0.69 | 11.0× |
+| 1,536 | fp32 | 13.1 | 2.18 | 6.0× | 8.94 | 1.64 | 5.5× |
+| 12,288 | fp32 | 66.1 | 14.2 | 4.7× | 32.5 | 10.4 | 3.1× |
+| 98,304 | fp32 | error | 118 | — | error | 84.9 | — |
+| 192 | fp64 | 11.4 | 2.77 | 4.1× | 8.57 | 1.65 | 5.2× |
+| 1,536 | fp64 | 41.9 | 11.8 | 3.5× | 20.2 | 6.12 | 3.3× |
+| 12,288 | fp64 | 293 | 90.4 | 3.2× | 118 | 40.0 | 2.9× |
+| 98,304 | fp64 | error | 699 | — | error | 329 | — |
+
+- Changes since 2026-11-09:
+  - The embedding net runs as one fused kernel (12,288 atoms fp32: embedding
+    stage 11.0 → 5.3 ms).
+  - Optional compression replaces it by tables (5.3 → 1.5 ms; fp64 53 → 7 ms).
+  - Neighbor selection follows DeePMD-kit 3.
+- Accuracy against DeepMD-kit CPU float64 `DeepPot` (192 and 1,536 atoms):
+  omniMD fp64 energy is identical with and without compression; the largest
+  force difference is 2e-17 eV/Å exact and 9e-16 eV/Å compressed. fp32 forces
+  are within 6e-9 eV/Å in both modes. DeePMD's own compressed accuracy was not
+  measured.
+- Remaining cost at 12,288 atoms, fp32 compressed: force/virial kernel 4.0 ms,
+  descriptor 1.9, embedding tables 1.5, neighbor list 1.3, fitting 0.9.
+- LAMMPS rebuilds its neighbor list every ~13 steps; omniMD rebuilds on every
+  evaluation. At 98,304 atoms LAMMPS stops with a TorchScript runtime error in
+  every mode (probably out of memory; not verified).
+
 # GPU se_e2_a and LAMMPS baseline, 2026-11-09 (same card, model and frames)
 
 ms per energy/force/virial evaluation. DeePMD LAMMPS rows are `pair_style deepmd`

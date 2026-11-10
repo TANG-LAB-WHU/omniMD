@@ -4,9 +4,10 @@ build with `--features gpu`) and check it against DeePMD-kit reference E/F/V.
     python bench_omnimd_gpu.py cases <target>/release results/omnimd-gpu-<tag>.csv \
         [--reference deepmd_ref.jsonl]
 
-Per case and network precision (float64, float32) the evaluator runs one
-warmup, K timed in-process evaluations (`--bench K`) and one profiled
-evaluation; rows use the same columns as bench_deepmd.py. The reference file
+Per case, network precision (float64, float32) and embedding mode (exact
+networks, then tables from `--compress`) the evaluator runs one warmup, K
+timed in-process evaluations (`--bench K`) and one profiled evaluation; rows
+use the same columns as bench_deepmd.py. The reference file
 comes from `deepmd_reference.py` (DeepMD-kit CPU float64); the error columns
 go to a JSON file next to the CSV.
 """
@@ -35,6 +36,8 @@ def main():
     parser.add_argument('release', type=Path)
     parser.add_argument('output_csv', type=Path)
     parser.add_argument('--reference', type=Path)
+    parser.add_argument('--compress', default='0.5',
+                        help='shortest neighbor distance the embedding tables cover, in angstrom')
     args = parser.parse_args()
     manifest = json.loads((args.case_dir / 'manifest.json').read_text())
     model = args.case_dir / f"{manifest['models']['float64']}.native.json"
@@ -54,13 +57,16 @@ def main():
         for case in manifest['cases']:
             name, natoms = case['name'], case['natoms']
             frame = (args.case_dir / f'{name}.jsonl').read_text()
-            bench = max(3, min(50, 50000 // natoms))
+            bench = max(10, min(100, 250000 // natoms))
             float64 = None
-            for precision in ['float64', 'float32']:
+            modes = [(precision, compressed) for compressed in (False, True)
+                     for precision in ('float64', 'float32')]
+            for precision, compressed in modes:
+                extra = ['--compress', args.compress] if compressed else []
                 proc = subprocess.run([str(exe), str(model), '--precision', precision, '--bench', str(bench),
-                                       '--profile'], input=frame, capture_output=True, text=True)
-                row = {'engine': 'omnimd', 'route': 'gpu-se_e2_a-cli', 'device': 'gpu',
-                       'precision': precision, 'natoms': natoms}
+                                       '--profile', *extra], input=frame, capture_output=True, text=True)
+                row = {'engine': 'omnimd', 'route': 'gpu-se_e2_a-cli' + ('-compressed' if compressed else ''),
+                       'device': 'gpu', 'precision': precision, 'natoms': natoms}
                 if proc.returncode != 0:
                     note = (proc.stderr.strip().splitlines() or [''])[-1]
                     row.update(status='oom' if 'out of memory' in note.lower() else 'error', note=note[:200])
@@ -72,12 +78,14 @@ def main():
                     row.update(status='ok', ms_per_eval=ms, us_per_atom_step=ms * 1e3 / natoms,
                                note=f"{timing['evaluations']} in-process evaluations after 1 warmup; "
                                     f"network {precision}, geometry and forces float64; "
-                                    f"{stages['chunks']} chunk(s)")
+                                    f"{stages['chunks']} chunk(s)"
+                                    + (f"; embedding tables down to {args.compress} A" if compressed else ''))
                     result = json.loads(proc.stdout.strip().splitlines()[-1])
-                    detail = {'natoms': natoms, 'precision': precision, 'ms_per_eval': ms, 'stages_ms': stages}
+                    detail = {'natoms': natoms, 'precision': precision, 'compressed': compressed,
+                              'ms_per_eval': ms, 'stages_ms': stages}
                     if natoms in refs:
                         detail['vs_deepmd_float64'] = errors(result, refs[natoms])
-                    if precision == 'float64':
+                    if precision == 'float64' and not compressed:
                         float64 = result
                     elif float64 is not None:
                         detail['vs_omnimd_float64'] = errors(result, float64)

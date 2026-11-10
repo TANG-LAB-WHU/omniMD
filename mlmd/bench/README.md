@@ -32,6 +32,12 @@ python mlmd/bench/bench_omnimd_gpu.py mlmd/bench/cases <target>/release mlmd/ben
 
 Step 6 also writes `omnimd-gpu-<tag>.json` with per-stage times and the energy,
 force and virial errors against the DeePMD reference and against omniMD float64.
+It times the exact embedding networks and the compressed mode (`--compress 0.5`).
+
+For a compressed DeePMD baseline, run `compress_deepmd.py cases` in the image
+(the `dp --pt compress` steps with the minimum neighbor distance set to 0.5 Å,
+because the untrained models do not store one), then step 3 with
+`--skip-deeppot --compressed`.
 
 Run steps 3 and 4 one after the other, never at the same time, so they don't
 compete for the GPU. `cases/` is generated and git-ignored. Step 3 accepts

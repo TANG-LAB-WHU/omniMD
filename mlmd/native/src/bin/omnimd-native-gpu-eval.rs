@@ -2,7 +2,7 @@
 //!
 //! ```text
 //! omnimd-native-gpu-eval MODEL.json [--precision float64|float32] [--bench K]
-//!                        [--profile] [--chunk ATOMS] < frames.jsonl
+//!                        [--profile] [--chunk ATOMS] [--compress RMIN[:STEP]] < frames.jsonl
 //! ```
 //!
 //! `--precision float32` runs the networks in float32 (geometry, reductions,
@@ -10,6 +10,9 @@
 //! evaluations of each frame after one warmup and prints one JSON line per
 //! frame to stderr; `--profile` adds per-stage times from one extra,
 //! synchronized evaluation. `--chunk` overrides the per-chunk atom count.
+//! `--compress RMIN` tabulates the embedding nets for neighbor distances
+//! down to RMIN Å (table step 0.01 unless given); frames with closer pairs
+//! fall back to the exact networks.
 use omnimd_gpu::{Device, Scalar};
 use omnimd_ml_contract::{Frame, Potential};
 use omnimd_native::{gpu_model::GpuPotential, NativePotential};
@@ -18,7 +21,8 @@ use std::sync::Arc;
 use std::time::Instant;
 
 const USAGE: &str = "usage: omnimd-native-gpu-eval MODEL.json [--precision float64|float32] \
-                     [--bench K] [--profile] [--chunk ATOMS] < frames.jsonl";
+                     [--bench K] [--profile] [--chunk ATOMS] [--compress RMIN[:STEP]] \
+                     < frames.jsonl";
 
 struct Options {
     model: String,
@@ -26,6 +30,7 @@ struct Options {
     bench: usize,
     profile: bool,
     chunk: Option<usize>,
+    compress: Option<(f64, f64)>,
 }
 
 fn options() -> Result<Options, Box<dyn std::error::Error>> {
@@ -36,6 +41,7 @@ fn options() -> Result<Options, Box<dyn std::error::Error>> {
         bench: 0,
         profile: false,
         chunk: None,
+        compress: None,
     };
     while let Some(flag) = args.next() {
         let mut value = || args.next().ok_or(USAGE);
@@ -49,6 +55,11 @@ fn options() -> Result<Options, Box<dyn std::error::Error>> {
             }
             "--bench" => options.bench = value()?.parse()?,
             "--chunk" => options.chunk = Some(value()?.parse()?),
+            "--compress" => {
+                let text = value()?;
+                let (rmin, step) = text.split_once(':').unwrap_or((&text, "0.01"));
+                options.compress = Some((rmin.parse()?, step.parse()?));
+            }
             "--profile" => options.profile = true,
             _ => return Err(USAGE.into()),
         }
@@ -65,10 +76,18 @@ fn evaluate<P: Scalar>(
     if let Some(chunk) = options.chunk {
         gpu.set_chunk_atoms(chunk);
     }
+    if let Some((min_distance, step)) = options.compress {
+        gpu.compress(min_distance, step)?;
+    }
     eprintln!(
-        "precision: network {}, chunk {} atoms",
+        "precision: network {}, chunk {} atoms, embedding {}",
         P::SUFFIX,
-        gpu.chunk_atoms()
+        gpu.chunk_atoms(),
+        if gpu.is_compressed() {
+            "tabulated"
+        } else {
+            "exact"
+        }
     );
     let input = std::io::stdin();
     let mut out = std::io::BufWriter::new(std::io::stdout().lock());

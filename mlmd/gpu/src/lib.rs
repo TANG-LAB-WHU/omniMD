@@ -9,6 +9,7 @@ mod dense;
 mod fused;
 mod kernels;
 mod nlist;
+mod table;
 
 pub use cudarc::driver::{
     CudaFunction, CudaSlice, CudaStream, CudaView, CudaViewMut, DevicePtr, DevicePtrMut,
@@ -18,6 +19,7 @@ pub use dense::{Activation, DenseLayer, DenseNetwork, DenseTape};
 pub use fused::{LayerParameters, ScalarNetwork};
 pub use kernels::{CacheStats, KernelCache};
 pub use nlist::{Cell, NeighborList, NeighborStats};
+pub use table::{quintic_coefficients, ScalarTable};
 
 use cudarc::cublas::{CudaBlas, Gemm, GemmConfig, StridedBatchedConfig};
 use cudarc::driver::{CudaContext, DeviceRepr, ValidAsZeroBits};
