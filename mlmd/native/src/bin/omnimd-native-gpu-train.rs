@@ -357,12 +357,26 @@ fn fresh_model(spec: &ModelSpec, data: &Dataset) -> Result<Model, Box<dyn std::e
         _ => unreachable!("auto_factor is None only for explicit counts"),
     };
     let normalization = env_mat_stat(&frames, &spec.type_map, d.rcut, d.rcut_smth, &sel)?;
-    let bias = energy_bias(&frames, &energies, &spec.type_map)?;
-    note(format_args!(
-        "sel {sel:?}; energy bias per type {:?} (rank {})",
-        bias.bias, bias.rank
-    ));
-    Ok(initialize(spec, sel, normalization, bias.bias)?)
+    let bias = match &spec.fitting_net.atom_ener {
+        Some(given) => {
+            if given.len() != spec.type_map.len() || given.iter().any(|b| !b.is_finite()) {
+                return Err("atom_ener needs one finite energy for every type".into());
+            }
+            note(format_args!(
+                "sel {sel:?}; energy bias per type {given:?} (atom_ener)"
+            ));
+            given.clone()
+        }
+        None => {
+            let fitted = energy_bias(&frames, &energies, &spec.type_map)?;
+            note(format_args!(
+                "sel {sel:?}; energy bias per type {:?} (rank {})",
+                fitted.bias, fitted.rank
+            ));
+            fitted.bias
+        }
+    };
+    Ok(initialize(spec, sel, normalization, bias)?)
 }
 
 fn train<P: Scalar>(

@@ -90,6 +90,11 @@ pub struct FittingSpec {
     pub precision: String,
     #[serde(default)]
     pub seed: u64,
+    /// The energy bias of every type, in the order of the type map, to use
+    /// instead of the one fitted to the training energies (DeePMD's
+    /// `atom_ener`, here for all types or none).
+    #[serde(default)]
+    pub atom_ener: Option<Vec<f64>>,
 }
 
 fn resnet_dt_default() -> bool {

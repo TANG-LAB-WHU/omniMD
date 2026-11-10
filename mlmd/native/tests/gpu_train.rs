@@ -29,8 +29,13 @@ impl Labeled {
 /// A frame with labels a fixed distance from the model's own prediction, so
 /// every loss term has an O(1) residual.
 fn labeled(trainer: &mut GpuTrainer<f64>, seed: u64) -> Labeled {
-    let lattice = [[7.0, 0.0, 0.0], [0.5, 7.0, 0.0], [0.0, 0.3, 7.2]];
-    let frame = frame(lattice, 3, 2, true, seed);
+    label(trainer, frame(LATTICE, 3, 2, true, seed), seed)
+}
+
+const LATTICE: [[f64; 3]; 3] = [[7.0, 0.0, 0.0], [0.5, 7.0, 0.0], [0.0, 0.3, 7.2]];
+
+/// `frame` with labels a fixed distance from the model's own prediction.
+fn label(trainer: &mut GpuTrainer<f64>, frame: Frame, seed: u64) -> Labeled {
     let none = FrameLabels {
         energy: None,
         forces: None,
@@ -223,7 +228,7 @@ fn full_and_truncated_neighbor_slots_train_correctly() {
     let Some(device) = device() else { return };
     // The frame `labeled` makes for this seed, and its fewest and most
     // neighbors of one type around one atom.
-    let lattice = [[7.0, 0.0, 0.0], [0.5, 7.0, 0.0], [0.0, 0.3, 7.2]];
+    let lattice = LATTICE;
     let counts = neighbor_counts(&frame(lattice, 3, 2, true, 33), 4.0);
     let fewest = *counts.iter().flatten().min().unwrap();
     let most = *counts.iter().flatten().max().unwrap();
@@ -236,57 +241,72 @@ fn full_and_truncated_neighbor_slots_train_correctly() {
         vec![middle, middle + 1],
     ] {
         let model = model(2, sel.clone(), 4.0, 23);
-        let mut trainer = GpuTrainer::<f64>::new(&model, device.clone()).unwrap();
-        let data = labeled(&mut trainer, 33);
-        let (_, prediction) = trainer
-            .accumulate(&data.frame, &data.labels(), &ALL, 1.0)
-            .unwrap();
-        let expected = GpuPotential::<f64>::new(&model, device.clone())
-            .unwrap()
-            .eval(&data.frame)
-            .unwrap();
-        assert!(
-            (prediction.energy - expected.energy).abs() < 1e-10,
-            "{sel:?}"
-        );
-        for (ours, theirs) in prediction.forces.iter().zip(&expected.forces) {
-            for a in 0..3 {
-                assert!((ours[a] - theirs[a]).abs() < 1e-10, "{sel:?}");
-            }
-        }
-        let theta = trainer.parameters().unwrap();
-        trainer.zero_gradient().unwrap();
-        trainer
-            .accumulate(&data.frame, &data.labels(), &ALL, 1.0)
-            .unwrap();
-        let gradient = trainer.gradient().unwrap();
-        let scale = gradient.iter().fold(0.0_f64, |m, g| m.max(g.abs()));
-        let (h, mut checked) = (1e-5, 0);
-        for k in (0..theta.len()).step_by(61) {
-            let mut loss = |shift: f64| {
-                let mut moved = theta.clone();
-                moved[k] += shift;
-                trainer.set_parameters(&moved).unwrap();
-                trainer
-                    .accumulate(&data.frame, &data.labels(), &ALL, 1.0)
-                    .unwrap()
-                    .0
-                    .loss
-            };
-            let numeric = (loss(h) - loss(-h)) / (2.0 * h);
-            assert!(
-                (gradient[k] - numeric).abs() < 1e-6 * scale + 1e-5 * numeric.abs(),
-                "{sel:?}: parameter {k}: {} vs {numeric} (scale {scale})",
-                gradient[k]
-            );
-            checked += 1;
-        }
-        assert!(checked > 60, "{sel:?}: only {checked} parameters checked");
+        let periodic = frame(lattice, 3, 2, true, 33);
+        slots_case(device.clone(), &model, periodic, &format!("{sel:?}"));
     }
+    // An open cluster with a cutoff just past the nearest neighbors: atoms
+    // at its surface have few neighbors, some none of one type.
+    let cluster = frame(lattice, 3, 2, false, 35);
+    slots_case(device, &model(2, vec![6, 6], 2.7, 25), cluster, "cluster");
 }
 
-/// A frame seen before reuses its neighbor list; the same numbers come out,
-/// and a frame that differs in one coordinate is not taken for it.
+/// The trainer's prediction for `frame` against the inference path, which
+/// has an embedding row for every slot, and its loss gradient against
+/// finite differences.
+fn slots_case(
+    device: std::sync::Arc<omnimd_gpu::Device>,
+    model: &omnimd_native::Model,
+    frame: Frame,
+    case: &str,
+) {
+    let mut trainer = GpuTrainer::<f64>::new(model, device.clone()).unwrap();
+    let data = label(&mut trainer, frame, 33);
+    let (_, prediction) = trainer
+        .accumulate(&data.frame, &data.labels(), &ALL, 1.0)
+        .unwrap();
+    let expected = GpuPotential::<f64>::new(model, device)
+        .unwrap()
+        .eval(&data.frame)
+        .unwrap();
+    assert!(
+        (prediction.energy - expected.energy).abs() < 1e-10,
+        "{case}"
+    );
+    for (ours, theirs) in prediction.forces.iter().zip(&expected.forces) {
+        for a in 0..3 {
+            assert!((ours[a] - theirs[a]).abs() < 1e-10, "{case}");
+        }
+    }
+    let theta = trainer.parameters().unwrap();
+    trainer.zero_gradient().unwrap();
+    trainer
+        .accumulate(&data.frame, &data.labels(), &ALL, 1.0)
+        .unwrap();
+    let gradient = trainer.gradient().unwrap();
+    let scale = gradient.iter().fold(0.0_f64, |m, g| m.max(g.abs()));
+    let (h, mut checked) = (1e-5, 0);
+    for k in (0..theta.len()).step_by(61) {
+        let mut loss = |shift: f64| {
+            let mut moved = theta.clone();
+            moved[k] += shift;
+            trainer.set_parameters(&moved).unwrap();
+            trainer
+                .accumulate(&data.frame, &data.labels(), &ALL, 1.0)
+                .unwrap()
+                .0
+                .loss
+        };
+        let numeric = (loss(h) - loss(-h)) / (2.0 * h);
+        assert!(
+            (gradient[k] - numeric).abs() < 1e-6 * scale + 1e-5 * numeric.abs(),
+            "{case}: parameter {k}: {} vs {numeric} (scale {scale})",
+            gradient[k]
+        );
+        checked += 1;
+    }
+    assert!(checked > 60, "{case}: only {checked} parameters checked");
+}
+
 #[test]
 fn a_frame_seen_before_is_not_prepared_again() {
     let Some(device) = device() else { return };
@@ -295,7 +315,7 @@ fn a_frame_seen_before_is_not_prepared_again() {
     let data = labeled(&mut trainer, 34);
     // `labeled` evaluated the frame once already.
     assert_eq!(trainer.cached_frames(), 1);
-    let mut gradient = |trainer: &mut GpuTrainer<f64>, frame: &Frame| {
+    let gradient = |trainer: &mut GpuTrainer<f64>, frame: &Frame| {
         trainer.zero_gradient().unwrap();
         let (terms, _) = trainer
             .accumulate(frame, &data.labels(), &ALL, 1.0)
@@ -330,6 +350,56 @@ fn a_frame_seen_before_is_not_prepared_again() {
     third.positions[0][0] += 0.02;
     gradient(&mut trainer, &third);
     assert_eq!(trainer.cached_frames(), 2);
+}
+
+/// Float32 networks keep their parameters in float64: at the end of a
+/// learning-rate schedule a step is far below the spacing of float32
+/// numbers near the parameters and must not be rounded away.
+#[test]
+fn float32_networks_keep_steps_below_their_own_precision() {
+    let Some(device) = device() else { return };
+    let model = model(2, vec![40, 80], 4.0, 26);
+    let data = labeled(
+        &mut GpuTrainer::<f64>::new(&model, device.clone()).unwrap(),
+        36,
+    );
+    let mut trainer = GpuTrainer::<f32>::new(&model, device.clone()).unwrap();
+    let before = trainer.parameters().unwrap();
+    trainer.zero_gradient().unwrap();
+    trainer
+        .accumulate(&data.frame, &data.labels(), &ALL, 1.0)
+        .unwrap();
+    let gradient = trainer.gradient().unwrap();
+    // The first Adam step moves every parameter by the learning rate
+    // against the sign of its gradient. Most parameters here are of order
+    // 0.1 to 1, where float32 numbers are 1e-8 to 1e-7 apart.
+    let rate = 1e-10;
+    trainer.adam_step(rate).unwrap();
+    let after = trainer.parameters().unwrap();
+    let mut checked = 0;
+    for ((old, new), g) in before.iter().zip(&after).zip(&gradient) {
+        if g.abs() > 1e-4 {
+            assert!(
+                (new - old + g.signum() * rate).abs() < 1e-3 * rate,
+                "{old} to {new} with gradient {g}"
+            );
+            checked += 1;
+        }
+    }
+    assert!(checked > 1000, "only {checked} parameters checked");
+    // The networks compute with the float32 rounding of those parameters:
+    // a trainer given them afresh predicts the same.
+    let none = FrameLabels {
+        energy: None,
+        forces: None,
+        virial: None,
+    };
+    let (_, kept) = trainer.accumulate(&data.frame, &none, &ALL, 0.0).unwrap();
+    let mut fresh = GpuTrainer::<f32>::new(&model, device).unwrap();
+    fresh.set_parameters(&after).unwrap();
+    assert_eq!(fresh.parameters().unwrap(), after);
+    let (_, again) = fresh.accumulate(&data.frame, &none, &ALL, 0.0).unwrap();
+    assert!((kept.energy - again.energy).abs() < 1e-9 * kept.energy.abs().max(1.0));
 }
 
 #[test]

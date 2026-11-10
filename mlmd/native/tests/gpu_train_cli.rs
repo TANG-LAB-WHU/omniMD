@@ -238,3 +238,50 @@ fn validation_frames_are_scored_but_not_trained_on() {
     assert!(!train(&[&path]).status.success());
     std::fs::remove_dir_all(root).unwrap();
 }
+
+/// `atom_ener` gives the energy bias of every type instead of the fit to the
+/// training energies, and the loss terms follow DeePMD-kit's PyTorch rule.
+#[test]
+fn a_given_energy_bias_is_used_and_a_zero_prefactor_turns_a_term_off() {
+    if !gpu_available() {
+        return;
+    }
+    let directory =
+        std::env::temp_dir().join(format!("omnimd-train-cli-bias-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&directory);
+    std::fs::create_dir_all(&directory).unwrap();
+    let edit = |name: &str, change: &dyn Fn(&mut Value)| -> PathBuf {
+        let path = request(&directory, name, 5);
+        let mut body: Value =
+            serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
+        change(&mut body);
+        std::fs::write(&path, body.to_string()).unwrap();
+        path
+    };
+    let given = edit("given", &|body| {
+        body["model"]["fitting_net"]["atom_ener"] = json!([-1.5, 0.25, 3.0]);
+        body["loss"] = json!({"start_pref_v": 0.0, "limit_pref_v": 0.02});
+    });
+    let output = train(&[&given]);
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let model: Value = serde_json::from_str(
+        &std::fs::read_to_string(directory.join("given.native.json")).unwrap(),
+    )
+    .unwrap();
+    assert_eq!(model["atom_energy_bias"], json!([-1.5, 0.25, 3.0]));
+    let log = String::from_utf8_lossy(&output.stderr);
+    assert!(log.contains("(atom_ener)"), "{log}");
+    assert!(log.contains("the virial term is off"), "{log}");
+    // One energy per type, or none.
+    let short = edit("short", &|body| {
+        body["model"]["fitting_net"]["atom_ener"] = json!([-1.5, 0.25]);
+    });
+    let output = train(&[&short]);
+    assert!(!output.status.success());
+    assert!(String::from_utf8_lossy(&output.stderr).contains("atom_ener"));
+    std::fs::remove_dir_all(directory).unwrap();
+}

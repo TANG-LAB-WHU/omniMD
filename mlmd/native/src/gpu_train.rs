@@ -209,6 +209,25 @@ __device__ void adam(P* theta, const P* grad, P* m, P* v, long long n, P lr, P b
     theta[idx] -= lr * (mi / correction1) / (sqrt(vi / correction2) + eps);
 }
 
+// Adam for float32 networks whose parameters are kept in float64. The step
+// is formed in float32 and added in float64: at the end of a schedule the
+// learning rate is of the order of the spacing of float32 numbers near the
+// parameters, and steps that small would be rounded away.
+extern "C" __global__ void adam_master(double* master, float* theta, const float* grad, float* m,
+        float* v, long long n, double lr, float beta1, float beta2, float eps, float correction1,
+        float correction2) {
+    long long idx = (long long)blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx >= n) return;
+    float g = grad[idx];
+    float mi = beta1 * m[idx] + (1.0f - beta1) * g;
+    float vi = beta2 * v[idx] + (1.0f - beta2) * g * g;
+    m[idx] = mi;
+    v[idx] = vi;
+    double value = master[idx] - lr * (double)((mi / correction1) / (sqrtf(vi / correction2) + eps));
+    master[idx] = value;
+    theta[idx] = (float)value;
+}
+
 #define INSTANTIATE(P, S)                                                                         \
 extern "C" __global__ void se_e2_a_descriptor_tangent_##S(const double* env,                      \
         const double* envdot, const P* g, const P* dg, const double* b_in, const int* slot_type,  \
@@ -288,6 +307,7 @@ struct Kernels {
     descriptor_tangent: CudaFunction,
     descriptor_reverse: CudaFunction,
     adam: CudaFunction,
+    adam_master: CudaFunction,
 }
 
 /// Wall-clock milliseconds per stage of [`GpuTrainer::accumulate`] and of the
@@ -367,7 +387,11 @@ pub struct GpuTrainer<P: Scalar> {
     slots: usize,
     width: usize,
     axis: usize,
+    /// The parameters the networks compute with.
     theta: CudaSlice<P>,
+    /// For float32 networks: the parameters in float64, which the optimizer
+    /// updates; `theta` is their rounded copy.
+    master: Option<CudaSlice<f64>>,
     gradient: CudaSlice<P>,
     adam: Option<AdamState<P>>,
     /// Net `center type · ntypes + neighbor type`: the layouts, and all of
@@ -628,6 +652,7 @@ impl<P: Scalar> GpuTrainer<P> {
             descriptor_tangent: train_kernel(&format!("se_e2_a_descriptor_tangent_{}", P::SUFFIX))?,
             descriptor_reverse: train_kernel(&format!("se_e2_a_descriptor_reverse_{}", P::SUFFIX))?,
             adam: train_kernel(&format!("adam_{}", P::SUFFIX))?,
+            adam_master: train_kernel("adam_master")?,
         };
         let cast: Vec<P> = theta.iter().map(|&v| P::from_f64(v)).collect();
         Ok(Self {
@@ -638,6 +663,10 @@ impl<P: Scalar> GpuTrainer<P> {
             axis: d.axis_neuron,
             gradient: device.zeros::<P>(cast.len())?,
             theta: device.upload(&cast)?,
+            master: match P::SUFFIX {
+                "f32" => Some(device.upload(&theta)?),
+                _ => None,
+            },
             adam: None,
             embedding,
             embedding_set,
@@ -756,7 +785,13 @@ impl<P: Scalar> GpuTrainer<P> {
 
     /// The parameters, embedding nets first (center type major), then the
     /// fitting nets; per layer weights `[input][output]`, bias, timestep.
+    ///
+    /// Float32 networks compute with these rounded to float32; the values
+    /// here are the float64 ones the optimizer keeps.
     pub fn parameters(&self) -> Result<Vec<f64>> {
+        if let Some(master) = &self.master {
+            return self.device.download(master);
+        }
         Ok(self
             .device
             .download(&self.theta)?
@@ -775,6 +810,9 @@ impl<P: Scalar> GpuTrainer<P> {
         }
         let cast: Vec<P> = parameters.iter().map(|&v| P::from_f64(v)).collect();
         self.theta = self.device.upload(&cast)?;
+        if self.master.is_some() {
+            self.master = Some(self.device.upload(parameters)?);
+        }
         Ok(())
     }
 
@@ -840,14 +878,29 @@ impl<P: Scalar> GpuTrainer<P> {
         .map(P::from_f64);
         let n_i = n as i64;
         let stream = self.device.stream();
-        let mut launch = stream.launch_builder(&self.kernels.adam);
+        // Float32 networks: the step is added to the float64 parameters, of
+        // which `theta` is the rounded copy.
+        let mixed = self.master.is_some();
+        let mut launch = match &mut self.master {
+            Some(master) => {
+                let mut launch = stream.launch_builder(&self.kernels.adam_master);
+                launch.arg(master);
+                launch
+            }
+            None => stream.launch_builder(&self.kernels.adam),
+        };
         launch
             .arg(&mut self.theta)
             .arg(&self.gradient)
             .arg(&mut state.m)
             .arg(&mut state.v)
             .arg(&n_i);
-        for scalar in &scalars {
+        if mixed {
+            launch.arg(&learning_rate);
+        } else {
+            launch.arg(&scalars[0]);
+        }
+        for scalar in &scalars[1..] {
             launch.arg(scalar);
         }
         let config = LaunchConfig {
