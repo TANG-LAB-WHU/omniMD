@@ -8,7 +8,7 @@ NVRTC at run time (and cached on disk), launched through `cudarc`.
 | piece | what it does |
 |---|---|
 | `Device`, `KernelCache` | context, stream, cuBLAS handle; compiled kernels by source hash, in memory and on disk |
-| `NeighborSearch`, `NeighborList` | cell-list search with DeePMD's selection; the search keeps its buffers between calls |
+| `NeighborSearch`, `NeighborList` | cell-list search with DeePMD's selection, for one system or several that do not see each other; the search keeps its buffers between calls |
 | `ScalarNetwork`, `ScalarTable` | embedding nets (value and tangent in one launch), exactly or as quintic tables |
 | `GradientNetwork` | fitting nets, forward and backward (few atoms): one launch, or three with a wide first layer in tiles through shared memory |
 | `DenseNetwork` | fitting nets layer by layer on cuBLAS (many atoms) |
@@ -105,6 +105,41 @@ What follows for the kernels:
   turn (no gain at 88 rows, a third faster at 224 and more: worth taking up
   if systems of that size matter).
 
+## Batches of frames, committees of models
+
+A system of a hundred atoms leaves most of the card idle: its evaluation is a
+dozen launches that each wait for the one before, and none of them fills the
+multiprocessors. More work per launch costs little, so the potential built on
+this crate (`omnimd_native::gpu_model::GpuPotential`) takes two kinds of it:
+
+- **Several frames in one pass.** The atoms of all frames form one list,
+  sorted by type. Only the neighbor search knows that they belong to
+  different systems (`NeighborSearch::run_systems`): every system has its
+  cell, its grid and its scan margin in a header of the search input, and a
+  center scans the cells of its own system. Each atom gets, bit for bit, the
+  neighbors it gets when its frame is searched alone. Every later kernel
+  works center by center and does not ask which frame a center is from; the
+  host adds up atomic energies and virials per frame after the one download.
+- **Several models in one pass.** Models of one architecture, such as an
+  ensemble kept for model deviation, are the second dimension of the launch
+  grid. Model `m` reads the same neighbor lists, finds its statistics and
+  networks at center type `m * ntypes + type` (the network sets simply hold
+  all models' nets), and has its work rows and results after those of the
+  models before it. The neighbors are searched once for all models.
+
+The two combine: a batch of frames for a committee is still one pass.
+
+What does not change with the batch: launches, uploads and the download (one
+each per stage), the host's binning of atoms into cells (per system, a few
+microseconds each), and the rule that picks the fitting path, which goes by
+the atoms per model in a chunk. What a batch cannot share is the arithmetic,
+so the gain ends where the card is full; see the
+[timings](../bench/results/SUMMARY.md).
+
+A frame of a batch that leaves the range of the embedding tables does not
+drag the others to the exact networks: the batch is then evaluated a frame at
+a time, each with its own fallback.
+
 ## Tests
 
 `tests/device.rs` compares every kernel with a plain CPU reference: products
@@ -112,5 +147,6 @@ against loops, networks against chains with finite-difference tangents and
 gradients, the neighbor search against brute force over images (random and
 skewed cells, boxes narrower than the cutoff, open systems, truncation, exact
 ties on a lattice, pairs a part in 1e9 from the cutoff at coordinates where
-single precision cannot tell them apart). The tests skip without a CUDA
+single precision cannot tell them apart), and a search over several systems
+against each system searched alone. The tests skip without a CUDA
 driver; `OMNIMD_REQUIRE_GPU=1` turns a missing device into a failure.

@@ -1634,6 +1634,45 @@ fn systems_in_one_search_do_not_see_each_other() {
         .unwrap();
     agree("serial path", &list_rows(list), &positions);
 
+    // A cell so thin that the image offsets of its atom's neighbors do not
+    // fit the packed form, searched with a buffer that would hold all of
+    // them: only the mark of its system keeps that center off the warp path.
+    let thinner = [[0.006, 0.0, 0.0], [0.0, 9.0, 0.0], [0.0, 0.0, 9.0]];
+    let both: Vec<[f64; 3]> = parts[0]
+        .0
+        .iter()
+        .copied()
+        .chain([[0.001, 4.0, 5.0]])
+        .collect();
+    let both_types: Vec<i32> = parts[0].1.iter().copied().chain([1]).collect();
+    let mut both_system = vec![0; 150];
+    both_system.push(1);
+    let both_cells = [cells[0], Cell::Periodic(thinner)];
+    let list = search
+        .run_systems_with_capacity(
+            device,
+            &both,
+            &both_types,
+            &both_system,
+            &both_cells,
+            Some(2400),
+        )
+        .unwrap();
+    let rows = list_rows(list);
+    let label = "images past the packed form";
+    compare_systems(
+        label,
+        &rows,
+        &both,
+        &both_types,
+        &both_system,
+        &both_cells,
+        rcut,
+        &sel,
+    );
+    // The atom's own images within the cutoff: 666 on either side.
+    assert_eq!(rows.count[2 * 150..], [0, 1332]);
+
     // Two atoms of the open system at one place: an error of that system,
     // marked at its two atoms only.
     let (a, b) = (members(2)[5], members(2)[17]);

@@ -1,10 +1,11 @@
-# CPU model deviation
+# Model deviation
 
 `omnimd-mlmd model-deviation REQUEST.json NEW_DEVIATIONS.jsonl` evaluates a
 retained ensemble on the shared dataset stream. Each of 2..16 named models is
 loaded once and returns one combined energy/forces/virial evaluation per frame.
-CPU is required and runs in a fresh device-isolated worker. No new dependency,
-coordinate representation or training format is introduced.
+The members run on the CPU, or all on the same `cuda:N` with the
+[GPU runtime](README.md) (section 6), in a fresh device-isolated worker. No new
+dependency, coordinate representation or training format is introduced.
 
 ## 1. Prepare models and inspect input
 
@@ -90,7 +91,8 @@ A failed frame is not emitted. An invalid/truncated dataset or evaluation error
 fails the command; a partial output without `completed` is invalid. Output files
 are created exclusively and existing files are never replaced. Input is streamed;
 working statistics use O(atoms) memory, plus retained models and the dataset
-reader's unique-ID set.
+reader's unique-ID set. On the GPU runtime up to 64 frames are held at a time
+(section 6).
 
 ## 4. Interpret quantities and review candidates
 
@@ -135,6 +137,35 @@ hash, candidate identity, eight refusal cases and a selected two-step CPU NVE jo
 These are software fixtures, not trained physical potentials. Raw models, frames
 and logs stay in the new work directory. See the compact
 [recorded receipt](../evidence/model-deviation.json).
+
+## 6. On the GPU runtime: all members in one pass
+
+Give every member the same `cuda:N` and the same `gpu_runtime` object:
+
+```json
+{"id": "seed-1", "options": {"native_model": "D:/work/model-1.json", "device": "cuda:0",
+                             "gpu_runtime": {"precision": "float32", "compress_min_distance": 0.5}}}
+```
+
+Members that share one architecture (type map, cutoffs, `sel`, `axis_neuron`
+and the shapes of their networks, as the members of a trained ensemble do) are
+then evaluated together: the neighbors of a frame are searched once for all
+members, and every kernel launch serves all members and a batch of frames
+(up to 64 frames or 8192 atoms times members at a time). The header says how
+the run went in `evaluation`:
+
+| `evaluation` | when |
+|---|---|
+| `all members together, a batch of frames in one device pass` | GPU runtime, one architecture, one set of options |
+| `member by member, a batch of frames in one device pass each` | GPU runtime, members of different architectures or options (the reason is printed) |
+| `member by member, frame by frame` | CPU and C API members |
+
+The statistics are those of section 4 in every case, and the records are in
+dataset order. A frame that cannot be evaluated (coincident atoms, an element
+outside the type map) fails the run with its dataset index and ID, as on the
+CPU. With `compress_min_distance`, a frame with a pair closer than the tables
+reach is evaluated with the exact networks for all members; the other frames
+of its batch keep the tables. [Timings](../bench/results/SUMMARY.md).
 
 For reviewed candidates requiring labels, use [external label return](EXTERNAL_LABELS.md)
 after selection. Its import binds exact source/frame/geometry/parameter identity

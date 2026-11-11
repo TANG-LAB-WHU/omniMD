@@ -61,7 +61,14 @@ to a native model on `cuda:N`:
   precision. Unlike the CPU path, a center with more neighbors than `sel` is
   not an error: neighbors are selected like DeepMD-kit 3.
 - `model-deviation` accepts the GPU runtime when every member uses the same
-  `cuda:N` with `gpu_runtime`; mixed devices are rejected.
+  `cuda:N` with `gpu_runtime`; mixed devices are rejected. Members of one
+  architecture with the same options are evaluated together, all members and
+  a batch of frames in one device pass
+  ([details](MODEL_DEVIATION.md#6-on-the-gpu-runtime-all-members-in-one-pass)).
+- `batch-eval` on the GPU runtime evaluates the dataset a batch of frames at
+  a time (up to 64 frames or 8192 atoms in one device pass); the predictions
+  and their order are the same as frame by frame. A frame that cannot be
+  evaluated fails the run with its dataset index and ID.
 - The forces a center exerts on its neighbors are accumulated with atomic
   additions, whose order varies from run to run. Each evaluation is right to
   rounding (float64 forces within 1e-12 eV/angstrom of DeepMD-kit on the 83
@@ -439,7 +446,8 @@ exact checkpoint continuation. Older measurements above describe their original
 release snapshots; see [release scopes](../RELEASE.md) for before/after details.
 
 C API multi-frame batching and atomic outputs remain in the separate standalone
-CLI. Engine `batch-eval` retains one call per frame; dataset v2 now propagates
+CLI. Engine `batch-eval` retains one call per frame for the C API and the CPU
+(the GPU runtime takes a batch of frames per pass); dataset v2 now propagates
 CPU C API frame/atom parameters and explicit stored-default policy. Fixed-parameter
 MD uses the same context for every evaluation and checkpoint v3. See
 [parameter usage](PARAMETERS.md) and [the standalone guide](../deepmd/BACKEND_GUIDE.md).
@@ -449,8 +457,9 @@ No new C API GPU parameter/batch acceptance is claimed.
 
 ## Ensemble comparison and explicit subset extraction
 
-[model-deviation](MODEL_DEVIATION.md) retains 2..16 models on CPU and streams
-absolute population E/F/virial deviations with optional candidate marking.
+[model-deviation](MODEL_DEVIATION.md) retains 2..16 models on the CPU or on
+one GPU and streams absolute population E/F/virial deviations with optional
+candidate marking.
 `import-trajectory` turns the sampled frames of a finished run into the
 unlabeled dataset it reads, so a run, its deviations and the selection of
 candidates chain without leaving the CLI. `merge-datasets MERGE.json
