@@ -49,6 +49,10 @@ DeePMD npy test systems (written for the HAP pipeline tree, which is only read):
 docker run --rm -v $PWD/mlmd:/m -v <pipeline>:/hap:ro -w /m <image> python bench/hap_prepare.py /hap/iter-004/train /hap/sealed-test/data/train bench/cases/hap
 # Host: agreement of every model and mode with DeePMD, and with recorded test errors
 python mlmd/bench/hap_check.py mlmd/bench/cases/hap <target>/release report.json --recorded <pipeline>/iter-004/train/sealed_test.json
+# Host: batches of frames and all models as one committee; timings, and the committee against DeePMD
+python mlmd/bench/hap_batch.py mlmd/bench/cases/hap <target>/release mlmd/bench/results/hap-batch-<tag>.csv --check report.json
+# Host: model deviation through omnimd-mlmd timed per frame, optionally against another build
+python mlmd/bench/hap_deviation.py mlmd/bench/cases/hap <target>/release mlmd/bench/results/hap-deviation-<tag>.json [--other <other target>/release]
 # Host: 4-model deviation check and NVT timing through omnimd-mlmd (--features native-gpu)
 python mlmd/bench/hap_md.py mlmd/bench/cases/hap <target>/release mlmd/bench/results/hap-omnimd-<tag>.csv <system> ...
 # DeePMD image: LAMMPS with the pipeline's exploration protocol

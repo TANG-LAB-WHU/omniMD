@@ -1,0 +1,51 @@
+{
+ "models": 4,
+ "frames": 83,
+ "repeat": 12,
+ "modes": {
+  "float64": {
+   "this": {
+    "evaluation": "all members together, a batch of frames in one device pass",
+    "whole_process_seconds": [
+     1.653340599994408,
+     3.862894900026731
+    ],
+    "ms_per_frame": 2.420103285906159,
+    "max_difference_from_deepmd_force_deviation": 9.534040223968532e-15
+   },
+   "other": {
+    "evaluation": "member by member, frame by frame",
+    "whole_process_seconds": [
+     1.7958868000132497,
+     5.259098899987293
+    ],
+    "ms_per_frame": 3.7932224534217345,
+    "max_difference_from_deepmd_force_deviation": 9.56179579958416e-15
+   },
+   "max_difference_between_builds": 2.7408630920433552e-15,
+   "speedup": 1.567380398808656
+  },
+  "float32-compressed": {
+   "this": {
+    "evaluation": "all members together, a batch of frames in one device pass",
+    "whole_process_seconds": [
+     4.945827500021551,
+     5.376930400001584
+    ],
+    "ms_per_frame": 0.47218280392117506,
+    "max_difference_from_deepmd_force_deviation": 3.6326294994004638e-06
+   },
+   "other": {
+    "evaluation": "member by member, frame by frame",
+    "whole_process_seconds": [
+     5.077711599995382,
+     6.1479182000039145
+    ],
+    "ms_per_frame": 1.1721868565263225,
+    "max_difference_from_deepmd_force_deviation": 4.153361316788784e-06
+   },
+   "max_difference_between_builds": 9.997471910605515e-07,
+   "speedup": 2.4824852722125055
+  }
+ }
+}

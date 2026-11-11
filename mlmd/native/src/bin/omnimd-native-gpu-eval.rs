@@ -22,7 +22,10 @@
 //! their evaluations of a frame instead of one evaluation. `--batch FRAMES`
 //! evaluates that many frames in one device pass (the last batch may be
 //! smaller); the output is the same, and `--bench` and `--profile` then time
-//! batches and report the first frame of each.
+//! batches and report the first frame of each. `--bench-batches N,N,...`
+//! (with `--bench K`) instead reads all frames and times passes over the
+//! first N of them for each N in turn, about K evaluations of a frame by a
+//! model each; it writes no evaluations.
 use omnimd_gpu::{Device, Scalar};
 use omnimd_ml_contract::Frame;
 use omnimd_native::{
@@ -36,12 +39,13 @@ use std::time::Instant;
 const USAGE: &str = "usage: omnimd-native-gpu-eval MODEL.json [--precision float64|float32] \
                      [--bench K] [--profile] [--chunk ATOMS] [--compress RMIN[:STEP]] \
                      [--fused-fitting ATOMS] [--tiled-fitting on|off] [--member MODEL.json]... \
-                     [--batch FRAMES] < frames.jsonl";
+                     [--batch FRAMES] [--bench-batches N,N,...] < frames.jsonl";
 
 struct Options {
     model: String,
     members: Vec<String>,
     batch: usize,
+    bench_batches: Vec<usize>,
     float32: bool,
     bench: usize,
     profile: bool,
@@ -57,6 +61,7 @@ fn options() -> Result<Options, Box<dyn std::error::Error>> {
         model: args.next().ok_or(USAGE)?,
         members: Vec::new(),
         batch: 1,
+        bench_batches: Vec::new(),
         float32: false,
         bench: 0,
         profile: false,
@@ -84,6 +89,14 @@ fn options() -> Result<Options, Box<dyn std::error::Error>> {
                     return Err("--batch takes at least one frame".into());
                 }
             }
+            "--bench-batches" => {
+                for size in value()?.split(',') {
+                    options.bench_batches.push(size.parse()?);
+                }
+                if options.bench_batches.contains(&0) {
+                    return Err("--bench-batches takes sizes of at least one frame".into());
+                }
+            }
             "--fused-fitting" => options.fused_fitting = Some(value()?.parse()?),
             "--tiled-fitting" => {
                 options.tiled_fitting = Some(match value()?.as_str() {
@@ -102,6 +115,9 @@ fn options() -> Result<Options, Box<dyn std::error::Error>> {
             "--profile" => options.profile = true,
             _ => return Err(USAGE.into()),
         }
+    }
+    if !options.bench_batches.is_empty() && options.bench == 0 {
+        return Err("--bench-batches needs --bench K".into());
     }
     Ok(options)
 }
@@ -142,6 +158,43 @@ fn evaluate<P: Scalar>(
         }
     );
     let input = std::io::stdin();
+    if !options.bench_batches.is_empty() {
+        let mut frames: Vec<Frame> = Vec::new();
+        for (line_number, line) in input.lock().lines().enumerate() {
+            let line = line?;
+            if !line.trim().is_empty() {
+                frames.push(
+                    serde_json::from_str(&line)
+                        .map_err(|e| format!("frame {}: {e}", line_number + 1))?,
+                );
+            }
+        }
+        for &size in &options.bench_batches {
+            let Some(batch) = frames.get(..size) else {
+                return Err(format!("a batch of {size} needs as many frames").into());
+            };
+            let batch: Vec<&Frame> = batch.iter().collect();
+            let natoms: usize = batch.iter().map(|frame| frame.positions.len()).sum();
+            // Twice before the clock starts: the first pass of a size sets up
+            // buffers and tables, the second runs with them.
+            gpu.evaluate_frames(&batch, members)?;
+            gpu.evaluate_frames(&batch, members)?;
+            let passes = (options.bench / (size * members)).max(20);
+            let start = Instant::now();
+            for _ in 0..passes {
+                gpu.evaluate_frames(&batch, members)?;
+            }
+            let ms = start.elapsed().as_secs_f64() * 1e3 / passes as f64;
+            eprintln!(
+                "{}",
+                serde_json::json!({"frames": size, "natoms": natoms, "models": members,
+                    "precision": P::SUFFIX, "ms_per_eval": ms, "evaluations": passes,
+                    "ms_per_frame_and_model": ms / (size * members) as f64,
+                    "table_fallbacks": gpu.table_fallbacks()})
+            );
+        }
+        return Ok(());
+    }
     let mut lines = input.lock().lines().enumerate();
     let mut out = std::io::BufWriter::new(std::io::stdout().lock());
     loop {

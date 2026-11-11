@@ -129,8 +129,13 @@ DeepMD-kit to 6e-13 eV/angstrom in forces and reproduces the recorded test error
 Those systems are bound by per-step latency: NVT dynamics through `omnimd-mlmd`
 takes 0.8 to 1.6 ms per step in float64 (0.3 to 0.5 ms in compressed float32)
 against 13.6 to 15.7 ms for LAMMPS `pair_style deepmd` with the same models and
-a neighbor list rebuilt every step. The ensemble is not a production-qualified
-potential; see the [summary](mlmd/bench/results/SUMMARY.md) for the protocol.
+a neighbor list rebuilt every step. A pass over the device can carry more than
+one frame and more than one model: sixteen copies of the 88-atom system are
+evaluated in 1.4 ms in compressed float32 (0.41 of sixteen separate
+evaluations), and the four models of the ensemble on one frame in 0.5 ms
+against 0.8 ms one by one, which is what `model-deviation` and `batch-eval`
+now do. The ensemble is not a production-qualified potential; see the
+[summary](mlmd/bench/results/SUMMARY.md) for the protocol.
 
 `omnimd-native-gpu-train` trains se_e2_a models of any size on the GPU with
 DeepMD-kit's `ener` loss, learning-rate schedule and Adam settings, from a DeepMD
@@ -192,9 +197,11 @@ command and executable tutorial are local follow-ups pending publication; the
 - **Data and prediction:** plain XYZ, a documented extxyz subset and explicit
   DeepMD NPY sets; shared JSONL, optional E/F/virial labels, batch evaluation,
   error metrics and model/capability queries. No units or labels are guessed.
-- **CPU model disagreement:** retained ensembles, absolute E/F/virial deviation and
-  explicit force-window candidate flags; [stepwise usage](mlmd/engine/MODEL_DEVIATION.md)
-  and independent synthetic replay. Disagreement is not calibrated uncertainty.
+- **Model disagreement:** retained ensembles on the CPU or on one GPU, absolute
+  E/F/virial deviation and explicit force-window candidate flags;
+  [stepwise usage](mlmd/engine/MODEL_DEVIATION.md) and independent synthetic
+  replay. On the GPU runtime the members of an ensemble are evaluated together,
+  a batch of frames per device pass. Disagreement is not calibrated uncertainty.
   [Hash-bound subset extraction](mlmd/engine/DATASET_SELECTION.md) preserves reviewed
   IDs and labels for assessment or externally labeled training inputs.
 - **Native readout training:** frozen-hidden final linear weights (optional

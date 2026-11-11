@@ -1,3 +1,88 @@
+# Batches of frames and committees of models, 2026-11-11
+
+A system of a hundred atoms leaves most of the card idle: its evaluation is a
+dozen launches of a few microseconds that wait for each other. The GPU
+se_e2_a path now takes more work per launch in two ways (layout in
+[`gpu/README.md`](../../gpu/README.md)). A batch of frames is one list of
+atoms on the device, with a neighbor search that keeps the frames apart; and
+models of one architecture, such as an ensemble kept for model deviation, are
+a second dimension of every launch, with one neighbor search for all of them.
+
+**Microseconds per frame and model** in process (`hap_batch.py`, which runs
+`omnimd-native-gpu-eval --bench-batches` over copies of one frame; least of
+three runs; raw numbers in `hap-batch-rtx4090-2026-11-11.csv`). HAP models,
+float32 networks with compressed embedding:
+
+| system (atoms) | models | 1 frame | 2 | 4 | 8 | 16 | 32 | 64 |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|
+| HAP bulk (88) | 1 | 206 | 134 | 96 | 98 | 85 | 65 | 56 |
+| | 4 | 125 | 97 | 87 | 84 | 76 | 60 | 49 |
+| HAP(001) + water + CO2 (169) | 1 | 272 | 196 | 190 | 183 | 134 | 110 | 99 |
+| | 4 | 199 | 174 | 161 | 164 | 122 | 98 | 88 |
+| monetite (224) | 1 | 306 | 259 | 231 | 193 | 158 | 130 | 130 |
+| | 4 | 233 | 221 | 208 | 176 | 139 | 123 | 119 |
+
+Float64 networks:
+
+| system (atoms) | models | 1 frame | 2 | 4 | 8 | 16 | 32 | 64 |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|
+| HAP bulk (88) | 1 | 733 | 643 | 542 | 521 | 521 | 515 | 504 |
+| | 4 | 539 | 522 | 517 | 511 | 499 | 498 | 496 |
+| HAP(001) + water + CO2 (169) | 1 | 1249 | 1045 | 1023 | 986 | 958 | 948 | 941 |
+| | 4 | 1006 | 970 | 952 | 939 | 931 | 927 | 926 |
+| monetite (224) | 1 | 1522 | 1563 | 1428 | 1372 | 1351 | 1337 | 1329 |
+| | 4 | 1409 | 1356 | 1347 | 1325 | 1315 | 1314 | 1313 |
+
+- **Batches** (one model, float32 compressed): a frame in a batch of 16
+  costs 0.41 of a frame alone for 88 atoms, 0.49 for 169 and 0.52 for 224;
+  in a batch of 64, 0.27, 0.36 and 0.42. Sixteen copies of the 88-atom
+  system are evaluated in 1.36 ms, against 3.3 ms one after the other.
+- **Committees**: the four models on one frame, which is what model deviation
+  along a trajectory asks for, cost 0.50 ms for 88 atoms against 0.82 ms one
+  by one (1.65 times faster), 0.80 against 1.09 ms for 169 atoms and 0.93
+  against 1.22 ms for 224.
+- **Float64** gains 1.15 to 1.45 times: its arithmetic already keeps the
+  double precision units of the card busy for a single frame, so only the
+  launches and the shared neighbor search are saved.
+- Where the gain ends. With more atoms in a pass the launches no longer
+  count and the stages are bound by what they compute: for 8 frames of 88
+  atoms the fused fitting kernel is 44% of the pass (its layers after the
+  first read their weights a row at a time), the force kernel 20%, the
+  descriptor 14%. Above 256 atoms per type and model the fitting nets go
+  layer by layer through cuBLAS, which costs 0.68 ms in launches for five
+  types whatever the rows and little more for more rows; the two paths
+  cross near 1,400 atoms as before, and between some 300 and 1,400 atoms a
+  pass gains little per frame (the plateau at 2 to 8 frames of 169 atoms).
+  That range is the next thing to work on.
+- **Agreement.** The four models as one committee over the 83 HAP test
+  frames in batches of 16 (`hap_batch.py --check`), each member against
+  DeePMD's own evaluation with that model: float64 within 1.8e-13 eV per
+  atom and 5.6e-13 eV/Å, float64 compressed 8.4e-10 and 3.9e-6, float32
+  3.1e-7 and 8.5e-6, float32 compressed 4.5e-7 and 1.0e-5. The float64
+  numbers are those of the single model; the float32 ones differ in the
+  last digits because batches of that size take the cuBLAS fitting path. A
+  batch gives each frame the neighbors it gets alone, bit for bit (tested
+  against each system searched alone).
+
+**Model deviation through the engine** (`hap_deviation.py`:
+`omnimd-mlmd model-deviation`, the four models on `cuda:0`, the 83 frames of
+54 to 224 atoms; time per frame from two runs over the frames once and twelve
+times, which takes out loading; this build against the one before, which
+evaluated member by member and frame by frame):
+
+| mode | before, ms per frame | now | frames per second |
+|---|---:|---:|---:|
+| float64 | 3.79 | 2.42 | 1.57 times |
+| float32, compressed | 1.17 | 0.47 | 2.48 times |
+
+The deviations of the two builds agree to 3e-15 eV/Å in float64 (1e-6 in
+compressed float32) and with those computed from DeePMD's reference forces to
+1e-14 eV/Å (4e-6). A whole run over the 83 frames takes 1.7 s in float64 and
+4.9 s compressed: loading four models, and for the compressed mode building
+their embedding tables (about 0.8 s per model, on one thread).
+
+`batch-eval` reads a dataset the same way, a batch of frames per pass.
+
 # Fitting nets with the first layer in tiles, 2026-11-11
 
 After the rework below the fitting nets were 40 to 60% of a small system's

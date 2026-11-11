@@ -1463,7 +1463,7 @@ Evaluate frames (one JSON `Frame` per input line, one `Evaluation` per output
 line, same formats as `omnimd-native-eval`):
 
 ```text
-omnimd-native-gpu-eval MODEL.json [--precision float64|float32] [--compress RMIN[:STEP]] [--bench K] [--profile] [--chunk ATOMS] < frames.jsonl > evaluations.jsonl
+omnimd-native-gpu-eval MODEL.json [--precision float64|float32] [--compress RMIN[:STEP]] [--bench K] [--profile] [--chunk ATOMS] [--member MODEL.json]... [--batch FRAMES] < frames.jsonl > evaluations.jsonl
 ```
 
 - `--precision float32` runs the embedding and fitting networks in float32.
@@ -1482,6 +1482,14 @@ omnimd-native-gpu-eval MODEL.json [--precision float64|float32] [--compress RMIN
 - A warning is printed when an atom has more neighbors than `sel`. The runtime
   then keeps the nearest `sum(sel)` neighbors of any type and at most `sel[t]` of
   each type, like DeepMD-kit 3. The CPU `omnimd-native-eval` rejects such frames.
+- `--batch FRAMES` evaluates that many frames in one pass over the device (the
+  frames need not be alike). The output is the same; small systems cost a third
+  to a quarter per frame in batches of sixteen and more, because the passes of
+  one small frame leave most of the card idle.
+- `--member MODEL.json` (repeatable) adds a model of the same architecture, for
+  example the other members of an ensemble. The models are then evaluated
+  together, with one neighbor search per frame for all of them, and each output
+  line is the array of their evaluations of a frame, in the order given.
 
 Compiled kernels are cached in `OMNIMD_KERNEL_CACHE` (default: `omnimd-kernel-cache`
 in the system temporary directory), so the first run of a build compiles for a few
