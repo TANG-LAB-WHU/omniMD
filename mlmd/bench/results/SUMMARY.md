@@ -1,3 +1,59 @@
+# Fitting nets: a weight read serves two rows, 2026-11-11
+
+The batch timings below end in a plateau: between some 300 and 1,400 atoms a
+pass, the fused fitting kernels were the largest stage and cost the same per
+row whatever the rows. Taken apart by leaving out one launch at a time, the
+stage of 2,816 rows was 0.07 microseconds a row in the forward tiles of the
+first layer, 0.20 in the layers after it and 0.19 in the backward tiles.
+
+Two changes, both in `mlmd/gpu/src/fused.rs`: the layers after the first take
+two rows a block, so that a weight read from global memory serves both; and
+the tile of the first layer's transpose does two rows a warp, as the forward
+tile already did. Why two and not more is in
+[`gpu/README.md`](../../gpu/README.md).
+
+**The fitting stage alone**, microseconds per call for 1600 -> 240 -> 240 ->
+240 -> 1 nets in float32, rows in the proportions of the HAP bulk frame (best
+of four, the variants alternated in one process; the probe `fitting_costs`
+of `gpu/tests/costs.rs` prints the column "now" as "tiles"):
+
+| rows | before | now |
+|---:|---:|---:|
+| 88 | 75 | 67 |
+| 176 | 108 | 86 |
+| 352 | 166 | 148 |
+| 704 | 341 | 255 |
+| 1,408 | 655 | 496 |
+| 2,816 | 1331 | 1052 |
+
+**Whole passes**, microseconds per pass over copies of one frame, float32
+with compressed embedding, the two builds alternated three times and the
+best run of each kept (`omnimd-native-gpu-eval --bench 1500 --bench-batches
+1,2,4,8,16`):
+
+| frames | 88 atoms, before | now | 169 atoms, before | now | 224 atoms, before | now |
+|---:|---:|---:|---:|---:|---:|---:|
+| 1 | 208 | 201 | 272 | 254 | 307 | 275 |
+| 2 | 272 | 249 | 391 | 363 | 512 | 461 |
+| 4 | 390 | 362 | 755 | 664 | 925 | 822 |
+| 8 | 781 | 677 | 1501 | 1276 | 1568 | 1578 |
+| 16 | 1387 | 1286 | 2154 | 2153 | 2515 | 2522 |
+
+- A single frame is 3 to 10% faster, a pass of two to eight frames 7 to 15%
+  as long as it stays on the fused kernels.
+- With the fused kernels faster, they now meet the layer-by-layer cuBLAS path
+  near 340 atoms a type and model instead of 256 (measured with five types
+  at 1,800 to 2,000 atoms a pass and with two types at 680), and the switch
+  moved there. That is the gain at 8 frames of 169 atoms and at 16 of 88;
+  beyond the switch a pass is cuBLAS as before (8 and 16 frames of 224 atoms,
+  16 of 169: equal within the noise of the measurement).
+- What is left of the fitting stage with many rows: 0.07 microseconds a row
+  in the forward tiles, 0.14 in the layers after the first, 0.15 in the
+  backward tiles.
+- The tables below were measured before this change. Their entries for
+  passes of up to some 1,700 atoms in float32 are that much lower now; the
+  float64 ones are as they were (the tiles are a float32 path).
+
 # Model deviation along a run, 2026-11-11
 
 A `run` or `run-replicas` request can name the other members of its model's

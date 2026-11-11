@@ -1063,7 +1063,8 @@ fn grouped_rows_take_the_tiled_first_layer() {
             layer(1400, 48, Activation::Tanh, false, false, seed),
             layer(48, 96, Activation::Tanh, true, true, seed + 10),
             layer(96, 96, Activation::Softplus, true, false, seed + 20),
-            layer(96, 1, Activation::Linear, false, true, seed + 30),
+            // An output that is not linear: its slope differs from row to row.
+            layer(96, 1, Activation::Tanh, false, true, seed + 30),
         ]
     };
     for (label, nets) in [

@@ -471,7 +471,8 @@ fn load_costs() {
 }
 
 /// The fitting nets of a five-type model for the type runs of two real
-/// systems: the one kernel a row against the first layer in tiles.
+/// systems and of batches of one of them: the one kernel a row against the
+/// first layer in tiles with the other layers two rows a block.
 #[test]
 #[ignore]
 fn fitting_costs() {
@@ -501,19 +502,34 @@ fn fitting_costs() {
         .collect();
     let mut network = GradientNetwork::new_set(&device, &nets).unwrap();
     println!("microseconds per call, fitting nets {input} -> {width} -> {width} -> {width} -> 1");
-    let cases: [(&str, &[(usize, usize, usize)]); 4] = [
-        (
-            "HAP bulk, 88",
-            &[(0, 0, 20), (1, 20, 12), (2, 32, 52), (3, 84, 4)],
-        ),
+    // The type runs of the HAP bulk frame, for so many copies of it in a batch.
+    let bulk = |copies: usize| {
+        let mut first = 0;
+        [20usize, 12, 52, 4]
+            .iter()
+            .enumerate()
+            .map(|(net, atoms)| {
+                let group = (net, first, atoms * copies);
+                first += atoms * copies;
+                group
+            })
+            .collect::<Vec<_>>()
+    };
+    let cases: [(&str, Vec<(usize, usize, usize)>); 8] = [
+        ("HAP bulk, 88", bulk(1)),
+        ("2 of it, 176", bulk(2)),
+        ("8 of it, 704", bulk(8)),
+        ("32 of it, 2816", bulk(32)),
         (
             "monetite, 224",
-            &[(0, 0, 32), (1, 32, 32), (2, 64, 128), (3, 192, 32)],
+            vec![(0, 0, 32), (1, 32, 32), (2, 64, 128), (3, 192, 32)],
         ),
-        ("one type, 88", &[(2, 0, 88)]),
-        ("one type, 1024", &[(2, 0, 1024)]),
+        ("4 of it, 896", vec![(0, 0, 128), (1, 128, 128), (2, 256, 512), (3, 768, 128)]),
+        ("one type, 88", vec![(2, 0, 88)]),
+        ("one type, 1024", vec![(2, 0, 1024)]),
     ];
-    for (label, groups) in cases {
+    for (label, groups) in &cases {
+        let groups = groups.as_slice();
         let rows: usize = groups.iter().map(|g| g.2).sum();
         let x = device.upload(&vec![0.01f32; rows * input]).unwrap();
         let mut value = device.zeros::<f32>(rows).unwrap();

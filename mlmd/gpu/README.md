@@ -10,7 +10,7 @@ NVRTC at run time (and cached on disk), launched through `cudarc`.
 | `Device`, `KernelCache` | context, stream, cuBLAS handle; compiled kernels by source hash, in memory and on disk |
 | `NeighborSearch`, `NeighborList` | cell-list search with DeePMD's selection, for one system or several that do not see each other; the search keeps its buffers between calls |
 | `ScalarNetwork`, `ScalarTable` | embedding nets (value and tangent in one launch), exactly or as quintic tables |
-| `GradientNetwork` | fitting nets, forward and backward (few atoms): one launch, or three with a wide first layer in tiles through shared memory |
+| `GradientNetwork` | fitting nets, forward and backward (few atoms): one launch, or three with a wide first layer in tiles through shared memory and the other layers two rows a block |
 | `DenseNetwork` | fitting nets layer by layer on cuBLAS (many atoms) |
 | `TrainSet`, `TrainNetwork` | networks with tangents and parameter gradients for the trainer |
 
@@ -96,9 +96,9 @@ What follows for the kernels:
   read of an input sixteen. The first layer's transpose for the gradient is
   tiled the same way, a warp doing two rows there too. The other layers take
   two rows a block, so that a weight read from global memory serves both
-  (the next point). Measured for 1600 -> 240 -> 240 -> 240 -> 1 nets: 1.5 to
-  1.8 times faster than the one kernel at 88 to 1024 rows in float32, before
-  the two rows a block. In double precision the tiles are slower (the
+  (the next point). Measured for 1600 -> 240 -> 240 -> 240 -> 1 nets (probe
+  `fitting_costs`): 1.7 to 2.4 times faster than the one kernel at 88 to
+  2,816 rows in float32. In double precision the tiles are slower (the
   arithmetic is the bound, and the extra launches cost), so they are off
   there.
 - Sharing a load between rows pays as far as the multiprocessors keep
