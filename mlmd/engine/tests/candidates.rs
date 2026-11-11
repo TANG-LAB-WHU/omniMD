@@ -461,10 +461,12 @@ fn what_cannot_be_collected_is_refused_before_anything_is_written() {
         &fresh,
         "is listed twice",
     );
+    // (A relative path that could not be created either: a failure of this
+    // check must not leave files in the source tree.)
     refused(
         "relative output",
         one(&good),
-        Path::new("fresh"),
+        Path::new("no-such-directory/fresh"),
         "new absolute output directory",
     );
     refused(
