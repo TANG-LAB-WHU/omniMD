@@ -194,8 +194,8 @@ fn a_run_with_deviation_marks_its_frames_as_model_deviation_does() {
     // some in it and some above.
     let mut sorted = spread.clone();
     sorted.sort_by(|a, b| a.partial_cmp(b).unwrap());
-    assert!(sorted[2] < sorted[3] && sorted[5] < sorted[6], "{sorted:?}");
-    let window = (0.5 * (sorted[2] + sorted[3]), 0.5 * (sorted[5] + sorted[6]));
+    assert!(sorted[1] < sorted[2] && sorted[5] < sorted[6], "{sorted:?}");
+    let window = (0.5 * (sorted[1] + sorted[2]), 0.5 * (sorted[5] + sorted[6]));
     let marked = records(
         &engine(
             "run",
@@ -223,7 +223,7 @@ fn a_run_with_deviation_marks_its_frames_as_model_deviation_does() {
             &summary["candidate_frames"],
             &summary["failed_frames"]
         ),
-        (&json!(3), &json!(3), &json!(3))
+        (&json!(2), &json!(4), &json!(3))
     );
     assert_eq!(
         marked[0]["deviation"]["force_window"]["min_ev_per_angstrom"],
@@ -302,7 +302,7 @@ fn a_run_with_deviation_marks_its_frames_as_model_deviation_does() {
         .map(|frame| format!("water/step-{}", frame["step"]))
         .collect();
     assert_eq!(ids, expected);
-    assert_eq!(chosen.last().unwrap()["frames"], 3);
+    assert_eq!(chosen.last().unwrap()["frames"], 4);
     // After the first of them, every second one.
     let later = import(
         "later",

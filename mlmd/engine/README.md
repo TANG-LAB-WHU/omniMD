@@ -231,6 +231,7 @@ software fixture, not a physical production model.
 | `ensemble` | `{"kind":"nve"}` (default), or the CSVR (NVT) or constant-pressure (NPT) settings below |
 | `steps` | Additional steps in this invocation |
 | `sample_every` | Positive trajectory sampling interval in steps |
+| `deviation` | Optional: the other members of the model's ensemble and a force window; every sampled frame then carries their [model deviation](MODEL_DEVIATION.md#7-along-a-run-the-members-watch-the-sampled-frames) |
 | `checkpoint_every` | Optional positive checkpoint interval; final checkpoint is always written |
 | `restart` | Checkpoint path, exclusive with fresh frame/masses/velocity initialization |
 
@@ -472,8 +473,8 @@ nothing.
   `frame` or `dataset_frame`, `masses`, `velocities` or
   `initialize_velocities`, `remove_center_of_mass` and `ensemble`, or `restart`
   alone. The systems need not be alike: sizes, cells, boundaries and ensembles
-  may all differ. `options`, `timestep_fs`, `steps`, `sample_every` and
-  `checkpoint_every` are shared. A run takes 1 to 1024 replicas; frame and
+  may all differ. `options`, `timestep_fs`, `steps`, `sample_every`,
+  `checkpoint_every` and `deviation` are shared. A run takes 1 to 1024 replicas; frame and
   atom parameters are not carried.
 - `name` (1 to 64 characters of `[A-Za-z0-9_.-]`, not starting with a dot,
   distinct without regard to case) names the files: the trajectory

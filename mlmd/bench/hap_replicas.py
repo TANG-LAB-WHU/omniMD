@@ -2,6 +2,7 @@
 
     python bench/hap_replicas.py CASE_DIR <target>/release RESULT.csv SYSTEM [SYSTEM ...]
         [--replicas N ...] [--modes MODE ...] [--steps N] [--repeats N] [--other <target>/release]
+        [--deviation]
 
 `CASE_DIR` comes from `hap_prepare.py`; the engine must be built with
 `--features native-gpu`. From the first frame of each SYSTEM, NVT dynamics
@@ -13,6 +14,10 @@ left out), the least of `--repeats` runs because the card is shared with a
 desktop. `--other` times the plain run of a second build as well (for example
 the one before a change of the integrator); a build that does not report its
 rate is timed by the difference of two runs of different length.
+
+`--deviation` repeats the plain run and the replica runs with the other models
+of the case as the ensemble of model 0: every sampled frame (one in 50 steps)
+is then evaluated by all models for their deviation.
 """
 import argparse
 import csv
@@ -84,6 +89,8 @@ def main():
     parser.add_argument('--steps', type=int, default=20000, help='steps of the plain run; replica runs take fewer')
     parser.add_argument('--repeats', type=int, default=2)
     parser.add_argument('--other', type=Path, help='a second build whose plain run is timed too')
+    parser.add_argument('--deviation', action='store_true',
+                        help='also with the other models of the case watching the sampled frames')
     args = parser.parse_args()
     manifest = json.loads((args.case_dir / 'manifest.json').read_text())
     frames = [json.loads(line) for line in (args.case_dir / 'frames.jsonl').read_text().splitlines()]
@@ -102,7 +109,7 @@ def main():
                              f'{ns_per_day:.1f}', f'{ns_per_day * replicas:.1f}',
                              f'{plain / per_replica:.2f}' if plain else ''])
             out.flush()
-            print(f"{system.split('__')[0]:<18} {natoms:>4} atoms  {mode:<19} {route:<12} {replicas:>3} replicas  "
+            print(f"{system.split('__')[0]:<18} {natoms:>4} atoms  {mode:<19} {route:<24} {replicas:>3} replicas  "
                   f"{ms:8.3f} ms per step  {per_replica * 1e3:7.1f} us per replica  "
                   f"{ns_per_day * replicas:8.1f} ns/day in all" + (f"  x{plain / per_replica:.2f}" if plain else ''),
                   flush=True)
@@ -121,12 +128,24 @@ def main():
                 plain = ms_per_step(exe, 'run', dict(shared, **system_input(frame, 0)), work, tag + '-run',
                                     args.steps, args.repeats)
                 record(system, natoms, mode, 'run', 1, plain, None)
-                for count in args.replicas:
-                    replicas = [dict(system_input(frame, seed), name=f'r{seed}') for seed in range(count)]
-                    request = dict(shared, schema='omnimd-replicas-v1', replicas=replicas)
-                    steps = max(args.steps // count, 2000)
-                    ms = ms_per_step(exe, 'run-replicas', request, work, f'{tag}-{count}', steps, args.repeats)
-                    record(system, natoms, mode, 'run-replicas', count, ms, plain)
+                variants = [('', shared)]
+                if args.deviation:
+                    others = [dict(options, native_model=str((args.case_dir / f'model-{k}.native.json').resolve()))
+                              for k in manifest['models'][1:]]
+                    watched = dict(shared, deviation={'models': others, 'force_window': {
+                        'min_ev_per_angstrom': 0.05, 'max_ev_per_angstrom': 0.20}})
+                    ms = ms_per_step(exe, 'run', dict(watched, **system_input(frame, 0)), work,
+                                     tag + '-run-deviation', args.steps, args.repeats)
+                    record(system, natoms, mode, 'run, deviation', 1, ms, plain)
+                    variants.append((', deviation', watched))
+                for suffix, common in variants:
+                    for count in args.replicas:
+                        replicas = [dict(system_input(frame, seed), name=f'r{seed}') for seed in range(count)]
+                        request = dict(common, schema='omnimd-replicas-v1', replicas=replicas)
+                        steps = max(args.steps // count, 2000)
+                        ms = ms_per_step(exe, 'run-replicas', request, work, f'{tag}-{count}{len(suffix)}', steps,
+                                         args.repeats)
+                        record(system, natoms, mode, 'run-replicas' + suffix, count, ms, plain)
 
 
 if __name__ == '__main__':

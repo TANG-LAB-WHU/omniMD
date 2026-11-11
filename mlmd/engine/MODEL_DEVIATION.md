@@ -31,7 +31,9 @@ unlabeled dataset first:
 
 `omnimd-mlmd import-trajectory IMPORT.json NEW_DATASET.jsonl` writes the sampled
 frames at or after `first_step` (default 0), every `stride`-th of them (default
-1), with the IDs `ID_PREFIX/step-N` for the absolute step N. The type map is the
+1), with the IDs `ID_PREFIX/step-N` for the absolute step N. With
+`"candidates_only": true` it keeps only the frames a run with model deviation
+marked as candidates (section 7). The type map is the
 model's. Fixed-cell and constant-pressure trajectories are accepted; each frame
 keeps its own cell. The energies and forces the driving model predicted are not
 copied, because they are not reference labels. A trajectory without its
@@ -166,6 +168,47 @@ outside the type map) fails the run with its dataset index and ID, as on the
 CPU. With `compress_min_distance`, a frame with a pair closer than the tables
 reach is evaluated with the exact networks for all members; the other frames
 of its batch keep the tables. [Timings](../bench/results/SUMMARY.md).
+
+## 7. Along a run: the members watch the sampled frames
+
+A `run` or `run-replicas` request can name the other members of its model's
+ensemble. The model of `options` drives the dynamics as before; at every
+sampled frame all members are evaluated and their deviation is written with
+the frame, so exploration and comparison are one pass:
+
+```json
+"deviation": {
+  "models": [{"native_model": "D:/work/model-1.json", "device": "cuda:0",
+              "gpu_runtime": {"precision": "float32", "compress_min_distance": 0.5}},
+             {"native_model": "D:/work/model-2.json", "device": "cuda:0",
+              "gpu_runtime": {"precision": "float32", "compress_min_distance": 0.5}}],
+  "force_window": {"min_ev_per_angstrom": 0.05, "max_ev_per_angstrom": 0.15}
+}
+```
+
+- `models` are 1 to 15 models besides the one of `options`, which is the first
+  member. They follow the rule of section 2 for devices (the CPU for all, or
+  the same `cuda:N` with `gpu_runtime` for all) and are evaluated as in
+  section 6: together in one device pass when they share an architecture and
+  options, else one after the other. The trajectory header says which in
+  `deviation.evaluation`, with the path and SHA256 of every member.
+- Every frame record gets `model_deviation` (the statistics of section 4,
+  without the per-atom list) and `candidate` (whether its largest force
+  deviation lies in `force_window`; null without a window). The `completed`
+  record gets `deviation` with the number of frames and, for a window, of
+  those below it, in it and at or above it, and the largest force deviation.
+- The members only watch: positions, velocities and the driving model's
+  evaluations are those of the run without `deviation`. The cost is one
+  evaluation by all members per sampled frame.
+- `import-trajectory` with `"candidates_only": true` writes only the frames
+  marked as candidates (after `first_step`, every `stride`-th of them), ready
+  for selection and labelling. It refuses a trajectory without marks, and one
+  that marked no candidate: the `completed` record says how many there are.
+- A restart names the members again (`deviation` is part of the request, not
+  of the checkpoint). In `run-replicas` the section is shared: the frames of
+  all replicas and all members go through one evaluation per sampled step.
+- On the CPU the statistics equal those `model-deviation` computes from the
+  imported trajectory, to the last digit.
 
 For reviewed candidates requiring labels, use [external label return](EXTERNAL_LABELS.md)
 after selection. Its import binds exact source/frame/geometry/parameter identity

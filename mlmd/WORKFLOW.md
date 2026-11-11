@@ -227,6 +227,10 @@ absolute and outputs are never overwritten.
 
    ([run-replicas](engine/README.md#several-runs-at-once)); systems of a few
    hundred atoms then cost a half to a quarter of what they cost one by one.
+   Name the other members in a `deviation` section of either request and the
+   sampled frames carry their model deviation and candidate marks already
+   ([along a run](engine/MODEL_DEVIATION.md#7-along-a-run-the-members-watch-the-sampled-frames));
+   step 4 is then a single `import-trajectory` with `"candidates_only": true`.
 
 4. **Turn the trajectory into a dataset** and **compare the members** on it:
 

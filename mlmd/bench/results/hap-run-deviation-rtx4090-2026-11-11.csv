@@ -1,0 +1,25 @@
+system,natoms,mode,route,replicas,ms_per_step,us_per_replica_step,ns_per_day_per_replica,ns_per_day_in_all,replica_steps_vs_plain_run
+hap_bulk__H4Ca20O52P12,88,float32-compressed,run,1,0.2120,212.0,203.8,203.8,
+hap_bulk__H4Ca20O52P12,88,float32-compressed,"run, deviation",1,0.2247,224.7,192.3,192.3,0.94
+hap_bulk__H4Ca20O52P12,88,float32-compressed,run-replicas,16,1.4091,88.1,490.5,7848.4,2.41
+hap_bulk__H4Ca20O52P12,88,float32-compressed,"run-replicas, deviation",16,1.5137,94.6,456.6,7306.1,2.24
+hap_bulk__H4Ca20O52P12,88,float64,run,1,0.7383,738.3,58.5,58.5,
+hap_bulk__H4Ca20O52P12,88,float64,"run, deviation",1,0.7864,786.4,54.9,54.9,0.94
+hap_bulk__H4Ca20O52P12,88,float64,run-replicas,16,8.3999,525.0,82.3,1316.6,1.41
+hap_bulk__H4Ca20O52P12,88,float64,"run-replicas, deviation",16,9.0077,563.0,76.7,1227.7,1.31
+hap001_water_co2__C2H54Ca20O81P12,169,float32-compressed,run,1,0.2849,284.9,151.6,151.6,
+hap001_water_co2__C2H54Ca20O81P12,169,float32-compressed,"run, deviation",1,0.3023,302.3,142.9,142.9,0.94
+hap001_water_co2__C2H54Ca20O81P12,169,float32-compressed,run-replicas,16,2.2928,143.3,301.5,4823.4,1.99
+hap001_water_co2__C2H54Ca20O81P12,169,float32-compressed,"run-replicas, deviation",16,2.4256,151.6,285.0,4559.4,1.88
+hap001_water_co2__C2H54Ca20O81P12,169,float64,run,1,1.2711,1271.1,34.0,34.0,
+hap001_water_co2__C2H54Ca20O81P12,169,float64,"run, deviation",1,1.3488,1348.8,32.0,32.0,0.94
+hap001_water_co2__C2H54Ca20O81P12,169,float64,run-replicas,16,15.7461,984.1,43.9,702.3,1.29
+hap001_water_co2__C2H54Ca20O81P12,169,float64,"run-replicas, deviation",16,16.9874,1061.7,40.7,651.0,1.20
+monetite_CaHPO4__H32Ca32O128P32,224,float32-compressed,run,1,0.3168,316.8,136.4,136.4,
+monetite_CaHPO4__H32Ca32O128P32,224,float32-compressed,"run, deviation",1,0.3388,338.8,127.5,127.5,0.94
+monetite_CaHPO4__H32Ca32O128P32,224,float32-compressed,run-replicas,16,2.7032,168.9,255.7,4091.2,1.88
+monetite_CaHPO4__H32Ca32O128P32,224,float32-compressed,"run-replicas, deviation",16,2.9000,181.2,238.3,3813.5,1.75
+monetite_CaHPO4__H32Ca32O128P32,224,float64,run,1,1.5391,1539.1,28.1,28.1,
+monetite_CaHPO4__H32Ca32O128P32,224,float64,"run, deviation",1,1.6542,1654.2,26.1,26.1,0.93
+monetite_CaHPO4__H32Ca32O128P32,224,float64,run-replicas,16,21.8466,1365.4,31.6,506.2,1.13
+monetite_CaHPO4__H32Ca32O128P32,224,float64,"run-replicas, deviation",16,23.5921,1474.5,29.3,468.8,1.04

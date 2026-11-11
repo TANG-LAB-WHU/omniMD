@@ -630,3 +630,133 @@ fn replicas_on_the_gpu_runtime_follow_the_cpu_replicas() {
     }
     std::fs::remove_dir_all(directory).unwrap();
 }
+
+#[test]
+fn deviation_along_a_run_on_the_gpu_runtime_matches_cpu() {
+    if !gpu_available() {
+        return;
+    }
+    let directory = work_directory("run-deviation");
+    let first = fixture("synthetic-v1.json");
+    let second = variant(&directory, "second.json", |m| shift_fitting_biases(m, 0.05));
+    let third = variant(&directory, "third.json", |m| shift_fitting_biases(m, -0.08));
+    // A member of another architecture: the members then go one by one.
+    let other = variant(&directory, "other.json", |m| {
+        shift_fitting_biases(m, 0.11);
+        m["descriptor"]["rcut_smth"] = json!(1.9);
+    });
+    let request = |extra: &Value, others: &[&Path]| {
+        let with = |model: &Path| {
+            let mut options = json!({"native_model": model});
+            for (key, value) in extra.as_object().unwrap() {
+                options[key] = value.clone();
+            }
+            options
+        };
+        json!({
+            "options": with(&first),
+            "frame": water_frame(),
+            "masses": [15.999, 1.008, 1.008, 15.999, 1.008, 15.999, 1.008, 1.008],
+            "initialize_velocities":
+                {"temperature_kelvin": 300.0, "seed": 7, "rescale_to_temperature": true},
+            "remove_center_of_mass": true,
+            "ensemble": {"kind": "nvt_csvr", "temperature_kelvin": 300.0, "tau_fs": 20.0, "seed": 3},
+            "timestep_fs": 0.5,
+            "steps": 30,
+            "sample_every": 10,
+            "deviation": {"models": others.iter().map(|model| with(model)).collect::<Vec<_>>(),
+                "force_window": {"min_ev_per_angstrom": 0.0, "max_ev_per_angstrom": 100.0}}
+        })
+    };
+    let on_gpu = json!({"device": "cuda:0", "gpu_runtime": {}});
+    let alike: [&Path; 2] = [&second, &third];
+    let mixed: [&Path; 2] = [&other, &second];
+    for (label, others, how) in [
+        ("alike", &alike, "all members together"),
+        ("mixed", &mixed, "member by member, a batch of frames"),
+    ] {
+        let cpu = engine(
+            "run",
+            &directory,
+            &format!("cpu-{label}"),
+            &request(&json!({}), others),
+        );
+        let gpu = engine(
+            "run",
+            &directory,
+            &format!("gpu-{label}"),
+            &request(&on_gpu, others),
+        );
+        let how_it_went = gpu[0]["deviation"]["evaluation"].as_str().unwrap();
+        assert!(how_it_went.starts_with(how), "{label}: {how_it_went}");
+        assert_eq!(
+            cpu[0]["deviation"]["evaluation"],
+            "member by member, frame by frame"
+        );
+        let (got, expected) = (of_kind(&gpu, "frame"), of_kind(&cpu, "frame"));
+        assert_eq!((got.len(), expected.len()), (4, 4), "{label}");
+        for (g, e) in got.iter().zip(&expected) {
+            let apart = difference(&g["model_deviation"], &e["model_deviation"]);
+            assert!(apart < 1e-9, "{label}, step {}: {apart}", e["step"]);
+            assert_eq!(g["candidate"], true);
+            // The run itself follows the CPU run, as without the members.
+            let apart = difference(&g["evaluation"], &e["evaluation"]);
+            assert!(apart < 1e-9, "{label}, step {}: {apart}", e["step"]);
+        }
+        let spread = expected[0]["model_deviation"]["force_ev_per_angstrom"]["max"]
+            .as_f64()
+            .unwrap();
+        assert!(spread > 1e-6, "{label}: the members differ");
+        assert_eq!(gpu.last().unwrap()["deviation"]["candidate_frames"], 4);
+    }
+    // Replicas with their members: one pass for all frames and members.
+    let replicas_request = |extra: &Value| {
+        let mut request = request(extra, &alike);
+        let fields = request.as_object_mut().unwrap();
+        let system: Vec<(String, Value)> = [
+            "frame",
+            "masses",
+            "initialize_velocities",
+            "remove_center_of_mass",
+            "ensemble",
+        ]
+        .iter()
+        .map(|key| (key.to_string(), fields.remove(*key).unwrap()))
+        .collect();
+        let replicas: Vec<Value> = (0..3)
+            .map(|index| {
+                let mut replica: Value = system
+                    .iter()
+                    .cloned()
+                    .collect::<serde_json::Map<_, _>>()
+                    .into();
+                replica["name"] = json!(format!("r{index}"));
+                replica["initialize_velocities"]["seed"] = json!(20 + index);
+                replica
+            })
+            .collect();
+        request["schema"] = json!("omnimd-replicas-v1");
+        request["replicas"] = json!(replicas);
+        request
+    };
+    let cpu = replicas(&directory, "cpu-replicas", &replicas_request(&json!({})));
+    let gpu = replicas(&directory, "gpu-replicas", &replicas_request(&on_gpu));
+    for (index, (got, expected)) in gpu.iter().zip(&cpu).enumerate() {
+        assert!(got[0]["deviation"]["evaluation"]
+            .as_str()
+            .unwrap()
+            .starts_with("all members together"));
+        for (g, e) in of_kind(got, "frame")
+            .iter()
+            .zip(&of_kind(expected, "frame"))
+        {
+            let apart = difference(&g["model_deviation"], &e["model_deviation"]);
+            assert!(apart < 1e-9, "replica {index}, step {}: {apart}", e["step"]);
+        }
+    }
+    assert_ne!(
+        gpu[0][2]["model_deviation"]["force_ev_per_angstrom"]["max"],
+        gpu[1][2]["model_deviation"]["force_ev_per_angstrom"]["max"]
+    );
+    std::fs::remove_dir_all(directory).unwrap();
+}
