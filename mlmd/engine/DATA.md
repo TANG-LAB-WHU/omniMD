@@ -206,6 +206,28 @@ Only trailing blank lines are allowed.
 The geometry-only extxyz exported by minimization roundtrips through this importer.
 It has no energy/force reference labels; see [MINIMIZATION.md](MINIMIZATION.md).
 
+### Exporting a dataset
+
+    omnimd-mlmd export-xyz export.json new-file.extxyz
+
+with `{"schema": "omnimd-xyz-export-v1", "dataset": "/absolute/dataset.jsonl"}`
+writes every frame of a complete dataset in this profile, for tools that read
+extended XYZ (the scripts of an external calculator, a viewer):
+
+- `Lattice` for a periodic frame, `pbc`, `units=EvAngstrom`, and
+  `Properties=species:S:1:pos:R:3`, with `:forces:R:3` when the frame has
+  forces;
+- `energy` and `virial` (Fortran tensor order, as above) when the frame has
+  them; a frame without labels is geometry only;
+- the frame's ID as `comment="..."`, quotes and backslashes escaped. An ID
+  with a control character stops the export.
+
+Numbers carry 17 digits after the point, so `import-xyz` reads the file back
+to the same values; it gives the frames new IDs (`xyz/N` in the order of the
+file) and takes one `pbc` for the whole file. A dataset with frame or atom
+parameters is not exported: extended XYZ has no place for them. The output
+file must not exist.
+
 Conventions were checked against the
 [libAtoms specification](https://github.com/libAtoms/extxyz) and the official
 [ASE extxyz reader/writer](https://gitlab.com/ase/ase/-/raw/master/ase/io/extxyz.py),

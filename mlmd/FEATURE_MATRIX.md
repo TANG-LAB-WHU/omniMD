@@ -77,7 +77,7 @@ an official `input.json` is not a native training request.
 | Feature | Current omniMD implementation | What remains |
 | --- | --- | --- |
 | DeepMD standard NPY data | Partial: explicitly ordered sets, C-order float64 arrays, fixed real type map, optional E/F/V | Optional v2 explicit fparam/aparam float64 arrays added; mixed types, spin, arbitrary dtypes/layouts and other formats remain unsupported |
-| XYZ / extxyz | Plain XYZ and strict labeled extxyz profile, explicit units/PBC | General ASE metadata and stress conversion are not inferred |
+| XYZ / extxyz | Import of plain XYZ and of a strict labeled extxyz profile with explicit units/PBC; `export-xyz` writes a dataset in that profile (geometry, the labels a frame has, its ID as comment), read back to the same numbers | General ASE metadata and stress conversion are not inferred; parameterized datasets are not exported |
 | Dataset preflight | `inspect-dataset`: complete structural check, exact read-byte SHA256, counts, PBC and label coverage | Source hashes are declarations; model suitability and trainer limits are separate |
 | Batch E/F/V assessment | Engine retains one model and streams single-frame calls. C API standalone CLI additionally packs homogeneous multi-frame calls | TF homogeneous C API batch/atomic CPU comparisons passed; engine retains one call per frame, including parameterized TF/PT |
 | Dataset subset selection | Hash-bound explicit IDs; complete input validation; source-order frames, preserved IDs/labels, new contiguous indices and bundle receipt | [Scope and replay](engine/DATASET_SELECTION.md); 10000 IDs / 256 MiB subset bounds; no external labeling or automatic active learning |

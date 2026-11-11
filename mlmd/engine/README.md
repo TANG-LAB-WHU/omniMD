@@ -22,6 +22,7 @@ omnimd-mlmd check request.json
 omnimd-mlmd run request.json new-trajectory.jsonl
 omnimd-mlmd run-replicas replicas.json new-directory
 omnimd-mlmd collect-candidates collect.json new-directory
+omnimd-mlmd export-xyz export.json new-file.extxyz
 ```
 
 The binary is under `mlmd/target/debug` (`.exe` on Windows).

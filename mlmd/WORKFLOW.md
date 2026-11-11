@@ -259,7 +259,11 @@ absolute and outputs are never overwritten.
 
    ([DATASET_SELECTION.md](engine/DATASET_SELECTION.md),
    [EXTERNAL_LABELS.md](engine/EXTERNAL_LABELS.md)). No calculator is started
-   by these commands.
+   by these commands. For scripts that take extended XYZ instead,
+   `omnimd-mlmd export-xyz export.json candidates.extxyz` writes a dataset in
+   that format with each frame's ID as its comment
+   ([DATA.md](engine/DATA.md#exporting-a-dataset)), and `import-xyz` reads the
+   labelled file back.
 
 6. **Add the labelled frames to the training set** for the next round:
 

@@ -278,6 +278,9 @@ omnimd-mlmd inspect-dataset /absolute/new-dataset.jsonl new-inspection.json
 
 Use `format:"Xyz"` for plain species/position XYZ. Periodic plain XYZ needs an
 explicit row-vector `cell` in the request; periodic extxyz needs `Lattice`.
+The other way, `omnimd-mlmd export-xyz export.json new-file.extxyz` writes a
+dataset as extended XYZ with the labels its frames have
+([format](engine/DATA.md#exporting-a-dataset)).
 Only all-axis periodicity or no periodicity is supported. See
 [the exact extxyz/NPY/JSONL layouts](engine/DATA.md) before converting tensors;
 virial is not stress and no stress-to-virial conversion is inferred.

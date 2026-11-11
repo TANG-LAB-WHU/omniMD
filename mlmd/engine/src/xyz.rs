@@ -1,6 +1,7 @@
 //! Strict plain XYZ / common extended-XYZ profile. No inferred labels or units.
 use crate::dataset::{
-    self, DatasetFrame, DatasetHeader, Labels, Pbc, Record, Result, VirialConvention, SCHEMA,
+    self, DatasetFrame, DatasetHeader, DatasetReader, Labels, Pbc, Record, Result,
+    VirialConvention, SCHEMA,
 };
 use omnimd_ml_contract::{Frame, ModelMetadata, Units};
 use serde::Deserialize;
@@ -348,9 +349,12 @@ pub fn import_xyz(request: &XyzRequest, output: &Path) -> Result<u64> {
     Ok(index)
 }
 
-/// Export geometry only: predictions remain in the minimization report, never
-/// silently relabeled as training references in this structure artifact.
-pub fn export_extxyz(writer: &mut impl Write, frame: &Frame, status: &str) -> Result<()> {
+/// One frame in the extended-XYZ profile `import_xyz` reads: the cell as
+/// `Lattice` (rows a, b, c), the labels that are present (`energy`, a
+/// `forces` column, `virial` in the column-major order of extended XYZ), and
+/// `more` as further metadata of the comment line. Every number is written
+/// with enough digits to be read back exactly.
+fn write_frame(writer: &mut impl Write, frame: &Frame, labels: &Labels, more: &str) -> Result<()> {
     frame.validate()?;
     writeln!(writer, "{}", frame.positions.len())?;
     if let Some(cell) = frame.cell {
@@ -363,21 +367,104 @@ pub fn export_extxyz(writer: &mut impl Write, frame: &Frame, status: &str) -> Re
         }
         write!(writer, "\" ")?;
     }
-    writeln!(
+    write!(
         writer,
-        "Properties=species:S:1:pos:R:3 pbc=\"{}\" units=EvAngstrom minimization_status={status}",
+        "Properties=species:S:1:pos:R:3{} pbc=\"{}\" units=EvAngstrom",
+        if labels.forces.is_some() {
+            ":forces:R:3"
+        } else {
+            ""
+        },
         if frame.cell.is_some() {
             "T T T"
         } else {
             "F F F"
         }
     )?;
-    for (symbol, pos) in frame.species.iter().zip(&frame.positions) {
-        writeln!(
+    if let Some(energy) = labels.energy {
+        write!(writer, " energy={energy:.17e}")?;
+    }
+    if let Some(virial) = labels.virial {
+        write!(writer, " virial=\"")?;
+        for k in 0..9 {
+            let separator = if k == 0 { "" } else { " " };
+            write!(writer, "{separator}{:.17e}", virial[k % 3][k / 3])?;
+        }
+        write!(writer, "\"")?;
+    }
+    writeln!(writer, " {more}")?;
+    for (atom, (symbol, pos)) in frame.species.iter().zip(&frame.positions).enumerate() {
+        write!(
             writer,
             "{symbol} {:.17e} {:.17e} {:.17e}",
             pos[0], pos[1], pos[2]
         )?;
+        if let Some(forces) = &labels.forces {
+            let f = forces[atom];
+            write!(writer, " {:.17e} {:.17e} {:.17e}", f[0], f[1], f[2])?;
+        }
+        writeln!(writer)?;
     }
     Ok(())
+}
+
+/// Export geometry only: predictions remain in the minimization report, never
+/// silently relabeled as training references in this structure artifact.
+pub fn export_extxyz(writer: &mut impl Write, frame: &Frame, status: &str) -> Result<()> {
+    write_frame(
+        writer,
+        frame,
+        &Labels::default(),
+        &format!("minimization_status={status}"),
+    )
+}
+
+pub const EXPORT_SCHEMA: &str = "omnimd-xyz-export-v1";
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct XyzExportRequest {
+    pub schema: String,
+    /// A complete dataset without frame or atom parameters.
+    pub dataset: PathBuf,
+}
+
+/// Writes every frame of a dataset as extended XYZ, for tools that read
+/// that format (an external calculator's scripts, a viewer): the geometry,
+/// the labels the frame has, and its ID as `comment`. `import-xyz` reads the
+/// file back to the same numbers (it gives the frames new IDs). Returns the
+/// number of frames. A failure leaves an incomplete file.
+pub fn export_xyz(request: &XyzExportRequest, output: &Path) -> Result<u64> {
+    if request.schema != EXPORT_SCHEMA {
+        return Err("unsupported XYZ export request schema".into());
+    }
+    // (The reader takes absolute paths only.)
+    let mut reader = DatasetReader::open(&request.dataset)?;
+    if reader.header.parameter_layout.is_some() {
+        return Err("frame and atom parameters have no place in extended XYZ; a parameterized dataset is not exported".into());
+    }
+    let mut writer = dataset::new_output(output)?;
+    let mut frames = 0u64;
+    while let Some(data) = reader.next_frame()? {
+        // Quoted, with quotes and backslashes escaped as the reader undoes
+        // them; a line break would end the comment line.
+        if data.id.chars().any(char::is_control) {
+            return Err(format!(
+                "frame {}: an ID with control characters cannot be written to a comment line",
+                data.index
+            )
+            .into());
+        }
+        let id = data.id.replace('\\', "\\\\").replace('"', "\\\"");
+        write_frame(
+            &mut writer,
+            &data.frame,
+            &data.labels,
+            &format!("comment=\"{id}\""),
+        )?;
+        frames += 1;
+    }
+    // The reader ends only with the completed record of the dataset.
+    writer.flush()?;
+    Ok(frames)
 }
