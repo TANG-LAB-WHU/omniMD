@@ -1,3 +1,71 @@
+# Evaluation after the call and double-precision rework, 2026-11-10 (r3)
+
+The GPU se_e2_a path was measured piece by piece (`mlmd/gpu/tests/costs.rs`,
+results and consequences in [`gpu/README.md`](../../gpu/README.md)) and
+rebuilt around what that showed: a host call costs 5 to 10 microseconds, a
+division in double precision as much as sixty multiplications, and most
+neighbor slots are empty. Same models, frames and protocols as the tables
+further down; the previous build was run again in the same session.
+
+**ms per MD step**, NVT at 300 K through `omnimd-mlmd`
+(`hap-omnimd-rtx4090-2026-11-10-r2.csv`), LAMMPS from the record below:
+
+| system (atoms) | LAMMPS `pair_style deepmd` | fp64 | fp64 compressed | fp32 | fp32 compressed |
+|---|---:|---:|---:|---:|---:|
+| HAP bulk (88), previous build | | 1.60 | 0.84 | 0.58 | 0.47 |
+| HAP bulk (88) | 13.6 | 0.80 | 0.49 | 0.31 | 0.29 |
+| HAP(001) + water + CO2 (169), previous build | | 2.70 | 1.35 | 0.83 | 0.77 |
+| HAP(001) + water + CO2 (169) | 15.7 | 1.38 | 0.84 | 0.45 | 0.42 |
+| monetite (224), previous build | | 3.10 | 1.26 | 0.86 | 0.75 |
+| monetite (224) | 14.6 | 1.64 | 0.88 | 0.53 | 0.48 |
+
+(The previous build's monetite row is the morning's record: its rerun
+overlapped another load on the card.)
+
+**ms per evaluation**, water (`omnimd-gpu-rtx4090-2026-11-10-r3.csv`):
+
+| atoms | fp64 | fp64 compressed | fp32 | fp32 compressed |
+|---:|---:|---:|---:|---:|
+| 192, previous build | 1.97 | 1.04 | 0.69 | 0.65 |
+| 192 | 1.47 | 0.83 | 0.47 | 0.39 |
+| 1,536, previous build | 13.1 | 6.28 | 2.43 | 1.92 |
+| 1,536 | 9.21 | 5.10 | 1.53 | 1.22 |
+| 12,288, previous build | 99.6 | 46.1 | 16.7 | 12.4 |
+| 12,288 | 70.1 | 38.7 | 9.59 | 7.24 |
+| 98,304, previous build | 798 | 367 | 132 | 100 |
+| 98,304 | 564 | 304 | 76.6 | 57.4 |
+
+- Molecular dynamics of the HAP systems is 1.4 to 2.1 times faster per step
+  than a day earlier, and 9 to 17 times (float64) or 30 to 47 times
+  (compressed float32) faster than the LAMMPS record. Large systems gain 1.2
+  to 1.7 times.
+- Agreement is unchanged. All 83 HAP test frames, four models, four modes
+  against DeePMD (`hap_check.py`): float64 within 1.8e-13 eV per atom and
+  5.6e-13 eV/Å, float32 within 2.4e-7 and 7.5e-6, compressed float64 within
+  8.4e-10 and 3.9e-6. Water against DeePMD float64: energy identical, forces
+  within 1.8e-17 eV/Å (8.5e-16 compressed). The four-model deviation matches
+  the one from DeePMD's forces as before.
+- What changed, in the order of what it gave for 88 atoms (compressed
+  float32, 0.53 ms per evaluation before):
+  - One upload, one download and kept buffers per evaluation instead of
+    about thirty device calls: 0.38 ms. The neighbor search alone had made
+    fifteen.
+  - The neighbor search ranks candidates without running its tie-breaking
+    arithmetic for every pair (the compiler had made the branch
+    unconditional), scans in single precision before measuring candidates in
+    double, and reads positions in cell order: 0.33 ms.
+  - No divisions or square roots in double precision per neighbor slot, and
+    no work for empty slots (65% of the slots in these systems): 0.265 ms.
+- Where the time goes now, 88 atoms, compressed float32 (extra time of
+  running one stage twice): fitting nets 0.11 ms, forces 0.03, neighbor
+  search 0.03, descriptor 0.025, embedding tables 0.015, environment 0.01.
+  The fitting kernel is bound by loading its weights from global memory
+  (about 20 ns per weight line and warp) and is the next thing to rebuild.
+  At 98,304 atoms (57 ms): forces 16.3 ms, descriptor 12.6, embedding tables
+  10.0, fitting 8.6, neighbor search 5.6.
+- The trainer shares the reworked environment, descriptor and force kernels;
+  its speed has not been measured again yet.
+
 # Training on the HAP iteration-0 data, 2026-11-10
 
 `omnimd-native-gpu-train` against the HAP pipeline's four iteration-0 DeePMD

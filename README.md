@@ -92,7 +92,10 @@ DeepMD-kit 3, and splits large frames into chunks sized from free device memory.
 Networks run in float64 or float32; geometry, reductions, forces and virial stay
 float64. `--compress` replaces the embedding networks by piecewise quintic tables
 (DeepMD's `dp compress`) and falls back to the exact networks for any frame that
-leaves the table range.
+leaves the table range. The kernels are laid out by what was measured to cost
+time on the card (host calls, double precision divisions, loads from global
+memory); the numbers and the rules drawn from them are in
+[`mlmd/gpu/README.md`](mlmd/gpu/README.md).
 
 Measured on one RTX 4090 with the water se_e2_a benchmark model (sel [46, 92],
 embedding [25, 50, 100], fitting [240, 240, 240]). The weights are untrained, so
@@ -124,7 +127,7 @@ On a trained five-element se_e2_a ensemble (the HAP pipeline's iteration-4
 models, 83 DFT-labelled test frames of 54 to 224 atoms), float64 omniMD matches
 DeepMD-kit to 6e-13 eV/angstrom in forces and reproduces the recorded test errors.
 Those systems are bound by per-step latency: NVT dynamics through `omnimd-mlmd`
-takes 1.5 to 3.1 ms per step in float64 (0.5 to 0.8 ms in compressed float32)
+takes 0.8 to 1.6 ms per step in float64 (0.3 to 0.5 ms in compressed float32)
 against 13.6 to 15.7 ms for LAMMPS `pair_style deepmd` with the same models and
 a neighbor list rebuilt every step. The ensemble is not a production-qualified
 potential; see the [summary](mlmd/bench/results/SUMMARY.md) for the protocol.
