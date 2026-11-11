@@ -1501,11 +1501,66 @@ fn list_rows(list: &NeighborList) -> ListRows {
     }
 }
 
+/// Checks the rows of systems searched together against each system
+/// searched alone, with its atoms in the order they have in the one list:
+/// the same neighbors in the same slots, bit for bit.
+fn compare_systems(
+    label: &str,
+    together: &ListRows,
+    positions: &[[f64; 3]],
+    types: &[i32],
+    system: &[i32],
+    cells: &[Cell],
+    rcut: f64,
+    sel: &[usize],
+) {
+    let device = device().unwrap();
+    let (slots, ntypes) = (sel.iter().sum::<usize>(), sel.len());
+    for (s, cell) in cells.iter().enumerate() {
+        let mine: Vec<usize> = (0..positions.len())
+            .filter(|&atom| system[atom] == s as i32)
+            .collect();
+        let own: Vec<[f64; 3]> = mine.iter().map(|&atom| positions[atom]).collect();
+        let own_types: Vec<i32> = mine.iter().map(|&atom| types[atom]).collect();
+        let list = NeighborList::build(device, &own, &own_types, cell, rcut, sel).unwrap();
+        let rows = list_rows(&list);
+        for (local, &atom) in mine.iter().enumerate() {
+            let what = format!("{label}: system {s} atom {local}");
+            for slot in 0..slots {
+                let (here, there) = (atom * slots + slot, local * slots + slot);
+                let expected = match rows.index[there] {
+                    -1 => -1,
+                    neighbor => mine[neighbor as usize] as i32,
+                };
+                assert_eq!(together.index[here], expected, "{what} slot {slot}");
+                assert_eq!(
+                    together.dist[here].to_bits(),
+                    rows.dist[there].to_bits(),
+                    "{what} slot {slot} distance"
+                );
+                assert_eq!(
+                    together.delta[3 * here..3 * here + 3],
+                    rows.delta[3 * there..3 * there + 3],
+                    "{what} slot {slot} delta"
+                );
+            }
+            assert_eq!(
+                together.count[ntypes * atom..ntypes * (atom + 1)],
+                rows.count[ntypes * local..ntypes * (local + 1)],
+                "{what} counts"
+            );
+            assert_eq!(
+                together.nearest[atom], rows.nearest[local],
+                "{what} nearest"
+            );
+        }
+    }
+}
+
 #[test]
 fn systems_in_one_search_do_not_see_each_other() {
     let Some(device) = device() else { return };
     let (rcut, sel) = (4.0, [40usize, 80]);
-    let slots: usize = sel.iter().sum();
     let cubic = [[12.0, 0.0, 0.0], [0.0, 12.0, 0.0], [0.0, 0.0, 12.0]];
     let skewed = [[14.0, 0.0, 0.0], [3.0, 13.0, 0.0], [-2.0, 1.5, 15.0]];
     // Narrower than the cutoff: several images of each atom are neighbors.
@@ -1547,82 +1602,41 @@ fn systems_in_one_search_do_not_see_each_other() {
     let types: Vec<i32> = places.iter().map(|&(s, a)| parts[s].1[a]).collect();
     let system: Vec<i32> = places.iter().map(|&(s, _)| s as i32).collect();
     let natoms = positions.len();
-    // The atoms of each system, in the order of the one list.
-    let members: Vec<Vec<usize>> = (0..parts.len())
-        .map(|s| {
-            (0..natoms)
-                .filter(|&atom| system[atom] == s as i32)
-                .collect()
-        })
-        .collect();
-    // Each system searched alone, with its atoms in that order.
-    let alone = |positions: &[[f64; 3]]| -> Vec<ListRows> {
-        members
-            .iter()
-            .zip(&cells)
-            .map(|(mine, cell)| {
-                let own: Vec<[f64; 3]> = mine.iter().map(|&atom| positions[atom]).collect();
-                let own_types: Vec<i32> = mine.iter().map(|&atom| types[atom]).collect();
-                let list = NeighborList::build(device, &own, &own_types, cell, rcut, &sel).unwrap();
-                list_rows(&list)
-            })
-            .collect()
+    let members = |s: i32| -> Vec<usize> { (0..natoms).filter(|&a| system[a] == s).collect() };
+    let agree = |label: &str, rows: &ListRows, positions: &[[f64; 3]]| {
+        compare_systems(label, rows, positions, &types, &system, &cells, rcut, &sel)
     };
-    let agree = |label: &str, together: &ListRows, apart: &[ListRows]| {
-        for (s, (mine, rows)) in members.iter().zip(apart).enumerate() {
-            for (local, &atom) in mine.iter().enumerate() {
-                let what = format!("{label}: system {s} atom {local}");
-                for slot in 0..slots {
-                    let (here, there) = (atom * slots + slot, local * slots + slot);
-                    let expected = match rows.index[there] {
-                        -1 => -1,
-                        neighbor => mine[neighbor as usize] as i32,
-                    };
-                    assert_eq!(together.index[here], expected, "{what} slot {slot}");
-                    assert_eq!(
-                        together.dist[here].to_bits(),
-                        rows.dist[there].to_bits(),
-                        "{what} slot {slot} distance"
-                    );
-                    assert_eq!(
-                        together.delta[3 * here..3 * here + 3],
-                        rows.delta[3 * there..3 * there + 3],
-                        "{what} slot {slot} delta"
-                    );
-                }
-                assert_eq!(
-                    together.count[2 * atom..2 * atom + 2],
-                    rows.count[2 * local..2 * local + 2],
-                    "{what} counts"
-                );
-                assert_eq!(
-                    together.nearest[atom], rows.nearest[local],
-                    "{what} nearest"
-                );
-            }
-        }
-    };
+
     let mut search = NeighborSearch::new(rcut, &sel).unwrap();
-    let apart = alone(&positions);
     let list = search
         .run_systems(device, &positions, &types, &system, &cells)
         .unwrap();
     assert_eq!(list.natoms, natoms);
     // The thin system has far more neighbors than slots.
     assert!(list.check(device).unwrap());
-    agree("warp path", &list_rows(list), &apart);
-    // The systems really are apart: the open one overlaps the first box.
-    let open = &apart[2];
-    assert!(open.count.iter().sum::<i32>() > 0 && open.count.iter().sum::<i32>() < 60 * 59);
+    let rows = list_rows(list);
+    agree("warp path", &rows, &positions);
+    // The systems really are apart: atoms of the open one have neighbors,
+    // though fewer than in the box it overlaps.
+    let seen = |s: i32| -> i32 {
+        let of = |atom: usize| rows.count[2 * atom] + rows.count[2 * atom + 1];
+        members(s).into_iter().map(of).sum()
+    };
+    assert!(
+        seen(2) > 0 && seen(2) < seen(0) / 4,
+        "{} {}",
+        seen(2),
+        seen(0)
+    );
     // Every center on the serial path gives the same list.
     let list = search
         .run_systems_with_capacity(device, &positions, &types, &system, &cells, Some(0))
         .unwrap();
-    agree("serial path", &list_rows(list), &apart);
+    agree("serial path", &list_rows(list), &positions);
 
     // Two atoms of the open system at one place: an error of that system,
     // marked at its two atoms only.
-    let (a, b) = (members[2][5], members[2][17]);
+    let (a, b) = (members(2)[5], members(2)[17]);
     positions[b] = positions[a];
     let mut status = device.upload(&vec![-1i32; natoms]).unwrap();
     let list = search
@@ -1638,7 +1652,7 @@ fn systems_in_one_search_do_not_see_each_other() {
             "atom {atom}"
         );
     }
-    agree("with a coincident pair", &rows, &alone(&positions));
+    agree("with a coincident pair", &rows, &positions);
 
     // What the search refuses.
     let mut refused = |system: &[i32], cells: &[Cell]| {
@@ -1658,8 +1672,9 @@ fn systems_in_one_search_do_not_see_each_other() {
     more.push(Cell::Open);
     assert!(refused(&system, &more), "a system without atoms");
     // One system may be named or not.
-    let own: Vec<[f64; 3]> = members[0].iter().map(|&atom| positions[atom]).collect();
-    let own_types: Vec<i32> = members[0].iter().map(|&atom| types[atom]).collect();
+    let first = members(0);
+    let own: Vec<[f64; 3]> = first.iter().map(|&atom| positions[atom]).collect();
+    let own_types: Vec<i32> = first.iter().map(|&atom| types[atom]).collect();
     let named = search
         .run_systems(device, &own, &own_types, &vec![0; own.len()], &cells[..1])
         .unwrap();
@@ -1667,8 +1682,19 @@ fn systems_in_one_search_do_not_see_each_other() {
     let unnamed = search
         .run_systems(device, &own, &own_types, &[], &cells[..1])
         .unwrap();
-    assert_eq!(named.index, list_rows(unnamed).index);
-    assert_eq!(named.index, apart[0].index);
+    let unnamed = list_rows(unnamed);
+    assert_eq!(named.index, unnamed.index);
+    let zeros = vec![0; own.len()];
+    compare_systems(
+        "one system",
+        &named,
+        &own,
+        &own_types,
+        &zeros,
+        &cells[..1],
+        rcut,
+        &sel,
+    );
 }
 
 #[test]
@@ -1765,6 +1791,32 @@ fn neighbors_at_the_cutoff_survive_the_single_precision_scan() {
     let (positions, types) = pairs([1.0, 2.0, 3.0], 20.0, 20, 901);
     let label = "pairs at the cutoff, periodic";
     check_neighbors(label, &positions, &types, Cell::Periodic(long), rcut, &[4]);
+
+    // The same in a search over several systems, after a system at small
+    // coordinates: each system gets the margin its own coordinates call for.
+    let device = device().unwrap();
+    let (far, _) = pairs([3.0e5, -2.0e5, 1.0e5], 20.0, 40, 900);
+    let near = [[0.0, 0.0, 0.0], [1.0, 2.0, 2.0], [-1.5, 0.5, 3.0]];
+    let cells = [Cell::Open, Cell::Open, Cell::Periodic(long)];
+    let all: Vec<[f64; 3]> = near.iter().chain(&far).chain(&positions).copied().collect();
+    let system: Vec<i32> = [(0, near.len()), (1, far.len()), (2, positions.len())]
+        .iter()
+        .flat_map(|&(s, count)| std::iter::repeat_n(s, count))
+        .collect();
+    let types = vec![0; all.len()];
+    let mut search = NeighborSearch::new(rcut, &[4]).unwrap();
+    let list = search
+        .run_systems(device, &all, &types, &system, &cells)
+        .unwrap();
+    let rows = list_rows(list);
+    let label = "pairs at the cutoff, several systems";
+    compare_systems(label, &rows, &all, &types, &system, &cells, rcut, &[4]);
+    // Half of the pairs are inside the cutoff, in each of the two systems.
+    let neighbors = |s: i32| -> i32 {
+        let atoms = (0..all.len()).filter(|&atom| system[atom] == s);
+        atoms.map(|atom| rows.count[atom]).sum()
+    };
+    assert_eq!((neighbors(1), neighbors(2)), (40, 20));
 }
 
 #[test]

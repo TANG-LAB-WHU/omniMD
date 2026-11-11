@@ -421,9 +421,22 @@ fn a_batch_of_frames_matches_each_frame_alone() {
     assert!(gpu.set_tiled_fitting(true));
     against("batch, tiles", &gpu.eval_batch(&batch).unwrap(), FLOAT64);
     gpu.compress(0.8, 0.01).unwrap();
-    let tabulated = gpu.eval_batch(&batch).unwrap();
-    against("batch, tables", &tabulated, (1e-11, 1e-9));
+    let fine = gpu.eval_batch(&batch).unwrap();
+    against("batch, tables", &fine, (1e-11, 1e-9));
     assert_eq!(gpu.table_fallbacks(), 0);
+    // Coarse tables, to tell their results from those of the networks.
+    gpu.compress(0.8, 0.5).unwrap();
+    let tabulated = gpu.eval_batch(&batch).unwrap();
+    for index in [0, 3] {
+        let (rough, exact) = (&tabulated[index].forces, &expected[index].forces);
+        let apart = rough
+            .iter()
+            .flatten()
+            .zip(exact.iter().flatten())
+            .map(|(a, b)| (a - b).abs())
+            .fold(0.0, f64::max);
+        assert!(apart > 1e-9, "coarse tables too accurate: {apart}");
+    }
 
     // A pair closer than the tables reach, in one frame of the batch: that
     // frame alone goes through the exact networks, the others keep the
@@ -468,6 +481,7 @@ fn a_batch_of_frames_matches_each_frame_alone() {
         "{error}"
     );
     // The potential is as usable afterwards as before.
+    gpu.compress(0.8, 0.01).unwrap();
     against(
         "after errors",
         &gpu.eval_batch(&batch).unwrap(),
