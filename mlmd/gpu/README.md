@@ -10,7 +10,7 @@ NVRTC at run time (and cached on disk), launched through `cudarc`.
 | `Device`, `KernelCache` | context, stream, cuBLAS handle; compiled kernels by source hash, in memory and on disk |
 | `NeighborSearch`, `NeighborList` | cell-list search with DeePMD's selection; the search keeps its buffers between calls |
 | `ScalarNetwork`, `ScalarTable` | embedding nets (value and tangent in one launch), exactly or as quintic tables |
-| `GradientNetwork` | fitting nets, forward and backward in one launch (few atoms) |
+| `GradientNetwork` | fitting nets, forward and backward (few atoms): one launch, or three with a wide first layer in tiles through shared memory |
 | `DenseNetwork` | fitting nets layer by layer on cuBLAS (many atoms) |
 | `TrainSet`, `TrainNetwork` | networks with tangents and parameter gradients for the trainer |
 
@@ -51,14 +51,17 @@ status flags written where the results already go.
 | double division | 450 to 500 | one per 150 ns in all |
 | double square root | 290 | one per 90 ns in all |
 | float to double or back | 15 to 20 | |
-| value from shared memory, with its multiply-add | 1.2 | about 4 per ns in all |
+| one value from shared memory for the whole warp, with its multiply-add | 1.2 | about 4 per ns in all |
+| a value per lane from shared memory, with its multiply-add | | about 1 per ns in all |
 | value from global memory, lanes on one line, new line each time | 11 to 22 | 0.36 per ns at 8 warps, 0.65 at 64 |
 | the same line again and again (from the first-level cache) | 8 to 12 | 0.65 to 0.8 per ns |
 | value from global memory, every lane on a line of its own | 24 to 110 | |
 
 Double precision runs at about 1/64 of the single precision rate on this
 card, and a division costs sixty multiply-adds. Loads from global memory are
-slow even when the data is cached; shared memory is five to ten times faster.
+slow even when the data is cached. Shared memory is five to ten times faster
+for a value the whole warp shares and about twice as fast for a value per
+lane.
 
 What follows for the kernels:
 
@@ -74,15 +77,33 @@ What follows for the kernels:
   environment most slots are empty (65% in the HAP systems); their embedding
   row is the same for a pair of types, so it is evaluated once per model and
   enters the descriptor as one term.
-- Check what the compiler makes of a rare branch. A branch whose body is a
-  few double precision operations gets turned into straight-line code that
-  runs for every element and discards the result. The tie-breaking of the
+- Check what the compiler makes of a branch. A branch whose body is a few
+  double precision operations gets turned into straight-line code that runs
+  for every element and discards the result. The tie-breaking of the
   neighbor ranking cost forty times the ranking itself that way; it now sits
-  in a `__noinline__` function behind a count of ties.
+  in a `__noinline__` function behind a count of ties. A branch inside a
+  loop that chooses between a cheap and a dear way to the same value did no
+  better: the dear one kept running. Such a choice belongs outside the loop,
+  as two pieces of code.
 - A dense layer that reads its weights from global memory is bound by those
-  loads, not by arithmetic: the fitting kernel spends about 20 ns per weight
-  line and warp. Weights have to come through shared memory and serve several
-  rows to go faster (not done yet).
+  loads, not by arithmetic: the fitting kernel spent about 20 ns per weight
+  line and warp, a row at a time. So the wide first layer of the fitting
+  nets (three quarters of their arithmetic) goes through shared memory in
+  tiles when the rows are grouped by network
+  (`GradientNetwork::forward_gradient_grouped`): a tile of the weights is
+  copied once and serves every row of a chunk, a warp does two rows and a
+  lane eight outputs, so one read of a weight feeds two products and one
+  read of an input sixteen. The other layers stay row by row; the first
+  layer's transpose for the gradient is tiled the same way. Measured for
+  1600 -> 240 -> 240 -> 240 -> 1 nets: 1.5 to 1.8 times faster than the one
+  kernel at 88 to 1024 rows in float32. In double precision the tiles are
+  slower (the arithmetic is the bound, and the extra launches cost), so they
+  are off there.
+- What was tried for those tiles and did not pay: four rows a warp in the
+  transposed pass (fewer reads per product, but too few warps left to keep a
+  multiprocessor busy), and eight inputs a lane with the outputs reloaded in
+  turn (no gain at 88 rows, a third faster at 224 and more: worth taking up
+  if systems of that size matter).
 
 ## Tests
 

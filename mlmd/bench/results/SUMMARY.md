@@ -1,3 +1,44 @@
+# Fitting nets with the first layer in tiles, 2026-11-11
+
+After the rework below the fitting nets were 40 to 60% of a small system's
+evaluation, bound by reading their weights from global memory a row at a
+time. For rows grouped by network (`GradientNetwork::forward_gradient_grouped`)
+the first layer, 1600 to 240 here and three quarters of the arithmetic, now
+goes through shared memory in tiles that serve all rows of a chunk; the other
+layers stay row by row. Layout and measurements are in
+[`gpu/README.md`](../../gpu/README.md).
+
+**Microseconds per evaluation** in process (`omnimd-native-gpu-eval --bench
+2500`), same HAP model and frames, the previous build and this one alternated
+four times and the best run of each kept:
+
+| system (atoms) | fp32 | fp32, tiles | fp32 compressed | fp32 compressed, tiles |
+|---|---:|---:|---:|---:|
+| HAP bulk (88) | 269 | 230 | 244 | 205 |
+| HAP(001) + water + CO2 (169) | 473 | 368 | 402 | 301 |
+| monetite (224) | 552 | 421 | 477 | 356 |
+
+- Float32 evaluations are 1.17 to 1.34 times faster. Float64 is unchanged:
+  there the arithmetic is the bound and the tiles measured slower (88 atoms,
+  compressed: 457 to 503), so they stay off.
+- The fitting kernels alone, 1600 -> 240 -> 240 -> 240 -> 1 nets, per call
+  (`fitting_costs` probe): 88 rows in four type runs 125 to 81 µs, 224 rows
+  270 to 149, 1024 rows of one type 757 to 498.
+- Agreement with DeePMD on the 83 HAP test frames (`hap_check.py`): float32
+  within 2.4e-7 eV per atom and 7.5e-6 eV/Å as before; float64 unchanged.
+- Why best runs: the card is shared with the desktop (an animated wallpaper
+  takes up to a fifth of it), single runs of one build differ by 10 to 25%
+  and the best of four by about 2% (the float64 modes, whose code did not
+  change, came out within 2% of their previous value). Whole-process
+  timings of molecular dynamics through the engine scatter too much under
+  that load to resolve this gain, so the table of steps below stands as the
+  last clean record of those.
+- The trainer, measured again on the idle card for the rework below (it
+  shares those kernels; it does not use the tiled ones): float32 597 to 622,
+  626 to 649 and 688 to 700 steps/s for 1, 2 and 4 requests at once; float64
+  unchanged within the scatter (best of two alternated rounds 240 and 282,
+  304 and 308, 333 and 336).
+
 # Evaluation after the call and double-precision rework, 2026-11-10 (r3)
 
 The GPU se_e2_a path was measured piece by piece (`mlmd/gpu/tests/costs.rs`,
@@ -60,11 +101,13 @@ overlapped another load on the card.)
   running one stage twice): fitting nets 0.11 ms, forces 0.03, neighbor
   search 0.03, descriptor 0.025, embedding tables 0.015, environment 0.01.
   The fitting kernel is bound by loading its weights from global memory
-  (about 20 ns per weight line and warp) and is the next thing to rebuild.
+  (about 20 ns per weight line and warp); see the section above for what
+  was done about it.
   At 98,304 atoms (57 ms): forces 16.3 ms, descriptor 12.6, embedding tables
   10.0, fitting 8.6, neighbor search 5.6.
-- The trainer shares the reworked environment, descriptor and force kernels;
-  its speed has not been measured again yet.
+- The trainer shares the reworked environment, descriptor and force kernels:
+  2 to 4% faster in float32, unchanged in float64 (numbers in the section
+  above). Its time is in the fitting passes.
 
 # Training on the HAP iteration-0 data, 2026-11-10
 
