@@ -1,3 +1,69 @@
+# Several runs advanced together, and a lighter step, 2026-11-11
+
+Two changes to molecular dynamics through `omnimd-mlmd`, both on the host.
+
+**Replicas.** `run-replicas` advances several independent systems of one
+model in step: one model evaluation per step for all of them, which the GPU
+runtime answers in one pass over the device (the batches of the section
+below), and one more for the systems whose cell moves at that step. Each
+replica has its own ensemble and writes the trajectory and checkpoints it
+writes alone; on the CPU they are identical to those of the single runs.
+
+**The step itself.** A step used to copy the whole system, names and
+molecules included, and to build the frame handed to the model five times
+over; it now works on the system in place and takes the step back if any
+part of it fails. The host's share of a step, measured with a model that
+costs nothing (`tests/step_cost.rs`):
+
+| atoms | NVE step, before | now | NVT step, before | now |
+|---:|---:|---:|---:|---:|
+| 88 | 13.4 µs | 1.0 µs | 20.7 µs | 1.75 µs |
+| 224 | 35.7 | 2.5 | 50.7 | 3.9 |
+| 1,024 | 165 | 11.6 | 222 | 16.3 |
+
+Trajectories and checkpoints of the CPU path are the same bytes as before
+(NVE, NVT and NPT runs of 400 steps compared between the two builds).
+
+**Microseconds per step and replica** (`hap_replicas.py`: NVT at 300 K, CSVR
+thermostat, 0.5 fs, sampled every 50 steps, model 0 of the HAP ensemble;
+replicas of one system with different seeds; the engine's own count of its
+stepping time, least of two runs; raw numbers in
+`hap-replicas-rtx4090-2026-11-11.csv`). Float32 networks with compressed
+embedding:
+
+| system (atoms) | plain run, before | plain run | 2 replicas | 4 | 8 | 16 | 32 |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| HAP bulk (88) | 235 | 215 | 144 | 102 | 104 | 90 | 71 |
+| HAP(001) + water + CO2 (169) | 320 | 285 | 208 | 197 | 200 | 146 | 121 |
+| monetite (224) | 361 | 320 | 271 | 242 | 208 | 171 | 138 |
+
+Float64 networks:
+
+| system (atoms) | plain run, before | plain run | 2 replicas | 4 | 8 | 16 | 32 |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| HAP bulk (88) | 764 | 744 | 653 | 551 | 534 | 525 | 522 |
+| HAP(001) + water + CO2 (169) | 1310 | 1272 | 1063 | 1039 | 1014 | 988 | 973 |
+| monetite (224) | 1587 | 1544 | 1578 | 1447 | 1392 | 1372 | 1355 |
+
+- A plain run is 8 to 11% faster in compressed float32 (20 to 41 µs less a
+  step) and about 3% faster in float64, from the lighter step alone. ("Before"
+  is the previous build timed by the difference of two runs of different
+  length; that build did not report its stepping time.)
+- Replicas in compressed float32: sixteen 88-atom systems advance at 90 µs
+  per step each and thirty-two at 71 µs, against 215 µs alone, that is 2.4
+  and 3.0 times the simulated time per day from one card (19,400 ns per day
+  in all for thirty-two replicas at 0.5 fs, against 200 for one run). For
+  169 and 224 atoms the gain is 2.0 and 1.9 times at sixteen replicas and 2.4
+  and 2.3 times at thirty-two.
+- The engine adds some 5 to 15 µs per replica and step to the evaluation of
+  the batch (integrator, building frames, sampled output), so the table follows
+  the batch timings below; the plateau between 300 and 1,400 atoms per pass
+  is the fused fitting kernel, as there.
+- Float64 gains 1.1 to 1.4 times, as in the batch timings.
+- GPU replicas against CPU replicas of the same request (three systems, NVE,
+  NPT with cell moves, NVT without a cell; test `gpu_runtime.rs`): sampled
+  frames within 1e-9 over 40 steps in float64.
+
 # Batches of frames and committees of models, 2026-11-11
 
 A system of a hundred atoms leaves most of the card idle: its evaluation is a

@@ -127,14 +127,17 @@ On a trained five-element se_e2_a ensemble (the HAP pipeline's iteration-4
 models, 83 DFT-labelled test frames of 54 to 224 atoms), float64 omniMD matches
 DeepMD-kit to 6e-13 eV/angstrom in forces and reproduces the recorded test errors.
 Those systems are bound by per-step latency: NVT dynamics through `omnimd-mlmd`
-takes 0.8 to 1.6 ms per step in float64 (0.3 to 0.5 ms in compressed float32)
+takes 0.7 to 1.5 ms per step in float64 (0.2 to 0.3 ms in compressed float32)
 against 13.6 to 15.7 ms for LAMMPS `pair_style deepmd` with the same models and
 a neighbor list rebuilt every step. A pass over the device can carry more than
 one frame and more than one model: sixteen copies of the 88-atom system are
 evaluated in 1.4 ms in compressed float32 (0.41 of sixteen separate
 evaluations), and the four models of the ensemble on one frame in 0.5 ms
 against 0.8 ms one by one, which is what `model-deviation` and `batch-eval`
-now do. The ensemble is not a production-qualified potential; see the
+now do. `run-replicas` advances several runs of one model together the same
+way: thirty-two replicas of the 88-atom system take 71 microseconds per step
+each against 215 alone, with the trajectory and checkpoints each would write
+alone. The ensemble is not a production-qualified potential; see the
 [summary](mlmd/bench/results/SUMMARY.md) for the protocol.
 
 `omnimd-native-gpu-train` trains se_e2_a models of any size on the GPU with
