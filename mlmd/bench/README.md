@@ -69,6 +69,8 @@ omnimd-native-gpu-test trained.native.json mlmd/bench/cases/hap/dataset.jsonl > 
 python mlmd/bench/hap_train_score.py mlmd/bench/cases/hap/dataset.jsonl <pipeline>/iter-000/train/sealed_test.json <target>/release mlmd/bench/results/hap-train-ensemble-<tag>.json model-0.native.json model-1.native.json ...
 # Host: repeat finished exploration runs of the pipeline with an ensemble of native models (manifest.json and model-K.native.json in a case directory)
 python mlmd/bench/hap_explore.py <pipeline>/iter-000/explore <case directory> <target>/release mlmd/bench/results/hap-explore-<tag>.json <run> ...
+# Host: an exploration of every system of the case at 300 and 500 K as one replica run, then its candidates (new output directory)
+python mlmd/bench/hap_explore_all.py mlmd/bench/cases/hap <target>/release <output directory> --result mlmd/bench/results/hap-explore-all-<tag>.json [--npt-temperatures 300]
 ```
 
 `hap_npt.py` reads the LAMMPS run's `conf.lmp`, `in.lmp`, `log.lammps` and

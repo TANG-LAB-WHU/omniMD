@@ -1,5 +1,6 @@
 //! Input conversion for the fallible MLIP dynamics implemented in omnimd-sim.
 pub mod barostat;
+pub mod candidates;
 pub mod dataset;
 pub mod deviation;
 pub mod labeling;

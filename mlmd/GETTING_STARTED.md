@@ -468,7 +468,11 @@ Use [the model-deviation workflow](engine/MODEL_DEVIATION.md) to load 2..16 mode
 once and stream absolute E/F/virial population deviations on CPU. Start with an
 inspected dataset, explicit member IDs and identical ordered type maps/units.
 For the frames of an MD run, `import-trajectory` writes that dataset from the
-trajectory (request format in the same document).
+trajectory (request format in the same document). Runs that carried the
+members along (`deviation` in `run` or `run-replicas`) need no second pass:
+`collect-candidates` writes their candidate frames as one dataset and
+summarizes how far the members agree
+([section 8 there](engine/MODEL_DEVIATION.md#8-the-candidates-of-an-exploration)).
 Run without a force window to inspect disagreements, then choose a justified
 half-open max-force interval and review candidate IDs. The completed output binds
 them to the consumed dataset SHA256. A candidate can enter existing MD or

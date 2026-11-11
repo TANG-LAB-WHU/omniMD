@@ -140,7 +140,13 @@ each against 215 alone, with the trajectory and checkpoints each would write
 alone. A run can carry the other members of its model's ensemble along
 (`deviation`): every sampled frame is then written with their model deviation
 and a candidate mark, for 6 to 8% more time at one sampled frame in fifty
-steps. The ensemble is not a production-qualified potential; see the
+steps. `collect-candidates` then writes the candidate frames of all runs as
+one dataset, with a limit per run, and the share of the frames the members
+agree on. An exploration with the pipeline's protocol, eight systems at two
+temperatures for 40,000 steps each with the four models compared every 50
+steps, is one `run-replicas` of 79 seconds and one `collect-candidates` of 2
+seconds: 8,077 run-steps per second against 58 to 78 in the LAMMPS records
+of the same models. The ensemble is not a production-qualified potential; see the
 [summary](mlmd/bench/results/SUMMARY.md) for the protocol.
 
 `omnimd-native-gpu-train` trains se_e2_a models of any size on the GPU with

@@ -1,3 +1,56 @@
+# An exploration in one run, and its candidates, 2026-11-11
+
+`collect-candidates` reads the trajectories of runs that carried the members
+of their ensemble along and writes the candidate frames of all of them as one
+dataset, at most so many of a run and those evenly spread in time, with a
+summary of the frames the members agree on
+([`engine/MODEL_DEVIATION.md`](../../engine/MODEL_DEVIATION.md#8-the-candidates-of-an-exploration)).
+With `run-replicas` that makes an exploration two commands.
+
+**An exploration with the pipeline's protocol** (`hap_explore_all.py`): the
+eight systems of the HAP case (54 to 224 atoms) from their first frame at 300
+and at 500 K, so 16 runs and 1,912 atoms a step; 40,000 steps of 0.5 fs each;
+model 0 driving and all four models compared every 50 steps; window 0.10 to
+0.30 eV/Å, at most 30 candidates a run. Compressed float32, CSVR thermostat.
+In the second column the six bulk systems run at 300 K at 1.01325 bar with a
+fully flexible cell, as the pipeline explores them from its iteration 4 on.
+Raw numbers in `hap-explore-all-rtx4090-2026-11-11.json` and
+`hap-explore-all-npt-rtx4090-2026-11-11.json`:
+
+| | fixed cells | bulk at 300 K at constant pressure |
+|---|---:|---:|
+| stepping, 16 runs of 40,000 steps | 79.2 s | 82.7 s |
+| one step of all 16 runs | 1.98 ms | 2.07 ms |
+| run-steps per second | 8,077 | 7,743 |
+| the `run-replicas` process in all | 81.7 s | 84.9 s |
+| `collect-candidates` | 1.9 s | 1.9 s |
+| sampled frames | 12,816 | 12,816 |
+| accurate, candidate, failed | 11,360 / 1,448 / 8 | 11,430 / 1,377 / 9 |
+| picked | 144 | 141 |
+
+- For scale, two records of LAMMPS `pair_style deepmd` with the same four
+  models and the same sampling (the section of 2026-11-10 below): one run
+  alone on this card took 12.8 to 16.5 ms a step, 61 to 78 run-steps per
+  second; the pipeline's own logs show 52 ms a step with three runs sharing
+  the card, 58 run-steps per second in all. The 640,000 run-steps of this
+  exploration are about three hours at those rates and 79 seconds here, a
+  factor of 100 to 140. The thermostats differ (Nose-Hoover there), which
+  does not affect the cost of a step.
+- The pipeline explores 36 runs an iteration since it added further phases;
+  the case here holds the eight systems of its sealed test.
+- Constant pressure for six of the sixteen runs costs 4%: every ten steps
+  their cell moves take one more evaluation, of those six systems together.
+- Outside the stepping loop the process spends 2.5 s, mostly on loading four
+  95 MB models and building their tables. The sixteen trajectories take 300
+  MB; reading them twice for the candidates takes 1.9 s.
+- The 500 K runs are the same requests in both columns and count
+  differently: reductions on the device are not ordered, so two runs of one
+  request agree to rounding at first and part ways like any two trajectories
+  of a chaotic system.
+- The counts say how far four models of one round agree along these
+  particular runs. They are not a statement about the accuracy of the
+  models, which the pipeline marks as not production-qualified.
+
 # Fitting nets: a weight read serves two rows, 2026-11-11
 
 The batch timings below end in a plateau: between some 300 and 1,400 atoms a

@@ -204,11 +204,78 @@ the frame, so exploration and comparison are one pass:
   marked as candidates (after `first_step`, every `stride`-th of them), ready
   for selection and labelling. It refuses a trajectory without marks, and one
   that marked no candidate: the `completed` record says how many there are.
+  For the candidates of several runs at once, with a limit per run and the
+  summary of the exploration, see section 8.
 - A restart names the members again (`deviation` is part of the request, not
   of the checkpoint). In `run-replicas` the section is shared: the frames of
   all replicas and all members go through one evaluation per sampled step.
 - On the CPU the statistics equal those `model-deviation` computes from the
   imported trajectory, to the last digit.
+
+## 8. The candidates of an exploration
+
+An exploration is usually many runs: several structures, temperatures and
+ensembles, all watched by the same members. `collect-candidates` reads the
+finished trajectories of such runs and writes the two things the next step of
+an active-learning round needs, the frames to label and how far the models
+already agree:
+
+```sh
+omnimd-mlmd collect-candidates collect.json D:/work/iteration-3/candidates
+```
+
+```json
+{
+  "schema": "omnimd-candidates-v1",
+  "replica_runs": ["D:/work/iteration-3/explored"],
+  "trajectories": [{"trajectory": "D:/work/iteration-3/extra.jsonl", "id_prefix": "extra"}],
+  "first_step": 2000,
+  "max_per_trajectory": 30,
+  "force_window": {"min_ev_per_angstrom": 0.10, "max_ev_per_angstrom": 0.30}
+}
+```
+
+- **Input.** 1 to 4096 trajectories of runs with `deviation` (section 7),
+  each with its `completed` record: listed one by one in `trajectories` with
+  the prefix of their frames' IDs, and all those of a `run-replicas`
+  directory in `replica_runs`, where the name of a replica is its prefix.
+  Paths are absolute; prefixes are 1 to 128 characters of `[A-Za-z0-9_.-]`
+  and distinct, so two replica runs with the same names are listed one by
+  one. All trajectories share type map and units.
+- **Which frames count.** Those at and after `first_step` (default 0); the
+  frames before it are neither counted nor picked.
+- **The window.** With `force_window` every frame is judged by it, whatever
+  window its run had: the frames carry their deviation, so a window can be
+  chosen after the exploration. Without it each trajectory is judged by the
+  window of its run, and its candidate marks are checked against the
+  deviations written beside them. A frame is accurate below the window, a
+  candidate in it (`min <= deviation < max`) and failed at or above it.
+- **The limit.** `max_per_trajectory` (optional) keeps at most that many
+  candidates of one trajectory: the first, the last and those evenly spaced
+  between them in the order of time, the k-th at position
+  `k (n - 1) / (max - 1)` among the n candidates, rounded to the nearest and
+  a half to the even position. A limit of one keeps the first. The choice
+  depends on nothing but the trajectory and the request.
+- **Output**, a new directory:
+  - `candidates.jsonl`: the picked frames as an unlabeled dataset in the
+    order of the request and then of time, with the IDs `PREFIX/step-N` and
+    the cell each frame had. It records the SHA256 of every trajectory that
+    gave a frame. It is absent when nothing was picked: an exploration on
+    which the members agree is a result, not an error.
+  - `summary.json`, written last: for every trajectory its SHA256, the
+    ensemble of its run, the window, the numbers of frames, accurate,
+    candidate and failed frames, the accurate fraction, the largest force
+    deviation and the picked frames (ID, step, deviation); the same counts
+    over all trajectories, `accurate_fraction` (over all frames) and
+    `mean_accurate_fraction` (the mean over the trajectories, each run
+    counting the same); the dataset's name and SHA256.
+- Every trajectory is read and checked completely before the directory is
+  created, and read once more for its picked frames; a trajectory that
+  changed in between stops the command. An unfinished run is not collected.
+
+The dataset goes on to `prepare-labels` like any other. What the limit, the
+window and the accurate fraction should be is a decision of the study: none of
+them is evidence that a model is accurate where its members agree.
 
 For reviewed candidates requiring labels, use [external label return](EXTERNAL_LABELS.md)
 after selection. Its import binds exact source/frame/geometry/parameter identity

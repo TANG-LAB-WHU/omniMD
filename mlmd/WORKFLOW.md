@@ -229,8 +229,16 @@ absolute and outputs are never overwritten.
    hundred atoms then cost a half to a quarter of what they cost one by one.
    Name the other members in a `deviation` section of either request and the
    sampled frames carry their model deviation and candidate marks already
-   ([along a run](engine/MODEL_DEVIATION.md#7-along-a-run-the-members-watch-the-sampled-frames));
-   step 4 is then a single `import-trajectory` with `"candidates_only": true`.
+   ([along a run](engine/MODEL_DEVIATION.md#7-along-a-run-the-members-watch-the-sampled-frames)).
+   Step 4 is then one command for the whole exploration:
+
+       omnimd-mlmd collect-candidates collect.json /abs/candidates
+
+   with `{"schema": "omnimd-candidates-v1", "replica_runs": ["/abs/explored"],
+   "max_per_trajectory": 30}`. It writes the candidates of all runs, at most
+   thirty of each and those evenly spread in time, as one dataset, and a
+   summary with the share of the frames the members agree on
+   ([the candidates of an exploration](engine/MODEL_DEVIATION.md#8-the-candidates-of-an-exploration)).
 
 4. **Turn the trajectory into a dataset** and **compare the members** on it:
 

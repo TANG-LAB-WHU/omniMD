@@ -21,6 +21,7 @@ omnimd-mlmd --help
 omnimd-mlmd check request.json
 omnimd-mlmd run request.json new-trajectory.jsonl
 omnimd-mlmd run-replicas replicas.json new-directory
+omnimd-mlmd collect-candidates collect.json new-directory
 ```
 
 The binary is under `mlmd/target/debug` (`.exe` on Windows).
@@ -523,7 +524,12 @@ one GPU and streams absolute population E/F/virial deviations with optional
 candidate marking.
 `import-trajectory` turns the sampled frames of a finished run into the
 unlabeled dataset it reads, so a run, its deviations and the selection of
-candidates chain without leaving the CLI. `merge-datasets MERGE.json
+candidates chain without leaving the CLI. `collect-candidates` does that for
+a whole exploration: from the trajectories of runs with `deviation`, listed
+or as `run-replicas` directories, it writes the candidate frames as one
+dataset, at most `max_per_trajectory` of each run and those evenly spread in
+time, and a summary with the accurate, candidate and failed frames of every
+run ([request and rules](MODEL_DEVIATION.md#8-the-candidates-of-an-exploration)). `merge-datasets MERGE.json
 NEW_DATASET.jsonl` with `{"schema": "omnimd-dataset-merge-v1", "datasets":
 [...]}` concatenates 2 to 256 complete datasets that share type map, units and
 virial convention: frames, labels and IDs are copied unchanged in the order
