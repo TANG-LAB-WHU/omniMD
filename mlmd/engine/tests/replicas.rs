@@ -183,7 +183,8 @@ fn replicas_under_their_ensembles_go_as_each_goes_alone() {
     // pressure without a cell.
     together_states[3] = EnsembleState::new(npt(7, 2), 0.5).unwrap();
     let error = advance_replicas(&mut together_states, &mut together).unwrap_err();
-    assert!(error.to_string().contains("replica 3"), "{error}");
+    let expected = "replica 3: NPT requires a periodic cell";
+    assert!(error.to_string().contains(expected), "{error}");
     same(
         together.view(1),
         alone[1].view(),
@@ -375,6 +376,83 @@ fn a_step_that_fails_for_one_system_moves_none() {
     assert_eq!(md.view(1).frame().cell, frames[1].cell);
 }
 
+#[test]
+fn a_system_that_cannot_begin_a_step_stops_the_others_where_they_are() {
+    // The second system is one step short of the last step number.
+    let frames = [water(4, false, 0), water(4, false, 1), water(3, true, 2)];
+    let systems = || -> Vec<omnimd_core::System> {
+        let mut systems: Vec<_> = frames
+            .iter()
+            .enumerate()
+            .map(|(index, frame)| thermal_system(frame, 30 + index as u64))
+            .collect();
+        systems[1].step = u64::MAX - 1;
+        systems
+    };
+    fn plain<'a>() -> [Controls<'a>; 3] {
+        [
+            Controls::default(),
+            Controls::default(),
+            Controls::default(),
+        ]
+    }
+    let mut md = MlipReplicas::new(systems(), native(), 0.5).unwrap();
+    let mut reference: Vec<MlipDynamics<_>> = systems()
+        .into_iter()
+        .map(|system| MlipDynamics::new(system, native(), 0.5).unwrap())
+        .collect();
+    md.step(&mut plain()).unwrap();
+    for alone in &mut reference {
+        alone.step().unwrap();
+    }
+    assert_eq!(md.view(1).system().step, u64::MAX);
+    // No step is left for it. The system before it had begun the step and
+    // the one after it had not: both stay where the last step left them,
+    // however often the step is tried.
+    for attempt in 0..2 {
+        let error = md.step(&mut plain()).unwrap_err().to_string();
+        assert!(
+            error.contains("replica 1") && error.contains("step counter overflow"),
+            "{error}"
+        );
+        for (index, alone) in reference.iter().enumerate() {
+            let what = format!("attempt {attempt}, replica {index}");
+            same(md.view(index), alone.view(), &what);
+        }
+    }
+    assert!(reference[1].step().is_err());
+}
+
+/// A model that answers a batch with one evaluation too few.
+struct Short(omnimd_native::NativePotential);
+
+impl Potential for Short {
+    fn metadata(&self) -> &ModelMetadata {
+        self.0.metadata()
+    }
+    fn eval(&mut self, frame: &Frame) -> Result<Evaluation> {
+        self.0.eval(frame)
+    }
+    fn eval_batch(&mut self, frames: &[&Frame]) -> Result<Vec<Evaluation>> {
+        let mut all = self.0.eval_batch(frames)?;
+        all.pop();
+        Ok(all)
+    }
+}
+
+#[test]
+fn a_model_must_answer_for_every_system() {
+    let systems = vec![
+        thermal_system(&water(4, false, 0), 40),
+        thermal_system(&water(3, true, 1), 41),
+    ];
+    let error = MlipReplicas::new(systems, Short(native()), 0.5)
+        .err()
+        .expect("one evaluation for two systems")
+        .to_string();
+    assert!(error.contains("1 evaluations for 2 frames"), "{error}");
+}
+
 /// Runs an engine command that must succeed.
 fn engine(command: &str, input: &Path, output: &Path) {
     let run = Command::new(env!("CARGO_BIN_EXE_omnimd-mlmd"))
@@ -537,11 +615,16 @@ fn the_cli_runs_replicas_as_it_runs_each_alone_and_restarts_them() {
         let name = replicas[index].0;
         json!({"restart": first.join(format!("{name}.jsonl.checkpoint.json"))})
     };
-    let second = run_replicas("second", &request(16, &resume));
+    let mut resumed = request(16, &resume);
+    resumed["checkpoint_every"] = json!(8);
+    let second = run_replicas("second", &resumed);
     for (name, _) in &replicas {
         let whole = records(&together.join(format!("{name}.jsonl")));
         let resumed = records(&second.join(format!("{name}.jsonl")));
         assert_eq!(resumed[0]["start_step"], 24, "{name}");
+        // Checkpoints on the way are named by the absolute step.
+        let between = second.join(format!("{name}.jsonl.step-32.checkpoint.json"));
+        assert_eq!(read(&between)["step"], 32, "{name}");
         // The last frame and what the completed record says of the run.
         assert_eq!(resumed[resumed.len() - 2], whole[whole.len() - 2], "{name}");
         for key in [
@@ -557,6 +640,39 @@ fn the_cli_runs_replicas_as_it_runs_each_alone_and_restarts_them() {
             );
         }
     }
+
+    // Steps that are not multiples of the intervals: the last step is
+    // always sampled, and has the final checkpoint only.
+    let mut odd = request(6, &fresh);
+    odd["sample_every"] = json!(4);
+    odd["checkpoint_every"] = json!(3);
+    let odd = run_replicas("odd", &odd);
+    for (name, _) in &replicas {
+        let all = records(&odd.join(format!("{name}.jsonl")));
+        let steps: Vec<u64> = all
+            .iter()
+            .filter(|record| record["kind"] == "frame")
+            .map(|record| record["step"].as_u64().unwrap())
+            .collect();
+        assert_eq!(steps, [0, 4, 6], "{name}");
+        assert_eq!(all.last().unwrap()["final_step"], 6);
+        let exists = |suffix: &str| odd.join(format!("{name}.jsonl{suffix}")).exists();
+        assert!(
+            exists(".step-3.checkpoint.json") && exists(".checkpoint.json"),
+            "{name}"
+        );
+        assert!(!exists(".step-6.checkpoint.json"), "{name}");
+        assert_eq!(
+            read(&odd.join(format!("{name}.jsonl.checkpoint.json")))["step"],
+            6
+        );
+    }
+    assert!(
+        read(&odd.join("replicas.json"))["stepping_seconds"]
+            .as_f64()
+            .unwrap()
+            > 0.
+    );
 
     // What is refused, before any directory is made.
     let refused = |name: &str, request: Value, why: &str| {

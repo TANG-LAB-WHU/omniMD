@@ -218,7 +218,15 @@ absolute and outputs are never overwritten.
                     "compressibility_per_bar": 1e-6, "coupling": "triclinic"},
        "timestep_fs": 0.5, "steps": 100000, "sample_every": 50
 
-   ([engine README](engine/README.md#configuration-and-units)).
+   ([engine README](engine/README.md#configuration-and-units)). Several
+   explorations of one model, for example the same structure at several
+   temperatures or several structures, go in one command that advances them
+   together and writes a trajectory for each:
+
+       omnimd-mlmd run-replicas explore-all.json /abs/explored
+
+   ([run-replicas](engine/README.md#several-runs-at-once)); systems of a few
+   hundred atoms then cost a half to a quarter of what they cost one by one.
 
 4. **Turn the trajectory into a dataset** and **compare the members** on it:
 

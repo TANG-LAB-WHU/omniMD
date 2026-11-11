@@ -785,12 +785,25 @@ fn worker(input: &Path, output: Option<&Path>) -> Result<(), Box<dyn Error>> {
         fixed_parameters,
         json!({}),
     )?;
+    let started = std::time::Instant::now();
     for step in 1..=request.steps {
         state.advance(&mut md)?;
         recorder.after_step(step, &schedule, md.view(), &state)?;
     }
+    report_rate(request.steps, 1, started.elapsed().as_secs_f64());
     recorder.finish(&schedule, md.view(), &state)?;
     Ok(())
+}
+
+/// Says on standard error how fast the steps of a run went, trajectory
+/// output included and everything before the first step left out.
+fn report_rate(steps: u64, systems: usize, seconds: f64) {
+    if steps > 0 {
+        eprintln!(
+            "omnimd-mlmd: {steps} steps of {systems} system(s) in {seconds:.3} s, {:.4} ms per step",
+            seconds * 1e3 / steps as f64
+        );
+    }
 }
 
 fn run() -> Result<(), Box<dyn Error>> {

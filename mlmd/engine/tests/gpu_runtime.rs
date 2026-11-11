@@ -517,3 +517,116 @@ fn batch_eval_on_the_gpu_runtime_matches_cpu() {
     );
     std::fs::remove_dir_all(directory).unwrap();
 }
+
+/// Runs `omnimd-mlmd run-replicas` and returns the records of each replica.
+fn replicas(directory: &Path, name: &str, request: &Value) -> Vec<Vec<Value>> {
+    let input = directory.join(format!("{name}.json"));
+    let output = directory.join(name);
+    std::fs::write(&input, request.to_string()).unwrap();
+    let run = Command::new(env!("CARGO_BIN_EXE_omnimd-mlmd"))
+        .arg("run-replicas")
+        .arg(&input)
+        .arg(&output)
+        .output()
+        .unwrap();
+    assert!(
+        run.status.success(),
+        "{name}: {}",
+        String::from_utf8_lossy(&run.stderr)
+    );
+    request["replicas"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|replica| {
+            let trajectory = output.join(format!("{}.jsonl", replica["name"].as_str().unwrap()));
+            std::fs::read_to_string(trajectory)
+                .unwrap()
+                .lines()
+                .map(|line| serde_json::from_str(line).unwrap())
+                .collect()
+        })
+        .collect()
+}
+
+#[test]
+fn replicas_on_the_gpu_runtime_follow_the_cpu_replicas() {
+    if !gpu_available() {
+        return;
+    }
+    let directory = work_directory("replicas");
+    // Three systems of different size, boundary and ensemble; the second
+    // moves its cell every fourth step.
+    let frames = assorted_frames(3);
+    let ensembles = [
+        json!({"kind": "nve"}),
+        json!({"kind": "npt_csvr_crescale", "temperature_kelvin": 300.0, "tau_fs": 20.0,
+            "seed": 5, "pressure_bar": 1.0, "barostat_tau_fs": 200.0,
+            "compressibility_per_bar": 1e-5, "coupling": "anisotropic", "barostat_every": 4}),
+        json!({"kind": "nvt_csvr", "temperature_kelvin": 300.0, "tau_fs": 20.0, "seed": 4}),
+    ];
+    let request = |options: Value| {
+        let replicas: Vec<Value> = frames
+            .iter()
+            .zip(&ensembles)
+            .enumerate()
+            .map(|(index, (frame, ensemble))| {
+                let masses: Vec<f64> = frame["species"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .map(|species| if species == "O" { 15.999 } else { 1.008 })
+                    .collect();
+                json!({"name": format!("r{index}"), "frame": frame, "masses": masses,
+                    "initialize_velocities": {"temperature_kelvin": 300.0,
+                        "seed": 7 + index as u64, "rescale_to_temperature": true},
+                    "remove_center_of_mass": true, "ensemble": ensemble})
+            })
+            .collect();
+        json!({"schema": "omnimd-replicas-v1", "options": options, "replicas": replicas,
+            "timestep_fs": 0.5, "steps": 40, "sample_every": 10})
+    };
+    let model = fixture("synthetic-v1.json");
+    let cpu = replicas(&directory, "cpu", &request(json!({"native_model": model})));
+    let gpu = replicas(
+        &directory,
+        "gpu",
+        &request(json!({"native_model": model, "device": "cuda:0", "gpu_runtime": {}})),
+    );
+    assert_eq!((cpu.len(), gpu.len()), (3, 3));
+    for (index, (got, expected)) in gpu.iter().zip(&cpu).enumerate() {
+        assert_eq!(got[0]["metadata"]["backend"], "native-gpu-se-e2-a");
+        assert_eq!(got[0]["replica"]["name"], format!("r{index}"));
+        assert_eq!(got.len(), expected.len(), "replica {index}");
+        // Header first, completed last; five sampled frames between.
+        assert_eq!(got.len(), 7, "replica {index}");
+        for (g, e) in got[1..6].iter().zip(&expected[1..6]) {
+            let error = difference(g, e);
+            assert!(error < 1e-9, "replica {index} step {}: {error}", e["step"]);
+        }
+        let (done, reference) = (got.last().unwrap(), expected.last().unwrap());
+        for key in ["final_step", "barostat_moves", "barostat_refused"] {
+            assert_eq!(done[key], reference[key], "replica {index}: {key}");
+        }
+    }
+    assert_eq!(gpu[1].last().unwrap()["barostat_moves"], 10);
+    assert_ne!(gpu[1][1]["frame"]["cell"], gpu[1][5]["frame"]["cell"]);
+    // Float32 networks with compressed embeddings: the same runs, close.
+    let fast = replicas(
+        &directory,
+        "fast",
+        &request(json!({"native_model": model, "device": "cuda:0",
+            "gpu_runtime": {"precision": "float32", "compress_min_distance": 0.5}})),
+    );
+    for (index, (got, expected)) in fast.iter().zip(&cpu).enumerate() {
+        let energy = |record: &Value| record["evaluation"]["energy"].as_f64().unwrap();
+        for (g, e) in got[1..6].iter().zip(&expected[1..6]) {
+            assert!(
+                (energy(g) - energy(e)).abs() < 1e-4,
+                "replica {index} step {}",
+                e["step"]
+            );
+        }
+    }
+    std::fs::remove_dir_all(directory).unwrap();
+}

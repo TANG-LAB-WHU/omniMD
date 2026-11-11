@@ -53,6 +53,8 @@ python mlmd/bench/hap_check.py mlmd/bench/cases/hap <target>/release report.json
 python mlmd/bench/hap_batch.py mlmd/bench/cases/hap <target>/release mlmd/bench/results/hap-batch-<tag>.csv --check report.json
 # Host: model deviation through omnimd-mlmd timed per frame, optionally against another build
 python mlmd/bench/hap_deviation.py mlmd/bench/cases/hap <target>/release mlmd/bench/results/hap-deviation-<tag>.json [--other <other target>/release]
+# Host: replicas of a system advanced together (run-replicas) against the plain run
+python mlmd/bench/hap_replicas.py mlmd/bench/cases/hap <target>/release mlmd/bench/results/hap-replicas-<tag>.csv <system> ... [--other <other target>/release]
 # Host: 4-model deviation check and NVT timing through omnimd-mlmd (--features native-gpu)
 python mlmd/bench/hap_md.py mlmd/bench/cases/hap <target>/release mlmd/bench/results/hap-omnimd-<tag>.csv <system> ...
 # DeePMD image: LAMMPS with the pipeline's exploration protocol

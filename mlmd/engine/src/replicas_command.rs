@@ -154,6 +154,7 @@ fn worker(input: &Path, directory: &Path) -> Result<()> {
             json!({"replica": {"name": replica.name, "index": index, "of": count}}),
         )?);
     }
+    let started = std::time::Instant::now();
     for step in 1..=request.steps {
         advance_replicas(&mut states, &mut md)
             .map_err(|e| format!("step {step} of the replicas: {e}"))?;
@@ -161,6 +162,8 @@ fn worker(input: &Path, directory: &Path) -> Result<()> {
             recorder.after_step(step, &schedule, md.view(index), &states[index])?;
         }
     }
+    let stepping_seconds = started.elapsed().as_secs_f64();
+    super::report_rate(request.steps, count, stepping_seconds);
     let mut finished = Vec::with_capacity(count);
     for (index, (recorder, replica)) in recorders.into_iter().zip(&request.replicas).enumerate() {
         let trajectory = recorder.output.clone();
@@ -178,7 +181,8 @@ fn worker(input: &Path, directory: &Path) -> Result<()> {
         &mut file,
         &json!({"schema": "omnimd-replicas-run-v1", "model_sha256": hash,
             "metadata": md.metadata(), "timestep_fs": request.timestep_fs,
-            "steps": request.steps, "replicas": finished}),
+            "steps": request.steps, "stepping_seconds": stepping_seconds,
+            "replicas": finished}),
     )?;
     file.write_all(b"\n")?;
     file.sync_all()?;

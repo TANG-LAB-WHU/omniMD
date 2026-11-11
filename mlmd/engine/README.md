@@ -20,6 +20,7 @@ cargo build --locked --manifest-path mlmd/Cargo.toml -p omnimd-mlmd
 omnimd-mlmd --help
 omnimd-mlmd check request.json
 omnimd-mlmd run request.json new-trajectory.jsonl
+omnimd-mlmd run-replicas replicas.json new-directory
 ```
 
 The binary is under `mlmd/target/debug` (`.exe` on Windows).
@@ -435,6 +436,65 @@ For executable setup, model integration, dataset inspection and a complete CPU
 tutorial, see [GETTING_STARTED.md](../GETTING_STARTED.md). The
 [versioned matrix](../FEATURE_MATRIX.md) distinguishes implemented, delegated and
 missing DeepMD functions.
+
+## Several runs at once
+
+`omnimd-mlmd run-replicas REPLICAS.json NEW_DIRECTORY` advances several
+independent systems under one model in step. Every step asks the model for all
+of them in one batch, and once more for the systems whose barostat moves the
+cell at that step. On the [GPU runtime](#the-omnimd-gpu-se_e2_a-runtime) a
+batch is one pass over the device, so several small systems cost little more
+than one; other backends evaluate the systems one after the other and gain
+nothing.
+
+```json
+{
+  "schema": "omnimd-replicas-v1",
+  "options": {"native_model": "/absolute/model.json", "device": "cuda:0",
+              "gpu_runtime": {"precision": "float32", "compress_min_distance": 0.5}},
+  "timestep_fs": 0.5,
+  "steps": 100000,
+  "sample_every": 50,
+  "checkpoint_every": 20000,
+  "replicas": [
+    {"name": "bulk-300K",
+     "frame": {"positions": [[0.0, 0.0, 0.0]], "species": ["Ca"], "cell": null, "units": "EvAngstrom"},
+     "masses": [40.078],
+     "initialize_velocities": {"temperature_kelvin": 300.0, "seed": 1, "rescale_to_temperature": true},
+     "remove_center_of_mass": false,
+     "ensemble": {"kind": "nvt_csvr", "temperature_kelvin": 300.0, "tau_fs": 50.0, "seed": 11}},
+    {"name": "bulk-500K", "restart": "/absolute/earlier/bulk-500K.jsonl.checkpoint.json"}
+  ]
+}
+```
+
+- A replica takes the fields of a `run` request that describe its system:
+  `frame` or `dataset_frame`, `masses`, `velocities` or
+  `initialize_velocities`, `remove_center_of_mass` and `ensemble`, or `restart`
+  alone. The systems need not be alike: sizes, cells, boundaries and ensembles
+  may all differ. `options`, `timestep_fs`, `steps`, `sample_every` and
+  `checkpoint_every` are shared. A run takes 1 to 1024 replicas; frame and
+  atom parameters are not carried.
+- `name` (1 to 64 characters of `[A-Za-z0-9_.-]`, not starting with a dot,
+  distinct without regard to case) names the files: the trajectory
+  `NEW_DIRECTORY/NAME.jsonl` and its checkpoints
+  `NAME.jsonl.checkpoint.json` and `NAME.jsonl.step-N.checkpoint.json`. Each
+  trajectory is what `run` writes for that system alone, with
+  `replica: {name, index, of}` added to its header, so `import-trajectory`
+  and a later `run` or `run-replicas` with `restart` read it as usual.
+- On the CPU the trajectories and checkpoints are identical to those of the
+  single runs, cell moves and random streams included. On the GPU runtime
+  they agree as two runs of one request do (see the note on atomic additions
+  above).
+- `NEW_DIRECTORY/replicas.json` is written last and lists the trajectories
+  and checkpoints, with the wall time of the steps. A directory without it
+  holds incomplete trajectories. The directory must be new.
+- A step is all or nothing: if it fails for one replica (a model error, a
+  nonfinite energy, a thermostat or barostat failure), the run stops and no
+  replica has taken that step. The error names the replica.
+
+Both `run` and `run-replicas` print how fast their steps went on standard
+error (trajectory output included, loading the model left out).
 
 
 ## Current integrated adapter and CUDA follow-up
