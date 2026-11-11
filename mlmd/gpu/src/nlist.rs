@@ -197,34 +197,55 @@ __device__ __noinline__ void break_ties(int e, int total, const long long* key, 
 // precision rate), so it is kept to the candidates, and distances are ranked
 // by their bit patterns: positive doubles order like integers.
 //
-// `packed` is the per-search input in one buffer: the lattice [9] and the
-// positions [natoms][3] as doubles; as floats the lattice again and the
-// positions in cell order, so the scan reads them in sequence; then as ints
-// the cell of each atom [natoms][3], the atoms in cell order [natoms] and the
-// first entry of each cell [cells + 1]. `tables` is [sel | first slot of each
-// type]. `wide2` is the square of the cutoff plus the margin. Every center
-// writes all of its outputs, including its status bits to `flags` and, when
-// given, `mirror`.
+// The atoms may belong to several systems that do not see each other (a
+// batch of frames): every system has a cell and a grid of its own, and a
+// center scans the cells of its system only. Atom indices are positions in
+// the one list of all atoms throughout.
+//
+// `packed` is the per-search input in one buffer. As doubles: the lattice
+// [9] of every system, then the positions [natoms][3]. Then in four-byte
+// entries: a header of HEADER entries per system (as floats the lattice [9]
+// and the square of the cutoff plus the scan margin; as ints the cells per
+// axis [3], the stencil reach [3], whether it is periodic, its first cell
+// and whether its image offsets fit `pack_image`); as floats the positions
+// in cell order, so the scan reads them in sequence; then as ints the cell
+// of each atom [natoms][3], the atoms in cell order [natoms] (those of a
+// system together), the system of each atom [natoms] and the first entry of
+// each cell [cells + 1] (the cells of a system together, a system's last
+// cell ending where the next system starts). `tables` is [sel | first slot
+// of each type]. Every center writes all of its outputs, including its
+// status bits to `flags` and, when given, `mirror`.
+#define HEADER 20
 extern "C" __global__ void neighbor_search(
         const double* packed, const int* types, const int* tables, int natoms, int ntypes,
-        int nx, int ny, int nz, int sx, int sy, int sz, int periodic, double rcut,
-        float wide2, int slots, int capacity,
+        int systems, double rcut, int slots, int capacity,
         int* index, double* delta, double* dist, int* count, double* min_dist, int* flags,
         int* mirror) {
     extern __shared__ double smem[];
     int warps = blockDim.x >> 5, warp = threadIdx.x >> 5, lane = threadIdx.x & 31;
     int i = blockIdx.x * warps + warp;
     if (i >= natoms) return;
-    const double* lattice = packed;
-    const double* pos = packed + 9;
-    const float* lattice_f = (const float*)(pos + 3 * (long long)natoms);
-    const float* pos_f = lattice_f + 9;
+    const double* pos = packed + 9 * (long long)systems;
+    const int* headers = (const int*)(pos + 3 * (long long)natoms);
+    const float* pos_f = (const float*)(headers + HEADER * (long long)systems);
     const int* cell_of = (const int*)(pos_f + 3 * (long long)natoms);
     const int* cell_atoms = cell_of + 3 * (long long)natoms;
-    const int* cell_start = cell_atoms + natoms;
+    const int* system_of = cell_atoms + natoms;
+    int system = system_of[i];
+    const double* lattice = packed + 9 * (long long)system;
+    const int* header = headers + HEADER * (long long)system;
+    const float* lattice_f = (const float*)header;
+    float wide2 = lattice_f[9];
+    int n[3] = {header[10], header[11], header[12]};
+    int reach[3] = {header[13], header[14], header[15]};
+    int sx = reach[0], sy = reach[1], sz = reach[2], periodic = header[16];
+    // The cells of this system.
+    const int* cell_start = system_of + natoms + header[17];
+    // Image offsets too large to pack: nothing is buffered and the center
+    // goes to the serial path.
+    int room = header[18] ? capacity : 0;
     const int* sel = tables;
     const int* offset = tables + ntypes;
-    int n[3] = {nx, ny, nz}, reach[3] = {sx, sy, sz};
     // Per warp: r[capacity] doubles, then j, packed image, type [capacity]
     // ints, then the per-type counts.
     int per_warp = capacity + (3 * capacity + ntypes + 1) / 2;
@@ -264,7 +285,7 @@ extern "C" __global__ void neighbor_search(
             unsigned mask = __ballot_sync(FULL_MASK, near);
             if (near) {
                 int at = total + __popc(mask & ((1u << lane) - 1u));
-                if (at < capacity) {
+                if (at < room) {
                     cj[at] = j;
                     cimg[at] = image;
                 }
@@ -273,7 +294,7 @@ extern "C" __global__ void neighbor_search(
         }
     }
     __syncwarp();
-    if (total > capacity) {
+    if (total > room) {
         if (lane == 0)
             serial_center(i, pos, types, cell_of, cell_start, cell_atoms, lattice, ntypes, n, reach,
                           periodic, rcut, sel, offset, slots, index, delta, dist, count, min_dist,
@@ -413,12 +434,15 @@ pub struct NeighborSearch {
     rcut: f64,
     sel: Vec<usize>,
     slots: usize,
-    /// Host copy of the packed kernel input, reused between calls.
+    /// Host copy of the packed kernel input, reused between calls, and its
+    /// four-byte entries while they are put together.
     words: Vec<u64>,
+    halves: Vec<u32>,
     state: Option<State>,
 }
 
-/// Device side of a search, for one stream and one atom count.
+/// Device side of a search, for one stream, one atom count and one number of
+/// systems.
 struct State {
     stream: Arc<CudaStream>,
     /// The search kernel, looked up once: the lookup hashes the source.
@@ -427,15 +451,22 @@ struct State {
     tables: CudaSlice<i32>,
     /// Host copy of `list.types`.
     types: Vec<i32>,
+    systems: usize,
     packed: CudaSlice<u64>,
     list: NeighborList,
 }
 
 impl State {
-    fn new(device: &Device, sel: &[usize], slots: usize, types: &[i32]) -> Result<Self> {
+    fn new(
+        device: &Device,
+        sel: &[usize],
+        slots: usize,
+        types: &[i32],
+        systems: usize,
+    ) -> Result<Self> {
         let natoms = types.len();
-        // Room for the input on the largest grid these atoms can get.
-        let words = packed_words(natoms, cell_limit(natoms));
+        // Room for the input on the largest grids these atoms can get.
+        let words = packed_words(natoms, cells_bound(natoms, systems), systems);
         let mut tables: Vec<i32> = sel.iter().map(|&s| s as i32).collect();
         let mut first = 0;
         for &s in sel {
@@ -462,32 +493,137 @@ impl State {
             function: device.kernels().function(SOURCE, "neighbor_search")?,
             tables: device.upload(&tables)?,
             types: types.to_vec(),
+            systems,
             packed: unsafe { device.alloc_uninit(words)? },
             list,
         })
     }
 }
 
-/// The kernel's per-search input (see `neighbor_search`) in one buffer.
-fn pack(words: &mut Vec<u64>, lattice: &[f64; 9], grid: &Grid, members: &[i32], start: &[i32]) {
-    words.clear();
-    let doubles = lattice.iter().chain(grid.positions.iter().flatten());
-    words.extend(doubles.map(|v| v.to_bits()));
-    // Floats and ints, two to a word as they lie in memory.
-    let in_cell_order = members
-        .iter()
-        .flat_map(|&atom| &grid.positions[atom as usize]);
-    let floats = lattice.iter().chain(in_cell_order);
-    let ints = grid.cell_of.iter().flatten().chain(members).chain(start);
-    let mut entries = floats
-        .map(|&v| (v as f32).to_bits())
-        .chain(ints.map(|&v| v as u32));
-    while let Some(low) = entries.next() {
-        let mut bytes = [0; 8];
-        bytes[..4].copy_from_slice(&low.to_ne_bytes());
-        bytes[4..].copy_from_slice(&entries.next().unwrap_or(0).to_ne_bytes());
-        words.push(u64::from_ne_bytes(bytes));
+/// Four-byte entries of a system's header in the kernel input.
+const HEADER: usize = 20;
+
+/// Bins the atoms of every system and writes the kernel's input (see
+/// `neighbor_search`) to `words`, with `halves` as scratch for its four-byte
+/// entries. `system` names the system of each atom and is empty when there
+/// is one. Returns the number of cells of all grids.
+fn pack(
+    words: &mut Vec<u64>,
+    halves: &mut Vec<u32>,
+    positions: &[[f64; 3]],
+    system: &[i32],
+    cells: &[Cell],
+    rcut: f64,
+) -> Result<usize> {
+    let (natoms, systems) = (positions.len(), cells.len());
+    // The atoms of system `f`, in their order: `first[f]..first[f + 1]` of
+    // `atoms`.
+    let mut first = vec![0usize; systems + 1];
+    let mut atoms = vec![0i32; natoms];
+    if system.is_empty() {
+        first[1..].fill(natoms);
+        for (entry, atom) in atoms.iter_mut().zip(0..) {
+            *entry = atom;
+        }
+    } else {
+        for &of in system {
+            first[of as usize + 1] += 1;
+        }
+        for f in 0..systems {
+            first[f + 1] += first[f];
+        }
+        let mut cursor = first.clone();
+        for (atom, &of) in system.iter().enumerate() {
+            atoms[cursor[of as usize]] = atom as i32;
+            cursor[of as usize] += 1;
+        }
     }
+    let at_positions = 9 * systems;
+    words.clear();
+    words.resize(at_positions + 3 * natoms, 0);
+    let at_floats = HEADER * systems;
+    let at_cell_of = at_floats + 3 * natoms;
+    let at_atoms = at_cell_of + 3 * natoms;
+    let at_system = at_atoms + natoms;
+    halves.clear();
+    halves.resize(at_system + natoms, 0);
+    let mut local = Vec::new();
+    let mut total_cells = 0usize;
+    for (f, cell) in cells.iter().enumerate() {
+        let mine = &atoms[first[f]..first[f + 1]];
+        if mine.is_empty() {
+            return Err(Error(format!(
+                "system {f} of the neighbor search has no atoms"
+            )));
+        }
+        local.clear();
+        local.extend(mine.iter().map(|&atom| positions[atom as usize]));
+        let grid = bin(&local, cell, rcut)?;
+        let count = grid.cells.iter().product::<usize>();
+        let flat = |c: &[i32; 3]| {
+            (c[0] as usize * grid.cells[1] + c[1] as usize) * grid.cells[2] + c[2] as usize
+        };
+        let mut lattice = [0.0; 9];
+        let periodic = match cell {
+            Cell::Periodic(rows) => {
+                for (entry, value) in lattice.iter_mut().zip(rows.iter().flatten()) {
+                    *entry = *value;
+                }
+                true
+            }
+            Cell::Open => false,
+        };
+        for (entry, value) in words[9 * f..9 * f + 9].iter_mut().zip(lattice) {
+            *entry = value.to_bits();
+        }
+        let header = &mut halves[HEADER * f..HEADER * (f + 1)];
+        for (entry, value) in header.iter_mut().zip(lattice) {
+            *entry = (value as f32).to_bits();
+        }
+        header[9] = scan_radius2(rcut, &lattice, &grid, periodic).to_bits();
+        for axis in 0..3 {
+            header[10 + axis] = grid.cells[axis] as u32;
+            header[13 + axis] = grid.reach[axis] as u32;
+        }
+        header[16] = u32::from(periodic);
+        header[17] = total_cells as u32;
+        // Packed images need |q| < 512; past that the centers go serial.
+        header[18] = u32::from(grid.reach.iter().all(|&r| r < 500));
+        // Counting sort of the system's atoms by cell. The first entry of
+        // each cell is a place in the list of all atoms in cell order.
+        let mut cursor = vec![0usize; count + 1];
+        for c in &grid.cell_of {
+            cursor[flat(c) + 1] += 1;
+        }
+        for k in 0..count {
+            cursor[k + 1] += cursor[k];
+        }
+        halves.extend(cursor[..count].iter().map(|&k| (first[f] + k) as u32));
+        for ((&atom, c), position) in mine.iter().zip(&grid.cell_of).zip(&grid.positions) {
+            let atom = atom as usize;
+            let k = first[f] + cursor[flat(c)];
+            cursor[flat(c)] += 1;
+            for axis in 0..3 {
+                words[at_positions + 3 * atom + axis] = position[axis].to_bits();
+                halves[at_floats + 3 * k + axis] = (position[axis] as f32).to_bits();
+                halves[at_cell_of + 3 * atom + axis] = c[axis] as u32;
+            }
+            halves[at_atoms + k] = atom as u32;
+            halves[at_system + atom] = f as u32;
+        }
+        total_cells += count;
+    }
+    halves.push(natoms as u32);
+    // Two to a word, as they lie in memory.
+    words.extend(halves.chunks(2).map(|pair| {
+        let mut bytes = [0; 8];
+        bytes[..4].copy_from_slice(&pair[0].to_ne_bytes());
+        if let Some(high) = pair.get(1) {
+            bytes[4..].copy_from_slice(&high.to_ne_bytes());
+        }
+        u64::from_ne_bytes(bytes)
+    }));
+    Ok(total_cells)
 }
 
 /// Square of the radius of the kernel's single-precision scan: the cutoff
@@ -572,11 +708,18 @@ fn cell_limit(atoms: usize) -> usize {
     (4 * atoms).max(64)
 }
 
-/// Words of the packed kernel input for `atoms` atoms on a grid of `cells`
-/// cells: doubles, then floats and ints two to a word.
-fn packed_words(atoms: usize, cells: usize) -> usize {
-    let doubles = 9 + 3 * atoms;
-    let halves = 9 + 3 * atoms + 3 * atoms + atoms + cells + 1;
+/// The most cells the grids of `systems` systems with `atoms` atoms between
+/// them may have: `cell_limit` of each.
+fn cells_bound(atoms: usize, systems: usize) -> usize {
+    4 * atoms + 64 * systems
+}
+
+/// Words of the packed kernel input for `atoms` atoms in `systems` systems
+/// whose grids have `cells` cells in all: doubles, then four-byte entries
+/// two to a word.
+fn packed_words(atoms: usize, cells: usize, systems: usize) -> usize {
+    let doubles = 9 * systems + 3 * atoms;
+    let halves = HEADER * systems + 8 * atoms + cells + 1;
     doubles + halves.div_ceil(2)
 }
 
@@ -708,6 +851,7 @@ impl NeighborSearch {
             sel: sel.to_vec(),
             slots,
             words: Vec::new(),
+            halves: Vec::new(),
             state: None,
         })
     }
@@ -721,7 +865,8 @@ impl NeighborSearch {
         cell: &Cell,
     ) -> Result<&NeighborList> {
         let mirror = None::<&mut CudaSlice<i32>>;
-        self.search(device, positions, types, cell, None, mirror)
+        let cells = std::slice::from_ref(cell);
+        self.search(device, positions, types, &[], cells, None, mirror)
     }
 
     /// `run` that also writes the status bits of each center to `mirror`
@@ -735,7 +880,42 @@ impl NeighborSearch {
         cell: &Cell,
         mirror: &mut impl DevicePtrMut<i32>,
     ) -> Result<&NeighborList> {
-        self.search(device, positions, types, cell, None, Some(mirror))
+        let cells = std::slice::from_ref(cell);
+        self.search(device, positions, types, &[], cells, None, Some(mirror))
+    }
+
+    /// `run` for several systems that do not see each other, such as the
+    /// frames of a batch, in one launch: atom `i` belongs to system
+    /// `system[i]`, whose cell is `cells[system[i]]`, and gets the neighbors
+    /// it would get if its system were searched alone. Neighbor indices are
+    /// positions in `positions`, the one list of all atoms, which may be in
+    /// any order; atoms of one system rank among themselves by that order.
+    /// Every system needs an atom. `system` may be left empty when there is
+    /// one system.
+    pub fn run_systems(
+        &mut self,
+        device: &Device,
+        positions: &[[f64; 3]],
+        types: &[i32],
+        system: &[i32],
+        cells: &[Cell],
+    ) -> Result<&NeighborList> {
+        let mirror = None::<&mut CudaSlice<i32>>;
+        self.search(device, positions, types, system, cells, None, mirror)
+    }
+
+    /// [`Self::run_systems`] with the status mirror of
+    /// [`Self::run_mirrored`].
+    pub fn run_systems_mirrored(
+        &mut self,
+        device: &Device,
+        positions: &[[f64; 3]],
+        types: &[i32],
+        system: &[i32],
+        cells: &[Cell],
+        mirror: &mut impl DevicePtrMut<i32>,
+    ) -> Result<&NeighborList> {
+        self.search(device, positions, types, system, cells, None, Some(mirror))
     }
 
     /// `run` with an explicit per-center shared buffer size; centers with
@@ -750,7 +930,24 @@ impl NeighborSearch {
         capacity: Option<usize>,
     ) -> Result<&NeighborList> {
         let mirror = None::<&mut CudaSlice<i32>>;
-        self.search(device, positions, types, cell, capacity, mirror)
+        let cells = std::slice::from_ref(cell);
+        self.search(device, positions, types, &[], cells, capacity, mirror)
+    }
+
+    /// [`Self::run_systems`] with the buffer size of
+    /// [`Self::run_with_capacity`].
+    #[doc(hidden)]
+    pub fn run_systems_with_capacity(
+        &mut self,
+        device: &Device,
+        positions: &[[f64; 3]],
+        types: &[i32],
+        system: &[i32],
+        cells: &[Cell],
+        capacity: Option<usize>,
+    ) -> Result<&NeighborList> {
+        let mirror = None::<&mut CudaSlice<i32>>;
+        self.search(device, positions, types, system, cells, capacity, mirror)
     }
 
     /// The list of the last search.
@@ -763,17 +960,20 @@ impl NeighborSearch {
         self.state.map(|state| state.list)
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn search<M: DevicePtrMut<i32>>(
         &mut self,
         device: &Device,
         positions: &[[f64; 3]],
         types: &[i32],
-        cell: &Cell,
+        system: &[i32],
+        cells: &[Cell],
         capacity: Option<usize>,
         mut mirror: Option<&mut M>,
     ) -> Result<&NeighborList> {
         let natoms = positions.len();
         let ntypes = self.sel.len();
+        let systems = cells.len();
         let (rcut, slots) = (self.rcut, self.slots);
         if natoms == 0 || types.len() != natoms || i32::try_from(natoms).is_err() {
             return Err(Error(format!(
@@ -787,48 +987,40 @@ impl NeighborSearch {
         if positions.iter().flatten().any(|v| !v.is_finite()) {
             return Err(Error("nonfinite atom position".into()));
         }
+        // One system needs no list of who belongs to it.
+        let named = !(system.is_empty() && systems == 1);
+        if systems == 0
+            || systems > natoms
+            || (named && system.len() != natoms)
+            || system.iter().any(|&s| s < 0 || s as usize >= systems)
+        {
+            return Err(Error(format!(
+                "neighbor search over {systems} systems needs one system below that for each of the {natoms} atoms; got {}",
+                system.len()
+            )));
+        }
         if mirror.as_ref().is_some_and(|m| m.len() != natoms) {
             return Err(Error(format!(
                 "the status mirror needs one entry for each of the {natoms} atoms"
             )));
         }
-        let grid = bin(positions, cell, rcut)?;
-        let total_cells = grid.cells.iter().product::<usize>();
-        let mut start = vec![0i32; total_cells + 1];
-        let flat = |c: &[i32; 3]| {
-            (c[0] as usize * grid.cells[1] + c[1] as usize) * grid.cells[2] + c[2] as usize
-        };
-        for c in &grid.cell_of {
-            start[flat(c) + 1] += 1;
-        }
-        for k in 0..total_cells {
-            start[k + 1] += start[k];
-        }
-        let mut cursor = start.clone();
-        let mut members = vec![0i32; natoms];
-        for (atom, c) in grid.cell_of.iter().enumerate() {
-            let k = flat(c);
-            members[cursor[k] as usize] = atom as i32;
-            cursor[k] += 1;
-        }
-        let mut lattice = [0.0; 9];
-        if let Cell::Periodic(rows) = cell {
-            for (entry, value) in lattice.iter_mut().zip(rows.iter().flatten()) {
-                *entry = *value;
-            }
-        }
-        pack(&mut self.words, &lattice, &grid, &members, &start);
-        let wide2 = scan_radius2(rcut, &lattice, &grid, matches!(cell, Cell::Periodic(_)));
+        pack(
+            &mut self.words,
+            &mut self.halves,
+            positions,
+            system,
+            cells,
+            rcut,
+        )?;
 
         let stream = device.stream();
-        let reusable = self
-            .state
-            .as_ref()
-            .is_some_and(|s| Arc::ptr_eq(&s.stream, stream) && s.list.natoms == natoms);
+        let reusable = self.state.as_ref().is_some_and(|s| {
+            Arc::ptr_eq(&s.stream, stream) && s.list.natoms == natoms && s.systems == systems
+        });
         if !reusable {
             // Frees the old buffers before the new ones are allocated.
             self.state = None;
-            self.state = Some(State::new(device, &self.sel, slots, types)?);
+            self.state = Some(State::new(device, &self.sel, slots, types, systems)?);
         }
         let Some(state) = self.state.as_mut() else {
             return Err(Error("neighbor search lost its device state".into()));
@@ -850,27 +1042,10 @@ impl NeighborSearch {
             .memcpy_htod(&self.words, &mut state.packed)
             .map_err(cuda_error("host-to-device copy"))?;
 
-        let scalars = [
-            natoms as i32,
-            ntypes as i32,
-            grid.cells[0] as i32,
-            grid.cells[1] as i32,
-            grid.cells[2] as i32,
-            grid.reach[0] as i32,
-            grid.reach[1] as i32,
-            grid.reach[2] as i32,
-            i32::from(matches!(cell, Cell::Periodic(_))),
-        ];
+        let scalars = [natoms as i32, ntypes as i32, systems as i32];
         let slots_i = slots as i32;
-        // Packed images need |q| < 512; past that every center goes serial.
-        let packable = grid.reach.iter().all(|&r| r < 500);
         let max_capacity = (2 * (SHARED_LIMIT / 8) - ntypes - 1) / 5;
-        let capacity = match (capacity, packable) {
-            (_, false) => 0,
-            (Some(c), true) => c,
-            (None, true) => slots + slots / 2 + 32,
-        }
-        .min(max_capacity);
+        let capacity = capacity.unwrap_or(slots + slots / 2 + 32).min(max_capacity);
         let warp_bytes = warp_doubles(capacity, ntypes) * 8;
         // One center per block: blocks spread over the multiprocessors, each
         // with its own few double precision units. (Measured: 4 centers per
@@ -903,7 +1078,6 @@ impl NeighborSearch {
                 launch.arg(s);
             }
             launch.arg(&rcut);
-            launch.arg(&wide2);
             launch.arg(&slots_i);
             launch.arg(&capacity_i);
             for (p, _) in &outputs {
@@ -1027,6 +1201,13 @@ mod tests {
         assert!((27..=64).contains(&total), "{:?}", grid.cells);
         assert!(grid.cells.iter().all(|&c| c == grid.cells[0]));
         assert_eq!(grid.reach, [1, 1, 1]);
+        // The packed input of any grid fits the bound it is allocated by.
+        let (mut words, mut halves) = (Vec::new(), Vec::new());
+        let packed = pack(&mut words, &mut halves, &atoms, &[], &[cell], 5.0).unwrap();
+        assert_eq!(packed, total);
+        assert_eq!(words.len(), packed_words(3, total, 1));
+        assert!(words.len() <= packed_words(3, cells_bound(3, 1), 1));
+        assert!(cell_limit(3) <= cells_bound(3, 1));
         // A dense box keeps cells of the cutoff.
         let dense: Vec<[f64; 3]> = (0..4000)
             .map(|i| {
@@ -1046,12 +1227,6 @@ mod tests {
         coarsen(&mut cells, &mut reach, &[2.0, 400.0, 400.0], 5.0, 3);
         assert!(cells[0] == 1 && cells[1] == cells[2] && (6..=8).contains(&cells[1]));
         assert_eq!(reach, [3, 1, 1]);
-        // The packed input of any grid fits the bound it is allocated by.
-        let mut words = Vec::new();
-        let (members, start) = (vec![0; 3], vec![0; total + 1]);
-        pack(&mut words, &[0.0; 9], &grid, &members, &start);
-        assert_eq!(words.len(), packed_words(3, total));
-        assert!(words.len() <= packed_words(3, cell_limit(3)));
         // Two cells on an axis can only become one.
         let (mut cells, mut reach) = ([2, 2, 500], [1, 1, 1]);
         coarsen(&mut cells, &mut reach, &[12.0, 12.0, 3000.0], 5.0, 1);
@@ -1059,6 +1234,60 @@ mod tests {
             cells.iter().product::<usize>() <= 64 && cells[2] >= 16,
             "{cells:?}"
         );
+    }
+
+    #[test]
+    fn systems_are_packed_side_by_side() {
+        // A periodic box and an open pair, their atoms interleaved.
+        let cells = [
+            Cell::Periodic([[12.0, 0.0, 0.0], [0.0, 12.0, 0.0], [0.0, 0.0, 24.0]]),
+            Cell::Open,
+        ];
+        let positions = [
+            [1.0, 1.0, 1.0],
+            [100.0, 0.0, 0.0],
+            [7.0, 7.0, 13.0],
+            [101.0, 0.0, 0.0],
+            [1.0, 1.0, 47.0],
+        ];
+        let system = [0, 1, 0, 1, 0];
+        let (mut words, mut halves) = (Vec::new(), Vec::new());
+        let total = pack(&mut words, &mut halves, &positions, &system, &cells, 6.0).unwrap();
+        // 2 x 2 x 4 cells of the cutoff in the box, one around the pair.
+        assert_eq!(total, 17);
+        assert_eq!(words.len(), packed_words(5, total, 2));
+        assert!(words.len() <= packed_words(5, cells_bound(5, 2), 2));
+        let header = |f: usize| &halves[HEADER * f..HEADER * (f + 1)];
+        assert_eq!(header(0)[10..13], [2, 2, 4]);
+        assert_eq!(f32::from_bits(header(0)[8]), 24.0);
+        assert_eq!((header(0)[16], header(1)[16]), (1, 0));
+        assert_eq!((header(0)[17], header(1)[17]), (0, 16));
+        assert_eq!((header(0)[18], header(1)[18]), (1, 1));
+        // The margin of each system follows its own coordinates.
+        assert!(f32::from_bits(header(1)[9]) > f32::from_bits(header(0)[9]));
+        // Atoms in cell order: those of the box, then the pair.
+        let at_atoms = HEADER * 2 + 6 * 5;
+        let mut boxed = halves[at_atoms..at_atoms + 3].to_vec();
+        boxed.sort_unstable();
+        assert_eq!(boxed, [0, 2, 4]);
+        assert_eq!(halves[at_atoms + 3..at_atoms + 5], [1, 3]);
+        assert_eq!(halves[at_atoms + 5..at_atoms + 10], [0, 1, 0, 1, 0]);
+        // Cell starts run on from one system into the next.
+        let start = &halves[at_atoms + 10..];
+        assert_eq!(start.len(), total + 1);
+        assert!(start.windows(2).all(|pair| pair[0] <= pair[1]));
+        assert_eq!((start[0], start[16], start[17]), (0, 3, 5));
+        // Positions stay at their atoms; those of the box are wrapped into it.
+        let position = |atom: usize, axis: usize| f64::from_bits(words[18 + 3 * atom + axis]);
+        assert_eq!(position(1, 0), 100.0);
+        assert!((position(4, 2) - 23.0).abs() < 1e-12);
+        assert_eq!(f64::from_bits(words[8]), 24.0);
+        assert_eq!(f64::from_bits(words[9]), 0.0);
+        // The float copy of an atom lies where the cell order puts it.
+        let place = halves[at_atoms..at_atoms + 5].iter().position(|&a| a == 3).unwrap();
+        assert_eq!(f32::from_bits(halves[HEADER * 2 + 3 * place]), 101.0);
+        // Every system needs an atom.
+        assert!(pack(&mut words, &mut halves, &positions, &[0; 5], &cells, 6.0).is_err());
     }
 
     #[test]

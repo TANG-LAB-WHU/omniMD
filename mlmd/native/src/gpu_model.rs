@@ -23,7 +23,9 @@ use omnimd_gpu::{
     DenseNetwork, Device, GradientNetwork, LaunchConfig, LayerParameters, NeighborList,
     NeighborSearch, PushKernelArg, Scalar, ScalarNetwork, ScalarTable, TableSegments,
 };
-use omnimd_ml_contract::{Error, Evaluation, Frame, ModelMetadata, Potential, Result, Units};
+use omnimd_ml_contract::{
+    Committee, Error, Evaluation, Frame, ModelMetadata, Potential, Result, Units,
+};
 use std::sync::Arc;
 use std::time::Instant;
 
@@ -56,6 +58,12 @@ __device__ long long slot_row(const int* rows, int ntypes, int count, int i, int
     return local < entry[1] ? entry[0] + local : entry[2];
 }
 
+// Several models of one architecture (a committee) go through these kernels
+// together: the second dimension of the launch grid is the model. Model `m`
+// reads the same neighbor lists, has its statistics and networks at center
+// type `m * ntypes + type`, and its work rows and results after those of the
+// models before it. A grid one model deep is the single model.
+//
 // One thread per slot. Without `rows` an empty slot only marks its row as
 // one to skip (network id -1): the embedding kernels leave such rows alone
 // and the descriptor adds what the empty slots of a type contribute in one
@@ -69,9 +77,13 @@ __device__ void env_impl(const int* index, const double* delta, const double* di
         const int* rows) {
     long long idx = (long long)blockIdx.x * blockDim.x + threadIdx.x;
     if (idx >= (long long)count * slots) return;
-    int li = (int)(idx / slots), s = (int)(idx % slots), i = first + li, c = atype[i];
+    int model = blockIdx.y;
+    long long base = (long long)model * count * slots;
+    int li = (int)(idx / slots), s = (int)(idx % slots), i = first + li;
+    int c = model * ntypes + atype[i];
     long long slot = (long long)i * slots + s;
-    long long row = slot_row(rows, ntypes, count, li, slot_type[s], slot_local[s], sel, offset);
+    long long row = base
+        + slot_row(rows, ntypes, count, li, slot_type[s], slot_local[s], sel, offset);
     bool neighbor = index[slot] >= 0;
     if (!rows && !neighbor) {
         network[row] = -1;
@@ -88,11 +100,11 @@ __device__ void env_impl(const int* index, const double* delta, const double* di
     }
     for (int a = 0; a < 4; ++a) {
         r4[a] = (r4[a] - davg[4 * c + a]) * dstd_inv[4 * c + a];
-        env[4 * idx + a] = r4[a];
+        env[4 * (base + idx) + a] = r4[a];
     }
     // Every empty slot of a shared row writes the same two values there.
     radial[row] = (P)r4[0];
-    // Embedding net of this row: (center type, neighbor type).
+    // Embedding net of this row: (model, center type, neighbor type).
     network[row] = c * ntypes + slot_type[s];
 }
 
@@ -108,7 +120,12 @@ __device__ void descriptor_impl(const double* env, const P* g, const int* slot_t
         const int* index, const int* atype, const P* g_empty, const double* davg,
         const double* dstd_inv, int first) {
     extern __shared__ double b[];
-    int i = blockIdx.x;
+    int i = blockIdx.x, model = blockIdx.y;
+    // This model's rows of the embedding and of the environment, and its
+    // place among the centers.
+    g += (long long)model * count * slots * width;
+    env += (long long)model * count * slots * 4;
+    long long center = (long long)model * count + i;
     const double inv_slots = 1.0 / slots;
     for (int m = threadIdx.x; m < width; m += blockDim.x) {
         double acc[4] = {0.0, 0.0, 0.0, 0.0};
@@ -119,7 +136,7 @@ __device__ void descriptor_impl(const double* env, const P* g, const int* slot_t
                 for (int a = 0; a < 4; ++a) acc[a] += gm * r[a];
             }
         } else {
-            int c = atype[first + i];
+            int c = model * ntypes + atype[first + i];
             const int* mine = index + (long long)(first + i) * slots;
             for (int t = 0; t < ntypes; ++t) {
                 int filled = 0;
@@ -138,7 +155,7 @@ __device__ void descriptor_impl(const double* env, const P* g, const int* slot_t
         for (int a = 0; a < 4; ++a) {
             double v = acc[a] * inv_slots;
             b[4 * m + a] = v;
-            b_out[((long long)i * width + m) * 4 + a] = v;
+            b_out[(center * width + m) * 4 + a] = v;
         }
     }
     __syncthreads();
@@ -146,7 +163,7 @@ __device__ void descriptor_impl(const double* env, const P* g, const int* slot_t
         int m = e / axis, k = e % axis;
         double v = 0.0;
         for (int a = 0; a < 4; ++a) v += b[4 * m + a] * b[4 * k + a];
-        d_out[(long long)i * width * axis + e] = (P)v;
+        d_out[center * width * axis + e] = (P)v;
     }
 }
 
@@ -172,17 +189,26 @@ __device__ void backward_impl(const double* env, const P* g, const P* dg, const 
         const int* atype, const double* dstd_inv, const int* slot_type, const int* slot_local,
         const int* sel, const int* offset, int first, int count, int slots, int width, int axis,
         double rmin, double inv_range, double* force, double* virial, const int* rows,
-        int ntypes) {
+        int ntypes, int natoms) {
     extern __shared__ double shared[];
     double* b = shared;                  // [width][4]
     double* dr_all = b + 4 * width;      // [slots][4]
     double* red = dr_all + 4 * slots;    // [12]: center force, virial
     P* db = (P*)(red + 12);              // [4][width]
-    int li = blockIdx.x, i = first + li;
-    for (int e = threadIdx.x; e < 4 * width; e += blockDim.x) b[e] = b_in[(long long)li * width * 4 + e];
+    int li = blockIdx.x, i = first + li, model = blockIdx.y;
+    // This model's work rows and its place among the centers; its forces
+    // and virials follow those of the models before it.
+    long long before = (long long)model * count * slots;
+    env += before * 4;
+    g += before * width;
+    dg += before * width;
+    long long center = (long long)model * count + li;
+    force += 3 * (long long)model * natoms;
+    virial += 9 * (long long)model * natoms;
+    for (int e = threadIdx.x; e < 4 * width; e += blockDim.x) b[e] = b_in[center * width * 4 + e];
     for (int e = threadIdx.x; e < 12; e += blockDim.x) red[e] = 0.0;
     __syncthreads();
-    const P* dd = dd_in + (long long)li * width * axis;
+    const P* dd = dd_in + center * width * axis;
     for (int m = threadIdx.x; m < width; m += blockDim.x) {
         double acc[4] = {0.0, 0.0, 0.0, 0.0};
         for (int k = 0; k < axis; ++k) {
@@ -223,7 +249,7 @@ __device__ void backward_impl(const double* env, const P* g, const P* dg, const 
         }
     }
     __syncthreads();
-    const double* inv_std = dstd_inv + 4 * atype[i];
+    const double* inv_std = dstd_inv + 4 * (model * ntypes + atype[i]);
     double fi[3] = {0.0, 0.0, 0.0}, vir[9] = {0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0};
     for (int s = threadIdx.x; s < slots; s += blockDim.x) {
         long long slot = (long long)i * slots + s;
@@ -261,7 +287,8 @@ __device__ void backward_impl(const double* env, const P* g, const P* dg, const 
 }
 
 // The `_rows` kernels take the row table of `slot_row` (and the number of
-// types it is laid out by); the others skip empty slots.
+// types it is laid out by) and are launched one model deep; the others skip
+// empty slots and take the number of atoms a model's forces span.
 #define INSTANTIATE(P, S)                                                                         \
 extern "C" __global__ void se_e2_a_env_##S(const int* index, const double* delta,                 \
         const double* dist, const int* atype, const double* davg, const double* dstd_inv,         \
@@ -301,10 +328,10 @@ extern "C" __global__ void se_e2_a_backward_##S(const double* env, const P* g, c
         const double* dist, const int* atype, const double* dstd_inv, const int* slot_type,       \
         const int* slot_local, const int* sel, const int* offset, int first, int count,           \
         int slots, int width, int axis, double rmin, double inv_range, double* force,             \
-        double* virial) {                                                                         \
+        double* virial, int ntypes, int natoms) {                                                 \
     backward_impl<P>(env, g, dg, b_in, dd_in, index, delta, dist, atype, dstd_inv, slot_type,     \
                      slot_local, sel, offset, first, count, slots, width, axis, rmin, inv_range,  \
-                     force, virial, nullptr, 0);                                                  \
+                     force, virial, nullptr, ntypes, natoms);                                     \
 }                                                                                                 \
 extern "C" __global__ void se_e2_a_backward_rows_##S(const double* env, const P* g,               \
         const P* dg, const double* b_in, const P* dd_in, const int* index, const double* delta,   \
@@ -314,7 +341,7 @@ extern "C" __global__ void se_e2_a_backward_rows_##S(const double* env, const P*
         double* virial, const int* rows, int ntypes) {                                            \
     backward_impl<P>(env, g, dg, b_in, dd_in, index, delta, dist, atype, dstd_inv, slot_type,     \
                      slot_local, sel, offset, first, count, slots, width, axis, rmin, inv_range,  \
-                     force, virial, rows, ntypes);                                                \
+                     force, virial, rows, ntypes, 0);                                             \
 }
 INSTANTIATE(float, f32)
 INSTANTIATE(double, f64)
@@ -395,12 +422,17 @@ impl StageTimes {
 pub struct GpuPotential<P: Scalar> {
     device: Arc<Device>,
     metadata: ModelMetadata,
+    /// Models evaluated together (a committee); one as a rule. The tables
+    /// below that go by center type hold model `m` at center type `m *
+    /// ntypes + type`.
+    models: usize,
     rcut: f64,
     rcut_smth: f64,
     sel: Vec<usize>,
     slots: usize,
     width: usize,
     axis: usize,
+    /// Energy bias per center type.
     bias: Vec<f64>,
     /// Every embedding net in one set; net `center type · ntypes + neighbor
     /// type` (the ids the environment kernel writes).
@@ -554,7 +586,20 @@ fn bytes_per_atom<P>(slots: usize, width: usize, axis: usize, fitting_width: usi
 
 impl<P: Scalar> GpuPotential<P> {
     pub fn new(model: &Model, device: Arc<Device>) -> Result<Self> {
-        let mut metadata = model.validate()?;
+        Self::committee(&[model], device)
+    }
+
+    /// Several models as one potential that evaluates them together (see
+    /// [`Self::evaluate_frames`]): a committee, for model deviation. The
+    /// models must share the type map, the descriptor's cutoffs, `sel` and
+    /// `axis_neuron` and the shapes of their networks; weights, statistics
+    /// and energy biases are each model's own. As a [`Potential`] the
+    /// committee is its first model.
+    pub fn committee(models: &[&Model], device: Arc<Device>) -> Result<Self> {
+        let Some(&first) = models.first() else {
+            return Err(Error("a committee needs at least one model".into()));
+        };
+        let mut metadata = first.validate()?;
         metadata.backend = "native-gpu-se-e2-a".into();
         // Network precision; geometry, forces and virial are float64 either way.
         metadata.precision = if std::mem::size_of::<P>() == 4 {
@@ -562,10 +607,31 @@ impl<P: Scalar> GpuPotential<P> {
         } else {
             "float64".into()
         };
-        let d = &model.descriptor;
-        let ntypes = model.type_map.len();
+        let d = &first.descriptor;
+        let ntypes = first.type_map.len();
         let width = d.embedding[0][0].output_size();
         let slots: usize = d.sel.iter().sum();
+        for (index, model) in models.iter().enumerate().skip(1) {
+            model.validate()?;
+            let other = &model.descriptor;
+            if model.type_map != first.type_map
+                || other.rcut != d.rcut
+                || other.rcut_smth != d.rcut_smth
+                || other.sel != d.sel
+                || other.axis_neuron != d.axis_neuron
+                || other.embedding[0][0].output_size() != width
+            {
+                return Err(Error(format!(
+                    "committee member {index} differs from the first in its type map, cutoffs, sel, axis_neuron or embedding width; such models are evaluated one by one"
+                )));
+            }
+        }
+        let same_shape = |e: Error| match models.len() {
+            1 => e,
+            _ => Error(format!(
+                "the members of a committee need networks of one shape: {e}"
+            )),
+        };
         let backward_shared =
             (4 * width + 4 * slots + 12) * 8 + 4 * width * std::mem::size_of::<P>();
         if backward_shared > SHARED_LIMIT {
@@ -573,49 +639,69 @@ impl<P: Scalar> GpuPotential<P> {
                 "GPU se_e2_a needs {backward_shared} bytes of shared memory per atom                  (embedding width {width}, {slots} neighbor slots); the limit is {SHARED_LIMIT}"
             )));
         }
-        let embedding_layers: Vec<_> = d
-            .embedding
+        // Model `m` has its nets and statistics at center type `m * ntypes +
+        // type`, as the kernels look them up.
+        let embedding_host: Vec<Vec<Network>> = models
+            .iter()
+            .flat_map(|model| model.descriptor.embedding.iter().cloned())
+            .collect();
+        let embedding_layers: Vec<_> = embedding_host
             .iter()
             .flatten()
             .map(|n| layer_parameters::<P>(n, 1))
             .collect();
-        let embedding = ScalarNetwork::new_set(&device, &embedding_layers)?;
-        let fitting_layers: Vec<_> = model
-            .fitting
+        let embedding = ScalarNetwork::new_set(&device, &embedding_layers).map_err(same_shape)?;
+        let features = width * d.axis_neuron;
+        let fitting_host: Vec<&Network> = models.iter().flat_map(|model| &model.fitting).collect();
+        let fitting_layers: Vec<_> = fitting_host
             .iter()
-            .map(|n| layer_parameters::<P>(n, width * d.axis_neuron))
+            .map(|n| layer_parameters::<P>(n, features))
             .collect();
+        if models.len() > 1 {
+            // One shape for all, whether or not the fused kernel takes it.
+            let shape = |layers: &[LayerParameters<P>]| {
+                let of = |l: &LayerParameters<P>| (l.input, l.output, l.activation, l.residual);
+                layers.iter().map(of).collect::<Vec<_>>()
+            };
+            // Each model's net of a type against the first model's.
+            let differ = fitting_layers
+                .iter()
+                .enumerate()
+                .any(|(net, layers)| shape(layers) != shape(&fitting_layers[net % ntypes]));
+            if differ {
+                return Err(same_shape(Error("the fitting nets differ".into())));
+            }
+        }
         // Not every fitting net fits in shared memory; those keep cuBLAS only.
         let fused_fitting = GradientNetwork::new_set(&device, &fitting_layers).ok();
-        let fitting = model
-            .fitting
+        let fitting = fitting_host
             .iter()
-            .map(|n| dense_network(&device, n, width * d.axis_neuron))
+            .map(|n| dense_network(&device, n, features))
             .collect::<Result<Vec<_>>>()?;
-        let davg: Vec<f64> = d.normalization.iter().flat_map(|n| n.mean).collect();
-        let dstd_inv: Vec<f64> = d
-            .normalization
-            .iter()
+        let normalization = || models.iter().flat_map(|model| &model.descriptor.normalization);
+        let davg: Vec<f64> = normalization().flat_map(|n| n.mean).collect();
+        let dstd_inv: Vec<f64> = normalization()
             .flat_map(|n| n.std.map(|std| 1.0 / std))
             .collect();
         // As the environment kernel normalizes an empty slot.
-        let empty_input: Vec<P> = (0..ntypes)
+        let centers = models.len() * ntypes;
+        let empty_input: Vec<P> = (0..centers)
             .flat_map(|c| {
                 let zero = P::from_f64((0.0 - davg[4 * c]) * dstd_inv[4 * c]);
                 std::iter::repeat_n(zero, ntypes)
             })
             .collect();
-        let empty_ids: Vec<i32> = (0..(ntypes * ntypes) as i32).collect();
+        let empty_ids: Vec<i32> = (0..(centers * ntypes) as i32).collect();
         let empty_input = device.upload(&empty_input)?;
         let empty_ids = device.upload(&empty_ids)?;
-        let mut empty_g = device.zeros::<P>(ntypes * ntypes * width)?;
+        let mut empty_g = device.zeros::<P>(centers * ntypes * width)?;
         {
-            let mut tangent = device.zeros::<P>(ntypes * ntypes * width)?;
+            let mut tangent = device.zeros::<P>(centers * ntypes * width)?;
             embedding.forward_tangent_by_id(
                 &device,
                 &empty_input,
                 &empty_ids,
-                ntypes * ntypes,
+                centers * ntypes,
                 &mut empty_g,
                 &mut tangent,
             )?;
@@ -639,7 +725,7 @@ impl<P: Scalar> GpuPotential<P> {
             descriptor: function("se_e2_a_descriptor")?,
             backward: function("se_e2_a_backward")?,
         };
-        let fitting_width = model
+        let fitting_width = first
             .fitting
             .iter()
             .flat_map(|n| n.layers.iter().map(|l| l.bias.len()))
@@ -649,20 +735,20 @@ impl<P: Scalar> GpuPotential<P> {
         let chunk_atoms = ((free as f64 * MEMORY_FRACTION) as usize / per_atom.max(1)).max(1);
         Ok(Self {
             metadata,
+            models: models.len(),
             rcut: d.rcut,
             rcut_smth: d.rcut_smth,
             sel: d.sel.clone(),
             slots: slot_type.len(),
             width,
             axis: d.axis_neuron,
-            bias: model.atom_energy_bias.clone(),
-            embedding,
-            embedding_host: d.embedding.clone(),
-            radial_normalization: d
-                .normalization
+            bias: models
                 .iter()
-                .map(|n| (n.mean[0], n.std[0]))
+                .flat_map(|model| model.atom_energy_bias.iter().copied())
                 .collect(),
+            embedding,
+            embedding_host,
+            radial_normalization: normalization().map(|n| (n.mean[0], n.std[0])).collect(),
             tables: None,
             table_fallbacks: 0,
             fitting,
@@ -690,6 +776,12 @@ impl<P: Scalar> GpuPotential<P> {
         })
     }
 
+    /// Models this potential evaluates together: one unless it was made by
+    /// [`Self::committee`].
+    pub fn models(&self) -> usize {
+        self.models
+    }
+
     pub fn device(&self) -> &Device {
         &self.device
     }
@@ -701,6 +793,8 @@ impl<P: Scalar> GpuPotential<P> {
 
     /// Center atoms evaluated per chunk; per-atom device memory (embedding
     /// values and tangents dominate) scales with this, not with the frame.
+    /// The members of a committee share it: each chunk holds this many
+    /// atoms divided by the members evaluated.
     pub fn chunk_atoms(&self) -> usize {
         self.chunk_atoms
     }
@@ -811,17 +905,60 @@ impl<P: Scalar> GpuPotential<P> {
     }
 
     fn evaluate(&mut self, frame: &Frame) -> Result<Evaluation> {
+        self.evaluate_frames(&[frame], 1)?
+            .pop()
+            .and_then(|mut members| members.pop())
+            .ok_or_else(|| Error("evaluation returned no result".into()))
+    }
+
+    /// Evaluates every frame with the first `members` models in one pass
+    /// over the device: `[frame][member]`, each as that model would give it
+    /// for that frame alone (to rounding: sums over atoms may run in another
+    /// order). The frames need not be alike in atoms or cell. All their
+    /// atoms are one list on the device, so a batch costs the launches of a
+    /// single frame, and each frame's neighbors are searched once for all
+    /// members.
+    ///
+    /// An error of any frame fails the batch and names the frame. When a
+    /// frame of a batch leaves the range of the embedding tables, the frames
+    /// are evaluated again one at a time, so that only those outside the
+    /// tables use the exact networks (for all members).
+    pub fn evaluate_frames(
+        &mut self,
+        frames: &[&Frame],
+        members: usize,
+    ) -> Result<Vec<Vec<Evaluation>>> {
+        if members == 0 || members > self.models {
+            return Err(Error(format!(
+                "this potential evaluates 1..={} models together, not {members}",
+                self.models
+            )));
+        }
+        if frames.is_empty() {
+            return Ok(Vec::new());
+        }
         let device = Arc::clone(&self.device);
         let mut clock = Clock {
             device: &device,
             times: self.profile.take().map(|_| StageTimes::default()),
             last: Instant::now(),
         };
-        let mut result = self.run(&device, frame, &mut clock, self.tables.is_some());
+        let mut result = self.run(&device, frames, members, &mut clock, self.tables.is_some());
         if matches!(result, Ok(None)) {
+            if frames.len() > 1 {
+                self.profile = clock.times;
+                let mut all = Vec::with_capacity(frames.len());
+                for (index, frame) in frames.iter().enumerate() {
+                    let one = self
+                        .evaluate_frames(std::slice::from_ref(frame), members)
+                        .map_err(|e| Error(format!("frame {index} of the batch: {e}")))?;
+                    all.extend(one);
+                }
+                return Ok(all);
+            }
             // Some input was outside the tables: use the exact networks.
             self.table_fallbacks += 1;
-            result = self.run(&device, frame, &mut clock, false);
+            result = self.run(&device, frames, members, &mut clock, false);
         }
         self.profile = clock.times;
         result?.ok_or_else(|| Error("exact evaluation reported a table range".into()))
@@ -831,77 +968,121 @@ impl<P: Scalar> GpuPotential<P> {
     fn run(
         &mut self,
         device: &Device,
-        frame: &Frame,
+        frames: &[&Frame],
+        members: usize,
         clock: &mut Clock,
         compressed: bool,
-    ) -> Result<Option<Evaluation>> {
-        frame.validate()?;
-        let types = frame.type_ids(&self.metadata)?;
-        let natoms = types.len();
-        let stream = device.stream();
-
-        // Sort atoms by type so each (center type) block is contiguous.
-        let mut order: Vec<usize> = (0..natoms).collect();
-        order.sort_by_key(|&i| types[i]);
-        let sorted_types: Vec<i32> = order.iter().map(|&i| types[i]).collect();
-        let positions: Vec<[f64; 3]> = order.iter().map(|&i| frame.positions[i]).collect();
+    ) -> Result<Option<Vec<Vec<Evaluation>>>> {
         let ntypes = self.sel.len();
+        let batch = frames.len() > 1;
+        let in_batch = |index: usize, e: Error| match batch {
+            true => Error(format!("frame {index} of the batch: {e}")),
+            false => e,
+        };
+        let mut frame_types = Vec::with_capacity(frames.len());
+        // First atom of each center type among all atoms of the batch.
         let mut block = vec![0usize; ntypes + 1];
-        for &t in &sorted_types {
-            block[t as usize + 1] += 1;
+        for (index, frame) in frames.iter().enumerate() {
+            let types = frame
+                .type_ids(&self.metadata)
+                .map_err(|e| in_batch(index, e))?;
+            for &t in &types {
+                block[t as usize + 1] += 1;
+            }
+            frame_types.push(types);
         }
         for t in 0..ntypes {
             block[t + 1] += block[t];
         }
-        let cell = frame.cell.map_or(Cell::Open, Cell::Periodic);
+        let natoms = block[ntypes];
+        if i32::try_from(natoms.saturating_mul(members)).is_err() {
+            return Err(Error(format!(
+                "a batch of {natoms} atoms for {members} models is too large for one pass"
+            )));
+        }
+        // All atoms in one list, sorted by type so that each center type is
+        // a contiguous block; within a type the frames follow each other and
+        // the atoms of a frame keep their order.
+        let mut cursor = block.clone();
+        let mut source = vec![(0u32, 0u32); natoms];
+        let mut positions = vec![[0.0; 3]; natoms];
+        let mut sorted_types = vec![0i32; natoms];
+        let mut system = vec![0i32; if batch { natoms } else { 0 }];
+        for (index, (frame, types)) in frames.iter().zip(&frame_types).enumerate() {
+            for (atom, &t) in types.iter().enumerate() {
+                let k = cursor[t as usize];
+                cursor[t as usize] += 1;
+                source[k] = (index as u32, atom as u32);
+                positions[k] = frame.positions[atom];
+                sorted_types[k] = t;
+                if batch {
+                    system[k] = index as i32;
+                }
+            }
+        }
+        let cells: Vec<Cell> = frames
+            .iter()
+            .map(|frame| frame.cell.map_or(Cell::Open, Cell::Periodic))
+            .collect();
+        let stream = device.stream();
         clock.lap(|t| &mut t.host_prepare)?;
 
         // Everything that goes back to the host, in one buffer for a single
-        // copy: forces [natoms][3] and the table-range flag (cleared
-        // together), the virial of each center [natoms][9], the neighbor
-        // status of each center (ints) and the atomic energies (`P`).
-        let cleared_words = 3 * natoms + 1;
+        // copy: the forces of each model [members][natoms][3] and the
+        // table-range flag (cleared together), the virial of each center
+        // [members][natoms][9], the neighbor status of each atom (ints) and
+        // the atomic energies (`P`, chunk by chunk, see below).
+        let centers = members * natoms;
+        let cleared_words = 3 * centers + 1;
         let status_words = natoms.div_ceil(2);
-        let energy_words = (natoms * std::mem::size_of::<P>()).div_ceil(8);
+        let energy_words = (centers * std::mem::size_of::<P>()).div_ceil(8);
         let mut results = unsafe {
-            device.alloc_uninit::<u64>(cleared_words + 9 * natoms + status_words + energy_words)?
+            device.alloc_uninit::<u64>(cleared_words + 9 * centers + status_words + energy_words)?
         };
         let (mut cleared, mut rest) = results.split_at_mut(cleared_words);
         stream.memset_zeros(&mut cleared).map_err(copy_error)?;
-        let (mut force_words, mut flag_words) = cleared.split_at_mut(3 * natoms);
-        let (mut virial_words, mut rest) = rest.split_at_mut(9 * natoms);
+        let (mut force_words, mut flag_words) = cleared.split_at_mut(3 * centers);
+        let (mut virial_words, mut rest) = rest.split_at_mut(9 * centers);
         let (mut status_part, mut energy_part) = rest.split_at_mut(status_words);
         // SAFETY: float64, float32 and int32 are plain numbers that fit the
         // alignment of the words they are laid over.
-        let mut force = unsafe { view_as::<f64>(&mut force_words, 3 * natoms)? };
+        let mut force = unsafe { view_as::<f64>(&mut force_words, 3 * centers)? };
         let mut outside_table = unsafe { view_as::<i32>(&mut flag_words, 1)? };
-        let mut virial = unsafe { view_as::<f64>(&mut virial_words, 9 * natoms)? };
+        let mut virial = unsafe { view_as::<f64>(&mut virial_words, 9 * centers)? };
         let mut status = unsafe { view_as::<i32>(&mut status_part, natoms)? };
-        let mut atomic = unsafe { view_as::<P>(&mut energy_part, natoms)? };
+        let mut atomic = unsafe { view_as::<P>(&mut energy_part, centers)? };
 
-        let list: &NeighborList =
-            self.search
-                .run_mirrored(device, &positions, &sorted_types, &cell, &mut status)?;
+        let list: &NeighborList = self.search.run_systems_mirrored(
+            device,
+            &positions,
+            &sorted_types,
+            &system,
+            &cells,
+            &mut status,
+        )?;
         let atype = &list.types;
         clock.lap(|t| &mut t.neighbors)?;
 
         let (slots, width, axis) = (self.slots, self.width, self.axis);
         let features = width * axis;
-        let chunk = self.chunk_atoms.min(natoms).max(1);
+        // Atoms per chunk: every model works on a chunk at once.
+        let chunk = (self.chunk_atoms / members).clamp(1, natoms);
+        let wide = members * chunk;
         // Per-chunk work buffers, reused by every chunk. Each element a chunk
         // reads was written earlier in the same chunk.
-        let mut env = unsafe { device.alloc_uninit::<f64>(chunk * slots * 4)? };
-        let mut radial = unsafe { device.alloc_uninit::<P>(chunk * slots)? };
-        let mut network = unsafe { device.alloc_uninit::<i32>(chunk * slots)? };
-        let mut g = unsafe { device.alloc_uninit::<P>(chunk * slots * width)? };
-        let mut dg = unsafe { device.alloc_uninit::<P>(chunk * slots * width)? };
-        let mut b = unsafe { device.alloc_uninit::<f64>(chunk * width * 4)? };
-        let mut descriptor = unsafe { device.alloc_uninit::<P>(chunk * features)? };
-        let mut d_descriptor = unsafe { device.alloc_uninit::<P>(chunk * features)? };
+        let mut env = unsafe { device.alloc_uninit::<f64>(wide * slots * 4)? };
+        let mut radial = unsafe { device.alloc_uninit::<P>(wide * slots)? };
+        let mut network = unsafe { device.alloc_uninit::<i32>(wide * slots)? };
+        let mut g = unsafe { device.alloc_uninit::<P>(wide * slots * width)? };
+        let mut dg = unsafe { device.alloc_uninit::<P>(wide * slots * width)? };
+        let mut b = unsafe { device.alloc_uninit::<f64>(wide * width * 4)? };
+        let mut descriptor = unsafe { device.alloc_uninit::<P>(wide * features)? };
+        let mut d_descriptor = unsafe { device.alloc_uninit::<P>(wide * features)? };
         // Adjoint seed of the layer-by-layer fitting path, made on first use.
         let mut ones: Option<CudaSlice<P>> = None;
         let (slots_i, w_i, axis_i) = (slots as i32, width as i32, axis as i32);
-        let ntypes_i = ntypes as i32;
+        let (ntypes_i, natoms_i) = (ntypes as i32, natoms as i32);
+        let deep = members as u32;
         let tables = self.tables.as_ref().filter(|_| compressed);
 
         for first in (0..natoms).step_by(chunk) {
@@ -940,7 +1121,7 @@ impl<P: Scalar> GpuPotential<P> {
                     .arg(&mut network);
                 let total = count * slots;
                 let config = LaunchConfig {
-                    grid_dim: (total.div_ceil(BLOCK as usize) as u32, 1, 1),
+                    grid_dim: (total.div_ceil(BLOCK as usize) as u32, deep, 1),
                     block_dim: (BLOCK, 1, 1),
                     shared_mem_bytes: 0,
                 };
@@ -951,9 +1132,9 @@ impl<P: Scalar> GpuPotential<P> {
             clock.lap(|t| &mut t.environment)?;
 
             // Embedding values and d/d(radial) tangents for every row of the
-            // chunk in one launch, [neighbor type][local atom][slot][width].
+            // chunk in one launch, [model][neighbor type][local atom][slot][width].
             {
-                let rows = count * slots;
+                let rows = members * count * slots;
                 let x = radial.slice(0..rows);
                 let ids = network.slice(0..rows);
                 let mut out = g.slice_mut(0..rows * width);
@@ -998,7 +1179,7 @@ impl<P: Scalar> GpuPotential<P> {
                     .arg(&self.dstd_inv)
                     .arg(&first_i);
                 let config = LaunchConfig {
-                    grid_dim: (count as u32, 1, 1),
+                    grid_dim: (count as u32, deep, 1),
                     block_dim: (BLOCK, 1, 1),
                     shared_mem_bytes: (4 * width * 8) as u32,
                 };
@@ -1008,23 +1189,28 @@ impl<P: Scalar> GpuPotential<P> {
             }
             clock.lap(|t| &mut t.descriptor)?;
 
-            // Fitting: atomic energies and dE/dD. Few atoms: every center type
-            // in one fused kernel. Many atoms: cuBLAS per center type, with
-            // the energies copied out so the tape can go.
+            // Fitting: atomic energies and dE/dD, the centers of a chunk as
+            // [model][local atom]. Few atoms: every model and center type
+            // in one fused kernel. Many atoms: cuBLAS per model and center
+            // type, with the energies copied out so the tape can go.
             let limit = self.fused_fitting_max_atoms;
             let fused = self.fused_fitting.as_mut().filter(|_| count <= limit);
+            // The atoms are sorted by type: runs of one fitting net each.
+            let runs = (0..members).flat_map(|model| {
+                ranges
+                    .iter()
+                    .map(move |&(t, lo, hi)| (model * ntypes + t, model * count + lo, hi - lo))
+            });
+            let mut energies = atomic.slice_mut(members * first..members * end);
             if let Some(fused) = fused {
-                let x = descriptor.slice(0..count * features);
-                // The atoms are sorted by type: runs of one fitting net each.
-                let groups: Vec<(usize, usize, usize)> =
-                    ranges.iter().map(|&(t, lo, hi)| (t, lo, hi - lo)).collect();
-                let mut energies = atomic.slice_mut(first..end);
-                let mut dx = d_descriptor.slice_mut(0..count * features);
+                let x = descriptor.slice(0..members * count * features);
+                let groups: Vec<(usize, usize, usize)> = runs.collect();
+                let mut dx = d_descriptor.slice_mut(0..members * count * features);
                 fused.forward_gradient_grouped(
                     device,
                     &x,
                     &groups,
-                    count,
+                    members * count,
                     &mut energies,
                     &mut dx,
                 )?;
@@ -1033,15 +1219,14 @@ impl<P: Scalar> GpuPotential<P> {
                     Some(ones) => ones,
                     None => ones.insert(device.upload(&vec![P::ONE; chunk])?),
                 };
-                for &(ti, lo, hi) in &ranges {
-                    let rows = hi - lo;
+                for (net, lo, rows) in runs {
+                    let hi = lo + rows;
                     let x = descriptor.slice(lo * features..hi * features);
-                    let tape = self.fitting[ti].forward_record(device, &x, rows)?;
+                    let tape = self.fitting[net].forward_record(device, &x, rows)?;
                     let mut dx = d_descriptor.slice_mut(lo * features..hi * features);
-                    self.fitting[ti].backward(device, &tape, &ones.slice(0..rows), &mut dx)?;
-                    let mut energies = atomic.slice_mut(first + lo..first + hi);
+                    self.fitting[net].backward(device, &tape, &ones.slice(0..rows), &mut dx)?;
                     stream
-                        .memcpy_dtod(&tape.output, &mut energies)
+                        .memcpy_dtod(&tape.output, &mut energies.slice_mut(lo..hi))
                         .map_err(copy_error)?;
                 }
             }
@@ -1072,9 +1257,11 @@ impl<P: Scalar> GpuPotential<P> {
                     .arg(&self.rcut_smth)
                     .arg(&self.inv_range)
                     .arg(&mut force)
-                    .arg(&mut virial);
+                    .arg(&mut virial)
+                    .arg(&ntypes_i)
+                    .arg(&natoms_i);
                 let config = LaunchConfig {
-                    grid_dim: (count as u32, 1, 1),
+                    grid_dim: (count as u32, deep, 1),
                     block_dim: (BLOCK, 1, 1),
                     shared_mem_bytes: self.backward_shared as u32,
                 };
@@ -1091,38 +1278,79 @@ impl<P: Scalar> GpuPotential<P> {
         let words = device.download(&results)?;
         clock.lap(|t| &mut t.download)?;
         let (cleared, rest) = words.split_at(cleared_words);
-        let (virial_words, rest) = rest.split_at(9 * natoms);
+        let (virial_words, rest) = rest.split_at(9 * centers);
         let (status_part, energy_part) = rest.split_at(status_words);
-        let status = (0..natoms).fold(0, |all, atom| all | int_at(status_part, atom));
-        self.last_truncated = NeighborList::status(status)?;
-        if tables.is_some() && int_at(&cleared[3 * natoms..], 0) != 0 {
+        // The neighbor status of each frame: its atoms' bits together.
+        let mut status = vec![0; frames.len()];
+        for (k, &(frame, _)) in source.iter().enumerate() {
+            status[frame as usize] |= int_at(status_part, k);
+        }
+        self.last_truncated = false;
+        for (index, &bits) in status.iter().enumerate() {
+            self.last_truncated |= NeighborList::status(bits).map_err(|e| in_batch(index, e))?;
+        }
+        if tables.is_some() && int_at(&cleared[3 * centers..], 0) != 0 {
             return Ok(None);
         }
-        let atomic = P::from_words(energy_part, natoms);
-        let mut energy = 0.0;
+        let atomic = P::from_words(energy_part, centers);
+        // The energy of an atom for a model: the energies of a chunk are
+        // [model][local atom], chunk after chunk.
+        let energy_at = |model: usize, k: usize| {
+            let first = k - k % chunk;
+            let count = chunk.min(natoms - first);
+            atomic[members * first + model * count + (k - first)].to_f64()
+        };
+        let mut all: Vec<Vec<Evaluation>> = frames
+            .iter()
+            .map(|frame| {
+                (0..members)
+                    .map(|_| Evaluation {
+                        energy: 0.0,
+                        forces: vec![[0.0; 3]; frame.positions.len()],
+                        virial: [[0.0; 3]; 3],
+                        units: Units::EvAngstrom,
+                    })
+                    .collect()
+            })
+            .collect();
+        // Sums of one type at a time, then its bias, as for a single frame.
+        let mut sums = vec![0.0; frames.len() * members];
+        let mut counts = vec![0usize; frames.len()];
         for t in 0..ntypes {
-            let range = &atomic[block[t]..block[t + 1]];
-            energy +=
-                range.iter().map(|&e| e.to_f64()).sum::<f64>() + self.bias[t] * range.len() as f64;
-        }
-        let mut forces = vec![[0.0; 3]; natoms];
-        for (k, &atom) in order.iter().enumerate() {
-            forces[atom] = std::array::from_fn(|c| f64::from_bits(cleared[3 * k + c]));
-        }
-        let mut total_virial = [[0.0; 3]; 3];
-        for row in virial_words.chunks_exact(9) {
-            for (e, v) in row.iter().enumerate() {
-                total_virial[e / 3][e % 3] += f64::from_bits(*v);
+            sums.fill(0.0);
+            counts.fill(0);
+            for (k, &(frame, _)) in source.iter().enumerate().take(block[t + 1]).skip(block[t]) {
+                let frame = frame as usize;
+                counts[frame] += 1;
+                for model in 0..members {
+                    sums[frame * members + model] += energy_at(model, k);
+                }
+            }
+            for (frame, evaluations) in all.iter_mut().enumerate() {
+                for (model, evaluation) in evaluations.iter_mut().enumerate() {
+                    evaluation.energy += sums[frame * members + model]
+                        + self.bias[model * ntypes + t] * counts[frame] as f64;
+                }
             }
         }
-        let result = Evaluation {
-            energy,
-            forces,
-            virial: total_virial,
-            units: Units::EvAngstrom,
-        };
-        result.validate(natoms)?;
-        Ok(Some(result))
+        for (k, &(frame, atom)) in source.iter().enumerate() {
+            for (model, evaluation) in all[frame as usize].iter_mut().enumerate() {
+                let center = model * natoms + k;
+                evaluation.forces[atom as usize] =
+                    std::array::from_fn(|c| f64::from_bits(cleared[3 * center + c]));
+                for (e, v) in virial_words[9 * center..9 * center + 9].iter().enumerate() {
+                    evaluation.virial[e / 3][e % 3] += f64::from_bits(*v);
+                }
+            }
+        }
+        for (index, (frame, evaluations)) in frames.iter().zip(&all).enumerate() {
+            for evaluation in evaluations {
+                evaluation
+                    .validate(frame.positions.len())
+                    .map_err(|e| in_batch(index, e))?;
+            }
+        }
+        Ok(Some(all))
     }
 }
 
@@ -1158,6 +1386,91 @@ pub fn open(model: &Model, ordinal: usize, options: GpuOptions) -> Result<Box<dy
     }
 }
 
+/// Whether `models` can be one committee on the device (see
+/// [`GpuPotential::committee`]): the reason when they cannot. Checked on the
+/// host, before any device is opened.
+pub fn committee_mismatch(models: &[&Model]) -> Option<String> {
+    let Some(&first) = models.first() else {
+        return Some("no models".into());
+    };
+    let shape = |network: &Network| -> Vec<(usize, usize, u8, u8)> {
+        network
+            .layers
+            .iter()
+            .map(|layer| {
+                (
+                    layer.weights.len(),
+                    layer.bias.len(),
+                    layer.activation as u8,
+                    layer.residual as u8,
+                )
+            })
+            .collect()
+    };
+    let d = &first.descriptor;
+    for (index, model) in models.iter().enumerate().skip(1) {
+        let other = &model.descriptor;
+        let what = if model.type_map != first.type_map {
+            "type map"
+        } else if other.rcut != d.rcut || other.rcut_smth != d.rcut_smth {
+            "cutoffs"
+        } else if other.sel != d.sel {
+            "sel"
+        } else if other.axis_neuron != d.axis_neuron {
+            "axis_neuron"
+        } else if other.embedding.len() != d.embedding.len()
+            || other
+                .embedding
+                .iter()
+                .flatten()
+                .map(shape)
+                .ne(d.embedding.iter().flatten().map(shape))
+        {
+            "embedding nets"
+        } else if model.fitting.len() != first.fitting.len()
+            || model
+                .fitting
+                .iter()
+                .map(shape)
+                .ne(first.fitting.iter().map(shape))
+        {
+            "fitting nets"
+        } else {
+            continue;
+        };
+        return Some(format!(
+            "model {index} differs from the first in its {what}"
+        ));
+    }
+    None
+}
+
+/// Opens `models` on CUDA device `ordinal` as one committee that evaluates
+/// them together (see [`GpuPotential::committee`]).
+pub fn open_committee(
+    models: &[&Model],
+    ordinal: usize,
+    options: GpuOptions,
+) -> Result<Box<dyn Committee>> {
+    fn build<P: Scalar>(
+        models: &[&Model],
+        device: Arc<Device>,
+        options: GpuOptions,
+    ) -> Result<Box<dyn Committee>> {
+        let mut potential = GpuPotential::<P>::committee(models, device)?;
+        if let Some((min_distance, step)) = options.compress {
+            potential.compress(min_distance, step)?;
+        }
+        Ok(Box::new(potential))
+    }
+    let device = Arc::new(Device::new(ordinal)?);
+    if options.float32 {
+        build::<f32>(models, device, options)
+    } else {
+        build::<f64>(models, device, options)
+    }
+}
+
 impl<P: Scalar> Potential for GpuPotential<P> {
     fn metadata(&self) -> &ModelMetadata {
         &self.metadata
@@ -1165,5 +1478,20 @@ impl<P: Scalar> Potential for GpuPotential<P> {
 
     fn eval(&mut self, frame: &Frame) -> Result<Evaluation> {
         self.evaluate(frame)
+    }
+
+    fn eval_batch(&mut self, frames: &[&Frame]) -> Result<Vec<Evaluation>> {
+        let all = self.evaluate_frames(frames, 1)?;
+        Ok(all.into_iter().flatten().collect())
+    }
+}
+
+impl<P: Scalar> Committee for GpuPotential<P> {
+    fn members(&self) -> usize {
+        self.models
+    }
+
+    fn eval_members(&mut self, frames: &[&Frame]) -> Result<Vec<Vec<Evaluation>>> {
+        self.evaluate_frames(frames, self.models)
     }
 }

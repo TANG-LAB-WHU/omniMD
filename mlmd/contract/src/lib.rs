@@ -49,6 +49,91 @@ pub struct ModelMetadata {
 pub trait Potential {
     fn metadata(&self) -> &ModelMetadata;
     fn eval(&mut self, frame: &Frame) -> Result<Evaluation>;
+    /// One evaluation per frame, each as [`Self::eval`] gives it. A backend
+    /// that can share work between frames (one device pass for a batch)
+    /// overrides this; the frames need not be alike. An error of any frame
+    /// fails the batch.
+    fn eval_batch(&mut self, frames: &[&Frame]) -> Result<Vec<Evaluation>> {
+        frames.iter().map(|frame| self.eval(frame)).collect()
+    }
+}
+
+/// Several models of one type map that are evaluated together, for their
+/// disagreement on a frame (model deviation). As a [`Potential`] a committee
+/// is its first member.
+pub trait Committee: Potential {
+    /// Number of models.
+    fn members(&self) -> usize;
+    /// The evaluation of every frame by every member: `[frame][member]`,
+    /// each as the member alone would give it.
+    fn eval_members(&mut self, frames: &[&Frame]) -> Result<Vec<Vec<Evaluation>>>;
+}
+
+/// Models that are evaluated one after the other: the committee of any
+/// backend.
+pub struct Separate<P: Potential>(pub Vec<P>);
+
+impl<P: Potential> Potential for Separate<P> {
+    fn metadata(&self) -> &ModelMetadata {
+        self.0[0].metadata()
+    }
+    fn eval(&mut self, frame: &Frame) -> Result<Evaluation> {
+        self.0[0].eval(frame)
+    }
+    fn eval_batch(&mut self, frames: &[&Frame]) -> Result<Vec<Evaluation>> {
+        self.0[0].eval_batch(frames)
+    }
+}
+
+impl<P: Potential> Separate<P> {
+    /// At least one model; the models must share the ordered type map and
+    /// the units.
+    pub fn new(models: Vec<P>) -> Result<Self> {
+        let Some(first) = models.first() else {
+            return Err(Error("a committee needs at least one model".into()));
+        };
+        let reference = first.metadata();
+        reference.validate()?;
+        for model in &models[1..] {
+            model.metadata().validate()?;
+            if model.metadata().type_map != reference.type_map
+                || model.metadata().units != reference.units
+            {
+                return Err(Error(
+                    "ensemble models must have identical ordered type maps and units".into(),
+                ));
+            }
+        }
+        Ok(Self(models))
+    }
+}
+
+impl<P: Potential> Committee for Separate<P> {
+    fn members(&self) -> usize {
+        self.0.len()
+    }
+    fn eval_members(&mut self, frames: &[&Frame]) -> Result<Vec<Vec<Evaluation>>> {
+        let mut all: Vec<Vec<Evaluation>> = frames
+            .iter()
+            .map(|_| Vec::with_capacity(self.0.len()))
+            .collect();
+        for (index, model) in self.0.iter_mut().enumerate() {
+            let evaluations = model
+                .eval_batch(frames)
+                .map_err(|e| Error(format!("ensemble member {index}: {e}")))?;
+            if evaluations.len() != frames.len() {
+                return Err(Error(format!(
+                    "ensemble member {index} returned {} evaluations for {} frames",
+                    evaluations.len(),
+                    frames.len()
+                )));
+            }
+            for (members, evaluation) in all.iter_mut().zip(evaluations) {
+                members.push(evaluation);
+            }
+        }
+        Ok(all)
+    }
 }
 
 const ELEMENTS: &str = "H He Li Be B C N O F Ne Na Mg Al Si P S Cl Ar K Ca Sc Ti V Cr Mn Fe Co Ni Cu Zn Ga Ge As Se Br Kr Rb Sr Y Zr Nb Mo Tc Ru Rh Pd Ag Cd In Sn Sb Te I Xe Cs Ba La Ce Pr Nd Pm Sm Eu Gd Tb Dy Ho Er Tm Yb Lu Hf Ta W Re Os Ir Pt Au Hg Tl Pb Bi Po At Rn Fr Ra Ac Th Pa U Np Pu Am Cm Bk Cf Es Fm Md No Lr Rf Db Sg Bh Hs Mt Ds Rg Cn Nh Fl Mc Lv Ts Og";

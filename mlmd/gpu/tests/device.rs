@@ -1481,6 +1481,185 @@ fn neighbor_search_gives_a_fresh_list_for_every_frame() {
     assert!(NeighborSearch::new(4.0, &[0, 0]).is_err());
 }
 
+/// What a list holds for its atoms, on the host.
+struct ListRows {
+    index: Vec<i32>,
+    delta: Vec<f64>,
+    dist: Vec<f64>,
+    count: Vec<i32>,
+    nearest: Vec<f64>,
+}
+
+fn list_rows(list: &NeighborList) -> ListRows {
+    let device = device().unwrap();
+    ListRows {
+        index: device.download(&list.index).unwrap(),
+        delta: device.download(&list.delta).unwrap(),
+        dist: device.download(&list.dist).unwrap(),
+        count: device.download(&list.count).unwrap(),
+        nearest: device.download(&list.min_distance).unwrap(),
+    }
+}
+
+#[test]
+fn systems_in_one_search_do_not_see_each_other() {
+    let Some(device) = device() else { return };
+    let (rcut, sel) = (4.0, [40usize, 80]);
+    let slots: usize = sel.iter().sum();
+    let cubic = [[12.0, 0.0, 0.0], [0.0, 12.0, 0.0], [0.0, 0.0, 12.0]];
+    let skewed = [[14.0, 0.0, 0.0], [3.0, 13.0, 0.0], [-2.0, 1.5, 15.0]];
+    // Narrower than the cutoff: several images of each atom are neighbors.
+    let narrow = [[3.5, 0.0, 0.0], [0.0, 9.0, 0.0], [0.0, 0.0, 9.0]];
+    // One axis far thinner still: its image offsets do not fit the packed
+    // form of the warp path, so these centers take the serial one while
+    // those of the other systems do not.
+    let thin = [[0.008, 0.0, 0.0], [0.0, 9.0, 0.0], [0.0, 0.0, 9.0]];
+    let parts: Vec<(Vec<[f64; 3]>, Vec<i32>, Cell)> = [
+        (150, cubic, 810, true),
+        (90, skewed, 811, true),
+        (60, cubic, 812, false),
+        (12, narrow, 813, true),
+        (2, thin, 814, true),
+    ]
+    .into_iter()
+    .map(|(atoms, lattice, seed, periodic)| {
+        let (positions, types) = random_frame(atoms, lattice, seed);
+        let cell = if periodic {
+            Cell::Periodic(lattice)
+        } else {
+            Cell::Open
+        };
+        (positions, types, cell)
+    })
+    .collect();
+    let cells: Vec<Cell> = parts.iter().map(|part| part.2).collect();
+    // All atoms in one list, in a shuffled order.
+    let mut places: Vec<(usize, usize)> = parts
+        .iter()
+        .enumerate()
+        .flat_map(|(s, part)| (0..part.0.len()).map(move |atom| (s, atom)))
+        .collect();
+    let keys = values(places.len(), 815);
+    let mut shuffled: Vec<usize> = (0..places.len()).collect();
+    shuffled.sort_by(|&a, &b| keys[a].partial_cmp(&keys[b]).unwrap());
+    places = shuffled.iter().map(|&k| places[k]).collect();
+    let mut positions: Vec<[f64; 3]> = places.iter().map(|&(s, a)| parts[s].0[a]).collect();
+    let types: Vec<i32> = places.iter().map(|&(s, a)| parts[s].1[a]).collect();
+    let system: Vec<i32> = places.iter().map(|&(s, _)| s as i32).collect();
+    let natoms = positions.len();
+    // The atoms of each system, in the order of the one list.
+    let members: Vec<Vec<usize>> = (0..parts.len())
+        .map(|s| (0..natoms).filter(|&atom| system[atom] == s as i32).collect())
+        .collect();
+    // Each system searched alone, with its atoms in that order.
+    let alone = |positions: &[[f64; 3]]| -> Vec<ListRows> {
+        members
+            .iter()
+            .zip(&cells)
+            .map(|(mine, cell)| {
+                let own: Vec<[f64; 3]> = mine.iter().map(|&atom| positions[atom]).collect();
+                let own_types: Vec<i32> = mine.iter().map(|&atom| types[atom]).collect();
+                let list = NeighborList::build(device, &own, &own_types, cell, rcut, &sel).unwrap();
+                list_rows(&list)
+            })
+            .collect()
+    };
+    let agree = |label: &str, together: &ListRows, apart: &[ListRows]| {
+        for (s, (mine, rows)) in members.iter().zip(apart).enumerate() {
+            for (local, &atom) in mine.iter().enumerate() {
+                let what = format!("{label}: system {s} atom {local}");
+                for slot in 0..slots {
+                    let (here, there) = (atom * slots + slot, local * slots + slot);
+                    let expected = match rows.index[there] {
+                        -1 => -1,
+                        neighbor => mine[neighbor as usize] as i32,
+                    };
+                    assert_eq!(together.index[here], expected, "{what} slot {slot}");
+                    assert_eq!(
+                        together.dist[here].to_bits(),
+                        rows.dist[there].to_bits(),
+                        "{what} slot {slot} distance"
+                    );
+                    assert_eq!(
+                        together.delta[3 * here..3 * here + 3],
+                        rows.delta[3 * there..3 * there + 3],
+                        "{what} slot {slot} delta"
+                    );
+                }
+                assert_eq!(
+                    together.count[2 * atom..2 * atom + 2],
+                    rows.count[2 * local..2 * local + 2],
+                    "{what} counts"
+                );
+                assert_eq!(together.nearest[atom], rows.nearest[local], "{what} nearest");
+            }
+        }
+    };
+    let mut search = NeighborSearch::new(rcut, &sel).unwrap();
+    let apart = alone(&positions);
+    let list = search
+        .run_systems(device, &positions, &types, &system, &cells)
+        .unwrap();
+    assert_eq!(list.natoms, natoms);
+    // The thin system has far more neighbors than slots.
+    assert!(list.check(device).unwrap());
+    agree("warp path", &list_rows(list), &apart);
+    // The systems really are apart: the open one overlaps the first box.
+    let open = &apart[2];
+    assert!(open.count.iter().sum::<i32>() > 0 && open.count.iter().sum::<i32>() < 60 * 59);
+    // Every center on the serial path gives the same list.
+    let list = search
+        .run_systems_with_capacity(device, &positions, &types, &system, &cells, Some(0))
+        .unwrap();
+    agree("serial path", &list_rows(list), &apart);
+
+    // Two atoms of the open system at one place: an error of that system,
+    // marked at its two atoms only.
+    let (a, b) = (members[2][5], members[2][17]);
+    positions[b] = positions[a];
+    let mut status = device.upload(&vec![-1i32; natoms]).unwrap();
+    let list = search
+        .run_systems_mirrored(device, &positions, &types, &system, &cells, &mut status)
+        .unwrap();
+    assert!(list.check(device).is_err());
+    let rows = list_rows(list);
+    let status = device.download(&status).unwrap();
+    for (atom, bits) in status.iter().enumerate() {
+        assert_eq!(bits & COINCIDENT != 0, atom == a || atom == b, "atom {atom}");
+    }
+    agree("with a coincident pair", &rows, &alone(&positions));
+
+    // What the search refuses.
+    let mut refused = |system: &[i32], cells: &[Cell]| {
+        search
+            .run_systems(device, &positions, &types, system, cells)
+            .is_err()
+    };
+    assert!(refused(&system[..natoms - 1], &cells), "a system per atom");
+    assert!(refused(&[], &cells), "no systems named for several cells");
+    let mut wrong = system.clone();
+    wrong[3] = cells.len() as i32;
+    assert!(refused(&wrong, &cells), "a system that does not exist");
+    wrong[3] = -1;
+    assert!(refused(&wrong, &cells), "a negative system");
+    assert!(refused(&system, &[]), "no cells");
+    let mut more = cells.clone();
+    more.push(Cell::Open);
+    assert!(refused(&system, &more), "a system without atoms");
+    // One system may be named or not.
+    let own: Vec<[f64; 3]> = members[0].iter().map(|&atom| positions[atom]).collect();
+    let own_types: Vec<i32> = members[0].iter().map(|&atom| types[atom]).collect();
+    let named = search
+        .run_systems(device, &own, &own_types, &vec![0; own.len()], &cells[..1])
+        .unwrap();
+    let named = list_rows(named);
+    let unnamed = search
+        .run_systems(device, &own, &own_types, &[], &cells[..1])
+        .unwrap();
+    assert_eq!(named.index, list_rows(unnamed).index);
+    assert_eq!(named.index, apart[0].index);
+}
+
 #[test]
 fn neighbor_status_is_mirrored_per_center() {
     let Some(device) = device() else { return };
