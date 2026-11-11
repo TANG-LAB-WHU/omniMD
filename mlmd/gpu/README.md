@@ -93,12 +93,28 @@ What follows for the kernels:
   (`GradientNetwork::forward_gradient_grouped`): a tile of the weights is
   copied once and serves every row of a chunk, a warp does two rows and a
   lane eight outputs, so one read of a weight feeds two products and one
-  read of an input sixteen. The other layers stay row by row; the first
-  layer's transpose for the gradient is tiled the same way. Measured for
-  1600 -> 240 -> 240 -> 240 -> 1 nets: 1.5 to 1.8 times faster than the one
-  kernel at 88 to 1024 rows in float32. In double precision the tiles are
-  slower (the arithmetic is the bound, and the extra launches cost), so they
-  are off there.
+  read of an input sixteen. The first layer's transpose for the gradient is
+  tiled the same way, a warp doing two rows there too. The other layers take
+  two rows a block, so that a weight read from global memory serves both
+  (the next point). Measured for 1600 -> 240 -> 240 -> 240 -> 1 nets: 1.5 to
+  1.8 times faster than the one kernel at 88 to 1024 rows in float32, before
+  the two rows a block. In double precision the tiles are slower (the
+  arithmetic is the bound, and the extra launches cost), so they are off
+  there.
+- Sharing a load between rows pays as far as the multiprocessors keep
+  enough warps at work. For the layers after the first, two rows a block
+  are faster than one at every number of rows (88 rows: 31 against 35
+  microseconds; 704: 67 against 136; 2,816: 407 against 576), though a block
+  of two rows takes about as long as one of one. Four and eight rows a block
+  are no faster than two (2,816 rows: 421 and 479): a block takes four or
+  eight times as long, and its shared memory, which grows with the rows,
+  leaves room for fewer blocks on a multiprocessor. The same for the tile of
+  the first layer's transpose: with two rows a warp it went from 0.19 to
+  0.15 microseconds a row with many rows. With both, the fitting stage went
+  from 341 to 255 microseconds for 704 rows, from 655 to 496 for 1,408 and
+  from 75 to 67 for 88. What is left with many rows is 0.07 microseconds a
+  row in the forward tiles, 0.14 in the layers after the first and 0.15 in
+  the backward tiles.
 - What was tried for those tiles and did not pay: four rows a warp in the
   transposed pass (fewer reads per product, but too few warps left to keep a
   multiprocessor busy), and eight inputs a lane with the outputs reloaded in

@@ -1051,9 +1051,28 @@ fn grouped_rows_take_the_tiled_first_layer() {
             )),
         ]
     };
+    // A second layer twice as wide as the first, which adds its input to
+    // both halves of its output, then one that adds its input to its output.
+    let doubling = |seed: u64| {
+        let layer = |input, output, activation, residual, timestep, seed| {
+            scaled(CpuLayer::random(
+                input, output, activation, residual, timestep, seed,
+            ))
+        };
+        vec![
+            layer(1400, 48, Activation::Tanh, false, false, seed),
+            layer(48, 96, Activation::Tanh, true, true, seed + 10),
+            layer(96, 96, Activation::Softplus, true, false, seed + 20),
+            layer(96, 1, Activation::Linear, false, true, seed + 30),
+        ]
+    };
     for (label, nets) in [
         ("wide", vec![wide(2000), wide(2100), wide(2200)]),
         ("deep", vec![deep(2300), deep(2400), deep(2500)]),
+        (
+            "doubling",
+            vec![doubling(2700), doubling(2800), doubling(2900)],
+        ),
     ] {
         let input = nets[0][0].input;
         // Runs longer than a chunk, of odd length, of one row, and not in

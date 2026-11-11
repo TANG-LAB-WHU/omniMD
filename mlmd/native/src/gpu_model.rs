@@ -355,14 +355,19 @@ const SHARED_LIMIT: usize = 48 * 1024;
 /// (DeePMD's defaults: extrapolate 5, stride ratio 10).
 const TAIL_REACH: f64 = 5.0;
 const TAIL_STEP_FACTOR: f64 = 10.0;
-/// Float32 chunks of at most this many atoms per center type run the fitting
-/// nets in the fused kernel instead of layer-by-layer cuBLAS, whose fixed cost
-/// (a dozen launches per type) dominates below that. Float64 always uses the
-/// fused kernel: both paths are bound by the double-precision units there and
-/// the fused one has no fixed cost. Measured on an RTX 4090 with
-/// [240, 240, 240] fitting nets on 1600 descriptor components (fitting stage,
-/// 2 types: 192 atoms 0.20 vs 0.32 ms, 1536 atoms 0.89 vs 0.30 ms).
-const FUSED_FITTING_ATOMS_PER_TYPE_F32: usize = 256;
+/// Float32 chunks of at most this many atoms per center type and model run
+/// the fitting nets in the fused kernels instead of layer-by-layer cuBLAS,
+/// whose fixed cost (some twenty-five launches per type, 0.68 ms for five
+/// types) dominates below that. Float64 always uses the fused kernel: both
+/// paths are bound by the double-precision units there and the fused one has
+/// no fixed cost. Measured on an RTX 4090 with [240, 240, 240] fitting nets
+/// on 1600 descriptor components, whole passes over batches of a frame in
+/// float32: with five types the two paths meet near 1,800 to 2,000 atoms
+/// (88-atom frames: 1.28 against 1.37 ms at 1,408 atoms, 1.96 against 1.72
+/// ms at 2,112; 169-atom frames: equal at 2,028), with two types near 680
+/// (192-atom frames: 0.60 against 0.63 ms at 576 atoms, 0.74 against 0.71 ms
+/// at 768).
+const FUSED_FITTING_ATOMS_PER_TYPE_F32: usize = 340;
 /// Fraction of the free device memory one chunk of per-atom work may use.
 const MEMORY_FRACTION: f64 = 0.5;
 
