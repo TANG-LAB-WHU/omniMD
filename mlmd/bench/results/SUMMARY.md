@@ -143,9 +143,12 @@ evaluated member by member and frame by frame):
 
 The deviations of the two builds agree to 3e-15 eV/Å in float64 (1e-6 in
 compressed float32) and with those computed from DeePMD's reference forces to
-1e-14 eV/Å (4e-6). A whole run over the 83 frames takes 1.7 s in float64 and
+1e-14 eV/Å (4e-6). A whole run over the 83 frames took 1.7 s in float64 and
 4.9 s compressed: loading four models, and for the compressed mode building
-their embedding tables (about 0.8 s per model, on one thread).
+their embedding tables, about 0.8 s per model on one thread. The tables are
+now built on all cores: a process that loads one model, builds its tables and
+evaluates a frame takes 0.68 s instead of 1.40 s (0.48 s without tables), and
+with the four models as a committee 1.69 s instead of 4.98 s (0.94 s without).
 
 `batch-eval` reads a dataset the same way, a batch of frames per pass.
 
