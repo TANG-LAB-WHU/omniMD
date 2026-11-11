@@ -574,6 +574,33 @@ impl Clock<'_> {
     }
 }
 
+/// `f` of every item, in the order of the items, on as many threads as the
+/// machine has cores (no more than items).
+fn in_parallel<T: Sync, R: Send>(items: &[T], f: impl Fn(&T) -> R + Sync) -> Vec<R> {
+    let threads = std::thread::available_parallelism()
+        .map_or(1, |cores| cores.get())
+        .min(items.len());
+    if threads <= 1 {
+        return items.iter().map(f).collect();
+    }
+    let share = items.len().div_ceil(threads);
+    let f = &f;
+    std::thread::scope(|scope| {
+        let workers: Vec<_> = items
+            .chunks(share)
+            .map(|part| scope.spawn(move || part.iter().map(f).collect::<Vec<R>>()))
+            .collect();
+        workers
+            .into_iter()
+            .flat_map(|worker| match worker.join() {
+                Ok(results) => results,
+                // A panic of `f`: pass it on as it was.
+                Err(panic) => std::panic::resume_unwind(panic),
+            })
+            .collect()
+    })
+}
+
 /// Device bytes per center atom in one chunk: environment, radial input,
 /// embedding values and tangents, B, descriptor and its adjoint, fitting tapes.
 fn bytes_per_atom<P>(slots: usize, width: usize, axis: usize, fitting_width: usize) -> usize {
@@ -846,7 +873,9 @@ impl<P: Scalar> GpuPotential<P> {
             }
             omnimd_gpu::quintic_coefficients(h, width, &values, &first, &second)
         };
-        let mut tables = Vec::new();
+        // Every net with the range of its center type: (net, lower end,
+        // intervals, tail intervals).
+        let mut nets = Vec::new();
         for (row, &(mean, std)) in self.embedding_host.iter().zip(&self.radial_normalization) {
             // Empty slots and the cutoff sit at s = 0, the lower end.
             let lower = -mean / std;
@@ -858,16 +887,23 @@ impl<P: Scalar> GpuPotential<P> {
             let tail = (((radial(min_distance / TAIL_REACH) - mean) / std - upper) / tail_step)
                 .ceil()
                 .max(1.0) as usize;
-            for network in row {
-                tables.push(TableSegments {
-                    lower,
-                    step,
-                    coefficients: segment(network, lower, step, intervals)?,
-                    tail_step,
-                    tail_coefficients: segment(network, upper, tail_step, tail)?,
-                });
-            }
+            nets.extend(row.iter().map(|network| (network, lower, intervals, tail)));
         }
+        // A table is a few thousand evaluations of its net with two
+        // derivatives, and the nets do not depend on each other: all cores.
+        let tables = in_parallel(&nets, |&(network, lower, intervals, tail)| {
+            let tail_step = TAIL_STEP_FACTOR * step;
+            let upper = lower + intervals as f64 * step;
+            Ok(TableSegments {
+                lower,
+                step,
+                coefficients: segment(network, lower, step, intervals)?,
+                tail_step,
+                tail_coefficients: segment(network, upper, tail_step, tail)?,
+            })
+        })
+        .into_iter()
+        .collect::<Result<Vec<_>>>()?;
         self.tables = Some(ScalarTable::new_set(&self.device, width, &tables)?);
         Ok(())
     }
@@ -1496,5 +1532,24 @@ impl<P: Scalar> Committee for GpuPotential<P> {
 
     fn eval_members(&mut self, frames: &[&Frame]) -> Result<Vec<Vec<Evaluation>>> {
         self.evaluate_frames(frames, self.models)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::in_parallel;
+
+    #[test]
+    fn parallel_results_keep_the_order_of_their_items() {
+        for count in [0usize, 1, 2, 7, 64, 1000] {
+            let items: Vec<usize> = (0..count).collect();
+            let squares = in_parallel(&items, |&item| item * item);
+            assert_eq!(squares, items.iter().map(|i| i * i).collect::<Vec<_>>());
+        }
+        // Errors come back in place, like any other result.
+        let odd = in_parallel(&[1, 2, 3], |&item| {
+            (item % 2 == 1).then_some(item).ok_or(item)
+        });
+        assert_eq!(odd, [Ok(1), Err(2), Ok(3)]);
     }
 }
