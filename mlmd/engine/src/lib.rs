@@ -10,7 +10,7 @@ pub mod xyz;
 pub use barostat::{CellAxes, CellCoupling};
 use omnimd_core::{Matrix3, Molecule, Particle, System, UnitCell, Vector3D};
 use omnimd_ml_contract::{Error, Frame, Result};
-pub use omnimd_sim::md::MlipDynamics;
+pub use omnimd_sim::md::{Controls, MlipDynamics, MlipReplicas, StateView};
 pub use thermal::{
     initialize_velocities, prepare_velocities, set_degrees_of_freedom, Ensemble, EnsembleState,
     VelocityInitialization,
