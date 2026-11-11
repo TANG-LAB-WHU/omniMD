@@ -68,6 +68,74 @@ enum Backend {
     NativeGpu(Box<dyn Potential>),
 }
 
+/// Frames of a dataset that a backend which shares work between frames
+/// evaluates in one pass: at most this many, and no more once they hold this
+/// many atoms for each model evaluated with them. Past a few thousand atoms
+/// a pass gains nothing more per frame.
+const BATCH_FRAMES: usize = 64;
+const BATCH_ATOMS: usize = 8192;
+
+/// The omnimd-gpu options of a request.
+#[cfg(feature = "native-gpu")]
+fn gpu_options(runtime: GpuRuntimeOptions) -> omnimd_native::gpu_model::GpuOptions {
+    omnimd_native::gpu_model::GpuOptions {
+        float32: runtime.precision == NetworkPrecision::Float32,
+        compress: runtime
+            .compress_min_distance
+            .map(|r| (r, runtime.table_step.unwrap_or(0.01))),
+    }
+}
+
+/// The ordinal of `cuda:index` in this worker. Same fresh-worker contract as
+/// the other CUDA paths: the selected device is the only visible one,
+/// ordinal zero.
+#[cfg(feature = "native-gpu")]
+fn gpu_ordinal(index: u32) -> Result<usize, Box<dyn Error>> {
+    Ok(native_cuda_ordinal(
+        index,
+        std::env::var("CUDA_VISIBLE_DEVICES").ok().as_deref(),
+        std::env::var("OMNIMD_CUDA_INDEX").ok().as_deref(),
+    )? as usize)
+}
+
+/// One evaluation per frame of a batch, in one pass where the backend can.
+/// An error is traced to its frame by evaluating the frames one at a time.
+fn eval_frames(
+    model: &mut impl Potential,
+    batch: &[omnimd_mlmd::dataset::DatasetFrame],
+) -> Result<Vec<omnimd_ml_contract::Evaluation>, Box<dyn Error>> {
+    let frames: Vec<&Frame> = batch.iter().map(|data| &data.frame).collect();
+    match model.eval_batch(&frames) {
+        Ok(evaluations) if evaluations.len() == batch.len() => Ok(evaluations),
+        Ok(evaluations) => Err(format!(
+            "the backend returned {} evaluations for {} frames",
+            evaluations.len(),
+            batch.len()
+        )
+        .into()),
+        Err(error) => {
+            for data in batch {
+                model
+                    .eval(&data.frame)
+                    .map_err(|e| format!("dataset frame {} ({}): {e}", data.index, data.id))?;
+            }
+            Err(error.into())
+        }
+    }
+}
+
+impl Backend {
+    /// Whether a batch of frames costs this backend less than the frames
+    /// one by one.
+    fn shares_frames(&self) -> bool {
+        match self {
+            #[cfg(feature = "native-gpu")]
+            Self::NativeGpu(_) => true,
+            _ => false,
+        }
+    }
+}
+
 impl BackendOptions {
     /// The omnimd-gpu runtime options, when this request selects it.
     fn gpu_runtime(&self) -> Option<GpuRuntimeOptions> {
@@ -141,23 +209,10 @@ impl BackendOptions {
                 #[cfg(feature = "native-gpu")]
                 if let (Some(runtime), Device::Cuda(index)) = (options.gpu_runtime, options.device)
                 {
-                    // Same fresh-worker contract as the other CUDA paths: the
-                    // selected device is the only visible one, ordinal zero.
-                    let ordinal = native_cuda_ordinal(
-                        index,
-                        std::env::var("CUDA_VISIBLE_DEVICES").ok().as_deref(),
-                        std::env::var("OMNIMD_CUDA_INDEX").ok().as_deref(),
-                    )?;
-                    let gpu_options = omnimd_native::gpu_model::GpuOptions {
-                        float32: runtime.precision == NetworkPrecision::Float32,
-                        compress: runtime
-                            .compress_min_distance
-                            .map(|r| (r, runtime.table_step.unwrap_or(0.01))),
-                    };
                     return Ok(Backend::NativeGpu(omnimd_native::gpu_model::open(
                         model.model(),
-                        ordinal as usize,
-                        gpu_options,
+                        gpu_ordinal(index)?,
+                        gpu_options(runtime),
                     )?));
                 }
                 match options.device {
@@ -235,6 +290,16 @@ impl Potential for Backend {
             Self::NativeCuda(model) => model.eval(frame),
             #[cfg(feature = "native-gpu")]
             Self::NativeGpu(model) => model.eval(frame),
+        }
+    }
+    fn eval_batch(
+        &mut self,
+        frames: &[&Frame],
+    ) -> omnimd_ml_contract::Result<Vec<omnimd_ml_contract::Evaluation>> {
+        match self {
+            #[cfg(feature = "native-gpu")]
+            Self::NativeGpu(model) => model.eval_batch(frames),
+            _ => frames.iter().map(|frame| self.eval(frame)).collect(),
         }
     }
 }

@@ -1549,7 +1549,11 @@ fn systems_in_one_search_do_not_see_each_other() {
     let natoms = positions.len();
     // The atoms of each system, in the order of the one list.
     let members: Vec<Vec<usize>> = (0..parts.len())
-        .map(|s| (0..natoms).filter(|&atom| system[atom] == s as i32).collect())
+        .map(|s| {
+            (0..natoms)
+                .filter(|&atom| system[atom] == s as i32)
+                .collect()
+        })
         .collect();
     // Each system searched alone, with its atoms in that order.
     let alone = |positions: &[[f64; 3]]| -> Vec<ListRows> {
@@ -1591,7 +1595,10 @@ fn systems_in_one_search_do_not_see_each_other() {
                     rows.count[2 * local..2 * local + 2],
                     "{what} counts"
                 );
-                assert_eq!(together.nearest[atom], rows.nearest[local], "{what} nearest");
+                assert_eq!(
+                    together.nearest[atom], rows.nearest[local],
+                    "{what} nearest"
+                );
             }
         }
     };
@@ -1625,7 +1632,11 @@ fn systems_in_one_search_do_not_see_each_other() {
     let rows = list_rows(list);
     let status = device.download(&status).unwrap();
     for (atom, bits) in status.iter().enumerate() {
-        assert_eq!(bits & COINCIDENT != 0, atom == a || atom == b, "atom {atom}");
+        assert_eq!(
+            bits & COINCIDENT != 0,
+            atom == a || atom == b,
+            "atom {atom}"
+        );
     }
     agree("with a coincident pair", &rows, &alone(&positions));
 

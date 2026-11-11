@@ -1,19 +1,33 @@
-use omnimd_ml_contract::{Evaluation, Frame, ModelMetadata, Potential, Result, Units};
-use omnimd_mlmd::deviation::{evaluate_frame, ForceWindow};
+use omnimd_ml_contract::{
+    Committee, Evaluation, Frame, ModelMetadata, Potential, Result, Separate, Units,
+};
+use omnimd_mlmd::deviation::{among, evaluate_frame, evaluate_frames, ForceWindow};
 
 #[derive(Clone)]
 struct Fixed {
     metadata: ModelMetadata,
     value: Evaluation,
+    slope: f64,
     calls: usize,
 }
 impl Potential for Fixed {
     fn metadata(&self) -> &ModelMetadata {
         &self.metadata
     }
-    fn eval(&mut self, _: &Frame) -> Result<Evaluation> {
+    fn eval(&mut self, frame: &Frame) -> Result<Evaluation> {
         self.calls += 1;
-        Ok(self.value.clone())
+        // The answer follows the frame: its first coordinate stretches the
+        // value by a factor of the model's own.
+        let stretch = 1. + self.slope * frame.positions[0][0];
+        let mut value = self.value.clone();
+        value.energy *= stretch;
+        for component in value.forces.iter_mut().flatten() {
+            *component *= stretch;
+        }
+        for component in value.virial.iter_mut().flatten() {
+            *component *= stretch;
+        }
+        Ok(value)
     }
 }
 fn fixture() -> (Frame, Vec<Fixed>) {
@@ -37,6 +51,7 @@ fn fixture() -> (Frame, Vec<Fixed>) {
             virial: [[0.; 3]; 3],
             units: Units::EvAngstrom,
         },
+        slope: 0.,
         calls: 0,
     };
     let mut b = a.clone();
@@ -129,4 +144,89 @@ fn force_window_has_explicit_half_open_bounds() {
         .validate()
         .is_err());
     }
+}
+#[test]
+fn a_committee_gives_each_frame_the_statistics_of_its_members() {
+    let (frame, mut models) = fixture();
+    let mut third = models[1].clone();
+    third.value.energy = -1.;
+    third.value.forces[1] = [2., -1., 0.5];
+    models.push(third);
+    for (member, model) in models.iter_mut().enumerate() {
+        model.slope = 0.3 * (member as f64 - 0.8);
+    }
+    let frames: Vec<Frame> = [0., 1.5, -2.]
+        .iter()
+        .map(|&x| {
+            let mut frame = frame.clone();
+            frame.positions[0][0] = x;
+            frame
+        })
+        .collect();
+    let batch: Vec<&Frame> = frames.iter().collect();
+    let text = |s| serde_json::to_string(&s).unwrap();
+    // Frame by frame, member by member.
+    let expected: Vec<String> = frames
+        .iter()
+        .map(|frame| text(evaluate_frame(&mut models, frame, true).unwrap()))
+        .collect();
+    assert_ne!(expected[0], expected[1]);
+    let mut committee = Separate::new(models).unwrap();
+    let got = evaluate_frames(&mut committee, &batch, true).unwrap();
+    assert_eq!(got.into_iter().map(text).collect::<Vec<_>>(), expected);
+    assert!(committee.0.iter().all(|model| model.calls == 6));
+    assert!(evaluate_frames(&mut committee, &[], true)
+        .unwrap()
+        .is_empty());
+    let brief = evaluate_frames(&mut committee, &batch[..1], false).unwrap();
+    assert!(brief[0].force_ev_per_angstrom.per_atom.is_none());
+    // Through a trait object, as the engine holds it.
+    let boxed: &mut dyn Committee = &mut committee;
+    assert_eq!(
+        text(
+            evaluate_frames(boxed, &batch[1..2], true)
+                .unwrap()
+                .remove(0)
+        ),
+        expected[1]
+    );
+
+    // No frame is evaluated when one of them does not fit the models.
+    let calls = committee.0[0].calls;
+    let mut foreign = frames[0].clone();
+    foreign.species[1] = "C".into();
+    assert!(evaluate_frames(&mut committee, &[&frames[0], &foreign], true).is_err());
+    assert_eq!(committee.0[0].calls, calls);
+    // A member's bad output is an error that names it.
+    committee.0[2].value.forces.pop();
+    let error = evaluate_frames(&mut committee, &batch, true).unwrap_err();
+    assert!(error.to_string().contains("ensemble member 2"), "{error}");
+    // Two to sixteen members.
+    let (_, models) = fixture();
+    let mut alone = Separate::new(models[..1].to_vec()).unwrap();
+    assert!(evaluate_frames(&mut alone, &batch, true).is_err());
+    assert_eq!(alone.0[0].calls, 0);
+    let mut crowd = Separate::new(vec![models[0].clone(); 17]).unwrap();
+    assert!(evaluate_frames(&mut crowd, &batch, true).is_err());
+    let mut full = Separate::new(vec![models[0].clone(); 16]).unwrap();
+    assert_eq!(evaluate_frames(&mut full, &batch, true).unwrap().len(), 3);
+}
+#[test]
+fn deviation_among_given_evaluations_needs_two_to_sixteen_of_one_shape() {
+    let (frame, mut models) = fixture();
+    let evaluations: Vec<Evaluation> = models.iter().map(|m| m.value.clone()).collect();
+    let text = |s| serde_json::to_string(&s).unwrap();
+    assert_eq!(
+        text(among(&evaluations, 2, true).unwrap()),
+        text(evaluate_frame(&mut models, &frame, true).unwrap())
+    );
+    assert!(among(&evaluations[..1], 2, true).is_err());
+    assert!(among(&vec![evaluations[0].clone(); 17], 2, true).is_err());
+    // The atoms of the frame, not of the first evaluation, set the shape.
+    let error = among(&evaluations, 3, true).unwrap_err();
+    assert!(error.to_string().contains("ensemble member 0"), "{error}");
+    let mut short = evaluations.clone();
+    short[1].forces.pop();
+    let error = among(&short, 2, true).unwrap_err();
+    assert!(error.to_string().contains("ensemble member 1"), "{error}");
 }

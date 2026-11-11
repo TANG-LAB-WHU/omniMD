@@ -554,3 +554,56 @@ fn parameterized_npy_import_retains_order_and_v2_records_survive_selection() {
     npy(&root.join("set.001/fparam.npy"), &[1, 0], &[], "<f8", false);
     assert!(import_deepmd(&request, &root.join("missing-array.jsonl")).is_err());
 }
+
+#[test]
+fn frames_are_read_a_batch_at_a_time_within_both_limits() {
+    let root = temp();
+    let path = root.join("sizes.jsonl");
+    // Frames of 2, 3, 2, 5 and 1 atoms.
+    let sizes = [2usize, 3, 2, 5, 1];
+    let mut text = String::from(
+        "{\"kind\":\"header\",\"header\":{\"schema\":\"omnimd-dataset-jsonl-v1\",\"type_map\":[\"O\",\"H\"],\"units\":\"EvAngstrom\",\"virial_convention\":\"MinusDEpsilonRow\",\"source\":\"test\",\"selected_sets\":[]}}\n",
+    );
+    for (index, &atoms) in sizes.iter().enumerate() {
+        let positions: Vec<[f64; 3]> = (0..atoms).map(|a| [a as f64, index as f64, 0.]).collect();
+        let frame = serde_json::json!({"positions": positions, "species": vec!["O"; atoms],
+            "cell": null, "units": "EvAngstrom"});
+        let labels = serde_json::json!({"energy": null, "forces": null, "virial": null});
+        let data = serde_json::json!({"index": index, "id": format!("f{index}"), "frame": frame,
+            "labels": labels});
+        text += &format!("{}\n", serde_json::json!({"kind": "frame", "data": data}));
+    }
+    text += "{\"kind\":\"completed\",\"frames\":5,\"source_sha256\":{}}\n";
+    fs::write(&path, text).unwrap();
+    // The indices of the frames in each batch, to the end of the dataset.
+    let batches = |frames: usize, atoms: usize| -> Vec<Vec<u64>> {
+        let mut reader = DatasetReader::open_hashed(&path).unwrap();
+        let mut all = Vec::new();
+        loop {
+            let batch = reader.next_frames(frames, atoms).unwrap();
+            if batch.is_empty() {
+                break;
+            }
+            assert!(batch
+                .iter()
+                .all(|data| data.frame.positions.len() == sizes[data.index as usize]));
+            all.push(batch.iter().map(|data| data.index).collect());
+        }
+        // The end stays the end, and the dataset is verified as when read
+        // frame by frame.
+        assert!(reader.next_frames(frames, atoms).unwrap().is_empty());
+        reader.completed_provenance().unwrap();
+        all
+    };
+    assert_eq!(batches(2, usize::MAX), [vec![0, 1], vec![2, 3], vec![4]]);
+    assert_eq!(batches(64, usize::MAX), [vec![0, 1, 2, 3, 4]]);
+    // No more frames once a batch holds five atoms.
+    assert_eq!(batches(64, 5), [vec![0, 1], vec![2, 3], vec![4]]);
+    assert_eq!(batches(64, 6), [vec![0, 1, 2], vec![3, 4]]);
+    assert_eq!(batches(3, 6), [vec![0, 1, 2], vec![3, 4]]);
+    // Always at least one frame.
+    let singles: Vec<Vec<u64>> = (0..5).map(|index| vec![index]).collect();
+    assert_eq!(batches(1, usize::MAX), singles);
+    assert_eq!(batches(0, 0), singles);
+    assert_eq!(batches(64, 1), singles);
+}

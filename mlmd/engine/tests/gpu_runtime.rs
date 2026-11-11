@@ -173,97 +173,347 @@ fn nve_on_the_gpu_runtime_follows_the_cpu_trajectory() {
     std::fs::remove_dir_all(directory).unwrap();
 }
 
+/// `count` frames around the water frame: jittered positions, and among
+/// them frames with fewer atoms, without a cell and with a stretched cell.
+fn assorted_frames(count: usize) -> Vec<Value> {
+    let mut state = 88172645463325252u64;
+    let mut jitter = move || {
+        state ^= state << 13;
+        state ^= state >> 7;
+        state ^= state << 17;
+        (state >> 11) as f64 / (1u64 << 53) as f64 * 0.1 - 0.05
+    };
+    (0..count)
+        .map(|index| {
+            let mut frame = water_frame();
+            let positions = frame["positions"].as_array_mut().unwrap();
+            for position in positions.iter_mut() {
+                for value in position.as_array_mut().unwrap() {
+                    *value = json!(value.as_f64().unwrap() + jitter());
+                }
+            }
+            match index % 5 {
+                1 => {
+                    // Two atoms fewer.
+                    positions.truncate(6);
+                    frame["species"].as_array_mut().unwrap().truncate(6);
+                }
+                2 => frame["cell"] = Value::Null,
+                3 => {
+                    for value in positions.iter_mut().flat_map(|p| p.as_array_mut().unwrap()) {
+                        *value = json!(value.as_f64().unwrap() * 1.04);
+                    }
+                    let cell = frame["cell"].as_array_mut().unwrap();
+                    for value in cell.iter_mut().flat_map(|row| row.as_array_mut().unwrap()) {
+                        *value = json!(value.as_f64().unwrap() * 1.04);
+                    }
+                }
+                _ => {}
+            }
+            frame
+        })
+        .collect()
+}
+
+/// A dataset of `frames` in the engine's JSONL format, with zero labels.
+fn write_dataset(path: &Path, frames: &[Value]) {
+    let mut text = format!(
+        "{}\n",
+        json!({"kind": "header", "header": {"schema": "omnimd-dataset-jsonl-v1",
+            "type_map": ["O", "H"], "units": "EvAngstrom",
+            "virial_convention": "MinusDEpsilonRow", "source": "gpu_runtime test",
+            "selected_sets": []}})
+    );
+    for (index, frame) in frames.iter().enumerate() {
+        let atoms = frame["positions"].as_array().unwrap().len();
+        let labels = json!({"energy": 0.0, "forces": vec![[0.0; 3]; atoms], "virial": null});
+        let data = json!({"index": index, "id": format!("frame-{index}"), "frame": frame,
+            "labels": labels});
+        text += &format!("{}\n", json!({"kind": "frame", "data": data}));
+    }
+    text += &format!(
+        "{}\n",
+        json!({"kind": "completed", "frames": frames.len(), "source_sha256": {}})
+    );
+    std::fs::write(path, text).unwrap();
+}
+
+/// The synthetic model with something changed, written to `directory`.
+fn variant(directory: &Path, name: &str, change: impl FnOnce(&mut Value)) -> PathBuf {
+    let mut model: Value =
+        serde_json::from_str(&std::fs::read_to_string(fixture("synthetic-v1.json")).unwrap())
+            .unwrap();
+    change(&mut model);
+    let path = directory.join(name);
+    std::fs::write(&path, model.to_string()).unwrap();
+    path
+}
+
+/// Shifts every bias of the fitting nets.
+fn shift_fitting_biases(model: &mut Value, by: f64) {
+    for network in model["fitting"].as_array_mut().unwrap() {
+        for layer in network["layers"].as_array_mut().unwrap() {
+            for bias in layer["bias"].as_array_mut().unwrap() {
+                *bias = json!(bias.as_f64().unwrap() + by);
+            }
+        }
+    }
+}
+
+/// Runs a command that must fail and returns what it wrote to stderr.
+fn engine_error(command: &str, directory: &Path, name: &str, request: &Value) -> String {
+    let input = directory.join(format!("{name}.json"));
+    std::fs::write(&input, request.to_string()).unwrap();
+    let run = Command::new(env!("CARGO_BIN_EXE_omnimd-mlmd"))
+        .arg(command)
+        .arg(&input)
+        .arg(directory.join(format!("{name}.jsonl")))
+        .output()
+        .unwrap();
+    assert!(!run.status.success(), "{name} should fail");
+    String::from_utf8_lossy(&run.stderr).into_owned()
+}
+
+fn of_kind(records: &[Value], kind: &str) -> Vec<Value> {
+    records
+        .iter()
+        .filter(|record| record["kind"] == kind)
+        .cloned()
+        .collect()
+}
+
 #[test]
 fn model_deviation_on_the_gpu_runtime_matches_cpu() {
     if !gpu_available() {
         return;
     }
     let directory = work_directory("deviation");
-    // A two-frame dataset in the engine's JSONL format.
-    let mut second = water_frame();
-    second["positions"][0] = json!([0.35, 0.2, 0.5]);
-    let zero_forces = vec![[0.0; 3]; 8];
-    let labels = json!({"energy": 0.0, "forces": zero_forces, "virial": null});
-    let records = [
-        json!({"kind": "header", "header": {"schema": "omnimd-dataset-jsonl-v1",
-            "type_map": ["O", "H"], "units": "EvAngstrom",
-            "virial_convention": "MinusDEpsilonRow", "source": "gpu_runtime test",
-            "selected_sets": []}}),
-        json!({"kind": "frame", "data": {"index": 0, "id": "a", "frame": water_frame(),
-            "labels": labels}}),
-        json!({"kind": "frame", "data": {"index": 1, "id": "b", "frame": second,
-            "labels": labels}}),
-        json!({"kind": "completed", "frames": 2, "source_sha256": {}}),
-    ];
+    // More frames than one device pass takes.
+    let frames = assorted_frames(70);
     let dataset = directory.join("dataset.jsonl");
-    let text: String = records.iter().map(|r| format!("{r}\n")).collect();
-    std::fs::write(&dataset, text).unwrap();
-
-    // The second ensemble member: the same model with perturbed fitting biases.
+    write_dataset(&dataset, &frames);
+    // Ensemble members: the model, and the model with other fitting biases.
     let first = fixture("synthetic-v1.json");
-    let mut perturbed: Value =
-        serde_json::from_str(&std::fs::read_to_string(&first).unwrap()).unwrap();
-    for network in perturbed["fitting"].as_array_mut().unwrap() {
-        for layer in network["layers"].as_array_mut().unwrap() {
-            for bias in layer["bias"].as_array_mut().unwrap() {
-                *bias = json!(bias.as_f64().unwrap() + 0.05);
-            }
-        }
-    }
-    let second_model = directory.join("perturbed.json");
-    std::fs::write(&second_model, perturbed.to_string()).unwrap();
-
-    let request = |extra: Value| {
-        let member = |id: &str, model: &Path| {
-            let mut options = json!({"native_model": model});
-            for (key, value) in extra.as_object().unwrap() {
-                options[key] = value.clone();
-            }
-            json!({"id": id, "options": options})
-        };
+    let second = variant(&directory, "second.json", |m| shift_fitting_biases(m, 0.05));
+    let third = variant(&directory, "third.json", |m| shift_fitting_biases(m, -0.08));
+    // A member that cannot share a device pass with the others: its
+    // descriptor is switched off over another range.
+    let other = variant(&directory, "other.json", |m| {
+        shift_fitting_biases(m, 0.11);
+        m["descriptor"]["rcut_smth"] = json!(1.9);
+    });
+    let request = |models: &[&Path], extra: Value| {
+        let members: Vec<Value> = models
+            .iter()
+            .enumerate()
+            .map(|(index, model)| {
+                let mut options = json!({"native_model": model});
+                for (key, value) in extra.as_object().unwrap() {
+                    options[key] = value.clone();
+                }
+                json!({"id": format!("member-{index}"), "options": options})
+            })
+            .collect();
         json!({
             "schema": "omnimd-model-deviation-v1",
-            "models": [member("a", &first), member("b", &second_model)],
+            "models": members,
             "dataset": dataset,
-            "per_atom": true
+            "per_atom": true,
+            "force_window": {"min_ev_per_angstrom": 0.01, "max_ev_per_angstrom": 0.5}
         })
     };
-    let cpu = engine("model-deviation", &directory, "cpu", &request(json!({})));
+    let on_gpu = json!({"device": "cuda:0", "gpu_runtime": {}});
+    let alike: [&Path; 3] = [&first, &second, &third];
+    let mixed: [&Path; 3] = [&first, &other, &second];
+    let compare = |label: &str, cpu: &[Value], gpu: &[Value], tolerance: f64, how: &str| {
+        assert_eq!(cpu.len(), gpu.len(), "{label}");
+        let (expected, got) = (of_kind(cpu, "deviation"), of_kind(gpu, "deviation"));
+        assert_eq!(expected.len(), 70, "{label}");
+        for (g, e) in got.iter().zip(&expected) {
+            assert_eq!((&g["index"], &g["id"]), (&e["index"], &e["id"]), "{label}");
+            let apart = difference(&g["statistics"], &e["statistics"]);
+            assert!(apart < tolerance, "{label}, frame {}: {apart}", e["index"]);
+        }
+        let header = &gpu[0]["evaluation"];
+        assert!(
+            header.as_str().unwrap().starts_with(how),
+            "{label}: {header}"
+        );
+        assert_eq!(cpu[0]["evaluation"], "member by member, frame by frame");
+        let (done, expected) = (gpu.last().unwrap(), cpu.last().unwrap());
+        assert_eq!(done["combined_evaluations"], 210, "{label}");
+        assert_eq!(done["model_loads"], 3, "{label}");
+        // The same frames fall in the force window.
+        for count in ["candidate_frames", "accurate_frames", "failed_frames"] {
+            assert_eq!(done[count], expected[count], "{label}: {count}");
+        }
+    };
+    let cpu = engine(
+        "model-deviation",
+        &directory,
+        "cpu",
+        &request(&alike, json!({})),
+    );
     let gpu = engine(
         "model-deviation",
         &directory,
         "gpu",
-        &request(json!({"device": "cuda:0", "gpu_runtime": {}})),
+        &request(&alike, on_gpu.clone()),
     );
-    assert_eq!(cpu.len(), gpu.len());
-    let frames = |records: &[Value]| -> Vec<Value> {
-        records
-            .iter()
-            .filter(|r| r["kind"] == "deviation")
-            .cloned()
-            .collect()
-    };
-    let (expected, got) = (frames(&cpu), frames(&gpu));
-    assert!(
-        !expected.is_empty(),
-        "no per-frame deviation records: {cpu:?}"
+    compare("committee", &cpu, &gpu, 1e-10, "all members together");
+    // The members do disagree, and not on every frame alike.
+    let spread: Vec<f64> = of_kind(&cpu, "deviation")
+        .iter()
+        .map(|record| {
+            record["statistics"]["force_ev_per_angstrom"]["max"]
+                .as_f64()
+                .unwrap()
+        })
+        .collect();
+    assert!(spread.iter().all(|&s| s > 1e-6) && spread[0] != spread[4]);
+    // Float32 networks: the same statistics to single precision.
+    let single = json!({"device": "cuda:0", "gpu_runtime": {"precision": "float32"}});
+    let gpu = engine(
+        "model-deviation",
+        &directory,
+        "gpu-float32",
+        &request(&alike, single),
     );
-    for (g, e) in got.iter().zip(&expected) {
-        assert!(difference(g, e) < 1e-10);
+    let window = |records: &[Value]| records.last().unwrap()["candidate_frames"].clone();
+    assert_eq!(window(&gpu), window(&cpu));
+    for (g, e) in of_kind(&gpu, "deviation")
+        .iter()
+        .zip(&of_kind(&cpu, "deviation"))
+    {
+        assert!(difference(&g["statistics"], &e["statistics"]) < 1e-4);
+    }
+    // Members of different architectures are evaluated one after the other,
+    // each over a batch of frames.
+    let cpu = engine(
+        "model-deviation",
+        &directory,
+        "cpu-mixed",
+        &request(&mixed, json!({})),
+    );
+    let gpu = engine(
+        "model-deviation",
+        &directory,
+        "gpu-mixed",
+        &request(&mixed, on_gpu.clone()),
+    );
+    compare(
+        "mixed",
+        &cpu,
+        &gpu,
+        1e-10,
+        "member by member, a batch of frames",
+    );
+    // So are members with different runtime options.
+    let mut unlike = request(&alike, on_gpu.clone());
+    unlike["models"][2]["options"]["gpu_runtime"] = json!({"compress_min_distance": 0.4});
+    let gpu = engine("model-deviation", &directory, "gpu-unlike", &unlike);
+    let cpu = engine(
+        "model-deviation",
+        &directory,
+        "cpu-alike",
+        &request(&alike, json!({})),
+    );
+    compare(
+        "unlike options",
+        &cpu,
+        &gpu,
+        1e-7,
+        "member by member, a batch of frames",
+    );
+
+    // A frame that cannot be evaluated is named by its place in the dataset.
+    let mut broken = frames.clone();
+    broken[37]["positions"][1] = broken[37]["positions"][0].clone();
+    let broken_dataset = directory.join("broken-dataset.jsonl");
+    write_dataset(&broken_dataset, &broken);
+    for (name, models) in [("broken", &alike), ("broken-mixed", &mixed)] {
+        let mut request = request(models, on_gpu.clone());
+        request["dataset"] = json!(broken_dataset);
+        let error = engine_error("model-deviation", &directory, name, &request);
+        assert!(
+            error.contains("dataset frame 37 (frame-37)") && error.contains("coincident"),
+            "{name}: {error}"
+        );
     }
 
     // Members on different devices are rejected before any worker starts.
-    let mut mixed = request(json!({"device": "cuda:0", "gpu_runtime": {}}));
-    mixed["models"][1]["options"] = json!({"native_model": second_model});
-    let input = directory.join("mixed.json");
-    std::fs::write(&input, mixed.to_string()).unwrap();
-    let run = Command::new(env!("CARGO_BIN_EXE_omnimd-mlmd"))
-        .arg("model-deviation")
-        .arg(&input)
-        .arg(directory.join("mixed.jsonl"))
-        .output()
-        .unwrap();
-    assert!(!run.status.success());
-    assert!(String::from_utf8_lossy(&run.stderr).contains("same cuda:N with gpu_runtime"));
+    let mut apart = request(&alike, on_gpu);
+    apart["models"][1]["options"] = json!({"native_model": second});
+    let error = engine_error("model-deviation", &directory, "apart", &apart);
+    assert!(error.contains("same cuda:N with gpu_runtime"), "{error}");
+    std::fs::remove_dir_all(directory).unwrap();
+}
+
+#[test]
+fn batch_eval_on_the_gpu_runtime_matches_cpu() {
+    if !gpu_available() {
+        return;
+    }
+    let directory = work_directory("batch-eval");
+    let frames = assorted_frames(70);
+    let dataset = directory.join("dataset.jsonl");
+    write_dataset(&dataset, &frames);
+    let model = fixture("synthetic-v1.json");
+    let request = |extra: Value, dataset: &Path| {
+        let mut options = json!({"native_model": model});
+        for (key, value) in extra.as_object().unwrap() {
+            options[key] = value.clone();
+        }
+        json!({"options": options, "dataset": dataset})
+    };
+    let on_gpu = json!({"device": "cuda:0", "gpu_runtime": {}});
+    let cpu = engine(
+        "batch-eval",
+        &directory,
+        "cpu",
+        &request(json!({}), &dataset),
+    );
+    let gpu = engine(
+        "batch-eval",
+        &directory,
+        "gpu",
+        &request(on_gpu.clone(), &dataset),
+    );
+    assert_eq!(cpu.len(), gpu.len());
+    let (expected, got) = (of_kind(&cpu, "prediction"), of_kind(&gpu, "prediction"));
+    assert_eq!(expected.len(), 70);
+    for (g, e) in got.iter().zip(&expected) {
+        assert_eq!(
+            (&g["index"], &g["id"], &g["natoms"]),
+            (&e["index"], &e["id"], &e["natoms"])
+        );
+        let apart = difference(&g["evaluation"], &e["evaluation"]);
+        assert!(apart < 1e-9, "frame {}: {apart}", e["index"]);
+    }
+    // The frames are not all alike.
+    assert_ne!(expected[0]["natoms"], expected[1]["natoms"]);
+    assert_ne!(
+        expected[0]["evaluation"]["energy"],
+        expected[5]["evaluation"]["energy"]
+    );
+    let (done, reference) = (gpu.last().unwrap(), cpu.last().unwrap());
+    assert_eq!(done["frames"], 70);
+    assert!(difference(&done["metrics"], &reference["metrics"]) < 1e-9);
+
+    // A frame that cannot be evaluated is named by its place in the dataset.
+    let mut broken = frames.clone();
+    broken[41]["positions"][1] = broken[41]["positions"][0].clone();
+    let broken_dataset = directory.join("broken-dataset.jsonl");
+    write_dataset(&broken_dataset, &broken);
+    let error = engine_error(
+        "batch-eval",
+        &directory,
+        "broken",
+        &request(on_gpu, &broken_dataset),
+    );
+    assert!(
+        error.contains("dataset frame 41 (frame-41)") && error.contains("coincident"),
+        "{error}"
+    );
     std::fs::remove_dir_all(directory).unwrap();
 }

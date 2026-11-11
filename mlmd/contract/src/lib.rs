@@ -254,6 +254,114 @@ mod tests {
         f.species[0] = "X".into();
         assert!(f.type_ids(&m).is_err());
     }
+    /// Energy = its offset plus the first coordinate; counts its calls.
+    struct Shifted {
+        metadata: ModelMetadata,
+        offset: f64,
+        calls: usize,
+    }
+    impl Potential for Shifted {
+        fn metadata(&self) -> &ModelMetadata {
+            &self.metadata
+        }
+        fn eval(&mut self, frame: &Frame) -> Result<Evaluation> {
+            self.calls += 1;
+            let x = frame.positions[0][0];
+            if x < 0.0 {
+                return Err(Error(format!("negative coordinate {x}")));
+            }
+            Ok(Evaluation {
+                energy: self.offset + x,
+                forces: vec![[0.0; 3]; frame.positions.len()],
+                virial: [[0.0; 3]; 3],
+                units: Units::EvAngstrom,
+            })
+        }
+    }
+    fn shifted(offset: f64, types: &[&str]) -> Shifted {
+        Shifted {
+            metadata: ModelMetadata {
+                type_map: types.iter().map(|s| s.to_string()).collect(),
+                cutoff: 6.0,
+                backend: "test".into(),
+                precision: "float64".into(),
+                units: Units::EvAngstrom,
+            },
+            offset,
+            calls: 0,
+        }
+    }
+    fn frames_at(xs: &[f64]) -> Vec<Frame> {
+        xs.iter()
+            .map(|&x| {
+                let mut f = frame();
+                f.positions[0][0] = x;
+                f
+            })
+            .collect()
+    }
+    #[test]
+    fn a_batch_is_each_frame_in_turn_unless_a_backend_says_otherwise() {
+        let frames = frames_at(&[1.0, 2.0, 4.0]);
+        let batch: Vec<&Frame> = frames.iter().collect();
+        let mut model = shifted(10.0, &["H", "O"]);
+        let energies: Vec<f64> = model
+            .eval_batch(&batch)
+            .unwrap()
+            .iter()
+            .map(|e| e.energy)
+            .collect();
+        assert_eq!(energies, [11.0, 12.0, 14.0]);
+        assert_eq!(model.calls, 3);
+        assert!(model.eval_batch(&[]).unwrap().is_empty());
+        // The first error ends the batch.
+        let bad = frames_at(&[1.0, -1.0, 4.0]);
+        let batch: Vec<&Frame> = bad.iter().collect();
+        let error = model.eval_batch(&batch).unwrap_err();
+        assert!(error.0.contains("negative coordinate"));
+        assert_eq!(model.calls, 5);
+    }
+    #[test]
+    fn separate_models_are_a_committee_frame_by_member() {
+        let types = ["H", "O"];
+        let models = vec![
+            shifted(0.0, &types),
+            shifted(10.0, &types),
+            shifted(20.0, &types),
+        ];
+        let mut committee = Separate::new(models).unwrap();
+        assert_eq!(committee.members(), 3);
+        let frames = frames_at(&[1.0, 2.0]);
+        let batch: Vec<&Frame> = frames.iter().collect();
+        let all = committee.eval_members(&batch).unwrap();
+        let energies: Vec<Vec<f64>> = all
+            .iter()
+            .map(|members| members.iter().map(|e| e.energy).collect())
+            .collect();
+        assert_eq!(energies, [[1.0, 11.0, 21.0], [2.0, 12.0, 22.0]]);
+        assert!(committee.0.iter().all(|model| model.calls == 2));
+        assert!(committee.eval_members(&[]).unwrap().is_empty());
+        // As a potential it is its first member.
+        assert_eq!(committee.eval(&frames[1]).unwrap().energy, 2.0);
+        assert_eq!(committee.eval_batch(&batch).unwrap()[0].energy, 1.0);
+        assert_eq!(committee.metadata().backend, "test");
+        assert_eq!(
+            committee.0.iter().map(|m| m.calls).collect::<Vec<_>>(),
+            [5, 2, 2]
+        );
+        // An error names the member.
+        let bad = frames_at(&[-3.0]);
+        let error = committee.eval_members(&[&bad[0]]).unwrap_err();
+        assert!(error.0.starts_with("ensemble member 0:"), "{error}");
+        // The members share type map and units; there is at least one.
+        assert!(Separate::new(vec![shifted(0.0, &types), shifted(1.0, &["O", "H"])]).is_err());
+        assert!(Separate::new(vec![shifted(0.0, &types), shifted(1.0, &["H", "Xx"])]).is_err());
+        assert!(Separate::<Shifted>::new(Vec::new()).is_err());
+        assert_eq!(
+            Separate::new(vec![shifted(0.0, &types)]).unwrap().members(),
+            1
+        );
+    }
     #[test]
     fn rejects_invalid_shapes_cells_and_outputs() {
         let mut f = frame();

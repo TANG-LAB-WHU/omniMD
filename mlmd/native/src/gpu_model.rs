@@ -678,7 +678,11 @@ impl<P: Scalar> GpuPotential<P> {
             .iter()
             .map(|n| dense_network(&device, n, features))
             .collect::<Result<Vec<_>>>()?;
-        let normalization = || models.iter().flat_map(|model| &model.descriptor.normalization);
+        let normalization = || {
+            models
+                .iter()
+                .flat_map(|model| &model.descriptor.normalization)
+        };
         let davg: Vec<f64> = normalization().flat_map(|n| n.mean).collect();
         let dstd_inv: Vec<f64> = normalization()
             .flat_map(|n| n.std.map(|std| 1.0 / std))
@@ -1419,12 +1423,11 @@ pub fn committee_mismatch(models: &[&Model]) -> Option<String> {
         } else if other.axis_neuron != d.axis_neuron {
             "axis_neuron"
         } else if other.embedding.len() != d.embedding.len()
-            || other
+            || other.embedding.iter().flatten().map(shape).ne(d
                 .embedding
                 .iter()
                 .flatten()
-                .map(shape)
-                .ne(d.embedding.iter().flatten().map(shape))
+                .map(shape))
         {
             "embedding nets"
         } else if model.fitting.len() != first.fitting.len()

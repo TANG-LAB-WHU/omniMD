@@ -101,28 +101,46 @@ fn evaluate(input: &Path, output: &Path) -> Result<(), Box<dyn Error>> {
     )?;
     let mut metrics = Metrics::default();
     let mut frames = 0u64;
-    while let Some(data) = reader.next_frame()? {
-        let prediction = match (
-            &mut model,
-            &reader.header.parameter_layout,
-            &data.parameters,
-        ) {
-            (super::Backend::DeepMd(model), Some(layout), Some(values)) => {
-                super::parameter_backend::evaluate(model, &data.frame, layout, values)?
+    // A backend that shares work between frames takes them a batch at a time.
+    let (batch_frames, batch_atoms) =
+        if model.shares_frames() && reader.header.parameter_layout.is_none() {
+            (super::BATCH_FRAMES, super::BATCH_ATOMS)
+        } else {
+            (1, usize::MAX)
+        };
+    loop {
+        let batch = reader.next_frames(batch_frames, batch_atoms)?;
+        if batch.is_empty() {
+            break;
+        }
+        let predictions = match (&mut model, &reader.header.parameter_layout, &batch[..]) {
+            (super::Backend::DeepMd(model), Some(layout), [data]) => match &data.parameters {
+                Some(values) => vec![super::parameter_backend::evaluate(
+                    model,
+                    &data.frame,
+                    layout,
+                    values,
+                )?],
+                None => return Err("unsupported parameterized batch configuration".into()),
+            },
+            (model, None, [data]) if data.parameters.is_none() => vec![model.eval(&data.frame)?],
+            (model, None, batch) if batch.iter().all(|data| data.parameters.is_none()) => {
+                super::eval_frames(model, batch)?
             }
-            (model, None, None) => model.eval(&data.frame)?,
             _ => return Err("unsupported parameterized batch configuration".into()),
         };
-        metrics.add(&prediction, &data.labels, data.frame.positions.len())?;
-        let mut record = json!({
-            "kind":"prediction","index":data.index,"id":data.id,"natoms":data.frame.positions.len(),
-            "evaluation":prediction,"labels":data.labels
-        });
-        if let Some(parameters) = data.parameters {
-            record["parameters"] = serde_json::to_value(parameters)?;
+        for (data, prediction) in batch.into_iter().zip(predictions) {
+            metrics.add(&prediction, &data.labels, data.frame.positions.len())?;
+            let mut record = json!({
+                "kind":"prediction","index":data.index,"id":data.id,"natoms":data.frame.positions.len(),
+                "evaluation":prediction,"labels":data.labels
+            });
+            if let Some(parameters) = data.parameters {
+                record["parameters"] = serde_json::to_value(parameters)?;
+            }
+            dataset::write_line(&mut writer, &record)?;
+            frames += 1;
         }
-        dataset::write_line(&mut writer, &record)?;
-        frames += 1;
     }
     dataset::write_line(
         &mut writer,

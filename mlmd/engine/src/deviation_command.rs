@@ -1,7 +1,9 @@
-//! CPU ensemble CLI, using existing model loaders and dataset records.
+//! Ensemble CLI, using existing model loaders and dataset records. Members
+//! on the omnimd-gpu runtime that share one architecture are evaluated
+//! together, a batch of frames in one device pass.
 use super::{Backend, BackendOptions};
 use omnimd_deepmd::Device;
-use omnimd_ml_contract::Potential;
+use omnimd_ml_contract::{Committee, Frame, Potential, Separate};
 use omnimd_mlmd::{
     dataset::{self, DatasetReader},
     deviation::{self, ForceWindow, MAX_MODELS},
@@ -81,6 +83,47 @@ impl Request {
         Ok(request)
     }
 }
+/// The members as one committee on the omnimd-gpu runtime, when every
+/// member selects that runtime with the same options and the models share
+/// one architecture. `None` otherwise: the members are then loaded and
+/// evaluated one by one.
+#[cfg(feature = "native-gpu")]
+fn together(request: &Request) -> Result<Option<Box<dyn Committee>>> {
+    let (Some(runtime), Device::Cuda(index)) = (
+        request.models[0].options.gpu_runtime(),
+        request.models[0].options.device(),
+    ) else {
+        return Ok(None);
+    };
+    if request
+        .models
+        .iter()
+        .any(|member| member.options.gpu_runtime() != Some(runtime))
+    {
+        return Ok(None);
+    }
+    let loaded = request
+        .models
+        .iter()
+        .map(|member| omnimd_native::NativePotential::load(member.options.model_path()))
+        .collect::<std::result::Result<Vec<_>, _>>()?;
+    let models: Vec<&omnimd_native::Model> = loaded.iter().map(|p| p.model()).collect();
+    if let Some(reason) = omnimd_native::gpu_model::committee_mismatch(&models) {
+        eprintln!("omnimd-mlmd: the members are evaluated one by one: {reason}");
+        return Ok(None);
+    }
+    Ok(Some(omnimd_native::gpu_model::open_committee(
+        &models,
+        super::gpu_ordinal(index)?,
+        super::gpu_options(runtime),
+    )?))
+}
+
+#[cfg(not(feature = "native-gpu"))]
+fn together(_: &Request) -> Result<Option<Box<dyn Committee>>> {
+    Ok(None)
+}
+
 fn worker(input: &Path, output: &Path) -> Result<()> {
     let request = Request::read(input)?;
     if output.exists() {
@@ -90,22 +133,31 @@ fn worker(input: &Path, output: &Path) -> Result<()> {
     if reader.header.parameter_layout.is_some() {
         return Err("model-deviation does not yet accept parameterized dataset v2".into());
     }
+    let shared = together(&request)?;
     let mut models = Vec::with_capacity(request.models.len());
     let mut provenance = Vec::with_capacity(request.models.len());
     let mut hashes = HashSet::new();
     for member in &request.models {
         let hash = dataset::sha256(member.options.model_path())?;
         hashes.insert(hash.clone());
-        let model = member.options.load()?;
-        if let Backend::DeepMd(deepmd) = &model {
+        // The members of a committee are loaded already, and alike in all
+        // that their metadata says.
+        let model = match &shared {
+            Some(_) => None,
+            None => Some(member.options.load()?),
+        };
+        if let Some(Backend::DeepMd(deepmd)) = &model {
             let details = deepmd.details();
             if details.frame_parameter_dim != 0 || details.atom_parameter_dim != 0 {
                 return Err(format!("model {} requires parameters; use the standalone parameter-aware C API instead", member.id).into());
             }
         }
-        if model.metadata().type_map != reader.header.type_map
-            || model.metadata().units != reader.header.units
-        {
+        let metadata = match (&shared, &model) {
+            (Some(committee), _) => committee.metadata(),
+            (None, Some(model)) => model.metadata(),
+            (None, None) => return Err("ensemble member was not loaded".into()),
+        };
+        if metadata.type_map != reader.header.type_map || metadata.units != reader.header.units {
             return Err(format!(
                 "model {} and dataset must have identical ordered type maps and units",
                 member.id
@@ -117,9 +169,26 @@ fn worker(input: &Path, output: &Path) -> Result<()> {
             BackendOptions::Native(_) => None,
         };
         provenance.push(json!({"id":member.id,"model":member.options.model_path(),
-            "model_sha256":hash,"library_sha256":library_hash,"metadata":model.metadata()}));
-        models.push(model);
+            "model_sha256":hash,"library_sha256":library_hash,"metadata":metadata}));
+        models.extend(model);
     }
+    // How many frames go through the models at once: a batch where that
+    // saves work, else one.
+    let batched = shared.is_some() || models.iter().all(Backend::shares_frames);
+    let evaluation = match (&shared, batched) {
+        (Some(_), _) => "all members together, a batch of frames in one device pass",
+        (None, true) => "member by member, a batch of frames in one device pass each",
+        (None, false) => "member by member, frame by frame",
+    };
+    let mut committee: Box<dyn Committee> = match shared {
+        Some(committee) => committee,
+        None => Box::new(Separate::new(models)?),
+    };
+    let members = committee.members();
+    let (batch_frames, batch_atoms) = match batched {
+        true => (super::BATCH_FRAMES, super::BATCH_ATOMS / members),
+        false => (1, usize::MAX),
+    };
     let mut writer = dataset::new_output(output)?;
     dataset::write_line(
         &mut writer,
@@ -128,7 +197,7 @@ fn worker(input: &Path, output: &Path) -> Result<()> {
         "device":match request.models[0].options.device() {
             Device::Cpu => "cpu".to_string(),
             Device::Cuda(index) => format!("cuda:{index}"),
-        },"per_atom":request.per_atom,"force_window":request.force_window,
+        },"evaluation":evaluation,"per_atom":request.per_atom,"force_window":request.force_window,
         "statistics":"absolute population std over models; E and all 9 V components per atom; F vector std norm; force mean is arithmetic, virial aggregate is RMS",
         "selection":"min <= max force deviation < max; candidate=null when no force window",
         "interpretation":"Model disagreement only; no calibrated uncertainty, physical accuracy, energy-offset alignment or use of reference labels. Duplicate byte hashes reduce ensemble diversity.",
@@ -139,29 +208,49 @@ fn worker(input: &Path, output: &Path) -> Result<()> {
     // Frames below and at or above the force window.
     let (mut accurate, mut failed) = (0_u64, 0_u64);
     let mut maximum_force_deviation = 0_f64;
-    while let Some(data) = reader.next_frame()? {
-        let statistics = deviation::evaluate_frame(&mut models, &data.frame, request.per_atom)
-            .map_err(|e| format!("dataset frame {} ({}): {e}", data.index, data.id))?;
-        let max_force = statistics.force_ev_per_angstrom.max;
-        let candidate = request
-            .force_window
-            .map(|window| window.contains(max_force));
-        frames = frames.checked_add(1).ok_or("frame count overflow")?;
-        if candidate == Some(true) {
-            candidates = candidates
-                .checked_add(1)
-                .ok_or("candidate count overflow")?;
+    loop {
+        let batch = reader.next_frames(batch_frames, batch_atoms)?;
+        if batch.is_empty() {
+            break;
         }
-        if let Some(window) = request.force_window {
-            accurate += u64::from(max_force < window.min_ev_per_angstrom);
-            failed += u64::from(max_force >= window.max_ev_per_angstrom);
-        }
-        maximum_force_deviation = maximum_force_deviation.max(max_force);
-        dataset::write_line(
-            &mut writer,
-            &json!({"kind":"deviation","index":data.index,"id":data.id,
+        let inputs: Vec<&Frame> = batch.iter().map(|data| &data.frame).collect();
+        let all = match deviation::evaluate_frames(committee.as_mut(), &inputs, request.per_atom) {
+            Ok(all) => all,
+            Err(error) => {
+                // Which frame it was: one at a time.
+                for data in &batch {
+                    deviation::evaluate_frames(
+                        committee.as_mut(),
+                        &[&data.frame],
+                        request.per_atom,
+                    )
+                    .map_err(|e| format!("dataset frame {} ({}): {e}", data.index, data.id))?;
+                }
+                return Err(error.into());
+            }
+        };
+        for (data, statistics) in batch.iter().zip(all) {
+            let max_force = statistics.force_ev_per_angstrom.max;
+            let candidate = request
+                .force_window
+                .map(|window| window.contains(max_force));
+            frames = frames.checked_add(1).ok_or("frame count overflow")?;
+            if candidate == Some(true) {
+                candidates = candidates
+                    .checked_add(1)
+                    .ok_or("candidate count overflow")?;
+            }
+            if let Some(window) = request.force_window {
+                accurate += u64::from(max_force < window.min_ev_per_angstrom);
+                failed += u64::from(max_force >= window.max_ev_per_angstrom);
+            }
+            maximum_force_deviation = maximum_force_deviation.max(max_force);
+            dataset::write_line(
+                &mut writer,
+                &json!({"kind":"deviation","index":data.index,"id":data.id,
             "natoms":data.frame.positions.len(),"statistics":statistics,"candidate":candidate}),
-        )?;
+            )?;
+        }
     }
     let fingerprint = reader.completed_provenance()?;
     dataset::write_line(
@@ -171,7 +260,7 @@ fn worker(input: &Path, output: &Path) -> Result<()> {
         "accurate_frames":request.force_window.map(|_| accurate),
         "failed_frames":request.force_window.map(|_| failed),
         "max_force_deviation_ev_per_angstrom":maximum_force_deviation,
-        "model_loads":models.len(),"combined_evaluations":frames.checked_mul(models.len() as u64).ok_or("evaluation count overflow")?,
+        "model_loads":members,"combined_evaluations":frames.checked_mul(members as u64).ok_or("evaluation count overflow")?,
         "dataset_sha256":fingerprint.dataset_sha256,"declared_source_sha256":fingerprint.declared_source_sha256,
         "source_hashes_verified":false}),
     )?;

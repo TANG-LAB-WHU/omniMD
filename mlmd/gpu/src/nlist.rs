@@ -1284,7 +1284,10 @@ mod tests {
         assert_eq!(f64::from_bits(words[8]), 24.0);
         assert_eq!(f64::from_bits(words[9]), 0.0);
         // The float copy of an atom lies where the cell order puts it.
-        let place = halves[at_atoms..at_atoms + 5].iter().position(|&a| a == 3).unwrap();
+        let place = halves[at_atoms..at_atoms + 5]
+            .iter()
+            .position(|&a| a == 3)
+            .unwrap();
         assert_eq!(f32::from_bits(halves[HEADER * 2 + 3 * place]), 101.0);
         // Every system needs an atom.
         assert!(pack(&mut words, &mut halves, &positions, &[0; 5], &cells, 6.0).is_err());

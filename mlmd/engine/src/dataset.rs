@@ -260,6 +260,22 @@ impl DatasetReader {
         })
     }
     /// Read until None to verify the terminal record and reject truncated/trailing data.
+    /// The next frames, for one evaluation pass over a batch: at most
+    /// `frames` of them (at least one), and no more once they hold `atoms`
+    /// atoms between them. Empty at the end of the dataset.
+    pub fn next_frames(&mut self, frames: usize, atoms: usize) -> Result<Vec<DatasetFrame>> {
+        let mut batch = Vec::new();
+        let mut held = 0usize;
+        while batch.is_empty() || (batch.len() < frames && held < atoms) {
+            let Some(data) = self.next_frame()? else {
+                break;
+            };
+            held = held.saturating_add(data.frame.positions.len());
+            batch.push(data);
+        }
+        Ok(batch)
+    }
+
     pub fn next_frame(&mut self) -> Result<Option<DatasetFrame>> {
         if self.completed {
             return Ok(None);

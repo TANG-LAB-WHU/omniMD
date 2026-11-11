@@ -434,7 +434,12 @@ fn a_batch_of_frames_matches_each_frame_alone() {
     let with_close = [&frames[0], &close, &frames[3]];
     let got = gpu.eval_batch(&with_close).unwrap();
     assert_eq!(gpu.table_fallbacks(), 1);
-    compare("exact in a batch", &got[1], &cpu.eval(&close).unwrap(), FLOAT64);
+    compare(
+        "exact in a batch",
+        &got[1],
+        &cpu.eval(&close).unwrap(),
+        FLOAT64,
+    );
     compare("tables kept, first", &got[0], &tabulated[0], (1e-13, 1e-11));
     compare("tables kept, last", &got[2], &tabulated[3], (1e-13, 1e-11));
 
@@ -452,15 +457,29 @@ fn a_batch_of_frames_matches_each_frame_alone() {
     let mut unknown = frames[1].clone();
     unknown.species[3] = "Xe".into();
     let error = gpu.eval_batch(&[&unknown, &frames[0]]).unwrap_err();
-    assert!(error.to_string().contains("frame 0 of the batch"), "{error}");
+    assert!(
+        error.to_string().contains("frame 0 of the batch"),
+        "{error}"
+    );
     // A single frame is named by nobody.
     let error = gpu.eval_batch(&[&bad]).unwrap_err().to_string();
-    assert!(!error.contains("batch") && error.contains("coincident"), "{error}");
+    assert!(
+        !error.contains("batch") && error.contains("coincident"),
+        "{error}"
+    );
     // The potential is as usable afterwards as before.
-    against("after errors", &gpu.eval_batch(&batch).unwrap(), (1e-11, 1e-9));
+    against(
+        "after errors",
+        &gpu.eval_batch(&batch).unwrap(),
+        (1e-11, 1e-9),
+    );
 
     let mut single = GpuPotential::<f32>::new(&model, device).unwrap();
-    against("float32 batch", &single.eval_batch(&batch).unwrap(), (1e-6, 1e-4));
+    against(
+        "float32 batch",
+        &single.eval_batch(&batch).unwrap(),
+        (1e-6, 1e-4),
+    );
     single.set_chunk_atoms(9);
     single.set_fused_fitting_max_atoms(0);
     let chunked = single.eval_batch(&batch).unwrap();
@@ -528,7 +547,12 @@ fn a_committee_matches_its_members_alone() {
         .map(|frame| {
             models
                 .iter()
-                .map(|model| NativePotential::new(model.clone()).unwrap().eval(frame).unwrap())
+                .map(|model| {
+                    NativePotential::new(model.clone())
+                        .unwrap()
+                        .eval(frame)
+                        .unwrap()
+                })
                 .collect()
         })
         .collect();
@@ -539,7 +563,12 @@ fn a_committee_matches_its_members_alone() {
         for (index, (g, c)) in got.iter().zip(&expected).enumerate() {
             assert_eq!(g.len(), count, "{label}");
             for (member, (g, c)) in g.iter().zip(c).enumerate() {
-                compare(&format!("{label}, frame {index} member {member}"), g, c, tolerance);
+                compare(
+                    &format!("{label}, frame {index} member {member}"),
+                    g,
+                    c,
+                    tolerance,
+                );
             }
         }
     };
@@ -547,9 +576,24 @@ fn a_committee_matches_its_members_alone() {
     assert_eq!((gpu.models(), gpu.members()), (3, 3));
     against("committee", &gpu.eval_members(&batch).unwrap(), 3, FLOAT64);
     // Fewer members are the first ones; as a potential it is the first.
-    against("two members", &gpu.evaluate_frames(&batch, 2).unwrap(), 2, FLOAT64);
-    against("one member", &gpu.evaluate_frames(&batch, 1).unwrap(), 1, FLOAT64);
-    compare("as a potential", &gpu.eval(&frames[0]).unwrap(), &expected[0][0], FLOAT64);
+    against(
+        "two members",
+        &gpu.evaluate_frames(&batch, 2).unwrap(),
+        2,
+        FLOAT64,
+    );
+    against(
+        "one member",
+        &gpu.evaluate_frames(&batch, 1).unwrap(),
+        1,
+        FLOAT64,
+    );
+    compare(
+        "as a potential",
+        &gpu.eval(&frames[0]).unwrap(),
+        &expected[0][0],
+        FLOAT64,
+    );
     let first: Vec<Evaluation> = gpu.eval_batch(&batch).unwrap();
     for (index, (g, c)) in first.iter().zip(&expected).enumerate() {
         compare(&format!("first member, frame {index}"), g, &c[0], FLOAT64);
@@ -564,24 +608,54 @@ fn a_committee_matches_its_members_alone() {
     }
     // The paths of the single model, with three models deep.
     gpu.set_chunk_atoms(7);
-    against("committee in chunks", &gpu.eval_members(&batch).unwrap(), 3, FLOAT64);
+    against(
+        "committee in chunks",
+        &gpu.eval_members(&batch).unwrap(),
+        3,
+        FLOAT64,
+    );
     gpu.set_chunk_atoms(100_000);
     gpu.set_fused_fitting_max_atoms(0);
-    against("committee, cuBLAS", &gpu.eval_members(&batch).unwrap(), 3, FLOAT64);
+    against(
+        "committee, cuBLAS",
+        &gpu.eval_members(&batch).unwrap(),
+        3,
+        FLOAT64,
+    );
     gpu.set_fused_fitting_max_atoms(usize::MAX);
     assert!(gpu.set_tiled_fitting(true));
-    against("committee, tiles", &gpu.eval_members(&batch).unwrap(), 3, FLOAT64);
+    against(
+        "committee, tiles",
+        &gpu.eval_members(&batch).unwrap(),
+        3,
+        FLOAT64,
+    );
     // Each member's tables follow its own statistics.
     gpu.compress(0.8, 0.01).unwrap();
-    against("committee, tables", &gpu.eval_members(&batch).unwrap(), 3, (1e-11, 1e-9));
+    against(
+        "committee, tables",
+        &gpu.eval_members(&batch).unwrap(),
+        3,
+        (1e-11, 1e-9),
+    );
     assert_eq!(gpu.table_fallbacks(), 0);
 
     let mut single = GpuPotential::<f32>::committee(&members, device.clone()).unwrap();
-    against("float32 committee", &single.eval_members(&batch).unwrap(), 3, (1e-6, 1e-4));
+    against(
+        "float32 committee",
+        &single.eval_members(&batch).unwrap(),
+        3,
+        (1e-6, 1e-4),
+    );
     single.set_chunk_atoms(10);
     single.set_fused_fitting_max_atoms(0);
     let chunked = single.eval_members(&batch).unwrap();
-    against("float32 committee, chunks and cuBLAS", &chunked, 3, (1e-6, 1e-4));
+    against(
+        "float32 committee, chunks and cuBLAS",
+        &chunked,
+        3,
+        (1e-6, 1e-4),
+    );
 
     // Models that cannot share the device pass are refused with the reason.
     use omnimd_native::gpu_model::committee_mismatch;
@@ -607,7 +681,8 @@ fn a_committee_matches_its_members_alone() {
             // A wider second fitting layer.
             let network = &mut m.fitting[1];
             network.layers[0] = common::layer(64, 24, Activation::Tanh, Residual::None, false, 1);
-            network.layers[1] = common::layer(24, 24, Activation::Tanh, Residual::Identity, true, 2);
+            network.layers[1] =
+                common::layer(24, 24, Activation::Tanh, Residual::Identity, true, 2);
             network.layers[2] = common::layer(24, 1, Activation::Linear, Residual::None, false, 3);
         },
         "fitting nets",

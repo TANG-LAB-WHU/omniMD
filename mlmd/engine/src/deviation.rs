@@ -1,6 +1,6 @@
 //! Absolute population model disagreement. Independent Rust implementation;
 //! semantics checked against DeepMD 3.1.3 infer/model_devi.py, not copied code.
-use omnimd_ml_contract::{Error, Evaluation, Frame, Potential, Result};
+use omnimd_ml_contract::{Committee, Error, Evaluation, Frame, Potential, Result};
 use serde::{Deserialize, Serialize};
 
 pub const MAX_MODELS: usize = 16;
@@ -151,6 +151,57 @@ impl Accumulator {
         })
     }
 }
+/// The deviation among the evaluations of one frame of `atoms` atoms, one
+/// evaluation per model.
+pub fn among(evaluations: &[Evaluation], atoms: usize, per_atom: bool) -> Result<ModelDeviation> {
+    if !(2..=MAX_MODELS).contains(&evaluations.len()) {
+        return Err(Error(format!(
+            "model deviation requires 2..={MAX_MODELS} models"
+        )));
+    }
+    let mut accumulator = Accumulator::new(atoms);
+    for (index, evaluation) in evaluations.iter().enumerate() {
+        accumulator
+            .add(evaluation)
+            .map_err(|e| Error(format!("ensemble member {index}: {e}")))?;
+    }
+    accumulator.finish(per_atom)
+}
+
+/// The deviation of every frame among the members of a committee, which
+/// evaluates the frames together where its backend can (one device pass for
+/// all frames and members). The same statistics as [`evaluate_frame`]. An
+/// error of any frame fails the call.
+pub fn evaluate_frames<C: Committee + ?Sized>(
+    committee: &mut C,
+    frames: &[&Frame],
+    per_atom: bool,
+) -> Result<Vec<ModelDeviation>> {
+    if !(2..=MAX_MODELS).contains(&committee.members()) {
+        return Err(Error(format!(
+            "model deviation requires 2..={MAX_MODELS} models"
+        )));
+    }
+    let reference = committee.metadata();
+    reference.validate()?;
+    for frame in frames {
+        frame.type_ids(reference)?;
+    }
+    let all = committee.eval_members(frames)?;
+    if all.len() != frames.len() {
+        return Err(Error(format!(
+            "the committee returned evaluations of {} frames for {}",
+            all.len(),
+            frames.len()
+        )));
+    }
+    frames
+        .iter()
+        .zip(&all)
+        .map(|(frame, evaluations)| among(evaluations, frame.positions.len(), per_atom))
+        .collect()
+}
+
 /// Exactly one combined evaluation per member, no labels, offset fitting or model weights.
 /// Callers retain the already-loaded models across frames. Failed frames return no result.
 pub fn evaluate_frame<P: Potential>(
