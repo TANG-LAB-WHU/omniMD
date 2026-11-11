@@ -137,7 +137,10 @@ against 0.8 ms one by one, which is what `model-deviation` and `batch-eval`
 now do. `run-replicas` advances several runs of one model together the same
 way: thirty-two replicas of the 88-atom system take 71 microseconds per step
 each against 215 alone, with the trajectory and checkpoints each would write
-alone. The ensemble is not a production-qualified potential; see the
+alone. A run can carry the other members of its model's ensemble along
+(`deviation`): every sampled frame is then written with their model deviation
+and a candidate mark, for 6 to 8% more time at one sampled frame in fifty
+steps. The ensemble is not a production-qualified potential; see the
 [summary](mlmd/bench/results/SUMMARY.md) for the protocol.
 
 `omnimd-native-gpu-train` trains se_e2_a models of any size on the GPU with

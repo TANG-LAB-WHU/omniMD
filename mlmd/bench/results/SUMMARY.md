@@ -1,3 +1,41 @@
+# Model deviation along a run, 2026-11-11
+
+A `run` or `run-replicas` request can name the other members of its model's
+ensemble (`deviation`). The model of the run drives the dynamics; at every
+sampled frame all members are evaluated, as one committee on the GPU runtime,
+and the frame is written with their deviation and whether that makes it a
+candidate. `import-trajectory` can then keep the candidates only. Exploration
+and the comparison of the members were two passes over every frame before
+(run, import, `model-deviation`); they are one now.
+
+**Microseconds per step and replica** (`hap_replicas.py --deviation`: NVT at
+300 K, 0.5 fs, sampled every 50 steps; the four HAP models, model 0 driving;
+least of two runs; raw numbers in `hap-run-deviation-rtx4090-2026-11-11.csv`):
+
+| system (atoms) | mode | run | with the members | 16 replicas | with the members |
+|---|---|---:|---:|---:|---:|
+| HAP bulk (88) | float32, compressed | 212 | 225 | 88 | 95 |
+| | float64 | 738 | 786 | 525 | 563 |
+| HAP(001) + water + CO2 (169) | float32, compressed | 285 | 302 | 143 | 152 |
+| | float64 | 1271 | 1349 | 984 | 1062 |
+| monetite (224) | float32, compressed | 317 | 339 | 169 | 181 |
+| | float64 | 1539 | 1654 | 1365 | 1475 |
+
+- The members cost 6 to 8% of a run when one frame in fifty is sampled: three
+  more model evaluations per fifty steps, all in the pass that the sampled
+  frame costs anyway.
+- For scale: LAMMPS `pair_style deepmd` with the same four models and the
+  same sampling (model 0 drives, all four are evaluated every 50 steps) took
+  12.8, 16.5 and 15.5 ms per step for these systems on this card (the table
+  of 2026-11-10 below; Nose-Hoover there, CSVR here). That is 9 to 16 times
+  the float64 column with the members and 46 to 57 times the compressed
+  float32 one.
+- On the CPU the deviation of every sampled frame equals, to the last digit,
+  what `model-deviation` computes from the imported trajectory, and the run
+  itself is the run without the members (tests `run_deviation.rs`). On the
+  GPU runtime the frames' deviations agree with the CPU's within 1e-9 eV/Å in
+  float64 (`gpu_runtime.rs`).
+
 # Several runs advanced together, and a lighter step, 2026-11-11
 
 Two changes to molecular dynamics through `omnimd-mlmd`, both on the host.
@@ -487,6 +525,8 @@ runtime with the CSVR thermostat, sampled every 50 steps
   dynamics and all four are evaluated every 50 steps. omniMD runs the
   deviation as a separate command over the sampled frames (about 25 ms per
   frame including model loading, so under 1 ms per MD step at this sampling).
+  Since 2026-11-11 a run can carry the members along; see the top of this
+  file.
 - The pipeline's own 100,000-step exploration logs show 52 ms per step for the
   169-atom system (three jobs sharing the GPU, 87 min per run).
 - The thermostats differ (Nose-Hoover in LAMMPS, CSVR in omniMD); this does
