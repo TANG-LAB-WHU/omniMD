@@ -785,6 +785,16 @@ impl<P: Scalar> GpuPotential<P> {
         self.fused_fitting_max_atoms = atoms;
     }
 
+    /// Turns the tiled first layer of the fused fitting kernel on or off
+    /// (see `GradientNetwork::forward_gradient_grouped`) and returns whether
+    /// it is on afterwards. The default follows the size of that layer and
+    /// the precision; both settings give the same result to rounding.
+    pub fn set_tiled_fitting(&mut self, on: bool) -> bool {
+        self.fused_fitting
+            .as_mut()
+            .is_some_and(|fused| fused.set_tiled(on))
+    }
+
     /// Evaluations that left the table range and used the exact networks.
     pub fn table_fallbacks(&self) -> usize {
         self.table_fallbacks
@@ -1001,19 +1011,19 @@ impl<P: Scalar> GpuPotential<P> {
             // Fitting: atomic energies and dE/dD. Few atoms: every center type
             // in one fused kernel. Many atoms: cuBLAS per center type, with
             // the energies copied out so the tape can go.
-            let fused = self
-                .fused_fitting
-                .as_ref()
-                .filter(|_| count <= self.fused_fitting_max_atoms);
+            let limit = self.fused_fitting_max_atoms;
+            let fused = self.fused_fitting.as_mut().filter(|_| count <= limit);
             if let Some(fused) = fused {
                 let x = descriptor.slice(0..count * features);
-                let ids = atype.slice(first..end);
+                // The atoms are sorted by type: runs of one fitting net each.
+                let groups: Vec<(usize, usize, usize)> =
+                    ranges.iter().map(|&(t, lo, hi)| (t, lo, hi - lo)).collect();
                 let mut energies = atomic.slice_mut(first..end);
                 let mut dx = d_descriptor.slice_mut(0..count * features);
-                fused.forward_gradient_into(
+                fused.forward_gradient_grouped(
                     device,
                     &x,
-                    Some(&ids),
+                    &groups,
                     count,
                     &mut energies,
                     &mut dx,

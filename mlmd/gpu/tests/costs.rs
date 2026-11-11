@@ -469,3 +469,93 @@ fn load_costs() {
         println!("column {k}: {name}");
     }
 }
+
+/// The fitting nets of a five-type model for the type runs of two real
+/// systems: the one kernel a row against the first layer in tiles.
+#[test]
+#[ignore]
+fn fitting_costs() {
+    use omnimd_gpu::{Activation, GradientNetwork, LayerParameters};
+    let device = Device::new(0).unwrap();
+    let (input, width) = (1600usize, 240usize);
+    let layer = |i: usize, o: usize, activation, residual, seed: usize| LayerParameters::<f32> {
+        input: i,
+        output: o,
+        weights: (0..i * o)
+            .map(|e| (((e + seed) * 37 % 101) as f32 - 50.0) / (50.0 * (i as f32).sqrt()))
+            .collect(),
+        bias: vec![0.01; o],
+        timestep: None,
+        activation,
+        residual,
+    };
+    let nets: Vec<_> = (0..5)
+        .map(|t| {
+            vec![
+                layer(input, width, Activation::Tanh, false, t),
+                layer(width, width, Activation::Tanh, true, t + 7),
+                layer(width, width, Activation::Tanh, true, t + 13),
+                layer(width, 1, Activation::Linear, false, t + 19),
+            ]
+        })
+        .collect();
+    let mut network = GradientNetwork::new_set(&device, &nets).unwrap();
+    println!("microseconds per call, fitting nets {input} -> {width} -> {width} -> {width} -> 1");
+    let cases: [(&str, &[(usize, usize, usize)]); 4] = [
+        (
+            "HAP bulk, 88",
+            &[(0, 0, 20), (1, 20, 12), (2, 32, 52), (3, 84, 4)],
+        ),
+        (
+            "monetite, 224",
+            &[(0, 0, 32), (1, 32, 32), (2, 64, 128), (3, 192, 32)],
+        ),
+        ("one type, 88", &[(2, 0, 88)]),
+        ("one type, 1024", &[(2, 0, 1024)]),
+    ];
+    for (label, groups) in cases {
+        let rows: usize = groups.iter().map(|g| g.2).sum();
+        let x = device.upload(&vec![0.01f32; rows * input]).unwrap();
+        let mut value = device.zeros::<f32>(rows).unwrap();
+        let mut gradient = device.zeros::<f32>(rows * input).unwrap();
+        let mut line = format!("{label:<16}");
+        // Alternate the two layouts so that drift of the machine cancels.
+        let mut sums = [0.0f64; 2];
+        let rounds = 6;
+        for round in 0..rounds {
+            for (slot, tiled) in [(0usize, false), (1, true)] {
+                assert_eq!(network.set_tiled(tiled), tiled);
+                let mut run = || {
+                    network
+                        .forward_gradient_grouped(
+                            &device,
+                            &x,
+                            groups,
+                            rows,
+                            &mut value,
+                            &mut gradient,
+                        )
+                        .unwrap();
+                };
+                for _ in 0..20 {
+                    run();
+                }
+                device.synchronize().unwrap();
+                let start = Instant::now();
+                for _ in 0..300 {
+                    run();
+                }
+                device.synchronize().unwrap();
+                if round > 0 {
+                    sums[slot] += start.elapsed().as_secs_f64() * 1e6 / 300.0;
+                }
+            }
+        }
+        let [plain, tiled] = sums.map(|s| s / (rounds - 1) as f64);
+        line.push_str(&format!(
+            " one kernel {plain:7.1}   tiles {tiled:7.1}   ratio {:.2}",
+            plain / tiled
+        ));
+        println!("{line}");
+    }
+}

@@ -976,6 +976,202 @@ fn network_tangent_and_backward_match_finite_differences() {
     );
 }
 
+#[test]
+fn grouped_rows_take_the_tiled_first_layer() {
+    let Some(device) = device() else { return };
+    let scaled = |mut layer: CpuLayer| {
+        // Keep wide layers out of saturation.
+        let scale = 1.0 / (layer.input as f64).sqrt();
+        layer.weights.iter_mut().for_each(|w| *w *= scale);
+        layer
+    };
+    // Widths that are no multiple of a warp and inputs that are no multiple
+    // of a tile; one net wider than eight warps, one with four layers.
+    let wide = |seed: u64| {
+        vec![
+            scaled(CpuLayer::random(
+                600,
+                300,
+                Activation::Tanh,
+                false,
+                false,
+                seed,
+            )),
+            scaled(CpuLayer::random(
+                300,
+                300,
+                Activation::Tanh,
+                true,
+                true,
+                seed + 10,
+            )),
+            scaled(CpuLayer::random(
+                300,
+                1,
+                Activation::Linear,
+                false,
+                false,
+                seed + 20,
+            )),
+        ]
+    };
+    let deep = |seed: u64| {
+        vec![
+            scaled(CpuLayer::random(
+                1100,
+                70,
+                Activation::Tanh,
+                false,
+                true,
+                seed,
+            )),
+            scaled(CpuLayer::random(
+                70,
+                70,
+                Activation::Softplus,
+                true,
+                false,
+                seed + 10,
+            )),
+            scaled(CpuLayer::random(
+                70,
+                35,
+                Activation::Tanh,
+                false,
+                false,
+                seed + 20,
+            )),
+            scaled(CpuLayer::random(
+                35,
+                1,
+                Activation::Linear,
+                false,
+                false,
+                seed + 30,
+            )),
+        ]
+    };
+    for (label, nets) in [
+        ("wide", vec![wide(2000), wide(2100), wide(2200)]),
+        ("deep", vec![deep(2300), deep(2400), deep(2500)]),
+    ] {
+        let input = nets[0][0].input;
+        // Runs longer than a chunk, of odd length, of one row, and not in
+        // the order of the networks; network 1 has no rows in the second.
+        let groupings: [&[(usize, usize, usize)]; 6] = [
+            &[(0, 0, 37), (2, 37, 1), (1, 38, 50)],
+            &[(2, 0, 45), (0, 45, 43)],
+            &[(1, 0, 88)],
+            &[(0, 0, 1), (1, 1, 1), (2, 2, 86)],
+            &[(2, 0, 33), (1, 33, 55)],
+            &[(0, 0, 37), (2, 37, 1), (1, 38, 50)],
+        ];
+        let rows = 88;
+        let x = values(rows * input, 2600);
+        let x32: Vec<f32> = x.iter().map(|&v| v as f32).collect();
+        let (xd, xd32) = (device.upload(&x).unwrap(), device.upload(&x32).unwrap());
+        let double: Vec<_> = nets.iter().map(|n| layer_parameters::<f64>(n)).collect();
+        let single: Vec<_> = nets.iter().map(|n| layer_parameters::<f32>(n)).collect();
+        let mut network = omnimd_gpu::GradientNetwork::new_set(device, &double).unwrap();
+        let mut network32 = omnimd_gpu::GradientNetwork::new_set(device, &single).unwrap();
+        // Tiles are the default in float32 for first layers this large, and
+        // on request in float64.
+        assert!(network32.tiled() && !network.tiled(), "{label}");
+        assert!(network.set_tiled(true), "{label}");
+        let widen = |v: Vec<f32>| v.into_iter().map(f64::from).collect::<Vec<f64>>();
+        for groups in groupings {
+            let (mut value, mut gradient) = (Vec::new(), Vec::new());
+            for &(net, first, count) in groups {
+                for r in first..first + count {
+                    let (v, g) = cpu_value_and_gradient(&nets[net], &x[r * input..][..input]);
+                    value.push(v);
+                    gradient.extend(g);
+                }
+            }
+            let scale = gradient.iter().fold(1.0_f64, |m, v| m.max(v.abs()));
+            for tiled in [true, false] {
+                assert_eq!(network.set_tiled(tiled), tiled);
+                let mut v = device.upload(&vec![f64::NAN; rows]).unwrap();
+                let mut g = device.upload(&vec![f64::NAN; rows * input]).unwrap();
+                network
+                    .forward_gradient_grouped(device, &xd, groups, rows, &mut v, &mut g)
+                    .unwrap();
+                let what = format!("{label} {groups:?} tiled {tiled}");
+                let error = max_error(device.download(&v).unwrap(), &value);
+                assert!(error < 1e-12, "{what}: value error {error}");
+                let error = max_error(device.download(&g).unwrap(), &gradient);
+                assert!(error < 1e-12 * scale, "{what}: gradient error {error}");
+            }
+            let mut v = device.upload(&vec![f32::NAN; rows]).unwrap();
+            let mut g = device.upload(&vec![f32::NAN; rows * input]).unwrap();
+            network32
+                .forward_gradient_grouped(device, &xd32, groups, rows, &mut v, &mut g)
+                .unwrap();
+            let error = max_error(widen(device.download(&v).unwrap()), &value);
+            assert!(
+                error < 1e-4,
+                "{label} {groups:?}: float32 value error {error}"
+            );
+            let error = max_error(widen(device.download(&g).unwrap()), &gradient);
+            assert!(
+                error < 1e-4 * scale,
+                "{label} {groups:?}: float32 gradient error {error}"
+            );
+        }
+        // Groups have to be consecutive nonempty runs of known networks
+        // that cover the rows.
+        let mut v = device.zeros::<f64>(rows).unwrap();
+        let mut g = device.zeros::<f64>(rows * input).unwrap();
+        let bad: [&[(usize, usize, usize)]; 7] = [
+            &[(0, 0, 40), (1, 41, 47)],
+            &[(0, 0, 40), (1, 39, 49)],
+            // The right number of rows, but the second run starts early.
+            &[(0, 0, 40), (1, 39, 48)],
+            &[(0, 0, 88), (1, 88, 0)],
+            &[(3, 0, 88)],
+            &[(0, 0, 87)],
+            &[],
+        ];
+        for groups in bad {
+            assert!(
+                network
+                    .forward_gradient_grouped(device, &xd, groups, rows, &mut v, &mut g)
+                    .is_err(),
+                "{label}: {groups:?} was accepted"
+            );
+        }
+    }
+    // A first layer with a residual keeps the one kernel: it needs its
+    // input row again. Grouped rows still work.
+    let residual = vec![
+        CpuLayer::random(6, 12, Activation::Tanh, true, false, 2700),
+        CpuLayer::random(12, 1, Activation::Linear, false, false, 2710),
+    ];
+    let mut network =
+        omnimd_gpu::GradientNetwork::new_set(device, &[layer_parameters::<f64>(&residual)])
+            .unwrap();
+    assert!(!network.set_tiled(true));
+    let x = values(5 * 6, 2720);
+    let (mut v, mut g) = (
+        device.zeros::<f64>(5).unwrap(),
+        device.zeros::<f64>(30).unwrap(),
+    );
+    network
+        .forward_gradient_grouped(
+            device,
+            &device.upload(&x).unwrap(),
+            &[(0, 0, 5)],
+            5,
+            &mut v,
+            &mut g,
+        )
+        .unwrap();
+    let expected: Vec<f64> = (0..5)
+        .map(|r| cpu_value_and_gradient(&residual, &x[6 * r..][..6]).0)
+        .collect();
+    assert!(max_error(device.download(&v).unwrap(), &expected) < 1e-12);
+}
+
 /// Brute-force reference: every image within `rcut`, sorted like the GPU
 /// list, truncated per type. Returns (index, delta) per slot and full counts.
 fn neighbors_cpu(

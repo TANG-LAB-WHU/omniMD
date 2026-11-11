@@ -75,6 +75,15 @@ fn check(label: &str, model: Model, frame: &Frame) {
         FLOAT64,
     );
     gpu.set_fused_fitting_max_atoms(usize::MAX);
+    // The fused kernel with its first layer in tiles (the default only for
+    // large float32 nets) gives the same answer again.
+    assert!(gpu.set_tiled_fitting(true), "{label}: no tiles");
+    compare(
+        &format!("{label} (tiled fitting)"),
+        &gpu.eval(frame).unwrap(),
+        &c,
+        FLOAT64,
+    );
     // Chunks that split type blocks unevenly must not change anything.
     gpu.set_chunk_atoms(7);
     compare(
@@ -97,6 +106,13 @@ fn float32_networks_stay_close_to_float64() {
     // Float32 networks with float64 geometry and reductions: about single
     // precision on the network outputs, nothing worse.
     compare("float32", &gpu.eval(&frame).unwrap(), &c, (1e-6, 1e-4));
+    assert!(gpu.set_tiled_fitting(true));
+    compare(
+        "float32 tiled fitting",
+        &gpu.eval(&frame).unwrap(),
+        &c,
+        (1e-6, 1e-4),
+    );
     gpu.set_chunk_atoms(9);
     compare(
         "float32 chunks",

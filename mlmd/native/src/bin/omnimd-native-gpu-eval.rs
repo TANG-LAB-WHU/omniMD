@@ -27,7 +27,7 @@ use std::time::Instant;
 
 const USAGE: &str = "usage: omnimd-native-gpu-eval MODEL.json [--precision float64|float32] \
                      [--bench K] [--profile] [--chunk ATOMS] [--compress RMIN[:STEP]] \
-                     [--fused-fitting ATOMS] < frames.jsonl";
+                     [--fused-fitting ATOMS] [--tiled-fitting on|off] < frames.jsonl";
 
 struct Options {
     model: String,
@@ -37,6 +37,7 @@ struct Options {
     chunk: Option<usize>,
     compress: Option<(f64, f64)>,
     fused_fitting: Option<usize>,
+    tiled_fitting: Option<bool>,
 }
 
 fn options() -> Result<Options, Box<dyn std::error::Error>> {
@@ -49,6 +50,7 @@ fn options() -> Result<Options, Box<dyn std::error::Error>> {
         chunk: None,
         compress: None,
         fused_fitting: None,
+        tiled_fitting: None,
     };
     while let Some(flag) = args.next() {
         let mut value = || args.next().ok_or(USAGE);
@@ -63,6 +65,15 @@ fn options() -> Result<Options, Box<dyn std::error::Error>> {
             "--bench" => options.bench = value()?.parse()?,
             "--chunk" => options.chunk = Some(value()?.parse()?),
             "--fused-fitting" => options.fused_fitting = Some(value()?.parse()?),
+            "--tiled-fitting" => {
+                options.tiled_fitting = Some(match value()?.as_str() {
+                    "on" => true,
+                    "off" => false,
+                    other => {
+                        return Err(format!("--tiled-fitting takes on or off, not {other:?}").into())
+                    }
+                })
+            }
             "--compress" => {
                 let text = value()?;
                 let (rmin, step) = text.split_once(':').unwrap_or((&text, "0.01"));
@@ -89,6 +100,11 @@ fn evaluate<P: Scalar>(
     }
     if let Some((min_distance, step)) = options.compress {
         gpu.compress(min_distance, step)?;
+    }
+    if let Some(on) = options.tiled_fitting {
+        if gpu.set_tiled_fitting(on) != on {
+            return Err("this model's fitting nets have no tiled first layer".into());
+        }
     }
     eprintln!(
         "precision: network {}, chunk {} atoms, embedding {}",

@@ -156,20 +156,50 @@ __device__ T strided_dot(const T* a, const T* w, int count, int stride) {
 // row coalesced across the block. Backward: thread k owns input k and reads
 // the transposed weights the same way, so the last pass writes the gradient
 // row coalesced.
+//
+// With `partial` the first layer's products are done elsewhere (the tile
+// kernels below): its pre-activations are the bias plus `tiles` partial sums
+// per neuron, partial[row][tile][n]; the input row is not needed and not kept
+// (the table's shared-memory offsets still count it); and what goes to
+// `gradient` is delta[row][n], the adjoint of the first layer's
+// pre-activations, for the kernel that multiplies by the weights.
 template <typename T, int U>
 __device__ void gradient_network(const T* x, const int* ids, long long rows, const int* table,
-        int layers, const T* params, int net_size, int adjoint, T* value, T* gradient) {
+        int layers, const T* params, int net_size, int adjoint, T* value, T* gradient,
+        const T* partial, int tiles) {
     extern __shared__ double shared[];
     long long row = blockIdx.x;
     if (row >= rows) return;
     int tid = threadIdx.x, threads = blockDim.x;
     const T* block = params + (ids ? (long long)ids[row] * net_size : 0);
-    T* sh = (T*)shared;
     int in0 = table[0];
-    for (int k = tid; k < in0; k += threads) sh[k] = x[row * in0 + k];
-    __syncthreads();
+    T* sh = (T*)shared;
     const T* current = sh;
-    for (int l = 0; l + 1 < layers; ++l) {
+    int hidden = 0;
+    if (partial) {
+        // The first layer from its partial sums (it has no residual here).
+        sh -= in0;
+        int on = table[1];
+        const T* bias = block + table[6];
+        const T* dt = block + table[7];
+        T* y = sh + table[8];
+        T* slope = sh + table[9];
+        const T* sums = partial + row * tiles * on;
+        for (int n = tid; n < on; n += threads) {
+            T z = bias[n];
+            for (int t = 0; t < tiles; ++t) z += sums[(long long)t * on + n];
+            T v, s;
+            activate(table[2], z, &v, &s);
+            y[n] = v * dt[n];
+            slope[n] = s * dt[n];
+        }
+        current = y;
+        hidden = 1;
+    } else {
+        for (int k = tid; k < in0; k += threads) sh[k] = x[row * in0 + k];
+    }
+    __syncthreads();
+    for (int l = hidden; l + 1 < layers; ++l) {
         const int* e = table + 10 * l;
         int in = e[0], on = e[1], act = e[2], residual = e[3];
         const T* w = block + e[4];
@@ -195,16 +225,16 @@ __device__ void gradient_network(const T* x, const int* ids, long long rows, con
     const T* w_out = block + last[4];
     T* a = sh + adjoint;
     T* b = a + table[10 * layers];
-    T* partial = b + table[10 * layers];
-    T* seed = partial + (threads >> 5);
+    T* partial_sum = b + table[10 * layers];
+    T* seed = partial_sum + (threads >> 5);
     T sum = T(0);
     for (int k = tid; k < width; k += threads) sum += current[k] * w_out[k];
     sum = warp_sum(sum);
-    if ((tid & 31) == 0) partial[tid >> 5] = sum;
+    if ((tid & 31) == 0) partial_sum[tid >> 5] = sum;
     __syncthreads();
     if (tid == 0) {
         T z = (block + last[6])[0];
-        for (int wi = 0; wi < (threads >> 5); ++wi) z += partial[wi];
+        for (int wi = 0; wi < (threads >> 5); ++wi) z += partial_sum[wi];
         T v, s;
         activate(last[2], z, &v, &s);
         T scale = (block + last[7])[0];
@@ -224,6 +254,10 @@ __device__ void gradient_network(const T* x, const int* ids, long long rows, con
         int in = e[0], on = e[1], residual = e[3];
         const T* wt = block + e[5];
         T* slope = sh + e[9];
+        if (partial && l == 0) {
+            for (int n = tid; n < on; n += threads) gradient[row * on + n] = slope[n] * a[n];
+            return;
+        }
         // The slopes are not needed again: turn them into the adjoint of the
         // layer's pre-activations.
         for (int n = tid; n < on; n += threads) slope[n] *= a[n];
@@ -240,12 +274,138 @@ __device__ void gradient_network(const T* x, const int* ids, long long rows, con
     }
 }
 
+// The first layer in tiles. A dense layer that reads its weights from global
+// memory is bound by those reads, a row at a time; here a tile of the weights
+// is copied to shared memory once and serves every row of a chunk.
+//
+// chunks: 3 ints per chunk of rows {first row, rows, network}; the rows of a
+// chunk use one network. A block is one chunk and one tile of inputs.
+
+// partial[row][tile][n] = sum over the tile's inputs k of x[row][k] w[k][n].
+// The tile's weights [tile_inputs][out, padded to whole warps] and the rows'
+// inputs go to shared memory. A warp does two rows and a lane up to eight
+// outputs at a time (n, n + 32, ...): one read of a weight serves two
+// products, one read of an input sixteen.
+template <typename T>
+__device__ void tile_forward(const T* x, const T* params, const int* chunks, int in, int out,
+        int tile_inputs, int net_size, int weights, T* partial) {
+    extern __shared__ double shared[];
+    int tiles = (in + tile_inputs - 1) / tile_inputs;
+    int chunk = blockIdx.x / tiles, tile = blockIdx.x % tiles;
+    const int* c = chunks + 3 * chunk;
+    int r0 = c[0], rc = c[1], k0 = tile * tile_inputs, kc = min(tile_inputs, in - k0);
+    const T* w = params + (long long)c[2] * net_size + weights;
+    int padded = (out + 31) & ~31;
+    T* sw = (T*)shared;
+    T* sa = sw + tile_inputs * padded;
+    int tid = threadIdx.x, warp = tid >> 5, lane = tid & 31, warps = blockDim.x >> 5;
+    for (int k = warp; k < kc; k += warps)
+        for (int n = lane; n < padded; n += 32)
+            sw[k * padded + n] = n < out ? w[(long long)(k0 + k) * out + n] : T(0);
+    for (int r = warp; r < rc; r += warps)
+        for (int k = lane; k < kc; k += 32)
+            sa[r * tile_inputs + k] = x[(long long)(r0 + r) * in + k0 + k];
+    __syncthreads();
+    int first = 2 * warp;
+    if (first >= rc) return;
+    // A last row without a partner is done twice and stored once.
+    bool pair = first + 1 < rc;
+    const T* a0 = sa + first * tile_inputs;
+    const T* a1 = a0 + (pair ? tile_inputs : 0);
+    T* out0 = partial + ((long long)(r0 + first) * tiles + tile) * out;
+    T* out1 = out0 + (long long)tiles * out;
+    int columns = padded >> 5;
+    for (int c0 = 0; c0 < columns; c0 += 8) {
+        T acc0[8], acc1[8];
+        for (int u = 0; u < 8; ++u) { acc0[u] = T(0); acc1[u] = T(0); }
+        const T* column = sw + lane + 32 * c0;
+        int count = min(8, columns - c0);
+        if (count == 8) {
+            for (int k = 0; k < kc; ++k, column += padded) {
+                T p = a0[k], q = a1[k];
+                for (int u = 0; u < 8; ++u) {
+                    T v = column[32 * u];
+                    acc0[u] += p * v;
+                    acc1[u] += q * v;
+                }
+            }
+        } else {
+            for (int k = 0; k < kc; ++k, column += padded) {
+                T p = a0[k], q = a1[k];
+                for (int u = 0; u < count; ++u) {
+                    T v = column[32 * u];
+                    acc0[u] += p * v;
+                    acc1[u] += q * v;
+                }
+            }
+        }
+        for (int u = 0; u < count; ++u) {
+            int n = lane + 32 * (c0 + u);
+            if (n >= out) continue;
+            out0[n] = acc0[u];
+            if (pair) out1[n] = acc1[u];
+        }
+    }
+}
+
+// gradient[row][k] = sum_n delta[row][n] w[k][n], the first layer backward.
+// A tile is `tile_inputs` (at most 32) inputs, one lane each; its transposed
+// weights [out][tile_inputs] and the rows' deltas go to shared memory; a warp
+// does one row.
+template <typename T>
+__device__ void tile_backward(const T* delta, const T* params, const int* chunks, int in, int out,
+        int tile_inputs, int net_size, int transposed, T* gradient) {
+    extern __shared__ double shared[];
+    int tiles = (in + tile_inputs - 1) / tile_inputs;
+    int chunk = blockIdx.x / tiles, tile = blockIdx.x % tiles;
+    const int* c = chunks + 3 * chunk;
+    int r0 = c[0], rc = c[1], k0 = tile * tile_inputs, kc = min(tile_inputs, in - k0);
+    const T* wt = params + (long long)c[2] * net_size + transposed;
+    T* sw = (T*)shared;
+    T* sd = sw + out * tile_inputs;
+    int tid = threadIdx.x, warp = tid >> 5, lane = tid & 31, warps = blockDim.x >> 5;
+    if (lane < kc)
+        for (int n = warp; n < out; n += warps)
+            sw[n * tile_inputs + lane] = wt[(long long)n * in + k0 + lane];
+    for (int r = warp; r < rc; r += warps)
+        for (int n = lane; n < out; n += 32)
+            sd[r * out + n] = delta[(long long)(r0 + r) * out + n];
+    __syncthreads();
+    if (warp >= rc || lane >= kc) return;
+    const T* d = sd + warp * out;
+    const T* column = sw + lane;
+    T acc[8];
+    for (int u = 0; u < 8; ++u) acc[u] = T(0);
+    int n = 0;
+    for (; n + 8 <= out; n += 8)
+        for (int u = 0; u < 8; ++u) acc[u] += d[n + u] * column[(n + u) * tile_inputs];
+    for (; n < out; ++n) acc[0] += d[n] * column[n * tile_inputs];
+    gradient[(long long)(r0 + warp) * in + k0 + lane] =
+        ((acc[0] + acc[1]) + (acc[2] + acc[3])) + ((acc[4] + acc[5]) + (acc[6] + acc[7]));
+}
+
 #define INSTANTIATE(T, S, U)                                                                  \
 extern "C" __global__ void gradient_network_##S(const T* x, const int* ids, long long rows,   \
         const int* table, int layers, const T* params, int net_size, int adjoint, T* value,   \
         T* gradient) {                                                                        \
     gradient_network<T, U>(x, ids, rows, table, layers, params, net_size, adjoint, value,     \
-                           gradient);                                                         \
+                           gradient, nullptr, 0);                                             \
+}                                                                                             \
+extern "C" __global__ void gradient_middle_##S(const T* partial, int tiles, const int* ids,   \
+        long long rows, const int* table, int layers, const T* params, int net_size,          \
+        int adjoint, T* value, T* delta) {                                                    \
+    gradient_network<T, U>(nullptr, ids, rows, table, layers, params, net_size, adjoint,      \
+                           value, delta, partial, tiles);                                     \
+}                                                                                             \
+extern "C" __global__ void tile_forward_##S(const T* x, const T* params, const int* chunks,   \
+        int in, int out, int tile_inputs, int net_size, int weights, T* partial) {            \
+    tile_forward<T>(x, params, chunks, in, out, tile_inputs, net_size, weights, partial);     \
+}                                                                                             \
+extern "C" __global__ void tile_backward_##S(const T* delta, const T* params,                 \
+        const int* chunks, int in, int out, int tile_inputs, int net_size, int transposed,    \
+        T* gradient) {                                                                        \
+    tile_backward<T>(delta, params, chunks, in, out, tile_inputs, net_size, transposed,       \
+                     gradient);                                                               \
 }
 INSTANTIATE(float, f32, 8)
 INSTANTIATE(double, f64, 1)
@@ -507,6 +667,118 @@ impl<T: Scalar> ScalarNetwork<T> {
     }
 }
 
+/// A first layer with at least this many weights goes through tiles (when
+/// the precision is float32: double precision is bound by its arithmetic,
+/// not by reading weights).
+const TILED_WEIGHTS: usize = 1 << 16;
+/// Most device bytes the partial sums of a tiled first layer may take; past
+/// that the rows go through the kernel without tiles.
+const PARTIAL_LIMIT: usize = 256 << 20;
+/// Row groupings a network keeps device tables for.
+const GROUPINGS: usize = 4;
+
+/// How a network's first layer is cut into tiles (see the tile kernels).
+struct Tiling {
+    forward: CudaFunction,
+    middle: CudaFunction,
+    backward: CudaFunction,
+    /// Inputs per forward tile; rows per forward chunk (even: a warp does two).
+    forward_inputs: usize,
+    forward_rows: usize,
+    /// Inputs per backward tile (one lane each); rows per backward chunk.
+    backward_inputs: usize,
+    backward_rows: usize,
+    /// Outputs of the first layer.
+    width: usize,
+    /// Shared memory of the kernel for the other layers, bytes.
+    middle_shared: usize,
+}
+
+impl Tiling {
+    /// The tile sizes for `shape`, or `None` when its first layer is not one
+    /// for tiles: no hidden layer, a residual first layer (it needs its input
+    /// row again), or outputs too wide for a tile in shared memory.
+    fn plan<T: Scalar>(
+        device: &Device,
+        shape: &[LayerParameters<T>],
+        middle_shared: usize,
+    ) -> Result<Option<Self>> {
+        let first = &shape[0];
+        if shape.len() < 2 || first.residual {
+            return Ok(None);
+        }
+        let size = std::mem::size_of::<T>();
+        let width = first.output;
+        let padded = width.next_multiple_of(32);
+        // Forward: the tile's weights get three quarters of shared memory at
+        // most, the rows' inputs the rest.
+        let forward_inputs = (SHARED_LIMIT * 3 / 4 / (padded * size)).min(32);
+        if forward_inputs < 4 {
+            return Ok(None);
+        }
+        let room = SHARED_LIMIT - forward_inputs * padded * size;
+        let forward_rows = (room / (forward_inputs * size)).min(32) & !1;
+        // Backward: a whole warp of inputs if the tile leaves a third of
+        // shared memory to the rows' deltas, else a half or a quarter.
+        let Some(backward_inputs) = [32, 16, 8]
+            .into_iter()
+            .find(|lanes| width * lanes * size <= SHARED_LIMIT * 2 / 3)
+        else {
+            return Ok(None);
+        };
+        let room = SHARED_LIMIT - width * backward_inputs * size;
+        let backward_rows = (room / (width * size)).min(16);
+        if forward_rows < 2 || backward_rows < 1 {
+            return Ok(None);
+        }
+        let source = format!("{ACTIVATE}{GRADIENT_SOURCE}");
+        let function = |name: &str| {
+            device
+                .kernels()
+                .function(&source, &format!("{name}_{}", T::SUFFIX))
+        };
+        Ok(Some(Self {
+            forward: function("tile_forward")?,
+            middle: function("gradient_middle")?,
+            backward: function("tile_backward")?,
+            forward_inputs,
+            forward_rows,
+            backward_inputs,
+            backward_rows,
+            width,
+            middle_shared,
+        }))
+    }
+}
+
+/// Device tables for rows that come in runs of one network each.
+struct Grouping<T> {
+    groups: Vec<(usize, usize, usize)>,
+    /// `[rows]` network of each row.
+    ids: CudaSlice<i32>,
+    /// Chunks `{first row, rows, network}` for the forward and the backward
+    /// tile kernel, with their counts.
+    forward: (CudaSlice<i32>, usize),
+    backward: (CudaSlice<i32>, usize),
+    /// `[rows][forward tiles][width]` and `[rows][width]`; empty without
+    /// tiles.
+    partial: Option<CudaSlice<T>>,
+    delta: Option<CudaSlice<T>>,
+}
+
+/// Runs of rows cut into chunks of at most `rows` each: `{first, rows,
+/// network}` per chunk.
+fn chunks(groups: &[(usize, usize, usize)], rows: usize) -> Vec<i32> {
+    let mut table = Vec::new();
+    for &(network, first, count) in groups {
+        for start in (0..count).step_by(rows) {
+            let size = rows.min(count - start);
+            table.extend([(first + start) as i32, size as i32, network as i32]);
+        }
+    }
+    table
+}
+
 /// Same-shaped networks with one output per row, evaluated with the gradient
 /// of that output with respect to the row's inputs.
 pub struct GradientNetwork<T: Scalar> {
@@ -519,6 +791,11 @@ pub struct GradientNetwork<T: Scalar> {
     table: CudaSlice<i32>,
     params: CudaSlice<T>,
     function: CudaFunction,
+    /// The tile kernels and sizes, when the first layer suits them.
+    tiling: Option<Tiling>,
+    tiled: bool,
+    /// Device tables of the row groupings seen last, most recent last.
+    groupings: Vec<Grouping<T>>,
 }
 
 impl<T: Scalar> GradientNetwork<T> {
@@ -590,7 +867,13 @@ impl<T: Scalar> GradientNetwork<T> {
                 params.extend(timestep_or_ones(layer));
             }
         }
+        let size = std::mem::size_of::<T>();
+        let middle_shared = ((shared - input) * size).next_multiple_of(8);
+        let tiling = Tiling::plan(device, shape, middle_shared)?;
         Ok(Self {
+            tiled: size == 4 && input * shape[0].output >= TILED_WEIGHTS,
+            tiling,
+            groupings: Vec::new(),
             networks: networks.len(),
             input,
             layers: shape.len() as i32,
@@ -612,6 +895,230 @@ impl<T: Scalar> GradientNetwork<T> {
 
     pub fn networks(&self) -> usize {
         self.networks
+    }
+
+    /// Whether rows given in groups go through the tiled first layer.
+    pub fn tiled(&self) -> bool {
+        self.tiled && self.tiling.is_some()
+    }
+
+    /// Turns the tiled first layer on or off for
+    /// [`Self::forward_gradient_grouped`] and returns whether it is on
+    /// afterwards: a network whose first layer does not suit tiles stays
+    /// without. It is on by default for float32 networks with a first layer
+    /// of at least 65,536 weights.
+    pub fn set_tiled(&mut self, on: bool) -> bool {
+        self.tiled = on;
+        self.tiled()
+    }
+
+    /// [`Self::forward_gradient_into`] for rows sorted by network: `groups`
+    /// lists `(network, first row, rows)` of consecutive runs that cover all
+    /// rows. Knowing the runs, a wide first layer is evaluated in tiles: its
+    /// weights are read from global memory once per tile and chunk of rows
+    /// instead of once per row. The results agree with the other entry to
+    /// rounding (the sums are formed in another order).
+    pub fn forward_gradient_grouped(
+        &mut self,
+        device: &Device,
+        x: &impl DevicePtr<T>,
+        groups: &[(usize, usize, usize)],
+        rows: usize,
+        value: &mut impl DevicePtrMut<T>,
+        gradient: &mut impl DevicePtrMut<T>,
+    ) -> Result<()> {
+        let mut next = 0;
+        for &(network, first, count) in groups {
+            if network >= self.networks || first != next || count == 0 {
+                return Err(Error(format!(
+                    "row groups must be consecutive nonempty runs of networks below {}; got ({network}, {first}, {count}) at row {next}",
+                    self.networks
+                )));
+            }
+            next += count;
+        }
+        if next != rows || rows == 0 || rows > i32::MAX as usize {
+            return Err(Error(format!(
+                "row groups cover {next} rows, expected {rows} (at least one)"
+            )));
+        }
+        check_len("gradient network input", x.len(), rows * self.input)?;
+        check_len("gradient network value", value.len(), rows)?;
+        check_len(
+            "gradient network gradient",
+            gradient.len(),
+            rows * self.input,
+        )?;
+        let index = match self.groupings.iter().position(|g| g.groups == groups) {
+            Some(index) => index,
+            None => {
+                if self.groupings.len() == GROUPINGS {
+                    self.groupings.remove(0);
+                }
+                self.groupings.push(self.grouping(device, groups, rows)?);
+                self.groupings.len() - 1
+            }
+        };
+        // Taken out while in use and put back last: the least recently used
+        // grouping is the one that goes when the list is full.
+        let mut grouping = self.groupings.remove(index);
+        let result = self.run_grouped(device, &mut grouping, x, rows, value, gradient);
+        self.groupings.push(grouping);
+        result
+    }
+
+    /// The device tables for `groups`.
+    fn grouping(
+        &self,
+        device: &Device,
+        groups: &[(usize, usize, usize)],
+        rows: usize,
+    ) -> Result<Grouping<T>> {
+        let ids: Vec<i32> = groups
+            .iter()
+            .flat_map(|&(network, _, count)| std::iter::repeat_n(network as i32, count))
+            .collect();
+        let tables = |rows_per_chunk: usize| -> Result<(CudaSlice<i32>, usize)> {
+            let table = chunks(groups, rows_per_chunk);
+            Ok((device.upload(&table)?, table.len() / 3))
+        };
+        // Without tiles the chunk tables are not read: one chunk per group.
+        let (forward_rows, backward_rows) = self
+            .tiling
+            .as_ref()
+            .map_or((rows, rows), |t| (t.forward_rows, t.backward_rows));
+        let buffers = match &self.tiling {
+            Some(tiling) => {
+                let tiles = self.input.div_ceil(tiling.forward_inputs);
+                let partial = rows * tiles * tiling.width;
+                // More blocks than either tile kernel launches.
+                let blocks = (rows + groups.len()) * self.input;
+                if partial * std::mem::size_of::<T>() > PARTIAL_LIMIT || blocks > u32::MAX as usize
+                {
+                    None
+                } else {
+                    // SAFETY: the tile kernels write every element of the rows
+                    // before the next kernel reads it.
+                    Some(unsafe {
+                        (
+                            device.alloc_uninit::<T>(partial)?,
+                            device.alloc_uninit::<T>(rows * tiling.width)?,
+                        )
+                    })
+                }
+            }
+            None => None,
+        };
+        let (partial, delta) = buffers.map_or((None, None), |(p, d)| (Some(p), Some(d)));
+        Ok(Grouping {
+            groups: groups.to_vec(),
+            ids: device.upload(&ids)?,
+            forward: tables(forward_rows)?,
+            backward: tables(backward_rows)?,
+            partial,
+            delta,
+        })
+    }
+
+    /// The grouped evaluation proper: three launches with tiles (first layer
+    /// forward, the other layers row by row, first layer backward), or the
+    /// one kernel without.
+    fn run_grouped(
+        &self,
+        device: &Device,
+        grouping: &mut Grouping<T>,
+        x: &impl DevicePtr<T>,
+        rows: usize,
+        value: &mut impl DevicePtrMut<T>,
+        gradient: &mut impl DevicePtrMut<T>,
+    ) -> Result<()> {
+        let tiling = self.tiling.as_ref().filter(|_| self.tiled);
+        let (Some(tiling), Some(partial), Some(delta)) =
+            (tiling, &mut grouping.partial, &mut grouping.delta)
+        else {
+            let ids = Some(&grouping.ids);
+            return self.forward_gradient_into(device, x, ids, rows, value, gradient);
+        };
+        let stream = device.stream();
+        let size = std::mem::size_of::<T>();
+        let (input, width) = (self.input, tiling.width);
+        let (input_i, width_i) = (input as i32, width as i32);
+        let (px, _g0) = x.device_ptr(stream);
+        let (pvalue, _g1) = value.device_ptr_mut(stream);
+        let (pgradient, _g2) = gradient.device_ptr_mut(stream);
+        // The first layer's weights and their transpose lead a network's block.
+        let (weights, transposed) = (0i32, (input * width) as i32);
+
+        let tiles = input.div_ceil(tiling.forward_inputs);
+        let tile_inputs = tiling.forward_inputs as i32;
+        let shared = (tiling.forward_inputs * width.next_multiple_of(32)
+            + tiling.forward_rows * tiling.forward_inputs)
+            * size;
+        let mut launch = stream.launch_builder(&tiling.forward);
+        launch
+            .arg(&px)
+            .arg(&self.params)
+            .arg(&grouping.forward.0)
+            .arg(&input_i)
+            .arg(&width_i)
+            .arg(&tile_inputs)
+            .arg(&self.net_size)
+            .arg(&weights)
+            .arg(&mut *partial);
+        let config = LaunchConfig {
+            grid_dim: ((grouping.forward.1 * tiles) as u32, 1, 1),
+            block_dim: (16 * tiling.forward_rows as u32, 1, 1),
+            shared_mem_bytes: shared.next_multiple_of(8) as u32,
+        };
+        unsafe { launch.launch(config) }
+            .map(drop)
+            .map_err(cuda_error("first layer tile launch"))?;
+
+        let (tiles_i, rows_i) = (tiles as i32, rows as i64);
+        let mut launch = stream.launch_builder(&tiling.middle);
+        launch
+            .arg(&*partial)
+            .arg(&tiles_i)
+            .arg(&grouping.ids)
+            .arg(&rows_i)
+            .arg(&self.table)
+            .arg(&self.layers)
+            .arg(&self.params)
+            .arg(&self.net_size)
+            .arg(&self.adjoint)
+            .arg(&pvalue)
+            .arg(&mut *delta);
+        let config = LaunchConfig {
+            grid_dim: (rows as u32, 1, 1),
+            block_dim: (GRADIENT_BLOCK as u32, 1, 1),
+            shared_mem_bytes: tiling.middle_shared as u32,
+        };
+        unsafe { launch.launch(config) }
+            .map(drop)
+            .map_err(cuda_error("gradient network launch"))?;
+
+        let tiles = input.div_ceil(tiling.backward_inputs);
+        let tile_inputs = tiling.backward_inputs as i32;
+        let shared = (width * tiling.backward_inputs + tiling.backward_rows * width) * size;
+        let mut launch = stream.launch_builder(&tiling.backward);
+        launch
+            .arg(&*delta)
+            .arg(&self.params)
+            .arg(&grouping.backward.0)
+            .arg(&input_i)
+            .arg(&width_i)
+            .arg(&tile_inputs)
+            .arg(&self.net_size)
+            .arg(&transposed)
+            .arg(&pgradient);
+        let config = LaunchConfig {
+            grid_dim: ((grouping.backward.1 * tiles) as u32, 1, 1),
+            block_dim: (32 * tiling.backward_rows as u32, 1, 1),
+            shared_mem_bytes: shared.next_multiple_of(8) as u32,
+        };
+        unsafe { launch.launch(config) }
+            .map(drop)
+            .map_err(cuda_error("first layer tile launch"))
     }
 
     /// `value[rows]` and `gradient[rows][input]` for `x[rows][input]`; row `r`
