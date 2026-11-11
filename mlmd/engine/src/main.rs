@@ -4,8 +4,9 @@ mod minimize_command;
 mod parameter_backend;
 mod replicas_command;
 use omnimd_deepmd::{DeepMd, Device, LoadOptions};
-use omnimd_ml_contract::{Frame, Potential};
+use omnimd_ml_contract::{Committee, Frame, Potential, Separate};
 use omnimd_mlmd::{
+    deviation::{self, ForceWindow, ModelDeviation, MAX_MODELS},
     initialize_velocities, prepare_velocities, system_from_frame, Checkpoint, Ensemble,
     EnsembleState, MlipDynamics, StateView, VelocityInitialization,
 };
@@ -67,6 +68,9 @@ enum Backend {
     NativeCuda(omnimd_native::cuda::CudaPotential),
     #[cfg(feature = "native-gpu")]
     NativeGpu(Box<dyn Potential>),
+    /// A model with the other members of its ensemble: as a potential, the
+    /// first of them.
+    Members(Box<dyn Committee>),
 }
 
 /// Frames of a dataset that a backend which shares work between frames
@@ -134,6 +138,238 @@ impl Backend {
             Self::NativeGpu(_) => true,
             _ => false,
         }
+    }
+}
+
+/// What the members of one ensemble must share to be evaluated in one
+/// worker: the CPU for all, or the same `cuda:N` with the omnimd-gpu runtime
+/// for all; and, for C API members, one runtime library.
+fn validate_members(members: &[&BackendOptions]) -> Result<(), Box<dyn Error>> {
+    let mut library = None;
+    for member in members {
+        let device = member.device();
+        if device != members[0].device()
+            || (device != Device::Cpu && member.gpu_runtime().is_none())
+        {
+            return Err(
+                "the members of an ensemble need the CPU for every member, or the same cuda:N with gpu_runtime for every member"
+                    .into(),
+            );
+        }
+        member.validate()?;
+        if let BackendOptions::DeepMd(options) = member {
+            let path = options.library.canonicalize()?;
+            if library.as_ref().is_some_and(|old| *old != path) {
+                return Err("all C API ensemble members must use the same runtime library".into());
+            }
+            library = Some(path);
+        }
+    }
+    Ok(())
+}
+
+/// The members of an ensemble, loaded.
+struct Members {
+    committee: Box<dyn Committee>,
+    /// The metadata of each member.
+    metadata: Vec<omnimd_ml_contract::ModelMetadata>,
+    /// How the members are evaluated, for the record.
+    evaluation: &'static str,
+    /// Whether a batch of frames costs less than its frames one by one.
+    batched: bool,
+}
+
+/// The members as one committee on the omnimd-gpu runtime, when every
+/// member selects that runtime with the same options and the models share
+/// one architecture. `None` otherwise.
+#[cfg(feature = "native-gpu")]
+fn gpu_committee(
+    members: &[&BackendOptions],
+) -> Result<Option<Box<dyn Committee>>, Box<dyn Error>> {
+    let (Some(runtime), Device::Cuda(index)) = (members[0].gpu_runtime(), members[0].device())
+    else {
+        return Ok(None);
+    };
+    if members
+        .iter()
+        .any(|member| member.gpu_runtime() != Some(runtime))
+    {
+        return Ok(None);
+    }
+    let loaded = members
+        .iter()
+        .map(|member| omnimd_native::NativePotential::load(member.model_path()))
+        .collect::<Result<Vec<_>, _>>()?;
+    let models: Vec<&omnimd_native::Model> = loaded.iter().map(|p| p.model()).collect();
+    if let Some(reason) = omnimd_native::gpu_model::committee_mismatch(&models) {
+        eprintln!("omnimd-mlmd: the members are evaluated one by one: {reason}");
+        return Ok(None);
+    }
+    Ok(Some(omnimd_native::gpu_model::open_committee(
+        &models,
+        gpu_ordinal(index)?,
+        gpu_options(runtime),
+    )?))
+}
+
+#[cfg(not(feature = "native-gpu"))]
+fn gpu_committee(_: &[&BackendOptions]) -> Result<Option<Box<dyn Committee>>, Box<dyn Error>> {
+    Ok(None)
+}
+
+/// Loads the members of an ensemble: as one committee on the device where
+/// they can share its passes, else one after the other. `name` names member
+/// `index` in error messages.
+fn load_members(
+    members: &[&BackendOptions],
+    name: &dyn Fn(usize) -> String,
+) -> Result<Members, Box<dyn Error>> {
+    if let Some(committee) = gpu_committee(members)? {
+        // Alike in all that their metadata says.
+        return Ok(Members {
+            metadata: vec![committee.metadata().clone(); members.len()],
+            committee,
+            evaluation: "all members together, a batch of frames in one device pass",
+            batched: true,
+        });
+    }
+    let mut models = Vec::with_capacity(members.len());
+    for (index, member) in members.iter().enumerate() {
+        let model = member.load()?;
+        if let Backend::DeepMd(deepmd) = &model {
+            let details = deepmd.details();
+            if details.frame_parameter_dim != 0 || details.atom_parameter_dim != 0 {
+                return Err(format!(
+                    "{} requires parameters; use the standalone parameter-aware C API instead",
+                    name(index)
+                )
+                .into());
+            }
+        }
+        models.push(model);
+    }
+    let batched = models.iter().all(Backend::shares_frames);
+    Ok(Members {
+        metadata: models
+            .iter()
+            .map(|model| model.metadata().clone())
+            .collect(),
+        committee: Box::new(Separate::new(models)?),
+        evaluation: match batched {
+            true => "member by member, a batch of frames in one device pass each",
+            false => "member by member, frame by frame",
+        },
+        batched,
+    })
+}
+
+/// The other members of the ensemble of a run's model, to compare with it on
+/// the sampled frames.
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct DeviationInput {
+    /// The models besides that of `options`, which is the first member.
+    models: Vec<BackendOptions>,
+    /// Marks sampled frames as candidates, as `model-deviation` does.
+    force_window: Option<ForceWindow>,
+}
+
+impl DeviationInput {
+    /// The model of the run and the others, in the order of the members.
+    fn members<'a>(&'a self, driving: &'a BackendOptions) -> Vec<&'a BackendOptions> {
+        std::iter::once(driving).chain(&self.models).collect()
+    }
+
+    fn validate(&self, driving: &BackendOptions) -> Result<(), Box<dyn Error>> {
+        if self.models.is_empty() || self.models.len() >= MAX_MODELS {
+            return Err(format!(
+                "deviation takes 1..={} models besides the one of the run",
+                MAX_MODELS - 1
+            )
+            .into());
+        }
+        if let Some(window) = self.force_window {
+            window.validate()?;
+        }
+        validate_members(&self.members(driving))
+    }
+
+    /// The members, loaded, and what the header of a trajectory says of them.
+    fn load(
+        &self,
+        driving: &BackendOptions,
+    ) -> Result<(Box<dyn Committee>, serde_json::Value), Box<dyn Error>> {
+        let members = self.members(driving);
+        let name = |index: usize| match index {
+            0 => "the model of the run".to_string(),
+            other => format!("deviation model {other}"),
+        };
+        let loaded = load_members(&members, &name)?;
+        let models = members
+            .iter()
+            .map(|member| {
+                Ok(json!({"model": member.model_path(),
+                    "model_sha256": model_hash(member.model_path())?}))
+            })
+            .collect::<Result<Vec<_>, Box<dyn Error>>>()?;
+        let header = json!({"models": models, "evaluation": loaded.evaluation,
+            "force_window": self.force_window,
+            "statistics": "as model-deviation: absolute population std over the models on each sampled frame"});
+        Ok((loaded.committee, header))
+    }
+}
+
+/// What the members of an ensemble say of the sampled frames of a run.
+struct DeviationLog {
+    window: Option<ForceWindow>,
+    frames: u64,
+    /// Frames below, inside and at or above the force window.
+    accurate: u64,
+    candidates: u64,
+    failed: u64,
+    maximum: f64,
+}
+
+impl DeviationLog {
+    fn new(window: Option<ForceWindow>) -> Self {
+        Self {
+            window,
+            frames: 0,
+            accurate: 0,
+            candidates: 0,
+            failed: 0,
+            maximum: 0.0,
+        }
+    }
+
+    /// Counts a frame and returns whether it is a candidate (no window, no
+    /// answer).
+    fn note(&mut self, statistics: &ModelDeviation) -> Option<bool> {
+        let largest = statistics.force_ev_per_angstrom.max;
+        self.frames += 1;
+        self.maximum = self.maximum.max(largest);
+        let window = self.window?;
+        self.accurate += u64::from(largest < window.min_ev_per_angstrom);
+        self.failed += u64::from(largest >= window.max_ev_per_angstrom);
+        let candidate = window.contains(largest);
+        self.candidates += u64::from(candidate);
+        Some(candidate)
+    }
+}
+
+/// The deviation among the members on each of `frames`, when the model is an
+/// ensemble; `None` for a single model.
+fn deviations(
+    model: &mut Backend,
+    frames: &[&Frame],
+) -> Result<Option<Vec<ModelDeviation>>, Box<dyn Error>> {
+    match model {
+        Backend::Members(committee) => Ok(Some(deviation::evaluate_frames(
+            committee.as_mut(),
+            frames,
+            false,
+        )?)),
+        _ => Ok(None),
     }
 }
 
@@ -277,6 +513,7 @@ impl Potential for Backend {
             Self::NativeCuda(model) => model.metadata(),
             #[cfg(feature = "native-gpu")]
             Self::NativeGpu(model) => model.metadata(),
+            Self::Members(model) => model.metadata(),
         }
     }
     fn eval(
@@ -291,6 +528,7 @@ impl Potential for Backend {
             Self::NativeCuda(model) => model.eval(frame),
             #[cfg(feature = "native-gpu")]
             Self::NativeGpu(model) => model.eval(frame),
+            Self::Members(model) => model.eval(frame),
         }
     }
     fn eval_batch(
@@ -300,6 +538,7 @@ impl Potential for Backend {
         match self {
             #[cfg(feature = "native-gpu")]
             Self::NativeGpu(model) => model.eval_batch(frames),
+            Self::Members(model) => model.eval_batch(frames),
             _ => frames.iter().map(|frame| self.eval(frame)).collect(),
         }
     }
@@ -330,6 +569,7 @@ struct Request {
     steps: u64,
     sample_every: u64,
     checkpoint_every: Option<u64>,
+    deviation: Option<DeviationInput>,
 }
 
 /// The part of a request that describes one system and how it is driven.
@@ -485,20 +725,23 @@ fn prepare_system(
     Ok((system, state, fixed_parameters))
 }
 
-fn prepare(
-    request: &Request,
-) -> Result<
-    (
-        MlipDynamics<Backend>,
-        EnsembleState,
-        String,
-        Option<omnimd_mlmd::parameters::FixedParameters>,
-    ),
-    Box<dyn Error>,
-> {
+/// A run made ready: its dynamics and ensemble state, the hash of its model,
+/// its fixed parameters, and what the header says of a model deviation.
+type Prepared = (
+    MlipDynamics<Backend>,
+    EnsembleState,
+    String,
+    Option<omnimd_mlmd::parameters::FixedParameters>,
+    Option<serde_json::Value>,
+);
+
+fn prepare(request: &Request) -> Result<Prepared, Box<dyn Error>> {
     request.options.validate()?;
     if request.sample_every == 0 || request.checkpoint_every == Some(0) {
         return Err("sample_every and checkpoint_every must be positive".into());
+    }
+    if let Some(deviation) = &request.deviation {
+        deviation.validate(&request.options)?;
     }
     let hash = model_hash(request.options.model_path())?;
     let (system, state, fixed_parameters) =
@@ -507,7 +750,16 @@ fn prepare(
         &request.options,
         fixed_parameters.as_ref().map(|p| &p.layout),
     )?;
-    let model = request.options.load()?;
+    let (model, deviation) = match &request.deviation {
+        Some(_) if fixed_parameters.is_some() => {
+            return Err("a run with deviation does not carry frame or atom parameters".into())
+        }
+        Some(deviation) => {
+            let (committee, header) = deviation.load(&request.options)?;
+            (Backend::Members(committee), Some(header))
+        }
+        None => (request.options.load()?, None),
+    };
     let model = match (model, fixed_parameters.clone()) {
         (Backend::DeepMd(model), Some(fixed)) => {
             parameter_backend::validate_layout(&model, &fixed.layout)?;
@@ -517,13 +769,16 @@ fn prepare(
         (_, Some(_)) => return Err("fixed parameters require CPU C API".into()),
     };
     let md = MlipDynamics::new(system, model, request.timestep_fs)?;
-    Ok((md, state, hash, fixed_parameters))
+    Ok((md, state, hash, fixed_parameters, deviation))
 }
 
+/// Writes the frame record of the current state; `extra` are further
+/// entries of the record.
 fn write_snapshot(
     writer: &mut impl Write,
     md: StateView<'_>,
     state: &EnsembleState,
+    extra: Option<serde_json::Value>,
 ) -> Result<(), Box<dyn Error>> {
     // Reuse diagnostics while this immutable snapshot is validated and written.
     // Keep the existing kinetic sum and temperature calculation order.
@@ -574,6 +829,11 @@ fn write_snapshot(
     if state.ensemble.is_variable_cell() {
         record["barostat_work_ev"] = json!(state.barostat_work_ev);
     }
+    if let Some(serde_json::Value::Object(entries)) = extra {
+        for (key, value) in entries {
+            record[key] = value;
+        }
+    }
     serde_json::to_writer(&mut *writer, &record)?;
     writer.write_all(b"\n")?;
     Ok(())
@@ -615,6 +875,13 @@ struct Schedule {
     checkpoint_every: Option<u64>,
 }
 
+impl Schedule {
+    /// Whether the frame after step `step` of the run is written.
+    fn samples(&self, step: u64) -> bool {
+        step % self.sample_every == 0 || step == self.steps
+    }
+}
+
 /// One trajectory in the writing: its file, the model and parameters its
 /// checkpoints are bound to, and the energies its completed record reports.
 struct Recorder {
@@ -626,12 +893,16 @@ struct Recorder {
     initial_effective: f64,
     max_drift: f64,
     max_effective_drift: f64,
+    /// The members' disagreement on the sampled frames, in a run with
+    /// model deviation.
+    deviation: Option<DeviationLog>,
 }
 
 impl Recorder {
-    /// Creates the trajectory at `output` with its header and the frame of
-    /// the starting state. `input` is the request the system came from;
-    /// `extra` are further header entries.
+    /// Creates the trajectory at `output` with its header; the frame of the
+    /// starting state follows with [`Self::sample`]. `input` is the request
+    /// the system came from; `extra` are further header entries. `window`
+    /// is given in a run with model deviation: its force window, if any.
     #[allow(clippy::too_many_arguments)]
     fn create(
         output: &Path,
@@ -642,6 +913,7 @@ impl Recorder {
         hash: &str,
         fixed_parameters: Option<omnimd_mlmd::parameters::FixedParameters>,
         extra: serde_json::Value,
+        window: Option<Option<ForceWindow>>,
     ) -> Result<Self, Box<dyn Error>> {
         if checkpoint_path(output, None).exists() {
             return Err("checkpoint output already exists".into());
@@ -674,7 +946,6 @@ impl Recorder {
         }
         serde_json::to_writer(&mut writer, &header)?;
         writer.write_all(b"\n")?;
-        write_snapshot(&mut writer, md, state)?;
         let initial = md.total_energy_ev();
         Ok(Self {
             output: output.to_owned(),
@@ -685,17 +956,40 @@ impl Recorder {
             initial_effective: initial - state.heat_ev - state.barostat_work_ev,
             max_drift: 0.0,
             max_effective_drift: 0.0,
+            deviation: window.map(DeviationLog::new),
         })
     }
 
+    /// Writes the frame of the current state. In a run with model deviation
+    /// `deviation` is what the members say of it: the frame carries it, and
+    /// whether that makes it a candidate.
+    fn sample(
+        &mut self,
+        md: StateView<'_>,
+        state: &EnsembleState,
+        deviation: Option<&ModelDeviation>,
+    ) -> Result<(), Box<dyn Error>> {
+        let extra = match (&mut self.deviation, deviation) {
+            (Some(log), Some(statistics)) => {
+                let candidate = log.note(statistics);
+                Some(json!({"model_deviation": statistics, "candidate": candidate}))
+            }
+            (None, None) => None,
+            _ => return Err("a run with model deviation has it for every sampled frame".into()),
+        };
+        write_snapshot(&mut self.writer, md, state, extra)
+    }
+
     /// After step `step` of the run: the energy drift so far, the frame if
-    /// this is a step to sample, and a checkpoint if one is due.
+    /// this is a step to sample (with its model deviation, see
+    /// [`Self::sample`]), and a checkpoint if one is due.
     fn after_step(
         &mut self,
         step: u64,
         schedule: &Schedule,
         md: StateView<'_>,
         state: &EnsembleState,
+        deviation: Option<&ModelDeviation>,
     ) -> Result<(), Box<dyn Error>> {
         let total_energy_ev = md.total_energy_ev();
         self.max_drift = self.max_drift.max((total_energy_ev - self.initial).abs());
@@ -703,8 +997,8 @@ impl Recorder {
             (total_energy_ev - state.heat_ev - state.barostat_work_ev - self.initial_effective)
                 .abs(),
         );
-        if step % schedule.sample_every == 0 || step == schedule.steps {
-            write_snapshot(&mut self.writer, md, state)?;
+        if schedule.samples(step) {
+            self.sample(md, state, deviation)?;
             self.writer.flush()?;
         }
         if schedule.checkpoint_every.is_some_and(|n| step % n == 0) && step != schedule.steps {
@@ -736,18 +1030,25 @@ impl Recorder {
             self.fixed_parameters.as_ref(),
         )?;
         let nve_drift = matches!(state.ensemble, Ensemble::Nve).then_some(self.max_drift);
-        serde_json::to_writer(
-            &mut self.writer,
-            &json!({
-                "kind":"completed", "steps":schedule.steps, "final_step":md.system().step,
-                "initial_total_energy_ev":self.initial, "final_total_energy_ev":md.total_energy_ev(),
-                "max_absolute_energy_drift_ev":nve_drift,
-                "max_absolute_effective_energy_drift_ev":self.max_effective_drift,
-                "thermostat_heat_ev":state.heat_ev, "barostat_work_ev":state.barostat_work_ev,
-                "barostat_moves":state.barostat_moves, "barostat_refused":state.barostat_refused,
-                "checkpoint":restart_output
-            }),
-        )?;
+        let mut completed = json!({
+            "kind":"completed", "steps":schedule.steps, "final_step":md.system().step,
+            "initial_total_energy_ev":self.initial, "final_total_energy_ev":md.total_energy_ev(),
+            "max_absolute_energy_drift_ev":nve_drift,
+            "max_absolute_effective_energy_drift_ev":self.max_effective_drift,
+            "thermostat_heat_ev":state.heat_ev, "barostat_work_ev":state.barostat_work_ev,
+            "barostat_moves":state.barostat_moves, "barostat_refused":state.barostat_refused,
+            "checkpoint":restart_output
+        });
+        if let Some(log) = &self.deviation {
+            // The counts of `model-deviation`, over the sampled frames.
+            let counted = |count: u64| log.window.map(|_| count);
+            completed["deviation"] = json!({"frames": log.frames,
+                "accurate_frames": counted(log.accurate),
+                "candidate_frames": counted(log.candidates),
+                "failed_frames": counted(log.failed),
+                "max_force_deviation_ev_per_angstrom": log.maximum});
+        }
+        serde_json::to_writer(&mut self.writer, &completed)?;
         self.writer.write_all(b"\n")?;
         self.writer.flush()?;
         Ok(restart_output)
@@ -756,7 +1057,7 @@ impl Recorder {
 
 fn worker(input: &Path, output: Option<&Path>) -> Result<(), Box<dyn Error>> {
     let request: Request = serde_json::from_str(&fs::read_to_string(input)?)?;
-    let (mut md, mut state, hash, fixed_parameters) = prepare(&request)?;
+    let (mut md, mut state, hash, fixed_parameters, deviation) = prepare(&request)?;
     let Some(output) = output else {
         println!(
             "Valid model/run: {} atoms, {} DOF, {:.6} K, E = {:.12} eV, ensemble {:?}",
@@ -775,6 +1076,12 @@ fn worker(input: &Path, output: Option<&Path>) -> Result<(), Box<dyn Error>> {
         sample_every: request.sample_every,
         checkpoint_every: request.checkpoint_every,
     };
+    // What the other members of the model's ensemble say of the frame the
+    // run is at, when it has them.
+    let disagreement = |md: &mut MlipDynamics<Backend>| -> Result<_, Box<dyn Error>> {
+        let frame = md.frame();
+        Ok(deviations(md.potential_mut(), &[&frame])?.map(|mut all| all.remove(0)))
+    };
     let mut recorder = Recorder::create(
         output,
         &schedule,
@@ -783,12 +1090,22 @@ fn worker(input: &Path, output: Option<&Path>) -> Result<(), Box<dyn Error>> {
         &state,
         &hash,
         fixed_parameters,
-        json!({}),
+        match deviation {
+            Some(header) => json!({"deviation": header}),
+            None => json!({}),
+        },
+        request.deviation.as_ref().map(|d| d.force_window),
     )?;
+    let first = disagreement(&mut md)?;
+    recorder.sample(md.view(), &state, first.as_ref())?;
     let started = std::time::Instant::now();
     for step in 1..=request.steps {
         state.advance(&mut md)?;
-        recorder.after_step(step, &schedule, md.view(), &state)?;
+        let now = match schedule.samples(step) {
+            true => disagreement(&mut md)?,
+            false => None,
+        };
+        recorder.after_step(step, &schedule, md.view(), &state, now.as_ref())?;
     }
     report_rate(request.steps, 1, started.elapsed().as_secs_f64());
     recorder.finish(&schedule, md.view(), &state)?;

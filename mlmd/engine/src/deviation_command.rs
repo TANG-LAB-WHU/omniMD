@@ -1,9 +1,9 @@
 //! Ensemble CLI, using existing model loaders and dataset records. Members
 //! on the omnimd-gpu runtime that share one architecture are evaluated
 //! together, a batch of frames in one device pass.
-use super::{Backend, BackendOptions};
+use super::BackendOptions;
 use omnimd_deepmd::Device;
-use omnimd_ml_contract::{Committee, Frame, Potential, Separate};
+use omnimd_ml_contract::Frame;
 use omnimd_mlmd::{
     dataset::{self, DatasetReader},
     deviation::{self, ForceWindow, MAX_MODELS},
@@ -38,6 +38,10 @@ struct Request {
     force_window: Option<ForceWindow>,
 }
 impl Request {
+    fn options(&self) -> Vec<&BackendOptions> {
+        self.models.iter().map(|member| &member.options).collect()
+    }
+
     fn read(path: &Path) -> Result<Self> {
         let request: Self = serde_json::from_str(&fs::read_to_string(path)?)?;
         if request.schema != "omnimd-model-deviation-v1" {
@@ -53,77 +57,15 @@ impl Request {
             window.validate()?;
         }
         let mut ids = HashSet::new();
-        let mut library = None;
         for member in &request.models {
             if member.id.trim().is_empty() || member.id.len() > 128 || !ids.insert(&member.id) {
                 return Err("model IDs must be nonempty, unique and at most 128 bytes".into());
             }
-            // One worker, one device: CPU for every member, or the same
-            // cuda:N with the omnimd-gpu runtime for every member.
-            let device = member.options.device();
-            if device != request.models[0].options.device()
-                || (device != Device::Cpu && member.options.gpu_runtime().is_none())
-            {
-                return Err(
-                    "model-deviation requires CPU for every member, or the same cuda:N with gpu_runtime for every member"
-                        .into(),
-                );
-            }
-            member.options.validate()?;
-            if let BackendOptions::DeepMd(options) = &member.options {
-                let path = options.library.canonicalize()?;
-                if library.as_ref().is_some_and(|old| *old != path) {
-                    return Err(
-                        "all C API ensemble members must use the same runtime library".into(),
-                    );
-                }
-                library = Some(path);
-            }
         }
+        super::validate_members(&request.options())?;
         Ok(request)
     }
 }
-/// The members as one committee on the omnimd-gpu runtime, when every
-/// member selects that runtime with the same options and the models share
-/// one architecture. `None` otherwise: the members are then loaded and
-/// evaluated one by one.
-#[cfg(feature = "native-gpu")]
-fn together(request: &Request) -> Result<Option<Box<dyn Committee>>> {
-    let (Some(runtime), Device::Cuda(index)) = (
-        request.models[0].options.gpu_runtime(),
-        request.models[0].options.device(),
-    ) else {
-        return Ok(None);
-    };
-    if request
-        .models
-        .iter()
-        .any(|member| member.options.gpu_runtime() != Some(runtime))
-    {
-        return Ok(None);
-    }
-    let loaded = request
-        .models
-        .iter()
-        .map(|member| omnimd_native::NativePotential::load(member.options.model_path()))
-        .collect::<std::result::Result<Vec<_>, _>>()?;
-    let models: Vec<&omnimd_native::Model> = loaded.iter().map(|p| p.model()).collect();
-    if let Some(reason) = omnimd_native::gpu_model::committee_mismatch(&models) {
-        eprintln!("omnimd-mlmd: the members are evaluated one by one: {reason}");
-        return Ok(None);
-    }
-    Ok(Some(omnimd_native::gpu_model::open_committee(
-        &models,
-        super::gpu_ordinal(index)?,
-        super::gpu_options(runtime),
-    )?))
-}
-
-#[cfg(not(feature = "native-gpu"))]
-fn together(_: &Request) -> Result<Option<Box<dyn Committee>>> {
-    Ok(None)
-}
-
 fn worker(input: &Path, output: &Path) -> Result<()> {
     let request = Request::read(input)?;
     if output.exists() {
@@ -133,30 +75,14 @@ fn worker(input: &Path, output: &Path) -> Result<()> {
     if reader.header.parameter_layout.is_some() {
         return Err("model-deviation does not yet accept parameterized dataset v2".into());
     }
-    let shared = together(&request)?;
-    let mut models = Vec::with_capacity(request.models.len());
+    let loaded = super::load_members(&request.options(), &|index| {
+        format!("model {}", request.models[index].id)
+    })?;
     let mut provenance = Vec::with_capacity(request.models.len());
     let mut hashes = HashSet::new();
-    for member in &request.models {
+    for (member, metadata) in request.models.iter().zip(&loaded.metadata) {
         let hash = dataset::sha256(member.options.model_path())?;
         hashes.insert(hash.clone());
-        // The members of a committee are loaded already, and alike in all
-        // that their metadata says.
-        let model = match &shared {
-            Some(_) => None,
-            None => Some(member.options.load()?),
-        };
-        if let Some(Backend::DeepMd(deepmd)) = &model {
-            let details = deepmd.details();
-            if details.frame_parameter_dim != 0 || details.atom_parameter_dim != 0 {
-                return Err(format!("model {} requires parameters; use the standalone parameter-aware C API instead", member.id).into());
-            }
-        }
-        let metadata = match (&shared, &model) {
-            (Some(committee), _) => committee.metadata(),
-            (None, Some(model)) => model.metadata(),
-            (None, None) => return Err("ensemble member was not loaded".into()),
-        };
         if metadata.type_map != reader.header.type_map || metadata.units != reader.header.units {
             return Err(format!(
                 "model {} and dataset must have identical ordered type maps and units",
@@ -170,20 +96,11 @@ fn worker(input: &Path, output: &Path) -> Result<()> {
         };
         provenance.push(json!({"id":member.id,"model":member.options.model_path(),
             "model_sha256":hash,"library_sha256":library_hash,"metadata":metadata}));
-        models.extend(model);
     }
     // How many frames go through the models at once: a batch where that
     // saves work, else one.
-    let batched = shared.is_some() || models.iter().all(Backend::shares_frames);
-    let evaluation = match (&shared, batched) {
-        (Some(_), _) => "all members together, a batch of frames in one device pass",
-        (None, true) => "member by member, a batch of frames in one device pass each",
-        (None, false) => "member by member, frame by frame",
-    };
-    let mut committee: Box<dyn Committee> = match shared {
-        Some(committee) => committee,
-        None => Box::new(Separate::new(models)?),
-    };
+    let (batched, evaluation) = (loaded.batched, loaded.evaluation);
+    let mut committee = loaded.committee;
     let members = committee.members();
     let (batch_frames, batch_atoms) = match batched {
         true => (super::BATCH_FRAMES, super::BATCH_ATOMS / members),

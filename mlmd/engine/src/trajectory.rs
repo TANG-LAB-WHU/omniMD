@@ -31,6 +31,11 @@ pub struct TrajectoryRequest {
     /// Keep every this many of the remaining sampled frames.
     #[serde(default = "one")]
     pub stride: u64,
+    /// Keep only the frames the run marked as candidates: a run with
+    /// `deviation` and a force window marks the sampled frames whose largest
+    /// force deviation among the members lies in the window.
+    #[serde(default)]
+    pub candidates_only: bool,
 }
 
 fn one() -> u64 {
@@ -48,6 +53,9 @@ enum Line {
     Frame {
         step: u64,
         frame: Frame,
+        /// Present in runs with model deviation; null without a force window.
+        #[serde(default)]
+        candidate: Option<bool>,
     },
     Completed {
         final_step: u64,
@@ -131,7 +139,11 @@ pub fn import_trajectory(request: &TrajectoryRequest, output: &Path) -> Result<u
         match record {
             Line::Header { .. } => return Err("trajectory has a second header".into()),
             Line::Completed { final_step } => completed = Some(final_step),
-            Line::Frame { step, frame } => {
+            Line::Frame {
+                step,
+                frame,
+                candidate,
+            } => {
                 if last_step.is_some_and(|last| step <= last) {
                     return Err("trajectory steps must increase".into());
                 }
@@ -139,6 +151,18 @@ pub fn import_trajectory(request: &TrajectoryRequest, output: &Path) -> Result<u
                 frame.type_ids(&metadata)?;
                 if step < request.first_step {
                     continue;
+                }
+                if request.candidates_only {
+                    match candidate {
+                        Some(true) => {}
+                        Some(false) => continue,
+                        None => {
+                            return Err(format!(
+                                "the frame of step {step} carries no candidate mark; candidates_only needs a run with deviation and a force window"
+                            )
+                            .into())
+                        }
+                    }
                 }
                 eligible += 1;
                 if (eligible - 1) % request.stride != 0 {
@@ -167,7 +191,13 @@ pub fn import_trajectory(request: &TrajectoryRequest, output: &Path) -> Result<u
         );
     }
     if written == 0 {
-        return Err("no trajectory frame at or after first_step".into());
+        // A dataset holds at least one frame; the completed record of the
+        // run says how many candidates it marked.
+        return Err(match request.candidates_only {
+            true => "the run marked no candidate frame at or after first_step",
+            false => "no trajectory frame at or after first_step",
+        }
+        .into());
     }
     dataset::write_line(
         &mut writer,

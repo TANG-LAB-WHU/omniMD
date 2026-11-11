@@ -2,7 +2,9 @@
 //! the model for all systems in one batch, which a backend that shares work
 //! between frames (the omnimd-gpu runtime) answers in one device pass. Each
 //! replica writes the trajectory and the checkpoints it would write alone.
-use super::{BackendOptions, DynamicsUnits, Recorder, Schedule, SystemInput};
+use super::{
+    Backend, BackendOptions, DeviationInput, DynamicsUnits, Recorder, Schedule, SystemInput,
+};
 use omnimd_ml_contract::Frame;
 use omnimd_mlmd::{
     advance_replicas, dataset::FrameReference, Ensemble, MlipReplicas, VelocityInitialization,
@@ -68,6 +70,9 @@ struct Request {
     steps: u64,
     sample_every: u64,
     checkpoint_every: Option<u64>,
+    /// The other members of the model's ensemble, compared with it on the
+    /// sampled frames of every replica.
+    deviation: Option<DeviationInput>,
 }
 
 impl Request {
@@ -79,6 +84,9 @@ impl Request {
         request.options.validate()?;
         if request.sample_every == 0 || request.checkpoint_every == Some(0) {
             return Err("sample_every and checkpoint_every must be positive".into());
+        }
+        if let Some(deviation) = &request.deviation {
+            deviation.validate(&request.options)?;
         }
         if !(1..=MAX_REPLICAS).contains(&request.replicas.len()) {
             return Err(format!("a replica run takes 1..={MAX_REPLICAS} replicas").into());
@@ -130,8 +138,21 @@ fn worker(input: &Path, directory: &Path) -> Result<()> {
         states.push(state);
     }
     super::parameter_backend::validate_request(&request.options, None)?;
-    let model = request.options.load()?;
+    let (model, deviation) = match &request.deviation {
+        Some(deviation) => {
+            let (committee, header) = deviation.load(&request.options)?;
+            (Backend::Members(committee), Some(header))
+        }
+        None => (request.options.load()?, None),
+    };
     let mut md = MlipReplicas::new(systems, model, request.timestep_fs)?;
+    // What the members say of the frames all replicas are at, in one
+    // evaluation; nothing for a single model.
+    let disagreement = |md: &mut MlipReplicas<Backend>| -> Result<_> {
+        let frames: Vec<Frame> = (0..md.len()).map(|index| md.view(index).frame()).collect();
+        let frames: Vec<&Frame> = frames.iter().collect();
+        super::deviations(md.potential_mut(), &frames)
+    };
     let schedule = Schedule {
         dynamics_units: request.dynamics_units,
         timestep_fs: request.timestep_fs,
@@ -151,15 +172,30 @@ fn worker(input: &Path, directory: &Path) -> Result<()> {
             &states[index],
             &hash,
             None,
-            json!({"replica": {"name": replica.name, "index": index, "of": count}}),
+            match &deviation {
+                Some(header) => json!({"deviation": header,
+                    "replica": {"name": replica.name, "index": index, "of": count}}),
+                None => json!({"replica": {"name": replica.name, "index": index, "of": count}}),
+            },
+            request.deviation.as_ref().map(|d| d.force_window),
         )?);
+    }
+    let first = disagreement(&mut md)?;
+    for (index, recorder) in recorders.iter_mut().enumerate() {
+        let of_replica = first.as_ref().map(|all| &all[index]);
+        recorder.sample(md.view(index), &states[index], of_replica)?;
     }
     let started = std::time::Instant::now();
     for step in 1..=request.steps {
         advance_replicas(&mut states, &mut md)
             .map_err(|e| format!("step {step} of the replicas: {e}"))?;
+        let now = match schedule.samples(step) {
+            true => disagreement(&mut md)?,
+            false => None,
+        };
         for (index, recorder) in recorders.iter_mut().enumerate() {
-            recorder.after_step(step, &schedule, md.view(index), &states[index])?;
+            let of_replica = now.as_ref().map(|all| &all[index]);
+            recorder.after_step(step, &schedule, md.view(index), &states[index], of_replica)?;
         }
     }
     let stepping_seconds = started.elapsed().as_secs_f64();

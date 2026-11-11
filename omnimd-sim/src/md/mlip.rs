@@ -627,6 +627,13 @@ impl<P: Potential> MlipDynamics<P> {
         Ok(exchange)
     }
 
+    /// The model, for further questions about the current frame (for
+    /// example what the other members of its ensemble say of it). The cached
+    /// evaluation stays that of the current positions.
+    pub fn potential_mut(&mut self) -> &mut P {
+        &mut self.potential
+    }
+
     /// The state to read, as the replicas of [`MlipReplicas`] give theirs.
     pub fn view(&self) -> StateView<'_> {
         self.replica.view(
@@ -730,6 +737,11 @@ impl<P: Potential> MlipReplicas<P> {
             timestep,
             ev_to_internal,
         })
+    }
+
+    /// The model, as [`MlipDynamics::potential_mut`].
+    pub fn potential_mut(&mut self) -> &mut P {
+        &mut self.potential
     }
 
     /// Number of systems.

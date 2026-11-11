@@ -94,7 +94,9 @@ fn time(steps: usize, mut step: impl FnMut()) -> f64 {
 fn step_costs() {
     for atoms in [88, 224, 1024] {
         let mut md = dynamics(atoms);
-        let nve = time(20_000, || drop(md.step().unwrap().energy));
+        let nve = time(20_000, || {
+            md.step().unwrap();
+        });
         let mut md = dynamics(atoms);
         let mut state = EnsembleState::new(
             Ensemble::NvtCsvr {
