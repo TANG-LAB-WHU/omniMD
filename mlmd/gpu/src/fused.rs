@@ -51,13 +51,14 @@ const SCALAR_SOURCE: &str = r#"
 // (n, n+32, ...) and keeps their sums in registers while the loop over the
 // inputs broadcasts one activation and its tangent from shared memory, so
 // every weight load (coalesced across the lanes) feeds two multiply-adds.
+// A row with a negative id is skipped: nothing is written for it.
 template <typename T, int C>
 __device__ void scalar_network(const T* x, const int* ids, long long rows, const int* table,
         int layers, const T* params, int net_size, int width, T* out, T* dout) {
     extern __shared__ double shared[];
     int warps = blockDim.x >> 5, warp = threadIdx.x >> 5, lane = threadIdx.x & 31;
     long long row = (long long)blockIdx.x * warps + warp;
-    if (row >= rows) return;
+    if (row >= rows || (ids && ids[row] < 0)) return;
     const T* block = params + (ids ? (long long)ids[row] * net_size : 0);
     T* y = (T*)shared + (long long)warp * 4 * width;
     T* dy = y + width;
@@ -443,7 +444,8 @@ impl<T: Scalar> ScalarNetwork<T> {
     }
 
     /// Like [`Self::forward_tangent_into`], with row `r` evaluated by network
-    /// `ids[r]` (which must be below [`Self::networks`]).
+    /// `ids[r]` (which must be below [`Self::networks`]). A row with a
+    /// negative id is skipped: its outputs are left as they were.
     pub fn forward_tangent_by_id(
         &self,
         device: &Device,

@@ -20,7 +20,7 @@ pub use cudarc::driver::{
 pub use dense::{Activation, DenseLayer, DenseNetwork, DenseTape};
 pub use fused::{GradientNetwork, LayerParameters, ScalarNetwork};
 pub use kernels::{CacheStats, KernelCache};
-pub use nlist::{Cell, NeighborList, NeighborStats};
+pub use nlist::{Cell, NeighborList, NeighborSearch, NeighborStats, COINCIDENT, TRUNCATED};
 pub use table::{quintic_coefficients, ScalarTable, TableSegments};
 pub use train::{TrainLayer, TrainNetwork, TrainTape};
 pub use train_set::{SetTape, TrainSet};
@@ -43,6 +43,9 @@ pub trait Scalar: DeviceRepr + ValidAsZeroBits + Copy + Default + Debug + 'stati
     const ZERO: Self;
     fn from_f64(value: f64) -> Self;
     fn to_f64(self) -> f64;
+    /// The first `count` values of a buffer of 64-bit words, as they lie in
+    /// memory.
+    fn from_words(words: &[u64], count: usize) -> Vec<Self>;
     #[doc(hidden)]
     unsafe fn gemm<A: DevicePtr<Self>, B: DevicePtr<Self>, C: DevicePtrMut<Self>>(
         blas: &CudaBlas,
@@ -72,6 +75,18 @@ macro_rules! scalar {
             }
             fn to_f64(self) -> f64 {
                 self as f64
+            }
+            fn from_words(words: &[u64], count: usize) -> Vec<Self> {
+                let bytes: Vec<u8> = words.iter().flat_map(|word| word.to_ne_bytes()).collect();
+                bytes
+                    .chunks_exact(std::mem::size_of::<$t>())
+                    .take(count)
+                    .map(|chunk| {
+                        let mut raw = [0; std::mem::size_of::<$t>()];
+                        raw.copy_from_slice(chunk);
+                        <$t>::from_ne_bytes(raw)
+                    })
+                    .collect()
             }
             unsafe fn gemm<A: DevicePtr<Self>, B: DevicePtr<Self>, C: DevicePtrMut<Self>>(
                 blas: &CudaBlas,

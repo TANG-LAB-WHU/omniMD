@@ -114,6 +114,58 @@ fn float32_networks_stay_close_to_float64() {
 }
 
 #[test]
+fn one_potential_serves_frames_of_different_sizes_in_turn() {
+    let Some(device) = device() else { return };
+    // The potential keeps its neighbor search and its buffers between
+    // evaluations: a frame of another size, cell or boundary must see
+    // nothing of the one before.
+    let model = model(2, vec![80, 160], 4.5, 6);
+    let triclinic = [[9.0, 0.0, 0.0], [1.5, 8.5, 0.0], [-1.0, 0.8, 9.2]];
+    let cubic = [[6.3, 0.0, 0.0], [0.0, 6.3, 0.0], [0.0, 0.0, 6.3]];
+    let large = frame(triclinic, 5, 2, true, 16);
+    let small = frame(cubic, 3, 2, true, 17);
+    let open = frame(triclinic, 4, 2, false, 18);
+    let mut cpu = NativePotential::new(model.clone()).unwrap();
+    let mut gpu = GpuPotential::<f64>::new(&model, device.clone()).unwrap();
+    let mut single = GpuPotential::<f32>::new(&model, device).unwrap();
+    let turns = [
+        ("large", &large),
+        ("small", &small),
+        ("open", &open),
+        ("large again", &large),
+        ("small again", &small),
+    ];
+    for (label, frame) in turns {
+        let c = cpu.eval(frame).unwrap();
+        compare(label, &gpu.eval(frame).unwrap(), &c, FLOAT64);
+        let label = format!("{label}, float32");
+        compare(&label, &single.eval(frame).unwrap(), &c, (1e-6, 1e-4));
+    }
+}
+
+#[test]
+fn coincident_atoms_are_an_error() {
+    let Some(device) = device() else { return };
+    let lattice = [[8.0, 0.0, 0.0], [0.0, 8.0, 0.0], [0.0, 0.0, 8.0]];
+    let model = model(2, vec![60, 120], 4.0, 7);
+    let mut gpu = GpuPotential::<f64>::new(&model, device).unwrap();
+    let good = frame(lattice, 4, 2, true, 19);
+    gpu.eval(&good).unwrap();
+    let mut bad = good.clone();
+    bad.positions[9] = bad.positions[40];
+    let error = gpu.eval(&bad).unwrap_err().to_string();
+    assert!(error.contains("coincident"), "{error}");
+    // The potential is as usable afterwards as before.
+    let mut cpu = NativePotential::new(model).unwrap();
+    compare(
+        "after an error",
+        &gpu.eval(&good).unwrap(),
+        &cpu.eval(&good).unwrap(),
+        FLOAT64,
+    );
+}
+
+#[test]
 fn two_types_triclinic_matches_cpu() {
     let lattice = [[9.0, 0.0, 0.0], [1.5, 8.5, 0.0], [-1.0, 0.8, 9.2]];
     check(

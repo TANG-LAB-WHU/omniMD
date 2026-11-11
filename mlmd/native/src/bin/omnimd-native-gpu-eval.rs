@@ -17,7 +17,10 @@
 //! (0 disables it); the default suits an RTX 4090.
 use omnimd_gpu::{Device, Scalar};
 use omnimd_ml_contract::{Frame, Potential};
-use omnimd_native::{gpu_model::GpuPotential, NativePotential};
+use omnimd_native::{
+    gpu_model::{GpuPotential, StageTimes},
+    NativePotential,
+};
 use std::io::{BufRead, Write};
 use std::sync::Arc;
 use std::time::Instant;
@@ -131,13 +134,23 @@ fn evaluate<P: Scalar>(
             );
         }
         if options.profile {
-            gpu.set_profiling(true);
-            gpu.eval(&frame)?;
+            // Mean over as many evaluations as the benchmark, each stage
+            // timed up to a device sync of its own.
+            let rounds = options.bench.max(1);
+            let mut sum = StageTimes::default();
+            for _ in 0..rounds {
+                gpu.set_profiling(true);
+                gpu.eval(&frame)?;
+                if let Some(times) = gpu.stage_times() {
+                    sum.add(times);
+                }
+            }
+            gpu.set_profiling(false);
             eprintln!(
                 "{}",
-                serde_json::json!({"frame": line_number + 1, "stages_ms": gpu.stage_times()})
+                serde_json::json!({"frame": line_number + 1, "evaluations": rounds,
+                    "stages_ms": sum.mean(rounds)})
             );
-            gpu.set_profiling(false);
         }
         serde_json::to_writer(&mut out, &evaluation)?;
         writeln!(out)?;

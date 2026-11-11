@@ -35,11 +35,14 @@ use std::sync::Arc;
 use std::time::Instant;
 
 const SOURCE: &str = r#"
-__device__ void train_switch(double r, double rmin, double rmax, double* q, double* dq) {
+// As in the model kernels, reciprocals worked out once stand in for
+// divisions in double precision (`inv_range` = 1 / (rmax - rmin), `dstd_inv`
+// = 1 / dstd, 1 / slots), and distances come from the neighbor search.
+__device__ void train_switch(double r, double rmin, double inv_range, double* q, double* dq) {
     if (r < rmin) { *q = 1.0; *dq = 0.0; return; }
-    double t = (r - rmin) / (rmax - rmin), z = 1.0 - t;
+    double t = (r - rmin) * inv_range, z = 1.0 - t;
     *q = z * z * z * (1.0 + 3.0 * t + 6.0 * t * t);
-    *dq = -30.0 * t * t * z * z / (rmax - rmin);
+    *dq = -30.0 * t * t * z * z * inv_range;
 }
 
 // Row of the embedding input and output of neighbor `local` of type `t` of
@@ -54,8 +57,8 @@ __device__ long long train_row(const int* rows, int ntypes, int i, int t, int lo
 // Tangent of the normalized environment rows when every neighbor vector d
 // moves along c[j] - c[i] + w^T d. One thread per slot; empty slots get 0.
 extern "C" __global__ void se_e2_a_env_tangent(const int* index, const double* delta,
-        const int* atype, const double* dstd, const double* c, const double* w, int natoms,
-        int slots, double rmin, double rmax, double* envdot) {
+        const double* dist, const int* atype, const double* dstd_inv, const double* c,
+        const double* w, int natoms, int slots, double rmin, double inv_range, double* envdot) {
     long long idx = (long long)blockIdx.x * blockDim.x + threadIdx.x;
     if (idx >= (long long)natoms * slots) return;
     int i = (int)(idx / slots), j = index[idx];
@@ -66,15 +69,15 @@ extern "C" __global__ void se_e2_a_env_tangent(const int* index, const double* d
         for (int b = 0; b < 3; ++b)
             dd[b] = c[3 * (long long)j + b] - c[3 * (long long)i + b]
                   + w[b] * d[0] + w[3 + b] * d[1] + w[6 + b] * d[2];
-        double rr = sqrt(d[0] * d[0] + d[1] * d[1] + d[2] * d[2]), q, dq;
-        train_switch(rr, rmin, rmax, &q, &dq);
-        double u[3] = {d[0] / rr, d[1] / rr, d[2] / rr};
-        double sw = q / rr, dsw = dq / rr - sw / rr;
+        double rr = dist[idx], inv = 1.0 / rr, q, dq;
+        train_switch(rr, rmin, inv_range, &q, &dq);
+        double u[3] = {d[0] * inv, d[1] * inv, d[2] * inv};
+        double sw = q * inv, dsw = (dq - sw) * inv, across = sw * inv;
         double along = u[0] * dd[0] + u[1] * dd[1] + u[2] * dd[2];
-        const double* std_c = dstd + 4 * atype[i];
-        out[0] = dsw * along / std_c[0];
+        const double* inv_std = dstd_inv + 4 * atype[i];
+        out[0] = dsw * along * inv_std[0];
         for (int a = 0; a < 3; ++a)
-            out[a + 1] = (dsw * u[a] * along + sw / rr * (dd[a] - u[a] * along)) / std_c[a + 1];
+            out[a + 1] = (dsw * u[a] * along + across * (dd[a] - u[a] * along)) * inv_std[a + 1];
     }
     for (int a = 0; a < 4; ++a) envdot[4 * idx + a] = out[a];
 }
@@ -91,6 +94,7 @@ __device__ void descriptor_tangent(const double* env, const double* envdot, cons
     double* b = shared;
     double* bd = b + 4 * width;
     int i = blockIdx.x;
+    const double inv_slots = 1.0 / slots;
     for (int m = threadIdx.x; m < width; m += blockDim.x) {
         double acc[4] = {0.0, 0.0, 0.0, 0.0};
         for (int s = 0; s < slots; ++s) {
@@ -103,8 +107,9 @@ __device__ void descriptor_tangent(const double* env, const double* envdot, cons
             for (int a = 0; a < 4; ++a) acc[a] += gpm * rd[0] * r[a] + gm * rd[a];
         }
         for (int a = 0; a < 4; ++a) {
-            bd[4 * m + a] = acc[a] / slots;
-            bdot_out[((long long)i * width + m) * 4 + a] = acc[a] / slots;
+            double v = acc[a] * inv_slots;
+            bd[4 * m + a] = v;
+            bdot_out[((long long)i * width + m) * 4 + a] = v;
             b[4 * m + a] = b_in[((long long)i * width + m) * 4 + a];
         }
     }
@@ -167,6 +172,7 @@ __device__ void descriptor_reverse(const double* env, const double* envdot, cons
     __syncthreads();
     int lane = threadIdx.x & 31, warp = threadIdx.x >> 5, warps = blockDim.x >> 5;
     const int* mine = rows + 3 * (long long)i * ntypes;
+    const double inv_slots = 1.0 / slots;
     for (int s = warp; s < slots; s += warps) {
         if (slot_local[s] >= mine[3 * slot_type[s] + 1]) continue;
         long long row = train_row(rows, ntypes, i, slot_type[s], slot_local[s]) * width;
@@ -178,8 +184,8 @@ __device__ void descriptor_reverse(const double* env, const double* envdot, cons
                 v1 += bb[4 * m + a] * r[a] + bdb[4 * m + a] * rd[a];
                 v2 += bdb[4 * m + a] * r[a];
             }
-            gbar[row + m] = (P)(v1 / slots);
-            gpbar[row + m] = (P)(rd[0] * v2 / slots);
+            gbar[row + m] = (P)(v1 * inv_slots);
+            gpbar[row + m] = (P)(rd[0] * v2 * inv_slots);
         }
     }
     for (int t = 0; t < ntypes; ++t) {
@@ -190,7 +196,7 @@ __device__ void descriptor_reverse(const double* env, const double* envdot, cons
         for (int m = threadIdx.x; m < width; m += blockDim.x) {
             double v1 = 0.0;
             for (int a = 0; a < 4; ++a) v1 += bb[4 * m + a] * r[a];
-            atomicAdd(&gbar[(long long)mine[3 * t + 2] * width + m], (P)(empty * v1 / slots));
+            atomicAdd(&gbar[(long long)mine[3 * t + 2] * width + m], (P)(empty * v1 * inv_slots));
         }
     }
 }
@@ -402,7 +408,8 @@ pub struct GpuTrainer<P: Scalar> {
     fitting: Vec<Vec<TrainLayer>>,
     fitting_set: TrainSet<P>,
     davg: CudaSlice<f64>,
-    dstd: CudaSlice<f64>,
+    /// Reciprocals of the normalization widths: the kernels multiply.
+    dstd_inv: CudaSlice<f64>,
     slot_type: CudaSlice<i32>,
     slot_local: CudaSlice<i32>,
     sel_d: CudaSlice<i32>,
@@ -630,7 +637,11 @@ impl<P: Scalar> GpuTrainer<P> {
         }
         let fitting_set = TrainSet::new(&device, fitting.clone())?;
         let davg: Vec<f64> = d.normalization.iter().flat_map(|n| n.mean).collect();
-        let dstd: Vec<f64> = d.normalization.iter().flat_map(|n| n.std).collect();
+        let dstd_inv: Vec<f64> = d
+            .normalization
+            .iter()
+            .flat_map(|n| n.std.map(|std| 1.0 / std))
+            .collect();
         let (mut slot_type, mut slot_local, mut offsets) = (Vec::new(), Vec::new(), Vec::new());
         for (t, &count) in d.sel.iter().enumerate() {
             offsets.push(slot_type.len() as i32);
@@ -673,7 +684,7 @@ impl<P: Scalar> GpuTrainer<P> {
             fitting,
             fitting_set,
             davg: device.upload(&davg)?,
-            dstd: device.upload(&dstd)?,
+            dstd_inv: device.upload(&dstd_inv)?,
             slot_type: device.upload(&slot_type)?,
             slot_local: device.upload(&slot_local)?,
             sel_d: device.upload(&sel_i)?,
@@ -1009,6 +1020,7 @@ impl<P: Scalar> GpuTrainer<P> {
         let rows_total = natoms * slots;
         let (n_i, slots_i, w_i, axis_i) = (natoms as i32, slots as i32, width as i32, axis as i32);
         let (ntypes_i, zero_i) = (ntypes as i32, 0i32);
+        let inv_range = 1.0 / (d.rcut - d.rcut_smth);
         let per_slot = LaunchConfig {
             grid_dim: (rows_total.div_ceil(BLOCK as usize) as u32, 1, 1),
             block_dim: (BLOCK, 1, 1),
@@ -1029,9 +1041,10 @@ impl<P: Scalar> GpuTrainer<P> {
             launch
                 .arg(&list.index)
                 .arg(&list.delta)
+                .arg(&list.dist)
                 .arg(atype)
                 .arg(&self.davg)
-                .arg(&self.dstd)
+                .arg(&self.dstd_inv)
                 .arg(&self.slot_type)
                 .arg(&self.slot_local)
                 .arg(&self.sel_d)
@@ -1041,7 +1054,7 @@ impl<P: Scalar> GpuTrainer<P> {
                 .arg(&slots_i)
                 .arg(&ntypes_i)
                 .arg(&d.rcut_smth)
-                .arg(&d.rcut)
+                .arg(&inv_range)
                 .arg(&mut env)
                 .arg(&mut radial)
                 .arg(&mut network)
@@ -1132,8 +1145,9 @@ impl<P: Scalar> GpuTrainer<P> {
                 .arg(&d_descriptor)
                 .arg(&list.index)
                 .arg(&list.delta)
+                .arg(&list.dist)
                 .arg(atype)
-                .arg(&self.dstd)
+                .arg(&self.dstd_inv)
                 .arg(&self.slot_type)
                 .arg(&self.slot_local)
                 .arg(&self.sel_d)
@@ -1144,7 +1158,7 @@ impl<P: Scalar> GpuTrainer<P> {
                 .arg(&w_i)
                 .arg(&axis_i)
                 .arg(&d.rcut_smth)
-                .arg(&d.rcut)
+                .arg(&inv_range)
                 .arg(&mut force)
                 .arg(&mut virial)
                 .arg(row_table)
@@ -1231,14 +1245,15 @@ impl<P: Scalar> GpuTrainer<P> {
             launch
                 .arg(&list.index)
                 .arg(&list.delta)
+                .arg(&list.dist)
                 .arg(atype)
-                .arg(&self.dstd)
+                .arg(&self.dstd_inv)
                 .arg(&c)
                 .arg(&w)
                 .arg(&n_i)
                 .arg(&slots_i)
                 .arg(&d.rcut_smth)
-                .arg(&d.rcut)
+                .arg(&inv_range)
                 .arg(&mut envdot);
             unsafe { launch.launch(per_slot) }
                 .map(drop)

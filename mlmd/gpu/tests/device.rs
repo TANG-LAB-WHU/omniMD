@@ -1,7 +1,10 @@
 //! Device smoke tests against plain CPU references. They skip without a CUDA
 //! driver; set OMNIMD_REQUIRE_GPU=1 (GPU CI, local 4090 runs) to make a missing
 //! device a failure instead.
-use omnimd_gpu::{Activation, Cell, DenseLayer, DenseNetwork, Device, MatmulShape, NeighborList};
+use omnimd_gpu::{
+    Activation, Cell, DenseLayer, DenseNetwork, Device, MatmulShape, NeighborList, NeighborSearch,
+    COINCIDENT, TRUNCATED,
+};
 use std::sync::OnceLock;
 
 fn device() -> Option<&'static Device> {
@@ -689,6 +692,43 @@ fn fused_networks_select_one_of_a_set_per_row() {
     assert_eq!(device.download(&flag).unwrap()[0], 0);
     // Knot data from finite differences limits this to ~1e-6.
     assert!(max_error(device.download(&y).unwrap(), &expected) < 1e-5);
+
+    // A negative id skips its row: networks and tables leave what was there.
+    let skipping: Vec<i32> = ids
+        .iter()
+        .enumerate()
+        .map(|(r, &id)| if r % 3 == 1 { -1 } else { id })
+        .collect();
+    let skipping_d = device.upload(&skipping).unwrap();
+    for (by_table, tolerance) in [(false, 1e-12), (true, 1e-5)] {
+        let mut y = device.upload(&vec![7.0f64; rows * 40]).unwrap();
+        let mut dy = device.upload(&vec![-7.0f64; rows * 40]).unwrap();
+        if by_table {
+            table
+                .forward_tangent_by_id(device, &xd, &skipping_d, rows, &mut y, &mut dy, &mut flag)
+                .unwrap();
+        } else {
+            set.forward_tangent_by_id(device, &xd, &skipping_d, rows, &mut y, &mut dy)
+                .unwrap();
+        }
+        let (y, dy) = (device.download(&y).unwrap(), device.download(&dy).unwrap());
+        for r in 0..rows {
+            let (value, tangent) = (&y[r * 40..(r + 1) * 40], &dy[r * 40..(r + 1) * 40]);
+            if skipping[r] < 0 {
+                assert!(
+                    value.iter().all(|&v| v == 7.0) && tangent.iter().all(|&v| v == -7.0),
+                    "skipped row {r} was written (tables: {by_table})"
+                );
+            } else {
+                let error = max_error(value.iter().copied(), &expected[r * 40..(r + 1) * 40]);
+                assert!(
+                    error < tolerance,
+                    "row {r} error {error} (tables: {by_table})"
+                );
+                assert!(tangent.iter().all(|&v| v != -7.0), "row {r} has no tangent");
+            }
+        }
+    }
 }
 
 #[test]
@@ -957,7 +997,7 @@ fn neighbors_cpu(
     let mut counts = vec![0; positions.len() * sel.len()];
     let mut nearest = f64::INFINITY;
     for (i, pi) in positions.iter().enumerate() {
-        let mut groups: Vec<Vec<(f64, usize, [f64; 3])>> = vec![Vec::new(); sel.len()];
+        let mut found: Vec<(f64, usize, [f64; 3])> = Vec::new();
         for (j, pj) in positions.iter().enumerate() {
             for a in -images..=images {
                 for b in -images..=images {
@@ -974,27 +1014,31 @@ fn neighbors_cpu(
                         let d: [f64; 3] = std::array::from_fn(|k| pj[k] + shift[k] - pi[k]);
                         let r = (d[0] * d[0] + d[1] * d[1] + d[2] * d[2]).sqrt();
                         if r < rcut {
-                            groups[types[j] as usize].push((r, j, d));
+                            found.push((r, j, d));
+                            counts[i * sel.len() + types[j] as usize] += 1;
                             nearest = nearest.min(r);
                         }
                     }
                 }
             }
         }
-        // DeePMD-kit 3 selection: the `slots` nearest of any type first.
-        let mut all: Vec<f64> = groups.iter().flatten().map(|e| e.0).collect();
-        all.sort_by(f64::total_cmp);
-        let limit = all.get(slots).copied();
+        // DeePMD-kit 3 selection: the `slots` nearest of any type first,
+        // then at most sel[t] of each type; equal distances in the order of
+        // the atoms, images of one atom in the order of their deltas.
+        found.sort_by(|x, y| {
+            x.0.total_cmp(&y.0)
+                .then(x.1.cmp(&y.1))
+                .then(x.2.partial_cmp(&y.2).unwrap())
+        });
+        found.truncate(slots);
         let mut slot = i * slots;
-        for (t, group) in groups.iter_mut().enumerate() {
-            counts[i * sel.len() + t] = group.len() as i32;
-            group.retain(|e| limit.is_none_or(|limit| e.0 < limit));
-            group.sort_by(|x, y| x.0.total_cmp(&y.0).then(x.1.cmp(&y.1)));
-            for (k, (_, j, d)) in group.iter().take(sel[t]).enumerate() {
+        for (t, &room) in sel.iter().enumerate() {
+            let of_type = found.iter().filter(|e| types[e.1] as usize == t);
+            for (k, (_, j, d)) in of_type.take(room).enumerate() {
                 index[slot + k] = *j as i32;
                 delta[(slot + k) * 3..][..3].copy_from_slice(d);
             }
-            slot += sel[t];
+            slot += room;
         }
     }
     (index, delta, counts, nearest)
@@ -1028,15 +1072,35 @@ fn check_neighbors_with(
     let list =
         NeighborList::build_with_capacity(device, positions, types, &cell, rcut, sel, capacity)
             .unwrap();
-    let (index, delta, counts, nearest) = neighbors_cpu(positions, types, &cell, rcut, sel);
+    compare_list(label, &list, positions, types, &cell, rcut, sel);
+}
+
+/// Checks a list against the brute-force reference.
+fn compare_list(
+    label: &str,
+    list: &NeighborList,
+    positions: &[[f64; 3]],
+    types: &[i32],
+    cell: &Cell,
+    rcut: f64,
+    sel: &[usize],
+) {
+    let device = device().unwrap();
+    let (index, delta, counts, nearest) = neighbors_cpu(positions, types, cell, rcut, sel);
+    assert_eq!(
+        device.download(&list.types).unwrap(),
+        types,
+        "{label}: types"
+    );
     assert_eq!(
         device.download(&list.count).unwrap(),
         counts,
         "{label}: counts"
     );
-    let (got_index, got_delta) = (
+    let (got_index, got_delta, got_dist) = (
         device.download(&list.index).unwrap(),
         device.download(&list.delta).unwrap(),
+        device.download(&list.dist).unwrap(),
     );
     // Images of one atom at the same distance (small boxes) differ only by
     // rounding, so compare each (center, type) segment as a set and check
@@ -1074,6 +1138,24 @@ fn check_neighbors_with(
                 radii.windows(2).all(|w| w[0] <= w[1] + 1e-12),
                 "{label}: atom {center} not sorted"
             );
+            // The stored distance is the length of the delta; empty slots
+            // hold infinity.
+            let filled = radii.len();
+            for (k, s) in segment.clone().enumerate() {
+                let stored = got_dist[s];
+                if k < filled {
+                    assert!(
+                        (stored - radii[k]).abs() <= 1e-12 * radii[k].max(1.0),
+                        "{label}: atom {center} distance {stored} against {}",
+                        radii[k]
+                    );
+                } else {
+                    assert!(
+                        got_index[s] < 0 && stored == f64::INFINITY,
+                        "{label}: atom {center} has a hole or a distance in an empty slot"
+                    );
+                }
+            }
             start += width;
         }
         start = 0;
@@ -1137,6 +1219,235 @@ fn neighbor_list_matches_brute_force() {
     // Tight sel: farthest neighbors are dropped, nearest kept, counts still full.
     let (p, t) = random_frame(300, cubic, 704);
     check_neighbors("truncated", &p, &t, Cell::Periodic(cubic), 4.0, &[5, 9]);
+}
+
+#[test]
+fn neighbor_search_gives_a_fresh_list_for_every_frame() {
+    let Some(device) = device() else { return };
+    let (rcut, sel) = (4.0, [40usize, 80]);
+    let cubic = [[12.0, 0.0, 0.0], [0.0, 12.0, 0.0], [0.0, 0.0, 12.0]];
+    // 392 cells against the 27 of the cubic box.
+    let wide = [[31.0, 0.0, 0.0], [4.0, 29.0, 0.0], [-3.0, 2.0, 33.0]];
+    // 1200 cells, as many as 300 atoms can get: the largest input.
+    let sparse = [[40.0, 0.0, 0.0], [0.0, 40.0, 0.0], [0.0, 0.0, 48.0]];
+    let (first, types) = random_frame(300, cubic, 800);
+    let moved: Vec<[f64; 3]> = first
+        .iter()
+        .zip(values(900, 801).chunks(3))
+        .map(|(p, d)| std::array::from_fn(|a| p[a] + 0.3 * d[a]))
+        .collect();
+    let (spread, _) = random_frame(300, wide, 802);
+    let (thin, _) = random_frame(300, sparse, 804);
+    let swapped: Vec<i32> = types.iter().map(|t| 1 - t).collect();
+    let (fewer, fewer_types) = random_frame(120, cubic, 803);
+    let frames: [(&str, &[[f64; 3]], &[i32], Cell); 8] = [
+        ("first", &first, &types, Cell::Periodic(cubic)),
+        ("moved", &moved, &types, Cell::Periodic(cubic)),
+        ("larger cell", &spread, &types, Cell::Periodic(wide)),
+        ("most cells", &thin, &types, Cell::Periodic(sparse)),
+        ("other types", &first, &swapped, Cell::Periodic(cubic)),
+        ("fewer atoms", &fewer, &fewer_types, Cell::Periodic(cubic)),
+        ("open", &first, &types, Cell::Open),
+        ("first again", &first, &types, Cell::Periodic(cubic)),
+    ];
+    let mut search = NeighborSearch::new(rcut, &sel).unwrap();
+    assert!(search.list().is_none());
+    for (label, positions, types, cell) in &frames {
+        let list = search.run(device, positions, types, cell).unwrap();
+        let label = format!("reused search, {label}");
+        compare_list(&label, list, positions, types, cell, rcut, &sel);
+    }
+    // The serial path writes through the same buffers.
+    let cell = Cell::Periodic(cubic);
+    let list = search
+        .run_with_capacity(device, &moved, &types, &cell, Some(0))
+        .unwrap();
+    compare_list(
+        "reused search, serial",
+        list,
+        &moved,
+        &types,
+        &cell,
+        rcut,
+        &sel,
+    );
+    // A frame the search refuses leaves the last list as it was.
+    assert!(search.run(device, &first, &types[..10], &cell).is_err());
+    assert!(search.run(device, &first, &vec![2; 300], &cell).is_err());
+    let mut bad = first.clone();
+    bad[7][1] = f64::NAN;
+    assert!(search.run(device, &bad, &types, &cell).is_err());
+    let list = search.list().unwrap();
+    compare_list("after refusals", list, &moved, &types, &cell, rcut, &sel);
+    assert_eq!(search.into_list().unwrap().natoms, 300);
+    assert!(NeighborSearch::new(0.0, &sel).is_err());
+    assert!(NeighborSearch::new(f64::INFINITY, &sel).is_err());
+    assert!(NeighborSearch::new(4.0, &[0, 0]).is_err());
+}
+
+#[test]
+fn neighbor_status_is_mirrored_per_center() {
+    let Some(device) = device() else { return };
+    // Four atoms in a row 1 Å apart and one on its own, room for two
+    // neighbors each: the inner two atoms have three within 2.5 Å.
+    let mut positions = vec![
+        [0.0, 0.0, 0.0],
+        [1.0, 0.0, 0.0],
+        [2.0, 0.0, 0.0],
+        [3.0, 0.0, 0.0],
+        [10.0, 0.0, 0.0],
+    ];
+    let types = [0; 5];
+    let mut search = NeighborSearch::new(2.5, &[2]).unwrap();
+    // The mirror may be part of a larger buffer of the caller.
+    let mut buffer = device.upload(&[-1i32; 9]).unwrap();
+    let list = search
+        .run_mirrored(
+            device,
+            &positions,
+            &types,
+            &Cell::Open,
+            &mut buffer.slice_mut(2..7),
+        )
+        .unwrap();
+    assert!(list.check(device).unwrap(), "truncation is reported");
+    assert_eq!(
+        device.download(&buffer).unwrap(),
+        [-1, -1, 0, TRUNCATED, TRUNCATED, 0, 0, -1, -1]
+    );
+    // The last atom onto the first: both see an atom at no distance.
+    positions[4] = positions[0];
+    let list = search
+        .run_mirrored(
+            device,
+            &positions,
+            &types,
+            &Cell::Open,
+            &mut buffer.slice_mut(2..7),
+        )
+        .unwrap();
+    assert!(list.check(device).is_err(), "coincident atoms are an error");
+    let status = device.download(&buffer).unwrap();
+    assert_eq!(status[2] & COINCIDENT, COINCIDENT);
+    assert_eq!(status[6] & COINCIDENT, COINCIDENT);
+    assert_eq!(status[3..6], [TRUNCATED, TRUNCATED, 0]);
+    // Reading the bits: any coincidence is an error, else truncation.
+    assert!(!NeighborList::status(0).unwrap());
+    assert!(NeighborList::status(TRUNCATED).unwrap());
+    assert!(NeighborList::status(COINCIDENT).is_err());
+    assert!(NeighborList::status(COINCIDENT | TRUNCATED).is_err());
+    // A mirror of another length is refused.
+    assert!(search
+        .run_mirrored(device, &positions, &types, &Cell::Open, &mut buffer)
+        .is_err());
+}
+
+#[test]
+fn neighbors_at_the_cutoff_survive_the_single_precision_scan() {
+    if device().is_none() {
+        return;
+    }
+    // Pairs a part in 1e9 inside and outside the cutoff, at coordinates
+    // where single precision resolves no better than 1e-5 to 1e-2 Å: the
+    // first pass of the search cannot tell them apart and has to hand all
+    // of them to the pass in double precision.
+    let rcut = 5.0;
+    let pairs = |origin: [f64; 3], spacing: f64, count: usize, seed: u64| {
+        let v = values(3 * count, seed);
+        let mut positions = Vec::new();
+        for pair in 0..count {
+            let direction: [f64; 3] = std::array::from_fn(|a| v[3 * pair + a]);
+            let norm = direction.iter().map(|x| x * x).sum::<f64>().sqrt();
+            let sign = if pair % 2 == 0 { -1.0 } else { 1.0 };
+            let length = rcut * (1.0 + sign * 1e-9);
+            let first: [f64; 3] =
+                std::array::from_fn(|k| origin[k] + f64::from(k == 0) * spacing * pair as f64);
+            positions.push(first);
+            positions.push(std::array::from_fn(|k| {
+                first[k] + direction[k] / norm * length
+            }));
+        }
+        let types = vec![0; positions.len()];
+        (positions, types)
+    };
+    // Far from the origin in an open cell.
+    let (positions, types) = pairs([3.0e5, -2.0e5, 1.0e5], 20.0, 40, 900);
+    let label = "pairs at the cutoff, far away";
+    check_neighbors(label, &positions, &types, Cell::Open, rcut, &[4]);
+    // In a long periodic cell, some pairs across its faces.
+    let long = [[400.0, 0.0, 0.0], [7.0, 31.0, 0.0], [0.0, -3.0, 29.0]];
+    let (positions, types) = pairs([1.0, 2.0, 3.0], 20.0, 20, 901);
+    let label = "pairs at the cutoff, periodic";
+    check_neighbors(label, &positions, &types, Cell::Periodic(long), rcut, &[4]);
+}
+
+#[test]
+fn equidistant_neighbors_are_ranked_by_atom_then_delta() {
+    if device().is_none() {
+        return;
+    }
+    // A simple cubic lattice in exact coordinates: six neighbors at exactly
+    // 2 Å and room for four. Which four are kept is decided by the atom
+    // index alone.
+    let lattice = [[6.0, 0.0, 0.0], [0.0, 6.0, 0.0], [0.0, 0.0, 6.0]];
+    let positions: Vec<[f64; 3]> = (0..27)
+        .map(|i| {
+            [
+                2.0 * (i % 3) as f64,
+                2.0 * (i / 3 % 3) as f64,
+                2.0 * (i / 9) as f64,
+            ]
+        })
+        .collect();
+    let types = vec![0; 27];
+    check_neighbors(
+        "cubic lattice",
+        &positions,
+        &types,
+        Cell::Periodic(lattice),
+        2.5,
+        &[4],
+    );
+    // Room for exactly the six: full, and nothing dropped.
+    check_neighbors(
+        "full shell",
+        &positions,
+        &types,
+        Cell::Periodic(lattice),
+        2.5,
+        &[6],
+    );
+    // Two kinds of atoms in layers: ties within each type, and a type with
+    // room for all its neighbors next to one without.
+    let layered: Vec<i32> = (0..27).map(|i| (i / 9 % 2) as i32).collect();
+    check_neighbors(
+        "layered lattice",
+        &positions,
+        &layered,
+        Cell::Periodic(lattice),
+        2.5,
+        &[3, 6],
+    );
+    // One atom in a 2 Å box: the six are images of the atom itself and are
+    // told apart by their deltas. Twelve more at 2 sqrt(2) Å, room for ten.
+    let single = [[2.0, 0.0, 0.0], [0.0, 2.0, 0.0], [0.0, 0.0, 2.0]];
+    let atom = [[0.5, 0.25, 1.0]];
+    check_neighbors(
+        "one atom and its images",
+        &atom,
+        &[0],
+        Cell::Periodic(single),
+        2.5,
+        &[4],
+    );
+    check_neighbors(
+        "two shells of images",
+        &atom,
+        &[0],
+        Cell::Periodic(single),
+        3.0,
+        &[10],
+    );
 }
 
 /// Packs CPU layers into a flat parameter vector and their training layout.

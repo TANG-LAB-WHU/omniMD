@@ -19,20 +19,25 @@
 //! [`GpuPotential::last_truncated`] reports when that dropped neighbors.
 use crate::{Activation, Model, Network, Residual};
 use omnimd_gpu::{
-    Activation as DeviceActivation, Cell, CudaFunction, CudaSlice, DenseLayer, DenseNetwork,
-    Device, GradientNetwork, LaunchConfig, LayerParameters, NeighborList, PushKernelArg, Scalar,
-    ScalarNetwork, ScalarTable, TableSegments,
+    Activation as DeviceActivation, Cell, CudaFunction, CudaSlice, CudaViewMut, DenseLayer,
+    DenseNetwork, Device, GradientNetwork, LaunchConfig, LayerParameters, NeighborList,
+    NeighborSearch, PushKernelArg, Scalar, ScalarNetwork, ScalarTable, TableSegments,
 };
 use omnimd_ml_contract::{Error, Evaluation, Frame, ModelMetadata, Potential, Result, Units};
 use std::sync::Arc;
 use std::time::Instant;
 
 pub(crate) const SOURCE: &str = r#"
-__device__ void switch_fn(double r, double rmin, double rmax, double* q, double* dq) {
+// A division or a square root in double precision costs the device as much
+// as some sixty multiplications, so the kernels multiply by reciprocals that
+// are worked out once (`inv_range` = 1 / (rmax - rmin), `dstd_inv` = 1 / dstd,
+// one 1 / r per neighbor) and read the neighbor distances from the neighbor
+// search instead of taking the root again.
+__device__ void switch_fn(double r, double rmin, double inv_range, double* q, double* dq) {
     if (r < rmin) { *q = 1.0; *dq = 0.0; return; }
-    double t = (r - rmin) / (rmax - rmin), z = 1.0 - t;
+    double t = (r - rmin) * inv_range, z = 1.0 - t;
     *q = z * z * z * (1.0 + 3.0 * t + 6.0 * t * t);
-    *dq = -30.0 * t * t * z * z / (rmax - rmin);
+    *dq = -30.0 * t * t * z * z * inv_range;
 }
 
 __device__ long long embed_row(int count, int i, int t, int local, const int* sel, const int* offset) {
@@ -51,53 +56,89 @@ __device__ long long slot_row(const int* rows, int ntypes, int count, int i, int
     return local < entry[1] ? entry[0] + local : entry[2];
 }
 
+// One thread per slot. Without `rows` an empty slot only marks its row as
+// one to skip (network id -1): the embedding kernels leave such rows alone
+// and the descriptor adds what the empty slots of a type contribute in one
+// term. With `rows` the empty slots write the normalized zero to the row
+// they share.
 template <typename P>
-__device__ void env_impl(const int* index, const double* delta, const int* atype, const double* davg,
-        const double* dstd, const int* slot_type, const int* slot_local, const int* sel,
-        const int* offset, int first, int count, int slots, int ntypes, double rmin, double rmax,
-        double* env, P* radial, int* network, const int* rows) {
+__device__ void env_impl(const int* index, const double* delta, const double* dist,
+        const int* atype, const double* davg, const double* dstd_inv, const int* slot_type,
+        const int* slot_local, const int* sel, const int* offset, int first, int count, int slots,
+        int ntypes, double rmin, double inv_range, double* env, P* radial, int* network,
+        const int* rows) {
     long long idx = (long long)blockIdx.x * blockDim.x + threadIdx.x;
     if (idx >= (long long)count * slots) return;
     int li = (int)(idx / slots), s = (int)(idx % slots), i = first + li, c = atype[i];
     long long slot = (long long)i * slots + s;
+    long long row = slot_row(rows, ntypes, count, li, slot_type[s], slot_local[s], sel, offset);
+    bool neighbor = index[slot] >= 0;
+    if (!rows && !neighbor) {
+        network[row] = -1;
+        return;
+    }
     double r4[4] = {0.0, 0.0, 0.0, 0.0};
-    if (index[slot] >= 0) {
+    if (neighbor) {
         const double* d = delta + 3 * slot;
-        double r = sqrt(d[0] * d[0] + d[1] * d[1] + d[2] * d[2]), q, dq;
-        switch_fn(r, rmin, rmax, &q, &dq);
-        double sw = q / r;
+        double r = dist[slot], inv = 1.0 / r, q, dq;
+        switch_fn(r, rmin, inv_range, &q, &dq);
+        double sw = q * inv;
         r4[0] = sw;
-        for (int a = 0; a < 3; ++a) r4[a + 1] = sw * (d[a] / r);
+        for (int a = 0; a < 3; ++a) r4[a + 1] = sw * (d[a] * inv);
     }
     for (int a = 0; a < 4; ++a) {
-        r4[a] = (r4[a] - davg[4 * c + a]) / dstd[4 * c + a];
+        r4[a] = (r4[a] - davg[4 * c + a]) * dstd_inv[4 * c + a];
         env[4 * idx + a] = r4[a];
     }
     // Every empty slot of a shared row writes the same two values there.
-    long long row = slot_row(rows, ntypes, count, li, slot_type[s], slot_local[s], sel, offset);
     radial[row] = (P)r4[0];
     // Embedding net of this row: (center type, neighbor type).
     network[row] = c * ntypes + slot_type[s];
 }
 
 // One block per atom: B[m][a] = sum_s G[s][m] env[s][a] / slots (float64),
-// D = B·B[:axis]ᵀ in the network precision.
+// D = B·B[:axis]ᵀ in the network precision. Without `rows` only the
+// neighbors are summed slot by slot (they fill the first slots of their
+// type); the empty slots of a type all hold the same row, the embedding
+// `g_empty` of the normalized zero, and enter as one term.
 template <typename P>
 __device__ void descriptor_impl(const double* env, const P* g, const int* slot_type,
         const int* slot_local, const int* sel, const int* offset, int count, int slots,
-        int width, int axis, double* b_out, P* d_out, const int* rows, int ntypes) {
+        int width, int axis, double* b_out, P* d_out, const int* rows, int ntypes,
+        const int* index, const int* atype, const P* g_empty, const double* davg,
+        const double* dstd_inv, int first) {
     extern __shared__ double b[];
     int i = blockIdx.x;
+    const double inv_slots = 1.0 / slots;
     for (int m = threadIdx.x; m < width; m += blockDim.x) {
         double acc[4] = {0.0, 0.0, 0.0, 0.0};
-        for (int s = 0; s < slots; ++s) {
-            double gm = (double)g[slot_row(rows, ntypes, count, i, slot_type[s], slot_local[s], sel, offset) * width + m];
-            const double* r = env + ((long long)i * slots + s) * 4;
-            for (int a = 0; a < 4; ++a) acc[a] += gm * r[a];
+        if (rows) {
+            for (int s = 0; s < slots; ++s) {
+                double gm = (double)g[slot_row(rows, ntypes, count, i, slot_type[s], slot_local[s], sel, offset) * width + m];
+                const double* r = env + ((long long)i * slots + s) * 4;
+                for (int a = 0; a < 4; ++a) acc[a] += gm * r[a];
+            }
+        } else {
+            int c = atype[first + i];
+            const int* mine = index + (long long)(first + i) * slots;
+            for (int t = 0; t < ntypes; ++t) {
+                int filled = 0;
+                for (; filled < sel[t] && mine[offset[t] + filled] >= 0; ++filled) {
+                    double gm = (double)g[embed_row(count, i, t, filled, sel, offset) * width + m];
+                    const double* r = env + ((long long)i * slots + offset[t] + filled) * 4;
+                    for (int a = 0; a < 4; ++a) acc[a] += gm * r[a];
+                }
+                if (filled < sel[t]) {
+                    double gm = (sel[t] - filled) * (double)g_empty[((long long)c * ntypes + t) * width + m];
+                    for (int a = 0; a < 4; ++a)
+                        acc[a] += gm * ((0.0 - davg[4 * c + a]) * dstd_inv[4 * c + a]);
+                }
+            }
         }
         for (int a = 0; a < 4; ++a) {
-            b[4 * m + a] = acc[a] / slots;
-            b_out[((long long)i * width + m) * 4 + a] = acc[a] / slots;
+            double v = acc[a] * inv_slots;
+            b[4 * m + a] = v;
+            b_out[((long long)i * width + m) * 4 + a] = v;
         }
     }
     __syncthreads();
@@ -127,10 +168,11 @@ __device__ T warp_sum(T v) {
 //     virial are reduced over the block first.
 template <typename P>
 __device__ void backward_impl(const double* env, const P* g, const P* dg, const double* b_in,
-        const P* dd_in, const int* index, const double* delta, const int* atype,
-        const double* dstd, const int* slot_type, const int* slot_local, const int* sel,
-        const int* offset, int first, int count, int slots, int width, int axis, double rmin,
-        double rmax, double* force, double* virial, const int* rows, int ntypes) {
+        const P* dd_in, const int* index, const double* delta, const double* dist,
+        const int* atype, const double* dstd_inv, const int* slot_type, const int* slot_local,
+        const int* sel, const int* offset, int first, int count, int slots, int width, int axis,
+        double rmin, double inv_range, double* force, double* virial, const int* rows,
+        int ntypes) {
     extern __shared__ double shared[];
     double* b = shared;                  // [width][4]
     double* dr_all = b + 4 * width;      // [slots][4]
@@ -156,6 +198,7 @@ __device__ void backward_impl(const double* env, const P* g, const P* dg, const 
     }
     __syncthreads();
     int lane = threadIdx.x & 31, warp = threadIdx.x >> 5, warps = blockDim.x >> 5;
+    const double inv_slots = 1.0 / slots;
     for (int s = warp; s < slots; s += warps) {
         long long slot = (long long)i * slots + s;
         if (index[slot] < 0) continue;
@@ -175,29 +218,32 @@ __device__ void backward_impl(const double* env, const P* g, const P* dg, const 
         for (int a = 0; a < 4; ++a) dr[a] = warp_sum(dr[a]);
         tangent = warp_sum(tangent);
         if (lane == 0) {
-            for (int a = 0; a < 4; ++a) dr_all[4 * s + a] = (double)dr[a] / slots;
-            dr_all[4 * s] += (double)tangent / slots;
+            for (int a = 0; a < 4; ++a) dr_all[4 * s + a] = (double)dr[a] * inv_slots;
+            dr_all[4 * s] += (double)tangent * inv_slots;
         }
     }
     __syncthreads();
-    const double* std_c = dstd + 4 * atype[i];
+    const double* inv_std = dstd_inv + 4 * atype[i];
     double fi[3] = {0.0, 0.0, 0.0}, vir[9] = {0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0};
     for (int s = threadIdx.x; s < slots; s += blockDim.x) {
         long long slot = (long long)i * slots + s;
         int j = index[slot];
         if (j < 0) continue;
-        const double* dr = dr_all + 4 * s;
         const double* d = delta + 3 * slot;
-        double rr = sqrt(d[0] * d[0] + d[1] * d[1] + d[2] * d[2]), q, dq;
-        switch_fn(rr, rmin, rmax, &q, &dq);
-        double u[3] = {d[0] / rr, d[1] / rr, d[2] / rr};
-        double sw = q / rr, dsw = dq / rr - sw / rr;
+        double rr = dist[slot], inv = 1.0 / rr, q, dq;
+        switch_fn(rr, rmin, inv_range, &q, &dq);
+        double u[3] = {d[0] * inv, d[1] * inv, d[2] * inv};
+        // The row is (sw, sw u) with sw = q / r, so its derivative along c is
+        // dsw u_c for the first entry and dsw u_a u_c + (sw / r)(delta_ac -
+        // u_a u_c) for the others. Contracted with the adjoint row e over
+        // the normalization, that is u_c [e_0 dsw + (dsw - sw / r)(e · u)]
+        // + (sw / r) e_c.
+        double sw = q * inv, dsw = (dq - sw) * inv, across = sw * inv;
+        double adj[4];
+        for (int a = 0; a < 4; ++a) adj[a] = dr_all[4 * s + a] * inv_std[a];
+        double along = adj[0] * dsw + (dsw - across) * (adj[1] * u[0] + adj[2] * u[1] + adj[3] * u[2]);
         for (int c = 0; c < 3; ++c) {
-            double grad = dr[0] / std_c[0] * dsw * u[c];
-            for (int a = 0; a < 3; ++a) {
-                double jac = dsw * u[a] * u[c] + sw / rr * ((a == c ? 1.0 : 0.0) - u[a] * u[c]);
-                grad += dr[a + 1] / std_c[a + 1] * jac;
-            }
+            double grad = u[c] * along + across * adj[c + 1];
             atomicAdd(&force[3 * (long long)j + c], -grad);
             fi[c] += grad;
             for (int a = 0; a < 3; ++a) vir[3 * a + c] -= d[a] * grad;
@@ -215,54 +261,60 @@ __device__ void backward_impl(const double* env, const P* g, const P* dg, const 
 }
 
 // The `_rows` kernels take the row table of `slot_row` (and the number of
-// types it is laid out by); the others give every slot a row.
+// types it is laid out by); the others skip empty slots.
 #define INSTANTIATE(P, S)                                                                         \
 extern "C" __global__ void se_e2_a_env_##S(const int* index, const double* delta,                 \
-        const int* atype, const double* davg, const double* dstd, const int* slot_type,           \
-        const int* slot_local, const int* sel, const int* offset, int first, int count,           \
-        int slots, int ntypes, double rmin, double rmax, double* env, P* radial,                  \
-        int* network) {                                                                           \
-    env_impl<P>(index, delta, atype, davg, dstd, slot_type, slot_local, sel, offset, first,       \
-                count, slots, ntypes, rmin, rmax, env, radial, network, nullptr);                 \
+        const double* dist, const int* atype, const double* davg, const double* dstd_inv,         \
+        const int* slot_type, const int* slot_local, const int* sel, const int* offset,           \
+        int first, int count, int slots, int ntypes, double rmin, double inv_range, double* env,  \
+        P* radial, int* network) {                                                                \
+    env_impl<P>(index, delta, dist, atype, davg, dstd_inv, slot_type, slot_local, sel, offset,    \
+                first, count, slots, ntypes, rmin, inv_range, env, radial, network, nullptr);     \
 }                                                                                                 \
 extern "C" __global__ void se_e2_a_env_rows_##S(const int* index, const double* delta,            \
-        const int* atype, const double* davg, const double* dstd, const int* slot_type,           \
-        const int* slot_local, const int* sel, const int* offset, int first, int count,           \
-        int slots, int ntypes, double rmin, double rmax, double* env, P* radial,                  \
-        int* network, const int* rows) {                                                          \
-    env_impl<P>(index, delta, atype, davg, dstd, slot_type, slot_local, sel, offset, first,       \
-                count, slots, ntypes, rmin, rmax, env, radial, network, rows);                    \
+        const double* dist, const int* atype, const double* davg, const double* dstd_inv,         \
+        const int* slot_type, const int* slot_local, const int* sel, const int* offset,           \
+        int first, int count, int slots, int ntypes, double rmin, double inv_range, double* env,  \
+        P* radial, int* network, const int* rows) {                                               \
+    env_impl<P>(index, delta, dist, atype, davg, dstd_inv, slot_type, slot_local, sel, offset,    \
+                first, count, slots, ntypes, rmin, inv_range, env, radial, network, rows);        \
 }                                                                                                 \
 extern "C" __global__ void se_e2_a_descriptor_##S(const double* env, const P* g,                  \
         const int* slot_type, const int* slot_local, const int* sel, const int* offset,           \
-        int count, int slots, int width, int axis, double* b_out, P* d_out) {                     \
+        int count, int slots, int width, int axis, double* b_out, P* d_out, int ntypes,           \
+        const int* index, const int* atype, const P* g_empty, const double* davg,                 \
+        const double* dstd_inv, int first) {                                                      \
     descriptor_impl<P>(env, g, slot_type, slot_local, sel, offset, count, slots, width, axis,     \
-                       b_out, d_out, nullptr, 0);                                                 \
+                       b_out, d_out, nullptr, ntypes, index, atype, g_empty, davg, dstd_inv,      \
+                       first);                                                                    \
 }                                                                                                 \
 extern "C" __global__ void se_e2_a_descriptor_rows_##S(const double* env, const P* g,             \
         const int* slot_type, const int* slot_local, const int* sel, const int* offset,           \
         int count, int slots, int width, int axis, double* b_out, P* d_out, const int* rows,      \
         int ntypes) {                                                                             \
     descriptor_impl<P>(env, g, slot_type, slot_local, sel, offset, count, slots, width, axis,     \
-                       b_out, d_out, rows, ntypes);                                               \
+                       b_out, d_out, rows, ntypes, nullptr, nullptr, nullptr, nullptr, nullptr,   \
+                       0);                                                                        \
 }                                                                                                 \
 extern "C" __global__ void se_e2_a_backward_##S(const double* env, const P* g, const P* dg,       \
         const double* b_in, const P* dd_in, const int* index, const double* delta,                \
-        const int* atype, const double* dstd, const int* slot_type, const int* slot_local,        \
-        const int* sel, const int* offset, int first, int count, int slots, int width, int axis,  \
-        double rmin, double rmax, double* force, double* virial) {                                \
-    backward_impl<P>(env, g, dg, b_in, dd_in, index, delta, atype, dstd, slot_type, slot_local,   \
-                     sel, offset, first, count, slots, width, axis, rmin, rmax, force, virial,    \
-                     nullptr, 0);                                                                 \
+        const double* dist, const int* atype, const double* dstd_inv, const int* slot_type,       \
+        const int* slot_local, const int* sel, const int* offset, int first, int count,           \
+        int slots, int width, int axis, double rmin, double inv_range, double* force,             \
+        double* virial) {                                                                         \
+    backward_impl<P>(env, g, dg, b_in, dd_in, index, delta, dist, atype, dstd_inv, slot_type,     \
+                     slot_local, sel, offset, first, count, slots, width, axis, rmin, inv_range,  \
+                     force, virial, nullptr, 0);                                                  \
 }                                                                                                 \
 extern "C" __global__ void se_e2_a_backward_rows_##S(const double* env, const P* g,               \
         const P* dg, const double* b_in, const P* dd_in, const int* index, const double* delta,   \
-        const int* atype, const double* dstd, const int* slot_type, const int* slot_local,        \
-        const int* sel, const int* offset, int first, int count, int slots, int width, int axis,  \
-        double rmin, double rmax, double* force, double* virial, const int* rows, int ntypes) {   \
-    backward_impl<P>(env, g, dg, b_in, dd_in, index, delta, atype, dstd, slot_type, slot_local,   \
-                     sel, offset, first, count, slots, width, axis, rmin, rmax, force, virial,    \
-                     rows, ntypes);                                                               \
+        const double* dist, const int* atype, const double* dstd_inv, const int* slot_type,       \
+        const int* slot_local, const int* sel, const int* offset, int first, int count,           \
+        int slots, int width, int axis, double rmin, double inv_range, double* force,             \
+        double* virial, const int* rows, int ntypes) {                                            \
+    backward_impl<P>(env, g, dg, b_in, dd_in, index, delta, dist, atype, dstd_inv, slot_type,     \
+                     slot_local, sel, offset, first, count, slots, width, axis, rmin, inv_range,  \
+                     force, virial, rows, ntypes);                                                \
 }
 INSTANTIATE(float, f32)
 INSTANTIATE(double, f64)
@@ -309,6 +361,37 @@ pub struct StageTimes {
     pub chunks: usize,
 }
 
+impl StageTimes {
+    /// Adds the times of another evaluation.
+    pub fn add(&mut self, other: &Self) {
+        self.host_prepare += other.host_prepare;
+        self.neighbors += other.neighbors;
+        self.environment += other.environment;
+        self.embedding += other.embedding;
+        self.descriptor += other.descriptor;
+        self.fitting += other.fitting;
+        self.forces += other.forces;
+        self.download += other.download;
+        self.chunks += other.chunks;
+    }
+
+    /// The mean over `evaluations` added times.
+    pub fn mean(&self, evaluations: usize) -> Self {
+        let n = evaluations.max(1) as f64;
+        Self {
+            host_prepare: self.host_prepare / n,
+            neighbors: self.neighbors / n,
+            environment: self.environment / n,
+            embedding: self.embedding / n,
+            descriptor: self.descriptor / n,
+            fitting: self.fitting / n,
+            forces: self.forces / n,
+            download: self.download / n,
+            chunks: self.chunks / evaluations.max(1),
+        }
+    }
+}
+
 pub struct GpuPotential<P: Scalar> {
     device: Arc<Device>,
     metadata: ModelMetadata,
@@ -338,7 +421,16 @@ pub struct GpuPotential<P: Scalar> {
     /// Chunks of at most this many atoms use `fused_fitting`.
     fused_fitting_max_atoms: usize,
     davg: CudaSlice<f64>,
-    dstd: CudaSlice<f64>,
+    /// Reciprocals of the normalization widths: the kernels multiply.
+    dstd_inv: CudaSlice<f64>,
+    /// 1 / (rcut - rcut_smth), for the switching function.
+    inv_range: f64,
+    /// The embedding of the input every empty slot has (the normalized
+    /// zero) for each pair of center type and neighbor type,
+    /// `[ntypes²][width]`. Empty slots are not evaluated one by one: the
+    /// descriptor adds this row times their number. It comes from the
+    /// networks also when the neighbors go through tables.
+    empty_g: CudaSlice<P>,
     slot_type: CudaSlice<i32>,
     slot_local: CudaSlice<i32>,
     sel_d: CudaSlice<i32>,
@@ -347,8 +439,31 @@ pub struct GpuPotential<P: Scalar> {
     /// Dynamic shared memory of the force kernel, bytes.
     backward_shared: usize,
     chunk_atoms: usize,
+    /// Neighbor search with its device buffers, kept between evaluations.
+    search: NeighborSearch,
     last_truncated: bool,
     profile: Option<StageTimes>,
+}
+
+/// Part of a buffer of 64-bit words seen as `len` values of `S`.
+///
+/// # Safety
+/// `S` must be plain numbers no more aligned than a 64-bit word.
+unsafe fn view_as<'a, S>(
+    words: &'a mut CudaViewMut<'_, u64>,
+    len: usize,
+) -> Result<CudaViewMut<'a, S>> {
+    words
+        .transmute_mut(len)
+        .ok_or_else(|| Error("result buffer is smaller than its layout".into()))
+}
+
+/// The `index`th int of a buffer of 64-bit words, as it lies in memory.
+fn int_at(words: &[u64], index: usize) -> i32 {
+    let bytes = words[index / 2].to_ne_bytes();
+    let mut raw = [0; 4];
+    raw.copy_from_slice(&bytes[4 * (index % 2)..][..4]);
+    i32::from_ne_bytes(raw)
 }
 
 fn layer_parameters<P: Scalar>(network: &Network, mut input: usize) -> Vec<LayerParameters<P>> {
@@ -478,7 +593,33 @@ impl<P: Scalar> GpuPotential<P> {
             .map(|n| dense_network(&device, n, width * d.axis_neuron))
             .collect::<Result<Vec<_>>>()?;
         let davg: Vec<f64> = d.normalization.iter().flat_map(|n| n.mean).collect();
-        let dstd: Vec<f64> = d.normalization.iter().flat_map(|n| n.std).collect();
+        let dstd_inv: Vec<f64> = d
+            .normalization
+            .iter()
+            .flat_map(|n| n.std.map(|std| 1.0 / std))
+            .collect();
+        // As the environment kernel normalizes an empty slot.
+        let empty_input: Vec<P> = (0..ntypes)
+            .flat_map(|c| {
+                let zero = P::from_f64((0.0 - davg[4 * c]) * dstd_inv[4 * c]);
+                std::iter::repeat_n(zero, ntypes)
+            })
+            .collect();
+        let empty_ids: Vec<i32> = (0..(ntypes * ntypes) as i32).collect();
+        let empty_input = device.upload(&empty_input)?;
+        let empty_ids = device.upload(&empty_ids)?;
+        let mut empty_g = device.zeros::<P>(ntypes * ntypes * width)?;
+        {
+            let mut tangent = device.zeros::<P>(ntypes * ntypes * width)?;
+            embedding.forward_tangent_by_id(
+                &device,
+                &empty_input,
+                &empty_ids,
+                ntypes * ntypes,
+                &mut empty_g,
+                &mut tangent,
+            )?;
+        }
         let mut slot_type = Vec::new();
         let mut slot_local = Vec::new();
         let mut offsets = Vec::with_capacity(ntypes);
@@ -532,7 +673,9 @@ impl<P: Scalar> GpuPotential<P> {
                 usize::MAX
             },
             davg: device.upload(&davg)?,
-            dstd: device.upload(&dstd)?,
+            dstd_inv: device.upload(&dstd_inv)?,
+            inv_range: 1.0 / (d.rcut - d.rcut_smth),
+            empty_g,
             slot_type: device.upload(&slot_type)?,
             slot_local: device.upload(&slot_local)?,
             sel_d: device.upload(&sel_i)?,
@@ -540,6 +683,7 @@ impl<P: Scalar> GpuPotential<P> {
             kernels,
             backward_shared,
             chunk_atoms,
+            search: NeighborSearch::new(d.rcut, &d.sel)?,
             last_truncated: false,
             profile: None,
             device,
@@ -574,7 +718,8 @@ impl<P: Scalar> GpuPotential<P> {
     /// region, the tables continue with ten times the step down to a fifth
     /// of `min_distance`. A frame with a pair closer than that is evaluated
     /// with the exact networks instead (see [`Self::table_fallbacks`]), so
-    /// results never depend on the range.
+    /// results never depend on the range. Empty neighbor slots do not go
+    /// through the tables: their row is the networks' own.
     pub fn compress(&mut self, min_distance: f64, step: f64) -> Result<()> {
         if !(min_distance.is_finite() && 0.0 < min_distance && min_distance < self.rcut) {
             return Err(Error(format!(
@@ -699,16 +844,35 @@ impl<P: Scalar> GpuPotential<P> {
             block[t + 1] += block[t];
         }
         let cell = frame.cell.map_or(Cell::Open, Cell::Periodic);
-        let atype = device.upload(&sorted_types)?;
         clock.lap(|t| &mut t.host_prepare)?;
-        let list = NeighborList::build(
-            device,
-            &positions,
-            &sorted_types,
-            &cell,
-            self.rcut,
-            &self.sel,
-        )?;
+
+        // Everything that goes back to the host, in one buffer for a single
+        // copy: forces [natoms][3] and the table-range flag (cleared
+        // together), the virial of each center [natoms][9], the neighbor
+        // status of each center (ints) and the atomic energies (`P`).
+        let cleared_words = 3 * natoms + 1;
+        let status_words = natoms.div_ceil(2);
+        let energy_words = (natoms * std::mem::size_of::<P>()).div_ceil(8);
+        let mut results = unsafe {
+            device.alloc_uninit::<u64>(cleared_words + 9 * natoms + status_words + energy_words)?
+        };
+        let (mut cleared, mut rest) = results.split_at_mut(cleared_words);
+        stream.memset_zeros(&mut cleared).map_err(copy_error)?;
+        let (mut force_words, mut flag_words) = cleared.split_at_mut(3 * natoms);
+        let (mut virial_words, mut rest) = rest.split_at_mut(9 * natoms);
+        let (mut status_part, mut energy_part) = rest.split_at_mut(status_words);
+        // SAFETY: float64, float32 and int32 are plain numbers that fit the
+        // alignment of the words they are laid over.
+        let mut force = unsafe { view_as::<f64>(&mut force_words, 3 * natoms)? };
+        let mut outside_table = unsafe { view_as::<i32>(&mut flag_words, 1)? };
+        let mut virial = unsafe { view_as::<f64>(&mut virial_words, 9 * natoms)? };
+        let mut status = unsafe { view_as::<i32>(&mut status_part, natoms)? };
+        let mut atomic = unsafe { view_as::<P>(&mut energy_part, natoms)? };
+
+        let list: &NeighborList =
+            self.search
+                .run_mirrored(device, &positions, &sorted_types, &cell, &mut status)?;
+        let atype = &list.types;
         clock.lap(|t| &mut t.neighbors)?;
 
         let (slots, width, axis) = (self.slots, self.width, self.axis);
@@ -724,14 +888,10 @@ impl<P: Scalar> GpuPotential<P> {
         let mut b = unsafe { device.alloc_uninit::<f64>(chunk * width * 4)? };
         let mut descriptor = unsafe { device.alloc_uninit::<P>(chunk * features)? };
         let mut d_descriptor = unsafe { device.alloc_uninit::<P>(chunk * features)? };
-        let ones = device.upload(&vec![P::ONE; chunk])?;
-        // Per-frame results; every atom's energy and virial row is written once.
-        let mut atomic = unsafe { device.alloc_uninit::<P>(natoms)? };
-        let mut force = device.zeros::<f64>(natoms * 3)?;
-        let mut virial = unsafe { device.alloc_uninit::<f64>(natoms * 9)? };
+        // Adjoint seed of the layer-by-layer fitting path, made on first use.
+        let mut ones: Option<CudaSlice<P>> = None;
         let (slots_i, w_i, axis_i) = (slots as i32, width as i32, axis as i32);
         let ntypes_i = ntypes as i32;
-        let mut outside_table = device.zeros::<i32>(1)?;
         let tables = self.tables.as_ref().filter(|_| compressed);
 
         for first in (0..natoms).step_by(chunk) {
@@ -751,9 +911,10 @@ impl<P: Scalar> GpuPotential<P> {
                 launch
                     .arg(&list.index)
                     .arg(&list.delta)
-                    .arg(&atype)
+                    .arg(&list.dist)
+                    .arg(atype)
                     .arg(&self.davg)
-                    .arg(&self.dstd)
+                    .arg(&self.dstd_inv)
                     .arg(&self.slot_type)
                     .arg(&self.slot_local)
                     .arg(&self.sel_d)
@@ -763,7 +924,7 @@ impl<P: Scalar> GpuPotential<P> {
                     .arg(&slots_i)
                     .arg(&ntypes_i)
                     .arg(&self.rcut_smth)
-                    .arg(&self.rcut)
+                    .arg(&self.inv_range)
                     .arg(&mut env)
                     .arg(&mut radial)
                     .arg(&mut network);
@@ -818,7 +979,14 @@ impl<P: Scalar> GpuPotential<P> {
                     .arg(&w_i)
                     .arg(&axis_i)
                     .arg(&mut b)
-                    .arg(&mut descriptor);
+                    .arg(&mut descriptor)
+                    .arg(&ntypes_i)
+                    .arg(&list.index)
+                    .arg(atype)
+                    .arg(&self.empty_g)
+                    .arg(&self.davg)
+                    .arg(&self.dstd_inv)
+                    .arg(&first_i);
                 let config = LaunchConfig {
                     grid_dim: (count as u32, 1, 1),
                     block_dim: (BLOCK, 1, 1),
@@ -851,6 +1019,10 @@ impl<P: Scalar> GpuPotential<P> {
                     &mut dx,
                 )?;
             } else {
+                let ones = match &ones {
+                    Some(ones) => ones,
+                    None => ones.insert(device.upload(&vec![P::ONE; chunk])?),
+                };
                 for &(ti, lo, hi) in &ranges {
                     let rows = hi - lo;
                     let x = descriptor.slice(lo * features..hi * features);
@@ -875,8 +1047,9 @@ impl<P: Scalar> GpuPotential<P> {
                     .arg(&d_descriptor)
                     .arg(&list.index)
                     .arg(&list.delta)
-                    .arg(&atype)
-                    .arg(&self.dstd)
+                    .arg(&list.dist)
+                    .arg(atype)
+                    .arg(&self.dstd_inv)
                     .arg(&self.slot_type)
                     .arg(&self.slot_local)
                     .arg(&self.sel_d)
@@ -887,7 +1060,7 @@ impl<P: Scalar> GpuPotential<P> {
                     .arg(&w_i)
                     .arg(&axis_i)
                     .arg(&self.rcut_smth)
-                    .arg(&self.rcut)
+                    .arg(&self.inv_range)
                     .arg(&mut force)
                     .arg(&mut virial);
                 let config = LaunchConfig {
@@ -905,14 +1078,17 @@ impl<P: Scalar> GpuPotential<P> {
             }
         }
 
-        self.last_truncated = list.check(device)?;
-        if tables.is_some() && device.download(&outside_table)?[0] != 0 {
+        let words = device.download(&results)?;
+        clock.lap(|t| &mut t.download)?;
+        let (cleared, rest) = words.split_at(cleared_words);
+        let (virial_words, rest) = rest.split_at(9 * natoms);
+        let (status_part, energy_part) = rest.split_at(status_words);
+        let status = (0..natoms).fold(0, |all, atom| all | int_at(status_part, atom));
+        self.last_truncated = NeighborList::status(status)?;
+        if tables.is_some() && int_at(&cleared[3 * natoms..], 0) != 0 {
             return Ok(None);
         }
-        let atomic = device.download(&atomic)?;
-        let sorted_forces = device.download(&force)?;
-        let per_atom_virial = device.download(&virial)?;
-        clock.lap(|t| &mut t.download)?;
+        let atomic = P::from_words(energy_part, natoms);
         let mut energy = 0.0;
         for t in 0..ntypes {
             let range = &atomic[block[t]..block[t + 1]];
@@ -921,16 +1097,12 @@ impl<P: Scalar> GpuPotential<P> {
         }
         let mut forces = vec![[0.0; 3]; natoms];
         for (k, &atom) in order.iter().enumerate() {
-            forces[atom] = [
-                sorted_forces[3 * k],
-                sorted_forces[3 * k + 1],
-                sorted_forces[3 * k + 2],
-            ];
+            forces[atom] = std::array::from_fn(|c| f64::from_bits(cleared[3 * k + c]));
         }
         let mut total_virial = [[0.0; 3]; 3];
-        for row in per_atom_virial.chunks_exact(9) {
+        for row in virial_words.chunks_exact(9) {
             for (e, v) in row.iter().enumerate() {
-                total_virial[e / 3][e % 3] += v;
+                total_virial[e / 3][e % 3] += f64::from_bits(*v);
             }
         }
         let result = Evaluation {

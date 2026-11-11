@@ -29,13 +29,14 @@ const SOURCE: &str = r#"
 //
 // One warp per row: the row's table and interval are found once per lane,
 // then the lanes stride over the outputs, so coefficients are read and
-// results written coalesced.
+// results written coalesced. A row with a negative id is skipped: nothing is
+// written for it.
 template <typename T>
 __device__ void scalar_table(const T* x, const int* ids, long long rows, const T* coef,
         int width, const int* shape, const T* range, T* out, T* dout, int* flag) {
     int warps = blockDim.x >> 5, warp = threadIdx.x >> 5, lane = threadIdx.x & 31;
     long long row = (long long)blockIdx.x * warps + warp;
-    if (row >= rows) return;
+    if (row >= rows || (ids && ids[row] < 0)) return;
     int table = ids ? ids[row] : 0;
     int intervals = shape[3 * table], tail = shape[3 * table + 1];
     long long first = shape[3 * table + 2];
@@ -270,13 +271,14 @@ impl<T: Scalar> ScalarTable<T> {
         rows: usize,
         out: &mut impl DevicePtrMut<T>,
         dout: &mut impl DevicePtrMut<T>,
-        flag: &mut CudaSlice<i32>,
+        flag: &mut impl DevicePtrMut<i32>,
     ) -> Result<()> {
         self.launch(device, x, None::<&CudaSlice<i32>>, rows, out, dout, flag)
     }
 
     /// Like [`Self::forward_tangent_into`], with row `r` looked up in table
-    /// `ids[r]` (which must be below [`Self::tables`]).
+    /// `ids[r]` (which must be below [`Self::tables`]). A row with a negative
+    /// id is skipped: its outputs are left as they were.
     #[allow(clippy::too_many_arguments)]
     pub fn forward_tangent_by_id(
         &self,
@@ -286,7 +288,7 @@ impl<T: Scalar> ScalarTable<T> {
         rows: usize,
         out: &mut impl DevicePtrMut<T>,
         dout: &mut impl DevicePtrMut<T>,
-        flag: &mut CudaSlice<i32>,
+        flag: &mut impl DevicePtrMut<i32>,
     ) -> Result<()> {
         self.launch(device, x, Some(ids), rows, out, dout, flag)
     }
@@ -300,7 +302,7 @@ impl<T: Scalar> ScalarTable<T> {
         rows: usize,
         out: &mut impl DevicePtrMut<T>,
         dout: &mut impl DevicePtrMut<T>,
-        flag: &mut CudaSlice<i32>,
+        flag: &mut impl DevicePtrMut<i32>,
     ) -> Result<()> {
         check_len("scalar table input", x.len(), rows)?;
         check_len("scalar table output", out.len(), rows * self.width)?;
@@ -328,6 +330,7 @@ impl<T: Scalar> ScalarTable<T> {
         let pids = ids.as_ref().map_or(0, |(pointer, _)| *pointer);
         let (pout, _g1) = out.device_ptr_mut(stream);
         let (pdout, _g2) = dout.device_ptr_mut(stream);
+        let (pflag, _g3) = flag.device_ptr_mut(stream);
         let (rows_i, width_i) = (rows as i64, self.width as i32);
         let mut launch = stream.launch_builder(&self.function);
         launch
@@ -340,7 +343,7 @@ impl<T: Scalar> ScalarTable<T> {
             .arg(&self.range)
             .arg(&pout)
             .arg(&pdout)
-            .arg(flag);
+            .arg(&pflag);
         let config = LaunchConfig {
             grid_dim: (blocks as u32, 1, 1),
             block_dim: (BLOCK, 1, 1),
