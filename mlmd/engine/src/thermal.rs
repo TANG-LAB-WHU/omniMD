@@ -3,11 +3,11 @@
 use crate::barostat::{
     CellAxes, CellCoupling, CellRescaling, BAR_PER_EV_PER_ANGSTROM3, MAX_STRAIN,
 };
-use crate::MlipDynamics;
+use crate::{Controls, MlipDynamics, MlipReplicas, StateView};
 use omnimd_core::{DegreesOfFreedom, System};
 use omnimd_ml_contract::{Error, Potential, Result};
 use omnimd_sim::{
-    md::{Barostat, CSVRThermostat, Control, RemoveTranslation},
+    md::{Barostat, CSVRThermostat, Control, Exchange, RemoveTranslation, Thermostat},
     BoltzmannVelocities, InitVelocities,
 };
 use rand::{RngCore, SeedableRng};
@@ -262,37 +262,70 @@ impl EnsembleState {
         }
         Ok(())
     }
+}
 
-    pub fn advance<P: Potential>(&mut self, md: &mut MlipDynamics<P>) -> Result<()> {
-        self.validate(md.timestep_fs())?;
-        self.validate_system(md.system())?;
+/// The controls of one step of one system. They draw from a copy of the
+/// state's random stream; the copy replaces the stream only if the whole step
+/// succeeds.
+struct StepControls {
+    shared: Option<SharedRng>,
+    thermostat: Option<CSVRThermostat>,
+    /// The cell move of a constant-pressure ensemble, and whether it is due
+    /// at this step.
+    rescaling: Option<CellRescaling<SharedRng>>,
+    due: bool,
+}
+
+impl StepControls {
+    /// The thermostat and the barostat to hand to the dynamics.
+    fn parts(&mut self) -> (Option<&mut dyn Thermostat>, Option<&mut dyn Barostat>) {
+        let thermostat: Option<&mut dyn Thermostat> = match &mut self.thermostat {
+            Some(thermostat) => Some(thermostat),
+            None => None,
+        };
+        let barostat: Option<&mut dyn Barostat> = match &mut self.rescaling {
+            Some(rescaling) if self.due => Some(rescaling),
+            _ => None,
+        };
+        (thermostat, barostat)
+    }
+}
+
+impl EnsembleState {
+    /// The controls for the next step of the system `md` shows.
+    fn controls(&self, md: StateView<'_>) -> Result<StepControls> {
+        let stream = || -> Result<SharedRng> {
+            Ok(SharedRng(Rc::new(RefCell::new(
+                self.rng
+                    .as_ref()
+                    .ok_or_else(|| Error("missing CSVR RNG state".into()))?
+                    .clone(),
+            ))))
+        };
         match self.ensemble {
-            Ensemble::Nve => {
-                md.step()?;
-            }
+            Ensemble::Nve => Ok(StepControls {
+                shared: None,
+                thermostat: None,
+                rescaling: None,
+                due: false,
+            }),
             Ensemble::NvtCsvr {
                 temperature_kelvin,
                 tau_fs,
                 ..
             } => {
-                // This clone advances only if the entire dynamics/thermostat step succeeds.
-                let shared = SharedRng(Rc::new(RefCell::new(
-                    self.rng
-                        .as_ref()
-                        .ok_or_else(|| Error("missing CSVR RNG state".into()))?
-                        .clone(),
-                )));
-                let mut thermostat = CSVRThermostat::from_rng(
+                let shared = stream()?;
+                let thermostat = CSVRThermostat::from_rng(
                     temperature_kelvin,
                     tau_fs / md.timestep_fs(),
                     Box::new(shared.clone()),
                 );
-                let heat = md.step_with_thermostat(&mut thermostat)?;
-                self.rng = Some(shared.0.borrow().clone());
-                self.heat_ev += heat;
-                if !self.heat_ev.is_finite() {
-                    return Err(Error("accumulated thermostat heat overflow".into()));
-                }
+                Ok(StepControls {
+                    shared: Some(shared),
+                    thermostat: Some(thermostat),
+                    rescaling: None,
+                    due: false,
+                })
             }
             Ensemble::NptCsvrCrescale {
                 temperature_kelvin,
@@ -305,21 +338,15 @@ impl EnsembleState {
                 barostat_every,
                 ..
             } => {
-                // As above: the thermostat and the barostat draw from one
-                // stream, which advances only if the whole step succeeds.
-                let shared = SharedRng(Rc::new(RefCell::new(
-                    self.rng
-                        .as_ref()
-                        .ok_or_else(|| Error("missing CSVR RNG state".into()))?
-                        .clone(),
-                )));
-                let mut thermostat = CSVRThermostat::from_rng(
+                // The thermostat and the barostat draw from one stream.
+                let shared = stream()?;
+                let thermostat = CSVRThermostat::from_rng(
                     temperature_kelvin,
                     tau_fs / md.timestep_fs(),
                     Box::new(shared.clone()),
                 );
                 let interval = barostat_every as f64 * md.timestep_fs();
-                let mut rescaling = CellRescaling::new(
+                let rescaling = CellRescaling::new(
                     shared.clone(),
                     md.thermal_energy_ev(temperature_kelvin),
                     pressure_bar / BAR_PER_EV_PER_ANGSTROM3,
@@ -329,25 +356,92 @@ impl EnsembleState {
                     axes,
                     MAX_STRAIN,
                 )?;
-                // Moves fall on absolute step numbers, so a restart keeps the schedule.
-                let due = md.system().step.wrapping_add(1) % barostat_every == 0;
-                let barostat: Option<&mut dyn Barostat> =
-                    if due { Some(&mut rescaling) } else { None };
-                let exchange = md.step_with_controls(Some(&mut thermostat), barostat)?;
-                self.rng = Some(shared.0.borrow().clone());
-                self.heat_ev += exchange.heat;
-                self.barostat_work_ev += exchange.work;
-                if let Some(accepted) = exchange.cell_move {
-                    self.barostat_moves += 1;
-                    self.barostat_refused += u64::from(!accepted);
-                }
-                if !(self.heat_ev.is_finite() && self.barostat_work_ev.is_finite()) {
-                    return Err(Error(
-                        "accumulated thermostat heat or barostat work overflow".into(),
-                    ));
-                }
+                Ok(StepControls {
+                    shared: Some(shared),
+                    thermostat: Some(thermostat),
+                    rescaling: Some(rescaling),
+                    // Moves fall on absolute step numbers, so a restart keeps the schedule.
+                    due: md.system().step.wrapping_add(1) % barostat_every == 0,
+                })
             }
+        }
+    }
+
+    /// Takes over the random stream the controls of a successful step drew
+    /// from, and what they delivered.
+    fn settle(&mut self, controls: StepControls, exchange: Exchange) -> Result<()> {
+        if let Some(shared) = controls.shared {
+            self.rng = Some(shared.0.borrow().clone());
+        }
+        self.heat_ev += exchange.heat;
+        self.barostat_work_ev += exchange.work;
+        if let Some(accepted) = exchange.cell_move {
+            self.barostat_moves += 1;
+            self.barostat_refused += u64::from(!accepted);
+        }
+        if !(self.heat_ev.is_finite() && self.barostat_work_ev.is_finite()) {
+            return Err(Error(match self.ensemble.is_variable_cell() {
+                true => "accumulated thermostat heat or barostat work overflow".into(),
+                false => "accumulated thermostat heat overflow".into(),
+            }));
         }
         Ok(())
     }
+
+    pub fn advance<P: Potential>(&mut self, md: &mut MlipDynamics<P>) -> Result<()> {
+        self.validate(md.timestep_fs())?;
+        self.validate_system(md.system())?;
+        let mut controls = self.controls(md.view())?;
+        let (thermostat, barostat) = controls.parts();
+        let exchange = md.step_with_controls(thermostat, barostat)?;
+        self.settle(controls, exchange)
+    }
+}
+
+/// One step of every system of `md` under its own ensemble, with one model
+/// evaluation for all of them (and one more for those whose cell moves).
+/// Each system and its state go the way they go alone under
+/// [`EnsembleState::advance`]. If the step fails for any system, no system
+/// and no state has changed.
+pub fn advance_replicas<P: Potential>(
+    states: &mut [EnsembleState],
+    md: &mut MlipReplicas<P>,
+) -> Result<()> {
+    if states.len() != md.len() {
+        return Err(Error(format!(
+            "{} systems need as many ensemble states, got {}",
+            md.len(),
+            states.len()
+        )));
+    }
+    let mut all = Vec::with_capacity(states.len());
+    for (index, state) in states.iter().enumerate() {
+        let named = |e: Error| Error(format!("replica {index}: {e}"));
+        state.validate(md.timestep_fs()).map_err(named)?;
+        state
+            .validate_system(md.view(index).system())
+            .map_err(named)?;
+        all.push(state.controls(md.view(index)).map_err(named)?);
+    }
+    let exchanges = {
+        let mut controls: Vec<Controls<'_>> = all
+            .iter_mut()
+            .map(|one| {
+                let (thermostat, barostat) = one.parts();
+                Controls {
+                    thermostat,
+                    barostat,
+                }
+            })
+            .collect();
+        md.step(&mut controls)?
+    };
+    for (index, ((state, controls), exchange)) in
+        states.iter_mut().zip(all).zip(exchanges).enumerate()
+    {
+        state
+            .settle(controls, exchange)
+            .map_err(|e| Error(format!("replica {index}: {e}")))?;
+    }
+    Ok(())
 }

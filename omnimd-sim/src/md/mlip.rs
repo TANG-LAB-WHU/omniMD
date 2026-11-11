@@ -65,7 +65,11 @@ pub struct Exchange {
 /// The controls of one system for one step of [`MlipReplicas`].
 #[derive(Default)]
 pub struct Controls<'a> {
+    /// Applied to the velocities after the step, as in
+    /// [`MlipDynamics::step_with_thermostat`].
     pub thermostat: Option<&'a mut dyn Thermostat>,
+    /// Tries a cell move after the thermostat, as in
+    /// [`MlipDynamics::step_with_controls`].
     pub barostat: Option<&'a mut dyn Barostat>,
 }
 

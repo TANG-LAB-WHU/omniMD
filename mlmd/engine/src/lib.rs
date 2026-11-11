@@ -12,8 +12,8 @@ use omnimd_core::{Matrix3, Molecule, Particle, System, UnitCell, Vector3D};
 use omnimd_ml_contract::{Error, Frame, Result};
 pub use omnimd_sim::md::{Controls, MlipDynamics, MlipReplicas, StateView};
 pub use thermal::{
-    initialize_velocities, prepare_velocities, set_degrees_of_freedom, Ensemble, EnsembleState,
-    VelocityInitialization,
+    advance_replicas, initialize_velocities, prepare_velocities, set_degrees_of_freedom, Ensemble,
+    EnsembleState, VelocityInitialization,
 };
 
 /// Convert shared-model coordinates and explicit masses/velocities to omniMD.
@@ -75,6 +75,12 @@ pub struct Checkpoint {
 impl Checkpoint {
     /// Capture a successfully committed integration state.
     pub fn capture<P: Potential>(md: &MlipDynamics<P>, model_sha256: String) -> Self {
+        Self::of(md.view(), model_sha256)
+    }
+
+    /// [`Self::capture`] for a state as dynamics shows it: of the one system
+    /// of an [`MlipDynamics`] or of one of several in an [`MlipReplicas`].
+    pub fn of(md: StateView<'_>, model_sha256: String) -> Self {
         let particles = md.system().particles();
         Self {
             schema_version: 2,
