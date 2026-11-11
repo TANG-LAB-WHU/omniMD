@@ -103,8 +103,9 @@ fn float32_networks_stay_close_to_float64() {
     let mut cpu = NativePotential::new(model.clone()).unwrap();
     let mut gpu = GpuPotential::<f32>::new(&model, device).unwrap();
     let c = cpu.eval(&frame).unwrap();
-    // Float32 networks with float64 geometry and reductions: about single
-    // precision on the network outputs, nothing worse.
+    // Float32 from the stored environment rows to their adjoint, float64
+    // geometry around it: about single precision on the result, nothing
+    // worse.
     compare("float32", &gpu.eval(&frame).unwrap(), &c, (1e-6, 1e-4));
     assert!(gpu.set_tiled_fitting(true));
     compare(
@@ -209,6 +210,64 @@ fn open_boundary_and_three_types_match_cpu() {
         "open",
         model(3, vec![30, 30, 30], 4.0, 3),
         &frame(lattice, 4, 3, false, 13),
+    );
+}
+
+/// An embedding wider than a warp: the descriptor and force kernels have a
+/// thread for each of its outputs, and what one warp of them writes to
+/// shared memory another may still be reading.
+#[test]
+fn an_embedding_wider_than_a_warp_matches_cpu() {
+    let lattice = [[7.0, 0.0, 0.0], [0.5, 7.0, 0.0], [0.0, 0.0, 7.0]];
+    check(
+        "wide embedding",
+        common::model_of_width(2, vec![40, 80], 4.0, 31, 40, 6),
+        &frame(lattice, 3, 2, true, 32),
+    );
+    // Wider than the block of the kernels as well: threads take turns.
+    check(
+        "embedding wider than a block",
+        common::model_of_width(2, vec![40, 80], 4.0, 33, 136, 5),
+        &frame(lattice, 3, 2, true, 34),
+    );
+}
+
+/// The descriptor counts the neighbors of each type before it sums them: a
+/// type without slots has none, wherever it stands among the types.
+#[test]
+fn a_type_without_slots_matches_cpu() {
+    let lattice = [[8.0, 0.0, 0.0], [0.0, 8.0, 0.0], [0.0, 0.0, 8.0]];
+    // The last type has no slots, and the frame none of its atoms.
+    let two = frame(lattice, 4, 2, false, 22);
+    check(
+        "no slots for the last type",
+        model(3, vec![30, 30, 0], 4.0, 21),
+        &two,
+    );
+    // The same for the first type: oxygen becomes carbon.
+    let mut renamed = two.clone();
+    for name in &mut renamed.species {
+        if name == "O" {
+            *name = "C".into();
+        }
+    }
+    check(
+        "no slots for the first type",
+        model(3, vec![0, 30, 30], 4.0, 23),
+        &renamed,
+    );
+    // And in a periodic cell, where every atom has neighbors of both others.
+    let cell = [[7.0, 0.0, 0.0], [0.5, 7.0, 0.0], [0.0, 0.0, 7.0]];
+    let mut periodic = frame(cell, 3, 2, true, 24);
+    for name in &mut periodic.species {
+        if name == "H" {
+            *name = "C".into();
+        }
+    }
+    check(
+        "no slots for the middle type",
+        model(3, vec![60, 0, 60], 4.0, 25),
+        &periodic,
     );
 }
 

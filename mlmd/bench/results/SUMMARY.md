@@ -1,3 +1,82 @@
+# Float32 models without double precision between the environment and its adjoint, 2026-11-11
+
+A float32 model ran its networks in single precision and everything around
+them in double: the environment rows, the sums that make B, the descriptor
+and the first part of the force kernel. On this card double precision has a
+sixty-fourth of the rate of single, and the descriptor kernel does little
+else: four multiply-adds for every neighbor and embedding output.
+
+Now the potential keeps what lies between the environment matrix and its
+adjoint in the precision of the networks: the environment rows as they are
+stored, B, the descriptor and the adjoint of B. Geometry stays double: the
+rows are worked out in double before they are stored, and their Jacobian
+with the sums that give forces and virial is double. A float64 model
+computes what it did (the sums of B run type by type now, so its last digits
+moved); the trainer keeps double precision there (the kernels take the
+precision as a parameter). The descriptor kernel also copies an atom's
+environment rows and its number of neighbors of each type to shared memory
+before it sums them.
+
+**Passes over copies of one HAP frame**, microseconds per pass, float32 with
+compressed embedding, the two builds alternated four times and the best run
+of each kept (`omnimd-native-gpu-eval --bench 1500 --bench-batches
+1,2,4,8,16`):
+
+| frames | 88 atoms, before | now | 169 atoms, before | now | 224 atoms, before | now |
+|---:|---:|---:|---:|---:|---:|---:|
+| 1 | 197 | 178 | 253 | 215 | 272 | 238 |
+| 2 | 249 | 215 | 362 | 305 | 459 | 380 |
+| 4 | 361 | 307 | 655 | 536 | 824 | 677 |
+| 8 | 666 | 554 | 1262 | 1031 | 1545 | 1347 |
+| 16 | 1270 | 1043 | 2108 | 1843 | 2498 | 2105 |
+
+**Water**, ms per evaluation (`--bench K`, alternated three times, best):
+
+| atoms | fp32 compressed, before | now | fp32, before | now | fp64 compressed, before | now | fp64, before | now |
+|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| 192 | 0.279 | 0.242 | 0.328 | 0.291 | 0.797 | 0.794 | 1.319 | 1.315 |
+| 1,536 | 1.144 | 0.936 | 1.531 | 1.326 | 4.874 | 4.866 | 8.804 | 8.807 |
+| 12,288 | 7.01 | 5.66 | 9.59 | 8.33 | 37.00 | 37.01 | 68.37 | 68.40 |
+| 98,304 | 56.1 | 45.5 | 76.5 | 66.4 | | | | |
+
+- A float32 pass is 10 to 19% faster at every size; float64 is unchanged.
+  With compressed embedding the 12,288 atoms take 5.7 ms where LAMMPS
+  `pair_style deepmd` with the compressed float32 model took 32.5 (the
+  record of 2026-11-10 below).
+- **The exploration of the section below** (16 runs of 40,000 steps, four
+  models compared every 50 steps): 80.0 s of stepping with the previous
+  build run again, 69.6 s now, 9,198 run-steps per second
+  (`hap-explore-all-rtx4090-2026-11-11-r2.json`).
+- **Agreement with DeePMD-kit** on the 83 HAP test frames (`hap_check.py`,
+  largest difference over the four models, before and now):
+
+  | mode | energy per atom (eV) | force (eV/Å) | virial (eV) |
+  |---|---:|---:|---:|
+  | float64 | 1.8e-13, 1.8e-13 | 5.6e-13, 5.6e-13 | 1.1e-12, 1.1e-12 |
+  | float64, compressed | 8.4e-10, 8.4e-10 | 3.9e-6, 3.9e-6 | 2.0e-5, 2.0e-5 |
+  | float32 | 2.4e-7, 3.4e-7 | 7.7e-6, 8.9e-6 | 7.9e-5, 1.1e-4 |
+  | float32, compressed | 3.7e-7, 4.4e-7 | 7.3e-6, 8.7e-6 | 7.3e-5, 8.1e-5 |
+
+  The float32 modes move by a factor of 1.1 to 1.4, within the order they
+  had: a sum of some hundred products in single precision adds about what
+  the single-precision networks already did. They remain three to four
+  orders of magnitude below the models' own test errors (0.014 to 0.098
+  eV/Å).
+- Where the time goes at 98,304 atoms now (45.5 ms; stage times with a
+  synchronization after each): forces 11.4 ms (15.5 before), embedding tables
+  9.4, fitting 8.5, neighbor search 6.1, descriptor 5.6 (11.9 before). The
+  descriptor reads 3.5 GB of embedding rows in those 5.6 ms (98,304 atoms
+  with 89.5 neighbors each and 100 values a neighbor): it moves at the rate
+  of the memory now, as do the embedding stage that writes those rows and
+  the force kernel that reads them again. Copying the environment rows to shared
+  memory changed nothing there; for small systems, where the time of a
+  launch is the latency of its loads, it took another 5% off the pass (88
+  atoms: 190 to 180 microseconds, the two variants alternated).
+- Tests: an embedding wider than a warp and a type without neighbor slots
+  were added to the comparison with the CPU reference (the first because two
+  mutants of the new shared-memory layout survived until a kernel had more
+  than one warp of threads at work).
+
 # An exploration in one run, and its candidates, 2026-11-11
 
 `collect-candidates` reads the trajectories of runs that carried the members

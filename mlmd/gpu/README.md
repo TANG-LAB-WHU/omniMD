@@ -72,7 +72,20 @@ What follows for the kernels:
 - Keep double precision for what needs it. The neighbor search scans in
   single precision with a margin that covers its rounding and measures only
   the surviving candidates in double; distances are ranked by their bit
-  patterns as integers.
+  patterns as integers. A float32 model keeps double precision for its
+  geometry only, the environment rows as they are worked out and their
+  Jacobian for the forces: the rows as they are stored, the sums that make B,
+  the descriptor and the adjoint of B are single. Those sums are most of
+  what the descriptor kernel does, four multiply-adds for every neighbor and
+  embedding output: for 98,304 water atoms it took 11.9 ms with them in
+  double and 5.6 ms in single.
+- Past the arithmetic stands the memory. With many atoms the stages that
+  write the embedding rows or read them (100 values a neighbor) move at its
+  rate: the descriptor reads 3.5 GB in 5.6 ms for 98,304 atoms, and nothing
+  done to its other loads changed that.
+  With few atoms the latency of a load counts instead: copying an atom's
+  environment rows and neighbor counts to shared memory before the sums took
+  5% off a pass of 88 atoms and nothing off one of 98,304.
 - Do no work for empty neighbor slots. With `sel` sized for the densest
   environment most slots are empty (65% in the HAP systems); their embedding
   row is the same for a pair of types, so it is evaluated once per model and

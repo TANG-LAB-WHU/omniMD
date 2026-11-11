@@ -33,7 +33,8 @@ enum NetworkPrecision {
 #[derive(Clone, Copy, Default, Deserialize, PartialEq, Debug)]
 #[serde(deny_unknown_fields)]
 struct GpuRuntimeOptions {
-    /// Network precision; geometry, forces and virial are always float64.
+    /// Network precision; the geometry and the sums that give forces and
+    /// virial are always float64.
     #[serde(default)]
     precision: NetworkPrecision,
     /// Tabulate the embedding nets for neighbor distances down to this many

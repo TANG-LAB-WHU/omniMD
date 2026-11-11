@@ -50,7 +50,8 @@ to a native model on `cuda:N`:
      "gpu_runtime":{"precision":"float32","compress_min_distance":0.5}}
 
 - `gpu_runtime: {}` runs the networks in float64. `"precision":"float32"` runs
-  them in float32; geometry, forces and virial stay float64.
+  them, the stored environment matrix and the descriptor in float32; the
+  geometry and the sums that give forces and virial stay float64.
 - `compress_min_distance` (angstrom) tabulates the embedding networks for
   neighbor distances from that value to the cutoff, with `table_step` (default
   0.01) in the normalized radial input. The tables continue at ten times the

@@ -72,6 +72,22 @@ pub fn layer(
 /// Small se_e2_a with every layer feature: concat and identity residuals,
 /// timesteps, nonzero radial mean.
 pub fn model(ntypes: usize, sel: Vec<usize>, rcut: f64, seed: u64) -> Model {
+    model_of_width(ntypes, sel, rcut, seed, 16, 4)
+}
+
+/// The same with an embedding of `width` outputs (even) and `axis` of them
+/// as axis neurons. More than 32 outputs take more than one warp of the
+/// kernels that have a thread for each.
+#[allow(dead_code)]
+pub fn model_of_width(
+    ntypes: usize,
+    sel: Vec<usize>,
+    rcut: f64,
+    seed: u64,
+    width: usize,
+    axis: usize,
+) -> Model {
+    let half = width / 2;
     let embedding = (0..ntypes)
         .map(|i| {
             (0..ntypes)
@@ -79,22 +95,35 @@ pub fn model(ntypes: usize, sel: Vec<usize>, rcut: f64, seed: u64) -> Model {
                     let s = seed + 100 * (i * ntypes + j) as u64;
                     Network {
                         layers: vec![
-                            layer(1, 8, Activation::Tanh, Residual::None, false, s),
-                            layer(8, 16, Activation::Tanh, Residual::Concat2, false, s + 10),
-                            layer(16, 16, Activation::Tanh, Residual::Identity, true, s + 20),
+                            layer(1, half, Activation::Tanh, Residual::None, false, s),
+                            layer(
+                                half,
+                                width,
+                                Activation::Tanh,
+                                Residual::Concat2,
+                                false,
+                                s + 10,
+                            ),
+                            layer(
+                                width,
+                                width,
+                                Activation::Tanh,
+                                Residual::Identity,
+                                true,
+                                s + 20,
+                            ),
                         ],
                     }
                 })
                 .collect()
         })
         .collect();
-    let axis = 4;
     let fitting = (0..ntypes)
         .map(|i| {
             let s = seed + 5000 + 100 * i as u64;
             Network {
                 layers: vec![
-                    layer(16 * axis, 20, Activation::Tanh, Residual::None, false, s),
+                    layer(width * axis, 20, Activation::Tanh, Residual::None, false, s),
                     layer(20, 20, Activation::Tanh, Residual::Identity, true, s + 10),
                     layer(20, 1, Activation::Linear, Residual::None, false, s + 20),
                 ],
