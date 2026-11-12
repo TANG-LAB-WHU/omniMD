@@ -610,6 +610,7 @@ fn embedding_rows(
 impl<P: Scalar> GpuTrainer<P> {
     pub fn new(model: &Model, device: Arc<Device>) -> Result<Self> {
         let metadata = model.validate()?;
+        model.require_se_e2_a("the GPU trainer")?;
         let d = &model.descriptor;
         let ntypes = model.type_map.len();
         let width = d.embedding[0][0].output_size();

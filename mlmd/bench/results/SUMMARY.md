@@ -1,3 +1,67 @@
+# The se_e2_r descriptor, 2026-11-12
+
+A native model can have DeePMD-kit's radial descriptor (`se_e2_r`, also
+`se_r`): a fifth of the mean of the embedding rows of an atom's neighbor
+slots, without the angular part of se_e2_a. It is evaluated on the CPU and on
+the GPU runtime (float64 or float32, exact embedding nets or tables, batches
+of frames and committees of models) and converted from DeePMD-kit 3.1.3
+`.dp`/YAML by `convert_deepmd.py`. Inference only: the trainers refuse the
+descriptor. Format and formulas are in
+[`native/README.md`](../../native/README.md#model-format-v1).
+
+**Agreement with DeePMD-kit 3.1.3** (PyTorch backend, CPU, float64):
+
+- A fixture of 27 atoms of two types with a normalization of its own for
+  each (`native/tools/make_se_r_fixture.py`), periodic and without a cell.
+  The CPU evaluation gives DeePMD's energy within 7e-15 eV, its forces within
+  1e-17 eV/Å (the largest force is 7e-3 eV/Å) and its virial within 1.2e-16
+  eV. The GPU runtime in float64 passes the same comparison, and that with a
+  second model whose `sel` of [4, 6] is far below the some 23 neighbors of
+  an atom, where the result depends on which neighbors are kept.
+- The water cases below at 192 and 1,536 atoms: float64 within 9.5e-15 eV per
+  atom and 1.2e-18 eV/Å (largest force 2.7e-4 eV/Å: the model is untrained),
+  with tables 2e-16 eV/Å, float32 within 6.7e-9 eV per atom and 5.9e-10 eV/Å.
+
+**Water benchmark with an se_e2_r model** of the sizes of the se_e2_a one
+(rcut 6.0 Å, sel [46, 92], embedding [25, 50, 100], fitting [240, 240, 240]
+on the 100 embedding outputs; untrained, seeded weights; `make_water_case.py
+--descriptor se_e2_r`). ms per energy, force and virial evaluation. DeePMD:
+LAMMPS `pair_style deepmd`, NVE loop time per step
+(`deepmd-3.1.3-lammps-se-r-2026-11-12.csv`). omniMD: `omnimd-native-gpu-eval`
+in process (`omnimd-gpu-se-r-rtx4090-2026-11-12.csv`, one run each; a second
+run agreed within 3%):
+
+| atoms | precision | DeePMD | omniMD | speed-up | omniMD, tables |
+|---:|---|---:|---:|---:|---:|
+| 192 | fp64 | 5.90 | 0.98 | 6.0× | 0.36 |
+| 1,536 | fp64 | 26.3 | 6.03 | 4.4× | 2.12 |
+| 12,288 | fp64 | 193 | 47.3 | 4.1× | 15.7 |
+| 98,304 | fp64 | error | 377 | | 125 |
+| 192 | fp32 | 4.96 | 0.26 | 19× | 0.20 |
+| 1,536 | fp32 | 7.38 | 1.16 | 6.4× | 0.80 |
+| 12,288 | fp32 | 52.9 | 6.93 | 7.6× | 4.24 |
+| 98,304 | fp32 | error | 55.1 | | 34.8 |
+
+- As in the se_e2_a comparison, LAMMPS keeps a neighbor list for several
+  steps and omniMD searches at every evaluation, and LAMMPS stops at 98,304
+  atoms with a TorchScript error. A compressed DeePMD model of this
+  descriptor was not timed.
+- Against se_e2_a in omniMD, same script, build and day
+  (`omnimd-gpu-rtx4090-2026-11-12.csv`): float64 0.98 against 1.46 ms at 192
+  atoms and 47.3 against 68.9 at 12,288; float32 with tables 0.20 against
+  0.25, 0.80 against 0.93, 4.24 against 5.80 and 34.8 against 45.9 ms.
+- Where the time goes at 98,304 atoms in float32 with tables (34.8 ms; stage
+  times with a synchronization after each): embedding tables 9.3 ms, neighbor
+  search 6.3, forces 5.6, fitting 4.7, descriptor 4.5. The descriptor only
+  adds up embedding rows, and the force kernel only contracts their
+  derivatives with one vector per atom: both read from memory what the
+  embedding stage has just written there. A kernel that summed the rows as
+  it made them would not have to store them; that is not built.
+- Through the engine, `run` takes such a model on the CPU and on the GPU
+  runtime like any native model (tests `engine/tests/se_e2_r.rs`: the GPU
+  run follows the CPU trajectory within 1e-10 Å over 60 steps, and the error
+  of the total energy falls about fourfold when the time step is halved).
+
 # Float32 models without double precision between the environment and its adjoint, 2026-11-11
 
 A float32 model ran its networks in single precision and everything around

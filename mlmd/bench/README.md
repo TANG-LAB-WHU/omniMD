@@ -34,6 +34,12 @@ Step 6 also writes `omnimd-gpu-<tag>.json` with per-stage times and the energy,
 force and virial errors against the DeePMD reference and against omniMD float64.
 It times the exact embedding networks and the compressed mode (`--compress 0.5`).
 
+The same six steps time the radial descriptor: `make_water_case.py cases/se-r
+--descriptor se_e2_r` builds an se_e2_r model of the same sizes and the same
+boxes, and every later step takes `cases/se-r` and `water-se_e2_r-float64`
+where it has `cases` and `water-se_e2_a-float64` (step 4 does not apply: the
+CUDA subset has se_e2_a only).
+
 For a compressed DeePMD baseline, run `compress_deepmd.py cases` in the image
 (the `dp --pt compress` steps with the minimum neighbor distance set to 0.5 Å,
 because the untrained models do not store one), then step 3 with

@@ -4,6 +4,10 @@ The model uses the official water se_e2_a example architecture with untrained,
 seeded weights: throughput does not depend on weight values, and every engine
 evaluates the same parameters. Boxes are 64-molecule cells at 0.997 g/cm^3,
 randomly oriented and replicated to 192, 1536, 12288 and 98304 atoms.
+
+`--descriptor se_e2_r` builds the radial descriptor instead, with the same
+cutoffs, `sel`, embedding and fitting sizes (its fitting nets take the 100
+embedding outputs); the boxes are the same for the same seed.
 """
 import argparse
 from copy import deepcopy
@@ -16,19 +20,23 @@ TYPES = ['O', 'H']
 REPLICAS = [1, 2, 4, 8]
 
 
-def build_model(output, precision, seed):
+def build_model(output, precision, seed, kind='se_e2_a'):
     from deepmd.dpmodel.descriptor.se_e2_a import DescrptSeA
+    from deepmd.dpmodel.descriptor.se_r import DescrptSeR
     from deepmd.dpmodel.fitting.ener_fitting import EnergyFittingNet
     from deepmd.dpmodel.model.ener_model import EnergyModel
     from deepmd.dpmodel.utils.serialization import save_dp_model
     from deepmd.pt.utils.serialization import deserialize_to_file
 
+    radial = kind == 'se_e2_r'
     descriptor_config = dict(rcut=6.0, rcut_smth=0.5, sel=[46, 92], neuron=[25, 50, 100],
-                             axis_neuron=16, resnet_dt=False, type_one_side=False,
-                             precision=precision, type_map=TYPES, seed=seed)
-    fitting_config = dict(ntypes=2, dim_descrpt=100 * 16, neuron=[240, 240, 240], resnet_dt=True,
+                             resnet_dt=False, precision=precision, type_map=TYPES, seed=seed,
+                             **(dict(type_one_side=True) if radial
+                                else dict(axis_neuron=16, type_one_side=False)))
+    fitting_config = dict(ntypes=2, dim_descrpt=100 if radial else 100 * 16,
+                          neuron=[240, 240, 240], resnet_dt=True,
                           precision=precision, type_map=TYPES, seed=seed + 1)
-    descriptor = DescrptSeA(**descriptor_config)
+    descriptor = (DescrptSeR if radial else DescrptSeA)(**descriptor_config)
     fitting = EnergyFittingNet(**fitting_config)
     # Plausible normalization for liquid water; angular mean zero and isotropic std
     # as required by the native converter.
@@ -39,13 +47,13 @@ def build_model(output, precision, seed):
     fitting.bias_atom_e[:] = np.array([[-93.5], [-187.0]]) / 3.0
     model = EnergyModel(descriptor=descriptor, fitting=fitting, type_map=TYPES)
     definition = {'type': 'standard', 'type_map': TYPES,
-                  'descriptor': {'type': 'se_e2_a',
+                  'descriptor': {'type': kind,
                                  **{k: v for k, v in descriptor_config.items() if k != 'type_map'}},
                   'fitting_net': {'type': 'ener',
                                   **{k: v for k, v in fitting_config.items()
                                      if k not in ('ntypes', 'dim_descrpt', 'type_map')}}}
     data = {'model': model.serialize(), 'model_def_script': definition}
-    stem = output / f'water-se_e2_a-{precision}'
+    stem = output / f'water-{kind}-{precision}'
     # Both writers mutate their input, so each gets its own copy.
     save_dp_model(str(stem.with_suffix('.dp')), deepcopy(data))
     deserialize_to_file(str(stem.with_suffix('.pth')), deepcopy(data))
@@ -75,12 +83,14 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('output_dir', type=Path)
     parser.add_argument('--seed', type=int, default=20261029)
+    parser.add_argument('--descriptor', choices=['se_e2_a', 'se_e2_r'], default='se_e2_a')
     args = parser.parse_args()
     import deepmd
     if deepmd.__version__ != '3.1.3':
         raise RuntimeError('benchmark recipe requires DeepMD-kit 3.1.3')
     args.output_dir.mkdir(parents=True, exist_ok=False)
-    models = {p: build_model(args.output_dir, p, args.seed).name for p in ('float64', 'float32')}
+    models = {p: build_model(args.output_dir, p, args.seed, args.descriptor).name
+              for p in ('float64', 'float32')}
 
     base_coords, base_types, length = water_box(np.random.default_rng(args.seed))
     cases = []
@@ -95,8 +105,8 @@ def main():
                  'cell': cell.tolist(), 'units': 'EvAngstrom'}
         (args.output_dir / f'{name}.jsonl').write_text(json.dumps(frame) + '\n')
         cases.append({'name': name, 'natoms': int(len(types)), 'box_angstrom': float(length * n)})
-    manifest = {'deepmd_version': deepmd.__version__, 'seed': args.seed, 'models': models,
-                'cases': cases}
+    manifest = {'deepmd_version': deepmd.__version__, 'seed': args.seed,
+                'descriptor': args.descriptor, 'models': models, 'cases': cases}
     (args.output_dir / 'manifest.json').write_text(json.dumps(manifest, indent=2) + '\n')
     print(json.dumps(manifest))
 

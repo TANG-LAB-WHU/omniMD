@@ -1,4 +1,5 @@
-//! CPU float64 inference for the explicitly versioned native se_e2_a subset.
+//! CPU float64 inference for the explicitly versioned native se_e2_a and
+//! se_e2_r subsets.
 mod autodiff;
 #[cfg(feature = "cuda")]
 pub mod cuda;
@@ -23,7 +24,9 @@ pub mod stats;
 pub mod training;
 pub mod training_data;
 
-pub use model::{Activation, Descriptor, Layer, Model, Network, Normalization, Residual};
+pub use model::{
+    Activation, Descriptor, DescriptorKind, Layer, Model, Network, Normalization, Residual,
+};
 use neighbor::Neighbor;
 use omnimd_ml_contract::{Error, Evaluation, Frame, ModelMetadata, Potential, Result, Units};
 use std::path::Path;
@@ -89,6 +92,9 @@ impl NativePotential {
         rows: impl IntoIterator<Item = (usize, Option<&'a Neighbor>, [f64; 4], [[f64; 3]; 4])>,
         result: &mut Evaluation,
     ) -> Result<()> {
+        if self.model.descriptor_kind() == DescriptorKind::SeE2R {
+            return self.radial_atom(center, kind, rows, result);
+        }
         let d = &self.model.descriptor;
         let width = d.embedding[kind][0].output_size();
         let slots = d.sel.iter().sum::<usize>() as f64;
@@ -145,7 +151,57 @@ impl NativePotential {
         }
         Ok(())
     }
+
+    /// One atom of an se_e2_r model: D[m] = RADIAL_RESCALE / slots · sum over
+    /// the slots of G[slot][m], the embedding of the slot's normalized
+    /// radial entry (an empty slot has the normalized zero), as DeePMD-kit
+    /// averages the rows of each neighbor type and weights the types by their
+    /// slots. Only the radial entry of a row and its Jacobian are used.
+    fn radial_atom<'a>(
+        &self,
+        center: usize,
+        kind: usize,
+        rows: impl IntoIterator<Item = (usize, Option<&'a Neighbor>, [f64; 4], [[f64; 3]; 4])>,
+        result: &mut Evaluation,
+    ) -> Result<()> {
+        let d = &self.model.descriptor;
+        let width = d.embedding[kind][0].output_size();
+        let scale = RADIAL_RESCALE / d.sel.iter().sum::<usize>() as f64;
+        let mut descriptor = vec![0.0; width];
+        let mut records = Vec::new();
+        for (species, neighbor, r, jac) in rows {
+            let (g, dg) = d.embedding[kind][species].scalar_with_derivative(r[0])?;
+            for m in 0..width {
+                descriptor[m] += scale * g[m];
+            }
+            if let Some(n) = neighbor {
+                records.push((n, jac[0], dg));
+            }
+        }
+        let (energy, dd) = self.model.fitting[kind].scalar_with_gradient(&descriptor)?;
+        result.energy += energy + self.model.atom_energy_bias[kind];
+        for (n, jac, dg) in records {
+            // dE/d(radial entry) of this neighbor, then along its vector.
+            let ds: f64 = (0..width).map(|m| dd[m] * dg[m]).sum::<f64>() * scale;
+            for c in 0..3 {
+                let grad = ds * jac[c];
+                result.forces[center][c] += grad;
+                result.forces[n.atom][c] -= grad;
+                for a in 0..3 {
+                    result.virial[a][c] -= n.delta[a] * grad;
+                }
+            }
+        }
+        if !result.energy.is_finite() {
+            return Err(Error(format!("nonfinite native energy at atom {center}")));
+        }
+        Ok(())
+    }
 }
+
+/// DeePMD-kit's `res_rescale` of se_e2_r: the mean of the embedding rows is
+/// divided by five.
+pub const RADIAL_RESCALE: f64 = 0.2;
 
 impl Potential for NativePotential {
     fn metadata(&self) -> &ModelMetadata {

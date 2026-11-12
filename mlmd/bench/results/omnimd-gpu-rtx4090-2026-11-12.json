@@ -1,0 +1,394 @@
+[
+ {
+  "natoms": 192,
+  "precision": "float64",
+  "compressed": false,
+  "ms_per_eval": 1.460205,
+  "stages_ms": {
+   "chunks": 1,
+   "descriptor": 0.038786000000000015,
+   "download": 0.012246999999999997,
+   "embedding": 0.622358,
+   "environment": 0.021958999999999985,
+   "fitting": 0.42484800000000006,
+   "forces": 0.15666299999999997,
+   "host_prepare": 0.003562000000000001,
+   "neighbors": 0.077873
+  },
+  "vs_deepmd_float64": {
+   "energy_per_atom": 0.0,
+   "force_max": 1.734723475976807e-17,
+   "force_rms": 4.425076177298656e-18,
+   "virial_max": 6.106226635438361e-16
+  }
+ },
+ {
+  "natoms": 192,
+  "precision": "float32",
+  "compressed": false,
+  "ms_per_eval": 0.289295,
+  "stages_ms": {
+   "chunks": 1,
+   "descriptor": 0.01689699999999997,
+   "download": 0.010458000000000005,
+   "embedding": 0.068792,
+   "environment": 0.02353199999999997,
+   "fitting": 0.086667,
+   "forces": 0.04866299999999999,
+   "host_prepare": 0.0028210000000000028,
+   "neighbors": 0.06782400000000001
+  },
+  "vs_deepmd_float64": {
+   "energy_per_atom": 4.797082434985593e-09,
+   "force_max": 4.739925090445352e-09,
+   "force_rms": 1.1405050731976933e-09,
+   "virial_max": 1.4567522968467195e-07
+  },
+  "vs_omnimd_float64": {
+   "energy_per_atom": 4.797082434985593e-09,
+   "force_max": 4.739925099118969e-09,
+   "force_rms": 1.140505073597787e-09,
+   "virial_max": 1.4567522907404928e-07
+  }
+ },
+ {
+  "natoms": 192,
+  "precision": "float64",
+  "compressed": true,
+  "ms_per_eval": 0.8011050000000001,
+  "stages_ms": {
+   "chunks": 1,
+   "descriptor": 0.04551000000000002,
+   "download": 0.014288,
+   "embedding": 0.08871999999999997,
+   "environment": 0.030633999999999988,
+   "fitting": 0.4215839999999998,
+   "forces": 0.16196200000000002,
+   "host_prepare": 0.0035320000000000013,
+   "neighbors": 0.08427899999999998
+  },
+  "vs_deepmd_float64": {
+   "energy_per_atom": 0.0,
+   "force_max": 8.552186736565659e-16,
+   "force_rms": 4.167659825875123e-16,
+   "virial_max": 2.7644553313166398e-14
+  },
+  "vs_omnimd_float64": {
+   "energy_per_atom": 0.0,
+   "force_max": 8.534839501805891e-16,
+   "force_rms": 4.182227248612963e-16,
+   "virial_max": 2.811639809863209e-14
+  }
+ },
+ {
+  "natoms": 192,
+  "precision": "float32",
+  "compressed": true,
+  "ms_per_eval": 0.245759,
+  "stages_ms": {
+   "chunks": 1,
+   "descriptor": 0.01598799999999999,
+   "download": 0.010494000000000002,
+   "embedding": 0.019821,
+   "environment": 0.022381999999999985,
+   "fitting": 0.09277499999999998,
+   "forces": 0.051395000000000024,
+   "host_prepare": 0.0030159999999999996,
+   "neighbors": 0.06983500000000004
+  },
+  "vs_deepmd_float64": {
+   "energy_per_atom": 3.6717343239918896e-09,
+   "force_max": 4.093129765680992e-09,
+   "force_rms": 1.2672758081845988e-09,
+   "virial_max": 1.3305378884775898e-07
+  },
+  "vs_omnimd_float64": {
+   "energy_per_atom": 3.6717343239918896e-09,
+   "force_max": 4.093129756140013e-09,
+   "force_rms": 1.2672758075522813e-09,
+   "virial_max": 1.330537883759142e-07
+  }
+ },
+ {
+  "natoms": 1536,
+  "precision": "float64",
+  "compressed": false,
+  "ms_per_eval": 8.898700999999999,
+  "stages_ms": {
+   "chunks": 1,
+   "descriptor": 0.24151299999999992,
+   "download": 0.03273400000000001,
+   "embedding": 4.5701550000000015,
+   "environment": 0.03771299999999999,
+   "fitting": 2.945095999999998,
+   "forces": 0.8182539999999999,
+   "host_prepare": 0.018766999999999995,
+   "neighbors": 0.18790500000000004
+  },
+  "vs_deepmd_float64": {
+   "energy_per_atom": 0.0,
+   "force_max": 1.5612511283791264e-17,
+   "force_rms": 3.552584885518917e-18,
+   "virial_max": 3.552713678800501e-15
+  }
+ },
+ {
+  "natoms": 1536,
+  "precision": "float32",
+  "compressed": false,
+  "ms_per_eval": 1.331145,
+  "stages_ms": {
+   "chunks": 1,
+   "descriptor": 0.06683900000000001,
+   "download": 0.02512300000000001,
+   "embedding": 0.5110379999999999,
+   "environment": 0.05817400000000001,
+   "fitting": 0.2992419999999999,
+   "forces": 0.21606500000000003,
+   "host_prepare": 0.015733999999999998,
+   "neighbors": 0.16407700000000006
+  },
+  "vs_deepmd_float64": {
+   "energy_per_atom": 4.7194722204343025e-09,
+   "force_max": 8.24888167320903e-09,
+   "force_rms": 1.6771556159356408e-09,
+   "virial_max": 2.114430577737636e-06
+  },
+  "vs_omnimd_float64": {
+   "energy_per_atom": 4.7194722204343025e-09,
+   "force_max": 8.248881671474306e-09,
+   "force_rms": 1.6771556163639621e-09,
+   "virial_max": 2.1144305752951453e-06
+  }
+ },
+ {
+  "natoms": 1536,
+  "precision": "float64",
+  "compressed": true,
+  "ms_per_eval": 4.934813,
+  "stages_ms": {
+   "chunks": 1,
+   "descriptor": 0.2265149999999999,
+   "download": 0.02904599999999999,
+   "embedding": 0.6104179999999998,
+   "environment": 0.05401899999999998,
+   "fitting": 2.999084999999999,
+   "forces": 0.8386939999999997,
+   "host_prepare": 0.015967,
+   "neighbors": 0.1642479999999999
+  },
+  "vs_deepmd_float64": {
+   "energy_per_atom": 0.0,
+   "force_max": 8.526165884426007e-16,
+   "force_rms": 4.1745070637633556e-16,
+   "virial_max": 2.191580250610059e-13
+  },
+  "vs_omnimd_float64": {
+   "energy_per_atom": 0.0,
+   "force_max": 8.560860353945543e-16,
+   "force_rms": 4.1840318696331197e-16,
+   "virial_max": 2.2248869413488137e-13
+  }
+ },
+ {
+  "natoms": 1536,
+  "precision": "float32",
+  "compressed": true,
+  "ms_per_eval": 0.92631,
+  "stages_ms": {
+   "chunks": 1,
+   "descriptor": 0.07430799999999999,
+   "download": 0.025622000000000002,
+   "embedding": 0.10774299999999995,
+   "environment": 0.043087,
+   "fitting": 0.31582099999999985,
+   "forces": 0.22583299999999987,
+   "host_prepare": 0.015427,
+   "neighbors": 0.161
+  },
+  "vs_deepmd_float64": {
+   "energy_per_atom": 3.1624172909990498e-09,
+   "force_max": 6.123168885992236e-09,
+   "force_rms": 1.7792054455669905e-09,
+   "virial_max": 2.0848127952888262e-06
+  },
+  "vs_omnimd_float64": {
+   "energy_per_atom": 3.1624172909990498e-09,
+   "force_max": 6.123168877318619e-09,
+   "force_rms": 1.7792054456426831e-09,
+   "virial_max": 2.0848127928463356e-06
+  }
+ },
+ {
+  "natoms": 12288,
+  "precision": "float64",
+  "compressed": false,
+  "ms_per_eval": 68.88938,
+  "stages_ms": {
+   "chunks": 1,
+   "descriptor": 1.43334,
+   "download": 0.24402499999999994,
+   "embedding": 36.403870000000005,
+   "environment": 0.17601,
+   "fitting": 22.969990000000003,
+   "forces": 6.279975000000002,
+   "host_prepare": 0.131845,
+   "neighbors": 0.72134
+  }
+ },
+ {
+  "natoms": 12288,
+  "precision": "float32",
+  "compressed": false,
+  "ms_per_eval": 8.354585,
+  "stages_ms": {
+   "chunks": 1,
+   "descriptor": 1.1971049999999999,
+   "download": 0.21744999999999998,
+   "embedding": 3.26933,
+   "environment": 0.18968500000000002,
+   "fitting": 0.9307200000000002,
+   "forces": 1.288575,
+   "host_prepare": 0.11737500000000001,
+   "neighbors": 0.92241
+  },
+  "vs_omnimd_float64": {
+   "energy_per_atom": 4.116780398059443e-09,
+   "force_max": 8.312193294779391e-09,
+   "force_rms": 1.7163969129593775e-09,
+   "virial_max": 1.4143038916003547e-05
+  }
+ },
+ {
+  "natoms": 12288,
+  "precision": "float64",
+  "compressed": true,
+  "ms_per_eval": 37.288365,
+  "stages_ms": {
+   "chunks": 1,
+   "descriptor": 1.409625,
+   "download": 0.24647000000000002,
+   "embedding": 4.987964999999999,
+   "environment": 0.145515,
+   "fitting": 22.880354999999998,
+   "forces": 6.316910000000002,
+   "host_prepare": 0.135795,
+   "neighbors": 0.7356349999999998
+  },
+  "vs_omnimd_float64": {
+   "energy_per_atom": 0.0,
+   "force_max": 8.578207588705311e-16,
+   "force_rms": 4.184989774040193e-16,
+   "virial_max": 1.9273471707492718e-12
+  }
+ },
+ {
+  "natoms": 12288,
+  "precision": "float32",
+  "compressed": true,
+  "ms_per_eval": 5.80381,
+  "stages_ms": {
+   "chunks": 1,
+   "descriptor": 0.6743249999999998,
+   "download": 0.222175,
+   "embedding": 1.20435,
+   "environment": 0.12392999999999998,
+   "fitting": 1.072355,
+   "forces": 1.489145,
+   "host_prepare": 0.12318,
+   "neighbors": 0.7134499999999998
+  },
+  "vs_omnimd_float64": {
+   "energy_per_atom": 3.5286404909129487e-09,
+   "force_max": 6.982823178187936e-09,
+   "force_rms": 1.7443742083040008e-09,
+   "virial_max": 1.4555727878118319e-05
+  }
+ },
+ {
+  "natoms": 98304,
+  "precision": "float64",
+  "compressed": false,
+  "ms_per_eval": 548.53832,
+  "stages_ms": {
+   "chunks": 3,
+   "descriptor": 11.0318,
+   "download": 1.4014700000000002,
+   "embedding": 293.32765,
+   "environment": 0.9341200000000001,
+   "fitting": 182.96105,
+   "forces": 50.18128,
+   "host_prepare": 1.1468599999999998,
+   "neighbors": 6.230179999999999
+  }
+ },
+ {
+  "natoms": 98304,
+  "precision": "float32",
+  "compressed": false,
+  "ms_per_eval": 65.81712,
+  "stages_ms": {
+   "chunks": 2,
+   "descriptor": 5.436660000000001,
+   "download": 1.3168099999999998,
+   "embedding": 29.884989999999995,
+   "environment": 1.04859,
+   "fitting": 8.37022,
+   "forces": 11.483270000000001,
+   "host_prepare": 1.11151,
+   "neighbors": 6.13144
+  },
+  "vs_omnimd_float64": {
+   "energy_per_atom": 4.011724286101526e-09,
+   "force_max": 8.210387892997051e-09,
+   "force_rms": 1.7213836848035916e-09,
+   "virial_max": 0.00010652972436275832
+  }
+ },
+ {
+  "natoms": 98304,
+  "precision": "float64",
+  "compressed": true,
+  "ms_per_eval": 295.82453,
+  "stages_ms": {
+   "chunks": 3,
+   "descriptor": 11.124019999999998,
+   "download": 1.38462,
+   "embedding": 39.837390000000006,
+   "environment": 0.9121600000000001,
+   "fitting": 182.93173,
+   "forces": 50.322610000000005,
+   "host_prepare": 1.3107600000000001,
+   "neighbors": 6.485760000000001
+  },
+  "vs_omnimd_float64": {
+   "energy_per_atom": 0.0,
+   "force_max": 8.595554823465079e-16,
+   "force_rms": 4.184213059475808e-16,
+   "virial_max": 1.5688783605583012e-11
+  }
+ },
+ {
+  "natoms": 98304,
+  "precision": "float32",
+  "compressed": true,
+  "ms_per_eval": 45.87983,
+  "stages_ms": {
+   "chunks": 2,
+   "descriptor": 5.48028,
+   "download": 1.3766299999999998,
+   "embedding": 9.48172,
+   "environment": 0.92806,
+   "fitting": 8.42217,
+   "forces": 11.31729,
+   "host_prepare": 1.12568,
+   "neighbors": 6.26264
+  },
+  "vs_omnimd_float64": {
+   "energy_per_atom": 3.4476859885520148e-09,
+   "force_max": 7.159419398473921e-09,
+   "force_rms": 1.7448794080755675e-09,
+   "virial_max": 0.00010829166816961333
+  }
+ }
+]

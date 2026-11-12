@@ -82,6 +82,7 @@ pub struct ReadoutBasis {
 impl ReadoutBasis {
     pub fn new(model: &Model, fit_bias: bool) -> Result<Self> {
         model.validate()?;
+        model.require_se_e2_a("the readout trainer")?;
         let mut parameters = Vec::new();
         let mut zero = model.clone();
         let mut offsets = model.atom_energy_bias.clone();

@@ -158,6 +158,20 @@ pub fn model_of_width(
     }
 }
 
+/// The same networks around an se_e2_r descriptor: no axis neurons, the
+/// radial normalization only, fitting nets that take the embedding width.
+#[allow(dead_code)]
+pub fn radial_model(ntypes: usize, sel: Vec<usize>, rcut: f64, seed: u64, width: usize) -> Model {
+    let mut model = model_of_width(ntypes, sel, rcut, seed, width, 1);
+    model.format = "omnimd-native-se-e2-r".into();
+    model.descriptor.kind = "se_e2_r".into();
+    model.descriptor.axis_neuron = 0;
+    for normalization in &mut model.descriptor.normalization {
+        normalization.std = [normalization.std[0], 1.0, 1.0, 1.0];
+    }
+    model
+}
+
 /// Jittered lattice so no two atoms come closer than ~1 Å.
 pub fn frame(
     lattice: [[f64; 3]; 3],

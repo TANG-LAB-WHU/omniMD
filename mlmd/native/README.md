@@ -11,6 +11,7 @@ This is a progressively implemented subset, not all DeepMD functionality:
 | Operation | Native CPU | Native CUDA |
 | --- | --- | --- |
 | Native-v1 se_e2_a scalar-energy inference, E/F/virial | Implemented | Implemented within [CUDA bounds](CUDA.md) |
+| Native-v1 se_e2_r (radial descriptor) inference, E/F/virial | Implemented | On the [GPU runtime](../gpu/README.md) (`gpu` feature); the CUDA subset and every trainer refuse it |
 | tanh/linear, explicit residuals and timesteps | Implemented | Implemented |
 | sigmoid/softplus inference | Implemented | Rejected |
 | Final-readout E/F fitting | Implemented, bounded | Implemented: GPU features, CPU QR/assessment |
@@ -198,14 +199,14 @@ Every native model object rejects unknown fields.
 
 | Field | Required meaning |
 | --- | --- |
-| `format`, `version` | `"omnimd-native-se-e2-a"`, integer `1` |
+| `format`, `version` | `"omnimd-native-se-e2-a"` or `"omnimd-native-se-e2-r"`, integer `1` |
 | `precision`, `units` | `"float64"`, `"EvAngstrom"` |
 | `type_map` | Ordered unique chemical symbols; no inferred atomic-number mapping |
-| `descriptor.kind` | `"se_e2_a"` |
+| `descriptor.kind` | `"se_e2_a"` in the first format, `"se_e2_r"` in the second; any other pairing is refused |
 | `rcut_smth`, `rcut` | Finite radii with `0 <= rcut_smth < rcut` |
 | `sel` | Fixed per-neighbor-species capacities in `type_map` order |
-| `axis_neuron` | Positive, no larger than embedding output width |
-| `normalization` | One `{mean: [4], std: [4]}` per central type, repeated across slots |
+| `axis_neuron` | se_e2_a: positive, no larger than embedding output width. se_e2_r: zero, or left out |
+| `normalization` | One `{mean: [4], std: [4]}` per central type, repeated across slots. se_e2_r uses the first entry of each; the others are a zero mean and a unit width |
 | `embedding` | Network table `[central type][neighbor type]`; duplicate rows for one-side models |
 | `fitting` | One network per central type; final output is a scalar |
 | `atom_energy_bias` | One finite additive energy offset per central type |
@@ -213,7 +214,8 @@ Every native model object rejects unknown fields.
 Normalization requires zero angular means, equal positive angular standard
 deviations, and a positive radial standard deviation. All embedding networks
 start with a scalar input and share one output width. Fitting input width is
-`embedding_width * axis_neuron`. No units or precision conversion is implicit.
+`embedding_width * axis_neuron` for se_e2_a and `embedding_width` for
+se_e2_r. No units or precision conversion is implicit.
 
 Each network has a nonempty `layers` array. Each layer has `weights[input][output]`,
 `bias[output]`, `activation`, `residual`, and optional `timestep[output]` (or null).
@@ -248,6 +250,20 @@ E = sum_i (fitting[type_i](flatten_m_then_k(D_i)) + atom_energy_bias[type_i])
 Unused slots are zero **before** normalization. Their normalized radial values
 and resulting descriptor contributions are retained, including for isolated
 atoms. The denominator is fixed capacity, not the current neighbor count.
+
+An se_e2_r model (DeePMD-kit's `se_e2_r`, also `se_r`) keeps the radial entry
+only. With the same `s`, `R[0]` and `G`:
+
+```text
+D[m] = (1/5) * sum_over_slots G[slot][m] / sum(sel)
+E = sum_i (fitting[type_i](D_i) + atom_energy_bias[type_i])
+```
+
+DeePMD-kit averages the embedding rows of each neighbor type, weights the
+types by `sel[t] / sum(sel)` and divides by five; that is the same sum. Unused
+slots count as above. The embedding table is `[central type][neighbor type]`
+here as well: DeePMD-kit 3.1.3 builds this descriptor with one net per
+neighbor type, which the converter repeats for every central type.
 
 Forces use the analytic chain rule through the quintic switch, environment
 normalization, embeddings, descriptor contraction, and fitting networks.

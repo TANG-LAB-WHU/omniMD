@@ -33,7 +33,8 @@ are printed by the converter. Native JSON remains schema v1.
   producer versions. The `model` tree is authoritative, not `model_def_script`.
 - Serialized classes/versions: Model 2, Descriptor 2, Fitting 4,
   NetworkCollection 1, EmbeddingNetwork 2, FittingNetwork 1, Layer 2, ndarray 1.
-- A standard energy model with a single `se_e2_a` descriptor; explicit float64
+- A standard energy model with a single `se_e2_a` descriptor, or with a single
+  `se_e2_r` descriptor (serialized as `se_r`; see below); explicit float64
   arrays; scalar, species-specific energy fitting; ordered chemical type maps.
 - One-sided or two-sided embeddings. For two-sided collections, DeepMD's flat
   index is `central + ntypes*neighbor`; the importer reorders this into native
@@ -55,6 +56,17 @@ are printed by the converter. Native JSON remains schema v1.
   links, virtual/external datasets, object dtypes, and other layouts fail. YAML
   uses SafeLoader with duplicate-key rejection; executable tags are not accepted.
   Input size is capped at 256 MiB and each HDF5 dataset at 8 million values.
+
+An `se_r` descriptor becomes a native `omnimd-native-se-e2-r` model: its
+`davg`/`dstd` hold one entry per slot (the radial one), again uniform per
+central type; it has no `axis_neuron`; its fitting nets take `neuron[-1]`
+inputs. DeePMD-kit 3.1.3 serializes it with one embedding net per neighbor
+type, which the native table repeats for every central type. It is converted
+with `--geometry dpmodel` only: its radii in a frozen TensorFlow graph have
+not been checked. `tools/make_se_r_fixture.py` builds two such models in the
+DeePMD-kit image, converts them and records DeePMD's energy, forces and
+virial, against which `tests/se_e2_r.rs` (CPU) and `tests/gpu_parity.rs` (GPU
+runtime) compare.
 
 This interchange converter does **not** consume `.pb`, `.pth`, checkpoint
 folders, or pickle. A separate [frozen-graph exporter](FROZEN.md) now supports

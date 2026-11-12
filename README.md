@@ -117,7 +117,8 @@ Milliseconds per energy/force/virial evaluation; DeepMD-kit 3.1.3 is LAMMPS
 - LAMMPS reuses its neighbor list for about 13 steps, while omniMD rebuilds it on
   every evaluation. The 98,304-atom LAMMPS runs stopped with a TorchScript runtime
   error (probably out of memory; not verified).
-- Scope: one GPU, se_e2_a with one embedding net per type pair. The engine can
+- Scope: one GPU, se_e2_a or se_e2_r (inference; training is se_e2_a's) with
+  one embedding net per type pair. The engine can
   select it for dynamics, minimization, batch evaluation and model deviation
   (`gpu_runtime` in the model options). It has a trainer of its own (below); the
   bounded `train-native` trainers do not use it.

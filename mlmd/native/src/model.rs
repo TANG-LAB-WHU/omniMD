@@ -17,12 +17,18 @@ pub struct Model {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Descriptor {
+    /// `se_e2_a` or `se_e2_r`, with the `format` of the model that goes
+    /// with it (see [`DescriptorKind`]).
     pub kind: String,
     pub rcut: f64,
     pub rcut_smth: f64,
     pub sel: Vec<usize>,
+    /// se_e2_a: the first so many embedding outputs are the axis neurons.
+    /// se_e2_r has none: zero, or left out.
+    #[serde(default)]
     pub axis_neuron: usize,
-    /// Per-center-type, uniform across neighbor slots.
+    /// Per-center-type, uniform across neighbor slots. se_e2_r has the
+    /// radial entry only: its other means are zero and its other widths one.
     pub normalization: Vec<Normalization>,
     /// Ordered [central type][neighbor type]. One-side models repeat rows.
     pub embedding: Vec<Vec<Network>>,
@@ -33,6 +39,60 @@ pub struct Descriptor {
 pub struct Normalization {
     pub mean: [f64; 4],
     pub std: [f64; 4],
+}
+
+/// The descriptors a native model can have. Both take the environment of an
+/// atom through one embedding net per pair of types, fed the normalized
+/// radial entry s(r) = switch(r) / r of every neighbor slot.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DescriptorKind {
+    /// Radial and angular information: with B the mean over the slots of
+    /// the embedding row times the environment row, D = B·B[:axis]ᵀ.
+    SeE2A,
+    /// Radial information only: D is a fifth of the mean of the embedding
+    /// rows over the slots (DeePMD-kit's `se_e2_r`, also called `se_r`).
+    SeE2R,
+}
+
+impl DescriptorKind {
+    /// What `descriptor.kind` says for it.
+    pub fn name(self) -> &'static str {
+        match self {
+            Self::SeE2A => "se_e2_a",
+            Self::SeE2R => "se_e2_r",
+        }
+    }
+
+    /// The `format` of a native model with this descriptor.
+    pub fn format(self) -> &'static str {
+        match self {
+            Self::SeE2A => "omnimd-native-se-e2-a",
+            Self::SeE2R => "omnimd-native-se-e2-r",
+        }
+    }
+}
+
+impl Descriptor {
+    /// The descriptor `kind` names, if the format has it.
+    pub fn descriptor_kind(&self) -> Option<DescriptorKind> {
+        [DescriptorKind::SeE2A, DescriptorKind::SeE2R]
+            .into_iter()
+            .find(|kind| kind.name() == self.kind)
+    }
+
+    /// Outputs of an embedding net (of a validated model: all alike).
+    pub fn width(&self) -> usize {
+        self.embedding[0][0].output_size()
+    }
+
+    /// Components of the descriptor, the input of a fitting net (of a
+    /// validated model).
+    pub fn features(&self) -> usize {
+        match self.descriptor_kind() {
+            Some(DescriptorKind::SeE2R) => self.width(),
+            _ => self.width() * self.axis_neuron,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -82,24 +142,53 @@ fn finite(mut values: impl Iterator<Item = f64>) -> bool {
 }
 
 impl Model {
-    pub fn validate(&self) -> Result<ModelMetadata> {
+    /// The descriptor of a validated model.
+    pub fn descriptor_kind(&self) -> DescriptorKind {
+        self.descriptor
+            .descriptor_kind()
+            .unwrap_or(DescriptorKind::SeE2A)
+    }
+
+    /// Fails for a model with another descriptor than se_e2_a. `what` names
+    /// the caller, whose arithmetic is that descriptor's only.
+    pub fn require_se_e2_a(&self, what: &str) -> Result<()> {
         require(
-            self.format == "omnimd-native-se-e2-a" && self.version == 1,
-            "unsupported native format/version (expected omnimd-native-se-e2-a v1)",
+            self.descriptor.kind == DescriptorKind::SeE2A.name(),
+            format!(
+                "{what} supports the se_e2_a descriptor only, not {}",
+                self.descriptor.kind
+            ),
+        )
+    }
+
+    pub fn validate(&self) -> Result<ModelMetadata> {
+        let formats = [DescriptorKind::SeE2A, DescriptorKind::SeE2R].map(DescriptorKind::format);
+        require(
+            formats.contains(&self.format.as_str()) && self.version == 1,
+            "unsupported native format/version (expected omnimd-native-se-e2-a or omnimd-native-se-e2-r, v1)",
         )?;
         require(
             self.precision == "float64",
             "native v1 supports only float64 precision",
         )?;
         let d = &self.descriptor;
-        require(
-            d.kind == "se_e2_a",
-            "unsupported descriptor: native v1 requires se_e2_a",
-        )?;
+        // A format names its descriptor: the two must agree.
+        let kind = d
+            .descriptor_kind()
+            .filter(|kind| kind.format() == self.format)
+            .ok_or_else(|| {
+                Error(format!(
+                    "unsupported descriptor {:?} for native format {}: omnimd-native-se-e2-a has se_e2_a, omnimd-native-se-e2-r has se_e2_r",
+                    d.kind, self.format
+                ))
+            })?;
         let metadata = ModelMetadata {
             type_map: self.type_map.clone(),
             cutoff: d.rcut,
-            backend: "native-se-e2-a-v1".into(),
+            backend: match kind {
+                DescriptorKind::SeE2A => "native-se-e2-a-v1".into(),
+                DescriptorKind::SeE2R => "native-se-e2-r-v1".into(),
+            },
             precision: self.precision.clone(),
             units: self.units,
         };
@@ -135,6 +224,10 @@ impl Model {
                     && norm.std[2] == norm.std[3],
                 format!("normalization[{i}]: angular mean must be zero and angular std isotropic"),
             )?;
+            require(
+                kind != DescriptorKind::SeE2R || norm.std[1] == 1.0,
+                format!("normalization[{i}]: se_e2_r has a radial entry only; the other widths must be one"),
+            )?;
         }
         require(
             d.embedding.len() == n,
@@ -159,13 +252,24 @@ impl Model {
             }
         }
         let width = width.unwrap();
-        require(
-            d.axis_neuron > 0 && d.axis_neuron <= width,
-            "axis_neuron must be in 1..=embedding width",
-        )?;
-        let input = width
-            .checked_mul(d.axis_neuron)
-            .ok_or_else(|| Error("descriptor width overflow".into()))?;
+        let input = match kind {
+            DescriptorKind::SeE2A => {
+                require(
+                    d.axis_neuron > 0 && d.axis_neuron <= width,
+                    "axis_neuron must be in 1..=embedding width",
+                )?;
+                width
+                    .checked_mul(d.axis_neuron)
+                    .ok_or_else(|| Error("descriptor width overflow".into()))?
+            }
+            DescriptorKind::SeE2R => {
+                require(
+                    d.axis_neuron == 0,
+                    "se_e2_r has no axis neurons: axis_neuron must be zero or left out",
+                )?;
+                width
+            }
+        };
         require(
             self.fitting.len() == n && self.atom_energy_bias.len() == n,
             "fitting and atom_energy_bias must have one entry per central type",

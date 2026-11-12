@@ -769,3 +769,249 @@ fn a_committee_matches_its_members_alone() {
     );
     assert!(GpuPotential::<f64>::committee(&[], device).is_err());
 }
+
+/// The se_e2_a test model's networks around an se_e2_r descriptor.
+fn radial(ntypes: usize, sel: Vec<usize>, rcut: f64, seed: u64) -> Model {
+    common::radial_model(ntypes, sel, rcut, seed, 16)
+}
+
+/// se_e2_r on the device against the CPU reference, on the kinds of frames
+/// the se_e2_a checks use.
+#[test]
+fn se_e2_r_matches_cpu() {
+    let triclinic = [[9.0, 0.0, 0.0], [1.5, 8.5, 0.0], [-1.0, 0.8, 9.2]];
+    check(
+        "radial, triclinic",
+        radial(2, vec![80, 160], 4.5, 51),
+        &frame(triclinic, 5, 2, true, 52),
+    );
+    // Narrower than the cutoff: neighbors include several images.
+    let small = [[4.2, 0.0, 0.0], [0.0, 4.2, 0.0], [0.0, 0.0, 4.2]];
+    check(
+        "radial, several images",
+        radial(2, vec![60, 120], 4.5, 53),
+        &frame(small, 2, 2, true, 54),
+    );
+    let cubic = [[8.0, 0.0, 0.0], [0.0, 8.0, 0.0], [0.0, 0.0, 8.0]];
+    check(
+        "radial, open",
+        radial(3, vec![30, 30, 30], 4.0, 55),
+        &frame(cubic, 4, 3, false, 56),
+    );
+    // An embedding wider than a warp, and wider than a block of the kernels.
+    let lattice = [[7.0, 0.0, 0.0], [0.5, 7.0, 0.0], [0.0, 0.0, 7.0]];
+    check(
+        "radial, wide embedding",
+        common::radial_model(2, vec![40, 80], 4.0, 57, 40),
+        &frame(lattice, 3, 2, true, 58),
+    );
+    check(
+        "radial, embedding wider than a block",
+        common::radial_model(2, vec![40, 80], 4.0, 59, 136),
+        &frame(lattice, 3, 2, true, 60),
+    );
+    // A type without slots, and without atoms in the frame.
+    check(
+        "radial, no slots for the last type",
+        radial(3, vec![30, 30, 0], 4.0, 61),
+        &frame(cubic, 4, 2, false, 62),
+    );
+}
+
+#[derive(serde::Deserialize)]
+struct RadialCase {
+    model: String,
+    frame: Frame,
+    energy: f64,
+    forces: Vec<[f64; 3]>,
+    virial: [[f64; 3]; 3],
+}
+
+#[derive(serde::Deserialize)]
+struct RadialReference {
+    cases: Vec<RadialCase>,
+}
+
+/// se_e2_r against DeePMD-kit 3.1.3 itself (`tools/make_se_r_fixture.py`):
+/// the model whose `sel` holds every neighbor, with and without a cell, and
+/// the one with `sel` = [4, 6] against some 23 neighbors, where the result
+/// depends on which neighbors are kept.
+#[test]
+fn se_e2_r_matches_deepmd_reference() {
+    let Some(device) = device() else { return };
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("fixtures");
+    let reference: RadialReference = serde_json::from_str(
+        &std::fs::read_to_string(root.join("se-r-deepmd-reference.json")).unwrap(),
+    )
+    .unwrap();
+    assert_eq!(reference.cases.len(), 3);
+    for (index, case) in reference.cases.into_iter().enumerate() {
+        let model = NativePotential::load(root.join(&case.model)).unwrap();
+        let expected = Evaluation {
+            energy: case.energy,
+            forces: case.forces,
+            virial: case.virial,
+            units: Units::EvAngstrom,
+        };
+        let label = format!("{} (case {index})", case.model);
+        let mut gpu = GpuPotential::<f64>::new(model.model(), device.clone()).unwrap();
+        assert_eq!(gpu.metadata().backend, "native-gpu-se-e2-r");
+        let got = gpu.eval(&case.frame).unwrap();
+        assert_eq!(
+            gpu.last_truncated(),
+            case.model == "se-r-tight-model.native.json",
+            "{label}"
+        );
+        compare(&label, &got, &expected, FLOAT64);
+        gpu.set_chunk_atoms(5);
+        compare(
+            &format!("{label}, chunks"),
+            &gpu.eval(&case.frame).unwrap(),
+            &expected,
+            FLOAT64,
+        );
+    }
+}
+
+/// Float32, the embedding tables, batches and committees take an se_e2_r
+/// model through the same stages as an se_e2_a one: each against the CPU.
+#[test]
+fn se_e2_r_in_float32_compressed_in_batches_and_committees() {
+    let Some(device) = device() else { return };
+    let triclinic = [[9.0, 0.0, 0.0], [1.5, 8.5, 0.0], [-1.0, 0.8, 9.2]];
+    let cubic = [[8.0, 0.0, 0.0], [0.0, 8.0, 0.0], [0.0, 0.0, 8.0]];
+    let frames = [
+        frame(triclinic, 5, 2, true, 71),
+        frame(cubic, 4, 2, false, 72),
+        frame(triclinic, 4, 2, true, 73),
+    ];
+    let models: Vec<Model> = (0..3)
+        .map(|member| {
+            let mut model = radial(2, vec![80, 160], 4.5, 74 + 7 * member as u64);
+            for (t, normalization) in model.descriptor.normalization.iter_mut().enumerate() {
+                normalization.mean[0] += 0.013 * member as f64 - 0.004 * t as f64;
+                normalization.std[0] *= 1.0 + 0.05 * member as f64;
+            }
+            for bias in &mut model.atom_energy_bias {
+                *bias += 0.37 * member as f64;
+            }
+            model
+        })
+        .collect();
+    let expected: Vec<Vec<Evaluation>> = frames
+        .iter()
+        .map(|frame| {
+            models
+                .iter()
+                .map(|model| {
+                    NativePotential::new(model.clone())
+                        .unwrap()
+                        .eval(frame)
+                        .unwrap()
+                })
+                .collect()
+        })
+        .collect();
+    let batch: Vec<&Frame> = frames.iter().collect();
+    let members: Vec<&Model> = models.iter().collect();
+
+    // Float64: a batch for one model, then for the committee.
+    let mut one = GpuPotential::<f64>::new(&models[0], device.clone()).unwrap();
+    for (index, got) in one.eval_batch(&batch).unwrap().iter().enumerate() {
+        compare(
+            &format!("radial batch, frame {index}"),
+            got,
+            &expected[index][0],
+            FLOAT64,
+        );
+    }
+    let mut committee = GpuPotential::<f64>::committee(&members, device.clone()).unwrap();
+    assert_eq!(committee.members(), 3);
+    for (index, of_frame) in committee.eval_members(&batch).unwrap().iter().enumerate() {
+        for (member, got) in of_frame.iter().enumerate() {
+            compare(
+                &format!("radial committee, frame {index}, member {member}"),
+                got,
+                &expected[index][member],
+                FLOAT64,
+            );
+        }
+    }
+    // The tables: quintic interpolation at step 0.01, as for se_e2_a.
+    committee.compress(0.8, 0.01).unwrap();
+    for (index, of_frame) in committee.eval_members(&batch).unwrap().iter().enumerate() {
+        for (member, got) in of_frame.iter().enumerate() {
+            compare(
+                &format!("radial tables, frame {index}, member {member}"),
+                got,
+                &expected[index][member],
+                (1e-9, 1e-7),
+            );
+        }
+    }
+    assert_eq!(committee.table_fallbacks(), 0);
+    // Float32 networks and sums: about single precision, nothing worse.
+    let mut single = GpuPotential::<f32>::committee(&members, device.clone()).unwrap();
+    for compressed in [false, true] {
+        if compressed {
+            single.compress(0.8, 0.01).unwrap();
+        }
+        for (index, of_frame) in single.eval_members(&batch).unwrap().iter().enumerate() {
+            for (member, got) in of_frame.iter().enumerate() {
+                compare(
+                    &format!(
+                        "radial float32 (tables: {compressed}), frame {index}, member {member}"
+                    ),
+                    got,
+                    &expected[index][member],
+                    (1e-6, 1e-4),
+                );
+            }
+        }
+    }
+    // The forces are the gradient of the energy the device gives.
+    let h = 1e-5;
+    let base = &frames[0];
+    let forces = one.eval(base).unwrap().forces;
+    for atom in [0, 7, 19] {
+        for axis in 0..3 {
+            let mut shifted = |s: f64| {
+                let mut f = base.clone();
+                f.positions[atom][axis] += s;
+                one.eval(&f).unwrap().energy
+            };
+            let fd = -(shifted(h) - shifted(-h)) / (2.0 * h);
+            let error = (fd - forces[atom][axis]).abs();
+            assert!(
+                error < 1e-6 * forces[atom][axis].abs().max(1.0),
+                "atom {atom} axis {axis}: {fd} vs {}",
+                forces[atom][axis]
+            );
+        }
+    }
+    // The GPU trainer has the other descriptor's arithmetic only.
+    let error = omnimd_native::gpu_train::GpuTrainer::<f64>::new(&models[0], device.clone())
+        .err()
+        .unwrap();
+    assert_eq!(
+        error.to_string(),
+        "the GPU trainer supports the se_e2_a descriptor only, not se_e2_r"
+    );
+    // Models of the two descriptors are not one committee.
+    let other = model(2, vec![80, 160], 4.5, 6);
+    let mixed = [&models[0], &other];
+    let error = GpuPotential::<f64>::committee(&mixed, device)
+        .err()
+        .unwrap();
+    assert!(
+        error
+            .to_string()
+            .contains("differs from the first in its descriptor"),
+        "{error}"
+    );
+    assert_eq!(
+        omnimd_native::gpu_model::committee_mismatch(&mixed).unwrap(),
+        "model 1 differs from the first in its descriptor"
+    );
+    assert!(omnimd_native::gpu_model::committee_mismatch(&members).is_none());
+}

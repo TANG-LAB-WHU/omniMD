@@ -1455,6 +1455,10 @@ This step uses the `omnimd-gpu` runtime, which is separate from the bounded
 model with any network size, standalone or behind the engine's dynamics,
 minimization, batch evaluation and model deviation, and a trainer and a
 label test of their own (below). The `train-native` trainers do not use it.
+A model with the radial descriptor se_e2_r
+([format](native/README.md#model-format-v1), converted from DeePMD-kit like
+an se_e2_a one) is evaluated by the same commands; the trainer is se_e2_a's
+only.
 
 Requirements: an NVIDIA GPU with a current driver, and the CUDA 12 runtime
 libraries for NVRTC and cuBLAS on the library path (`%CUDA_PATH%\bin` on Windows,

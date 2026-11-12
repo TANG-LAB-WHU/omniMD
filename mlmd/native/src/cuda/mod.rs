@@ -32,6 +32,7 @@ pub struct PackedModel {
 impl PackedModel {
     pub fn new(model: &Model) -> Result<Self> {
         model.validate()?;
+        model.require_se_e2_a("the native CUDA subset")?;
         let nt = model.type_map.len();
         let d = &model.descriptor;
         let slots = d.sel.iter().sum::<usize>();
@@ -298,5 +299,13 @@ mod tests {
         assert_eq!(packed.slot_types, [[0; 8], [1; 8]].concat());
         model.descriptor.embedding[0][0].layers[0].activation = Activation::Softplus;
         assert!(PackedModel::new(&model).is_err());
+        // The subset has the arithmetic of se_e2_a only.
+        let radial: Model =
+            serde_json::from_str(include_str!("../../fixtures/se-r-model.native.json")).unwrap();
+        let error = PackedModel::new(&radial).err().unwrap();
+        assert_eq!(
+            error.to_string(),
+            "the native CUDA subset supports the se_e2_a descriptor only, not se_e2_r"
+        );
     }
 }

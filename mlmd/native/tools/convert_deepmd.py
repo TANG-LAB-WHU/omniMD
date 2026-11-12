@@ -1,4 +1,5 @@
-"""Strict DeepMD-kit 3.1.3 .dp/.yaml -> omnimd-native-se-e2-a v1.
+"""Strict DeepMD-kit 3.1.3 .dp/.yaml -> omnimd-native-se-e2-a v1 or, for an
+se_e2_r (se_r) descriptor, omnimd-native-se-e2-r v1.
 
 Reads data only. Does not import DeepMD/TensorFlow, load pickle/checkpoints,
 execute model graphs, infer missing architecture, or install dependencies.
@@ -211,8 +212,13 @@ def convert(data, geometry):
     need(array(mv['out_std'],[1,nt,1],'out_std') == [[[1.0] for _ in types]],
          'non-unit out_std is unsupported (DeepMD backends differ in its semantics)')
     d = m['descriptor']
-    schema(d,'Descriptor',2,'type rcut rcut_smth sel neuron axis_neuron resnet_dt trainable type_one_side exclude_types env_protection set_davg_zero activation_function precision spin env_mat embeddings @variables type_map','descriptor')
-    need(d['type'] == 'se_e2_a', 'only se_e2_a is supported (no hybrid/type embedding/spin)')
+    need(isinstance(d, dict) and d.get('type') in ('se_e2_a', 'se_r', 'se_e2_r'),
+         'only se_e2_a and se_e2_r (se_r) are supported (no hybrid/type embedding/spin)')
+    # se_e2_r: the radial entry of the environment only, and no axis neurons.
+    radial = d['type'] != 'se_e2_a'
+    schema(d,'Descriptor',2,'type rcut rcut_smth sel neuron resnet_dt trainable type_one_side exclude_types env_protection set_davg_zero activation_function precision spin env_mat embeddings @variables type_map' + ('' if radial else ' axis_neuron'),'descriptor')
+    need(not radial or geometry == 'dpmodel',
+         'se_e2_r is converted with --geometry dpmodel only: its radii in a frozen TensorFlow graph have not been checked')
     precision(d,'descriptor')
     need(d['type_map'] is None or d['type_map'] == types, 'descriptor type_map mismatch')
     need(d['exclude_types'] == [] and d['spin'] is None and d['env_protection'] == 0,
@@ -229,16 +235,25 @@ def convert(data, geometry):
     slots = sum(sel)
     need(0 < slots <= 65536,'sum(sel) outside native capacity range')
     neurons = widths(d['neuron'],'embedding neurons')
-    axis = integer(d['axis_neuron'],'axis_neuron',1)
-    need(axis <= neurons[-1], 'axis_neuron exceeds embedding width')
+    if radial:
+        axis, features = 0, neurons[-1]
+    else:
+        axis = integer(d['axis_neuron'],'axis_neuron',1)
+        need(axis <= neurons[-1], 'axis_neuron exceeds embedding width')
+        features = neurons[-1]*axis
+    components = 1 if radial else 4
     dv = fields(d['@variables'],'davg dstd','descriptor.variables')
-    avg = array(dv['davg'],[nt,slots,4],'davg')
-    std = array(dv['dstd'],[nt,slots,4],'dstd')
+    avg = array(dv['davg'],[nt,slots,components],'davg')
+    std = array(dv['dstd'],[nt,slots,components],'dstd')
     normalization = []
     for i in range(nt):
         mean, scale = avg[i][0], std[i][0]
         need(all(row == mean for row in avg[i]) and all(row == scale for row in std[i]),
              f'type {i}: nonuniform per-slot normalization is unsupported')
+        if radial:
+            # The native layout keeps four entries: the others are a zero mean and a unit width.
+            need(scale[0] > 0, f'type {i}: the normalization width must be positive')
+            mean, scale = mean + [0.0]*3, scale + [1.0]*3
         need(mean[1:] == [0.0]*3 and all(s>0 for s in scale) and scale[1] == scale[2] == scale[3],
              f'type {i}: angular normalization must be isotropic with zero mean')
         normalization.append({'mean':mean,'std':scale})
@@ -251,7 +266,7 @@ def convert(data, geometry):
     precision(f,'fitting')
     need(f['type'] == 'ener' and f['var_name'] == 'energy' and f['dim_out'] == 1 and f['ntypes'] == nt,
          'only scalar energy fitting with matching ntypes is supported')
-    need(f['dim_descrpt'] == neurons[-1]*axis, 'fitting descriptor size mismatch')
+    need(f['dim_descrpt'] == features, 'fitting descriptor size mismatch')
     need(f['type_map'] is None or f['type_map'] == types,'fitting type_map mismatch')
     for k in ('numb_fparam','numb_aparam','dim_case_embd'):
         need(type(f[k]) is int and f[k] == 0, f'{k} is unsupported')
@@ -264,14 +279,15 @@ def convert(data, geometry):
     for k,v in fv.items():
         if k != 'bias_atom_e': need(v is None, f'{k} must be null')
     bias = array(fv['bias_atom_e'],[nt,1],'bias_atom_e')
-    fitting = collection(f['nets'],1,nt,'fitting',neurons[-1]*axis,widths(f['neuron'],'fitting neurons'),f['activation_function'],'fitting networks')
+    fitting = collection(f['nets'],1,nt,'fitting',features,widths(f['neuron'],'fitting neurons'),f['activation_function'],'fitting networks')
     if geometry == 'tensorflow':
         # TensorFlow AttrValue.float stores environment-op radii as IEEE f32,
         # even when model weights, coordinates and environment math are f64.
         rc, rs = (struct.unpack('<f', struct.pack('<f', value))[0] for value in (rc,rs))
         need(0 <= rs < rc and math.isfinite(rc), 'TensorFlow cutoff rounding collapses/overflows radii')
-    result = {'format':'omnimd-native-se-e2-a','version':1,'precision':'float64','units':'EvAngstrom',
-              'type_map':types,'descriptor':{'kind':'se_e2_a','rcut':rc,'rcut_smth':rs,'sel':sel,
+    result = {'format':'omnimd-native-se-e2-r' if radial else 'omnimd-native-se-e2-a',
+              'version':1,'precision':'float64','units':'EvAngstrom',
+              'type_map':types,'descriptor':{'kind':'se_e2_r' if radial else 'se_e2_a','rcut':rc,'rcut_smth':rs,'sel':sel,
                   'axis_neuron':axis,'normalization':normalization,'embedding':embedding},
               'fitting':fitting,'atom_energy_bias':[bias[i][0]+offset[i][0] for i in range(nt)]}
     # Validate the entire result is JSON-finite before exposing any output file.

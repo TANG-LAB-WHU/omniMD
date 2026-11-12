@@ -70,6 +70,7 @@ pub struct ParameterLayout {
 impl ParameterLayout {
     pub fn new(model: &Model) -> Result<Self> {
         model.validate()?;
+        model.require_se_e2_a("the full-network trainer")?;
         if model.descriptor.sel.iter().sum::<usize>() > 128 {
             return Err(Error("full trainer supports sum(sel)<=128".into()));
         }

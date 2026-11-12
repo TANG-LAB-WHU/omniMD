@@ -37,8 +37,8 @@ inference needs no DeepMD, Python, GPU or LibTorch installation.
 
 ## The omnimd-gpu se_e2_a runtime
 
-A second, independent GPU path runs native se_e2_a models of any network size
-entirely on the device (see [guide step 28](../GETTING_STARTED.md#28-run-se_e2_a-on-the-gpu-runtime-and-compute-dataset-statistics)).
+A second, independent GPU path runs native se_e2_a and se_e2_r models of any
+network size entirely on the device (see [guide step 28](../GETTING_STARTED.md#28-run-se_e2_a-on-the-gpu-runtime-and-compute-dataset-statistics)).
 Build the engine with it:
 
     cargo build --release --locked --manifest-path mlmd/Cargo.toml -p omnimd-mlmd --features native-gpu --bin omnimd-mlmd

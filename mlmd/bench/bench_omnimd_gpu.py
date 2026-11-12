@@ -41,6 +41,8 @@ def main():
     args = parser.parse_args()
     manifest = json.loads((args.case_dir / 'manifest.json').read_text())
     model = args.case_dir / f"{manifest['models']['float64']}.native.json"
+    # Cases made before the recipe had se_e2_r do not name their descriptor.
+    descriptor = manifest.get('descriptor', 'se_e2_a')
     exe = args.release / 'omnimd-native-gpu-eval'
     if not exe.exists():
         exe = exe.with_suffix('.exe')
@@ -65,7 +67,7 @@ def main():
                 extra = ['--compress', args.compress] if compressed else []
                 proc = subprocess.run([str(exe), str(model), '--precision', precision, '--bench', str(bench),
                                        '--profile', *extra], input=frame, capture_output=True, text=True)
-                row = {'engine': 'omnimd', 'route': 'gpu-se_e2_a-cli' + ('-compressed' if compressed else ''),
+                row = {'engine': 'omnimd', 'route': f'gpu-{descriptor}-cli' + ('-compressed' if compressed else ''),
                        'device': 'gpu', 'precision': precision, 'natoms': natoms}
                 if proc.returncode != 0:
                     note = (proc.stderr.strip().splitlines() or [''])[-1]
