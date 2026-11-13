@@ -1457,8 +1457,8 @@ minimization, batch evaluation and model deviation, and a trainer and a
 label test of their own (below). The `train-native` trainers do not use it.
 A model with the radial descriptor se_e2_r
 ([format](native/README.md#model-format-v1), converted from DeePMD-kit like
-an se_e2_a one) is evaluated by the same commands; the trainer is se_e2_a's
-only.
+an se_e2_a one) is evaluated by the same commands and trained by the same
+trainer.
 
 Requirements: an NVIDIA GPU with a current driver, and the CUDA 12 runtime
 libraries for NVRTC and cuBLAS on the library path (`%CUDA_PATH%\bin` on Windows,
@@ -1563,6 +1563,10 @@ script plus `dataset` and `output` paths, and run:
 ```text
 omnimd-native-gpu-train REQUEST.json
 ```
+
+The descriptor of the `model` section is `se_e2_a`, or `se_e2_r` (also
+written `se_r`) without `axis_neuron`; with `"type_one_side": true` either
+has one embedding net per neighbor type instead of one per pair of types.
 
 [`native/GPU_TRAINING.md`](native/GPU_TRAINING.md) gives the request format, the
 loss and schedule definitions, what is computed from the data, the limits and

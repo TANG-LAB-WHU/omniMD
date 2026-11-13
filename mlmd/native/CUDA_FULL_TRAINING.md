@@ -46,7 +46,8 @@ The trainer checks its largest frame before context creation, and the low-level
 API checks every actual frame before prediction or GPU work.
 
 All network copies are independent parameters, including repeated embeddings
-from one-side source models. Normalization, cutoffs, neighbor capacities,
+from one-side source models (a `type_one_side` mark is dropped when training
+starts). Normalization, cutoffs, neighbor capacities,
 architecture, type map and separate atomic energy offsets are fixed. Both E and
 F labels remain mandatory even for a zero-weight loss component. Virial labels
 are assessment-only by default; explicit `config.virial_loss` enables the

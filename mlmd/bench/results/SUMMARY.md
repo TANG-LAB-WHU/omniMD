@@ -1,3 +1,128 @@
+# Training se_e2_r, and one embedding net per neighbor type, 2026-11-13
+
+`omnimd-native-gpu-train` trains the radial descriptor as well, and either
+descriptor with one embedding net per neighbor type instead of one per pair
+of types (DeePMD's `type_one_side`). Such a net is in the parameters once; a
+native model carries the mark (`descriptor.type_one_side`), the converter
+sets it for one-sided DeePMD models, and a continued run keeps the nets one.
+What the trainer does and how it was checked is in
+[`native/GPU_TRAINING.md`](../../native/GPU_TRAINING.md).
+
+**Speed**, steps per second for one request on the 171 frames of the HAP
+iteration-0 training (54 to 224 atoms, one frame per step), with the settings
+of the comparison of 2026-11-10 below and the descriptor changed (`sel`
+[44, 16, 60, 72, 20], embedding [25, 50, 100], fitting [240, 240, 240]).
+omniMD: 20,000 steps in float32 and 6,000 in float64, three alternated
+rounds that agree within one percent. DeePMD-kit 3.1.3: PyTorch backend,
+float64, in its image on the same card with nothing else running, the
+trainer's own average time per batch over 2,000 steps of the same request
+(`deepmd_train.py`):
+
+| descriptor, embedding nets | parameters | omniMD float32 | omniMD float64 | DeePMD-kit |
+|---|---:|---:|---:|---:|
+| se_e2_a, a net per pair of types | 2,664,455 | 544 | 252 | 10.4 |
+| se_e2_a, a net per neighbor type | 2,535,455 | 555 | 254 | 38.8 |
+| se_e2_r, a net per pair of types | 864,455 | 1,236 | 438 | not built |
+| se_e2_r, a net per neighbor type | 735,455 | 1,246 | 443 | 41.3 |
+
+- se_e2_r trains 2.3 times faster than se_e2_a in float32 and 1.7 times in
+  float64: its fitting nets take 100 inputs instead of 1,600 and nothing
+  angular is formed. A float32 step with every stage timed takes 0.98 ms
+  against 2.00, and no stage stands out any more (fitting passes 0.14 and
+  0.16, embedding nets 0.08 and their reverse pass with the gradients 0.18,
+  descriptor 0.05 and its reverse pass 0.08, forces 0.06, tangent 0.05,
+  optimizer 0.08, loss 0.05).
+- Four requests at once in float32 run at 428 steps/s each for se_e2_r with
+  a net per pair (1,713 in total, 39 percent more than one request alone),
+  441 each with a net per neighbor type, and 152 each for se_e2_a (607 in
+  total, 12 percent more). Four se_e2_r models of 300,000 steps took 11.4
+  minutes that way (below).
+- The trainer of se_e2_a is as fast as before this change: one request,
+  alternated with the build of 2026-11-11, 546 against 548 steps/s in
+  float32 and 253 against 254 in float64; four at once 152 against 133 (the
+  older build's run overlapped the end of another for its first half
+  minute). The se_e2_a ensemble of 2026-11-10 ran at 169 each on these
+  frames, and the one-request table of that day, 604 and 289, is on 196
+  frames with more of the small lime cell.
+- omniMD's speed hardly depends on the number of embedding nets (2 percent),
+  DeePMD-kit's does: with one net per neighbor type (5 nets instead of 25)
+  its se_e2_a training is 3.7 times faster. The pipeline's models have a net
+  per pair.
+- Against DeePMD-kit on the same request: se_e2_r 11 times faster in float64
+  and 30 times with float32 networks; se_e2_a with a net per neighbor type
+  6.5 and 14 times; se_e2_a with a net per pair 24 and 52 times.
+- The first row is the model of the 2026-11-10 comparison. DeePMD-kit's 10.4
+  steps/s stand against 12.3 in the pipeline's record of its own training;
+  its thread and allocator settings (the pipeline's, or none) made no
+  difference to the se_e2_r run, 0.0242 s per batch both times.
+- "Not built": DeePMD-kit 3.1.3's PyTorch backend gives se_e2_r one net per
+  neighbor type whatever `type_one_side` says (its input default is false).
+  omniMD builds what the key says and prints a note when that differs.
+
+**The same request in both trainers.** se_e2_r with a net per neighbor type
+(what DeePMD-kit's PyTorch backend builds), 20,000 steps of one frame, four
+seeds (11 to 14) for each trainer; DeePMD-kit 3.1.3 in float64 on the request
+files omniMD ran. All models scored on the pipeline's 83-frame sealed test
+by `omnimd-native-gpu-test` (`score_groups.py`); smallest and largest of the
+four:
+
+| | omniMD float64 | omniMD float32 networks | DeePMD-kit |
+|---|---:|---:|---:|
+| sealed test, force RMSE (eV/Å) | 0.3040 to 0.3517 | 0.3259 to 0.3445 | 0.3384 to 0.3471 |
+| sealed test, energy RMSE (meV/atom) | 9.36 to 22.96 | 9.56 to 19.44 | 10.33 to 19.13 |
+| time for the four models | 2.7 min at once | 2.1 min at once | 34.3 min one after the other |
+
+- Same quality: the ranges overlap overall and in each of the eight systems,
+  for forces and for energies (per system in
+  [`native/GPU_TRAINING.md`](../../native/GPU_TRAINING.md)). 20,000 steps
+  leave this model far from converged for both.
+- The times are those of these runs: omniMD's two sets of four shared the
+  card with test runs, DeePMD-kit's models took 8.0 to 9.6 minutes each (the
+  last two alone on the machine, at 41.7 and 42.2 steps/s). The clean rates
+  are in the table above.
+- The instrument is the same for both: `omnimd-native-gpu-test` gives the
+  energy and force RMSE of `dp test` for DeePMD-kit's four models, converted,
+  in all eight systems, 64 numbers, to the seven digits `dp test` prints
+  (`hap-test-deepmd-se-r-by-omnimd-rtx4090-2026-11-13.json`).
+- A model trained by DeePMD-kit continues in omniMD with its nets shared
+  (735,455 parameters): after 5,000 more steps at the last learning rate its
+  sealed-test force RMSE is 0.3385, from 0.3384.
+- The training frames went to DeePMD-kit as npy systems written back from
+  omniMD's dataset (`dataset_to_deepmd.py`): they equal the pipeline's
+  source arrays number for number.
+
+**What the radial descriptor gives on this data.** The full schedule of the
+2026-11-10 comparison (300,000 steps of one frame, learning rate 1e-3 to
+3e-8, energy and force terms, float32 networks, seeds 11 to 14 trained at
+once) with se_e2_r in place of se_e2_a, scored on the pipeline's 83-frame
+sealed test with `omnimd-native-gpu-test`; smallest and largest of the four
+models:
+
+| | se_e2_r, a net per pair | se_e2_r, a net per neighbor type | se_e2_a, a net per pair (2026-11-10) |
+|---|---:|---:|---:|
+| parameters | 864,455 | 735,455 | 2,664,455 |
+| sealed test, force RMSE (eV/Å) | 0.1553 to 0.1829 | 0.1527 to 0.1574 | 0.0698 to 0.0723 |
+| sealed test, energy RMSE (meV/atom) | 3.13 to 4.51 | 2.72 to 3.75 | 1.64 to 1.78 |
+| time for the four models, at once | 14.9 min beside test runs | 11.4 min | 30 min |
+
+- se_e2_r trains 2.3 times faster and is less accurate in the forces of
+  every system, 2.1 to 2.6 times overall (per system in
+  [`native/GPU_TRAINING.md`](../../native/GPU_TRAINING.md)): without angular
+  information it is not a substitute for se_e2_a here.
+- Sharing the nets between the central types costs nothing here: the force
+  RMSE is as low or lower, and the seeds spread by 3 percent in it where the
+  nets of the pairs spread by 18 (se_e2_a: 3.6).
+- The se_e2_a models are those of 2026-11-10, scored again: the same numbers.
+
+Raw numbers: `hap-train-speed-descriptors-rtx4090-2026-11-13.json` (rates,
+stage times, DeePMD-kit's own timings),
+`hap-train-se-r-against-deepmd-rtx4090-2026-11-13.json` (the 20,000-step
+models of both trainers),
+`hap-test-deepmd-se-r-by-omnimd-rtx4090-2026-11-13.json` (`dp test` against
+`omnimd-native-gpu-test`) and
+`hap-train-ensemble-se-r-float32-omnimd-rtx4090-2026-11-13.json` (the full
+schedule).
+
 # The se_e2_r descriptor, 2026-11-12
 
 A native model can have DeePMD-kit's radial descriptor (`se_e2_r`, also
@@ -5,8 +130,8 @@ A native model can have DeePMD-kit's radial descriptor (`se_e2_r`, also
 slots, without the angular part of se_e2_a. It is evaluated on the CPU and on
 the GPU runtime (float64 or float32, exact embedding nets or tables, batches
 of frames and committees of models) and converted from DeePMD-kit 3.1.3
-`.dp`/YAML by `convert_deepmd.py`. Inference only: the trainers refuse the
-descriptor. Format and formulas are in
+`.dp`/YAML by `convert_deepmd.py`. This section is inference; training came
+a day later and is the section above. Format and formulas are in
 [`native/README.md`](../../native/README.md#model-format-v1).
 
 **Agreement with DeePMD-kit 3.1.3** (PyTorch backend, CPU, float64):

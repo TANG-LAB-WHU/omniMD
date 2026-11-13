@@ -105,8 +105,10 @@ with executable commands; pending branch work is not counted as integrated.
 
 ## Remaining substantial compatibility gaps
 
-- Native model coverage remains bounded `se_e2_a` with restricted conversion;
-  `se_e2_r`, `se_e3`/hybrid, attention/DPA, type embeddings, spin and tensor models
+- Native model coverage remains `se_e2_a` and `se_e2_r` with restricted
+  conversion (`se_e2_r` on the CPU reference and on the
+  [GPU runtime](mlmd/gpu/README.md), whose trainer takes both descriptors);
+  `se_e3`/hybrid, attention/DPA, type embeddings, spin and tensor models
   are not implemented. Two audited frozen graph profiles are not a generic
   `.pb` importer; native `.pth`/JAX/Paddle import and compression are absent.
 - Training supports full-batch defaults and explicit deterministic minibatches
@@ -115,6 +117,9 @@ with executable commands; pending branch work is not counted as integrated.
   distributed/multi-task training, tied one-side embeddings and general DeepMD
   training-file/checkpoint compatibility remain missing. Optional virial loss
   closes one loss-function gap, without removing those execution restrictions.
+  (This item is about the bounded `train-native` trainers. The separate
+  [GPU runtime trainer](mlmd/native/GPU_TRAINING.md) follows DeePMD's schedule
+  and loss, computes the statistics and ties one-side embeddings.)
 - Engine parameterized models are CPU C API only; native parameterized training,
   CUDA engine parameter propagation, parameterized minimization/ensembles and
   shared atomic/tensor outputs remain unsupported. New C API GPU batch/parameter

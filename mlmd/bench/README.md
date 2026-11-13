@@ -73,6 +73,11 @@ omnimd-native-gpu-train request.json
 omnimd-native-gpu-test trained.native.json mlmd/bench/cases/hap/dataset.jsonl > report.json
 # Host: score an ensemble trained that way against the pipeline's recorded test errors
 python mlmd/bench/hap_train_score.py mlmd/bench/cases/hap/dataset.jsonl <pipeline>/iter-000/train/sealed_test.json <target>/release mlmd/bench/results/hap-train-ensemble-<tag>.json model-0.native.json model-1.native.json ...
+# DeePMD image: train DeePMD-kit on the same request and frames (the dataset written back as npy systems), convert its model for the same test command
+docker run --rm -v $PWD/mlmd:/m -w /m <image> python bench/dataset_to_deepmd.py bench/cases/hap-train/dataset.jsonl bench/cases/hap-train/systems
+docker run --rm --gpus all -v $PWD/mlmd:/m -w /m <image> python bench/deepmd_train.py request.json bench/cases/hap-train/systems <new output directory>
+# Host: groups of models scored side by side by the one test command (omniMD's seeds, DeePMD-kit's converted models, ...)
+python mlmd/bench/score_groups.py mlmd/bench/cases/hap/dataset.jsonl <target>/release mlmd/bench/results/<name>.json omniMD=a.native.json,b.native.json DeePMD-kit=<output directory>/model.native.json
 # Host: repeat finished exploration runs of the pipeline with an ensemble of native models (manifest.json and model-K.native.json in a case directory)
 python mlmd/bench/hap_explore.py <pipeline>/iter-000/explore <case directory> <target>/release mlmd/bench/results/hap-explore-<tag>.json <run> ...
 # Host: an exploration of every system of the case at 300 and 500 K as one replica run, then its candidates (new output directory)
@@ -83,7 +88,12 @@ python mlmd/bench/hap_explore_all.py mlmd/bench/cases/hap <target>/release <outp
 `traj.dump` and starts no LAMMPS itself; `hap_explore.py` reads `conf.lmp`,
 `in.lmp` and `model_devi.out` of every run and compares the fractions of
 frames below, inside and above the force-deviation window. The training request is the one in
-[`native/GPU_TRAINING.md`](../native/GPU_TRAINING.md).
+[`native/GPU_TRAINING.md`](../native/GPU_TRAINING.md). `deepmd_train.py`
+copies the request's `model`, `learning_rate` and `loss` sections and its
+steps, batch size, seed and display interval into a DeePMD input script, runs
+`dp --pt train` and `freeze`, and writes the trainer's own time per batch and
+the model converted for omniMD; the request's `dataset` and `output` paths
+are the host's and are not read there.
 
 Run steps 3 and 4 one after the other, never at the same time, so they don't
 compete for the GPU. `cases/` is generated and git-ignored. Step 3 accepts

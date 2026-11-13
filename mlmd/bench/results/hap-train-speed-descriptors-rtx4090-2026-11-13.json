@@ -1,0 +1,263 @@
+{
+ "date": "2026-11-13",
+ "device": "NVIDIA GeForce RTX 4090",
+ "frames": "171 frames of the HAP iteration-0 training, 54 to 224 atoms, one frame per step",
+ "settings": "sel [44, 16, 60, 72, 20], rcut 6.0, embedding [25, 50, 100], axis 16 (se_e2_a), fitting [240, 240, 240], learning rate 1e-3 to 3e-8, energy and force terms",
+ "omnimd_runs": "20,000 steps in float32 and 6,000 in float64 per run; variants or builds alternated",
+ "omnimd_one_request_steps_per_second": {
+  "float32": {
+   "se_e2_a, a net per pair of types": [
+    544.4,
+    542.0,
+    541.8
+   ],
+   "se_e2_r, a net per pair of types": [
+    1235.9,
+    1225.7,
+    1228.3
+   ],
+   "se_e2_a, a net per neighbor type": [
+    554.7,
+    552.1,
+    551.1
+   ],
+   "se_e2_r, a net per neighbor type": [
+    1245.6,
+    1246.1,
+    1243.7
+   ]
+  },
+  "float64": {
+   "se_e2_a, a net per pair of types": [
+    251.8,
+    252.5,
+    251.6
+   ],
+   "se_e2_r, a net per pair of types": [
+    438.1,
+    434.6,
+    436.1
+   ],
+   "se_e2_a, a net per neighbor type": [
+    253.8,
+    253.1,
+    253.9
+   ],
+   "se_e2_r, a net per neighbor type": [
+    442.3,
+    437.9,
+    442.7
+   ]
+  }
+ },
+ "omnimd_four_requests_at_once_steps_per_second_each": {
+  "float32": {
+   "se_e2_r, a net per pair of types": [
+    [
+     429.4,
+     428.4,
+     426.1,
+     426.4
+    ],
+    [
+     430.0,
+     428.0,
+     426.8,
+     427.9
+    ]
+   ],
+   "se_e2_a, a net per pair of types": [
+    [
+     152.0,
+     151.7,
+     151.5,
+     151.5
+    ],
+    [
+     151.6,
+     151.7,
+     151.5,
+     151.4
+    ]
+   ],
+   "se_e2_r, a net per neighbor type": [
+    [
+     443.0,
+     440.8,
+     440.2,
+     441.0
+    ],
+    [
+     443.8,
+     441.7,
+     441.3,
+     439.3
+    ]
+   ]
+  }
+ },
+ "omnimd_stage_ms_per_step_float32_every_stage_synchronized": {
+  "se_e2_a, a net per pair of types": {
+   "descriptor": 0.0862442699999979,
+   "descriptor_reverse": 0.16725039500000113,
+   "embedding": 0.11481961499999932,
+   "embedding_gradient": 0.21842761999999916,
+   "environment": 0.02906840999999999,
+   "fitting": 0.49166722499999804,
+   "fitting_gradient": 0.43715361499999844,
+   "forces": 0.11717259,
+   "host_prepare": 0.000201925,
+   "loss": 0.06288654999999999,
+   "neighbors": 0.0011211700000000005,
+   "optimizer": 0.18232697499999598,
+   "tangent": 0.07722944999999992
+  },
+  "se_e2_r, a net per pair of types": {
+   "descriptor": 0.04692268499999978,
+   "descriptor_reverse": 0.08497932000000201,
+   "embedding": 0.08139109999999959,
+   "embedding_gradient": 0.18308460999999993,
+   "environment": 0.026103175000000273,
+   "fitting": 0.13791544500000052,
+   "fitting_gradient": 0.15916855499999805,
+   "forces": 0.05697544500000147,
+   "host_prepare": 0.00019853999999999998,
+   "loss": 0.05297761500000024,
+   "neighbors": 0.0012103950000000004,
+   "optimizer": 0.08258349499999652,
+   "tangent": 0.04679916499999954
+  }
+ },
+ "se_e2_a_pairs_one_request_two_builds": {
+  "build of 2026-11-11": {
+   "float32": {
+    "se_e2_a, a net per pair of types": [
+     548.1,
+     548.3
+    ]
+   },
+   "float64": {
+    "se_e2_a, a net per pair of types": [
+     254.1,
+     253.8
+    ]
+   }
+  },
+  "this build": {
+   "float32": {
+    "se_e2_a, a net per pair of types": [
+     545.6,
+     546.3
+    ]
+   },
+   "float64": {
+    "se_e2_a, a net per pair of types": [
+     252.9,
+     252.8
+    ]
+   }
+  }
+ },
+ "se_e2_a_pairs_four_requests_at_once_two_builds": {
+  "build of 2026-11-11": {
+   "float32": {
+    "se_e2_a, a net per pair of types": [
+     [
+      133.0,
+      132.8,
+      132.9,
+      132.8
+     ]
+    ]
+   }
+  },
+  "this build": {
+   "float32": {
+    "se_e2_a, a net per pair of types": [
+     [
+      152.3,
+      152.2,
+      152.1,
+      151.8
+     ]
+    ]
+   }
+  }
+ },
+ "se_e2_a_pairs_four_requests_at_once_note": "the run of the build of 2026-11-11 overlapped the end of another run for its first 20 to 30 seconds",
+ "deepmd_kit_float64": {
+  "se_e2_a, a net per pair of types": {
+   "deepmd_version": "3.1.3",
+   "steps": 2000,
+   "systems": 8,
+   "precision": "float64",
+   "average_training_time_s_per_batch": 0.0958,
+   "batches_excluded_from_that_average": 0,
+   "steps_per_second": 10.438413361169102,
+   "train_wall_seconds": 201.10740280151367,
+   "steps_per_wall_second": 9.944934756946434,
+   "last_curve_line": [
+    "2000",
+    "7.94e-01",
+    "2.69e-02",
+    "6.68e-01",
+    "5.0e-08"
+   ]
+  },
+  "se_e2_a, a net per neighbor type": {
+   "deepmd_version": "3.1.3",
+   "steps": 2000,
+   "systems": 8,
+   "precision": "float64",
+   "average_training_time_s_per_batch": 0.0258,
+   "batches_excluded_from_that_average": 0,
+   "steps_per_second": 38.75968992248062,
+   "train_wall_seconds": 58.54507279396057,
+   "steps_per_wall_second": 34.16171343810025,
+   "last_curve_line": [
+    "2000",
+    "9.38e-01",
+    "4.76e-02",
+    "5.94e-01",
+    "5.0e-08"
+   ]
+  },
+  "se_e2_r, a net per neighbor type": {
+   "deepmd_version": "3.1.3",
+   "steps": 2000,
+   "systems": 8,
+   "precision": "float64",
+   "average_training_time_s_per_batch": 0.0242,
+   "batches_excluded_from_that_average": 0,
+   "steps_per_second": 41.32231404958678,
+   "train_wall_seconds": 54.87972068786621,
+   "steps_per_wall_second": 36.44333416664411,
+   "last_curve_line": [
+    "2000",
+    "1.06e+00",
+    "4.99e-02",
+    "7.36e-01",
+    "5.0e-08"
+   ]
+  },
+  "se_e2_r, a net per neighbor type, no thread or allocator settings": {
+   "deepmd_version": "3.1.3",
+   "steps": 2000,
+   "systems": 8,
+   "precision": "float64",
+   "average_training_time_s_per_batch": 0.0242,
+   "batches_excluded_from_that_average": 0,
+   "steps_per_second": 41.32231404958678,
+   "train_wall_seconds": 55.03859353065491,
+   "steps_per_wall_second": 36.33813787203806,
+   "last_curve_line": [
+    "2000",
+    "1.06e+00",
+    "4.99e-02",
+    "7.36e-01",
+    "5.0e-08"
+   ]
+  }
+ },
+ "deepmd_kit_runs": "DeePMD-kit 3.1.3, PyTorch backend, image ghcr.io/deepmodeling/deepmd-kit:3.1.3_cuda129, 2,000 steps of the same request (bench/deepmd_train.py); OMP_NUM_THREADS=2 and expandable allocator segments as in the pipeline unless noted"
+}

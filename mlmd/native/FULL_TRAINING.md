@@ -30,7 +30,10 @@ layer, with linear fitting outputs. Explicit none/identity/concat2 residuals
 and branch timesteps are supported. There is no production finite-difference
 parameter differentiation. Other activations fail explicitly even if inference
 supports them. All native per-center/per-neighbor network copies are independent
-parameters: duplicated one-side embeddings are **not tied** during training.
+parameters: duplicated one-side embeddings are **not tied** during training. A
+model marked `type_one_side` is therefore trained as the same model without the
+mark, and its checkpoints and trained model do not carry it. (The
+[GPU runtime trainer](GPU_TRAINING.md) keeps such nets tied.)
 
 The type map, normalization mean/std, cutoff radii, neighbor capacities,
 axis dimension, architecture, and separate `atom_energy_bias` remain fixed.

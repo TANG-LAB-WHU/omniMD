@@ -11,7 +11,7 @@ This is a progressively implemented subset, not all DeepMD functionality:
 | Operation | Native CPU | Native CUDA |
 | --- | --- | --- |
 | Native-v1 se_e2_a scalar-energy inference, E/F/virial | Implemented | Implemented within [CUDA bounds](CUDA.md) |
-| Native-v1 se_e2_r (radial descriptor) inference, E/F/virial | Implemented | On the [GPU runtime](../gpu/README.md) (`gpu` feature); the CUDA subset and every trainer refuse it |
+| Native-v1 se_e2_r (radial descriptor) inference, E/F/virial | Implemented | On the [GPU runtime](../gpu/README.md) (`gpu` feature), whose [trainer](GPU_TRAINING.md) also trains it; the CUDA subset and the bounded trainers refuse it |
 | tanh/linear, explicit residuals and timesteps | Implemented | Implemented |
 | sigmoid/softplus inference | Implemented | Rejected |
 | Final-readout E/F fitting | Implemented, bounded | Implemented: GPU features, CPU QR/assessment |
@@ -207,7 +207,8 @@ Every native model object rejects unknown fields.
 | `sel` | Fixed per-neighbor-species capacities in `type_map` order |
 | `axis_neuron` | se_e2_a: positive, no larger than embedding output width. se_e2_r: zero, or left out |
 | `normalization` | One `{mean: [4], std: [4]}` per central type, repeated across slots. se_e2_r uses the first entry of each; the others are a zero mean and a unit width |
-| `embedding` | Network table `[central type][neighbor type]`; duplicate rows for one-side models |
+| `type_one_side` | Optional, false when left out. True says that the embedding nets depend on the neighbor type only (DeePMD's key of that name): every row of `embedding` must then hold the same nets, and the [GPU trainer](GPU_TRAINING.md) trains one net per neighbor type. False leaves the nets of every pair of types their own, alike or not |
+| `embedding` | Network table `[central type][neighbor type]`; with `type_one_side` every row repeats the nets of the neighbor types |
 | `fitting` | One network per central type; final output is a scalar |
 | `atom_energy_bias` | One finite additive energy offset per central type |
 
@@ -263,7 +264,8 @@ DeePMD-kit averages the embedding rows of each neighbor type, weights the
 types by `sel[t] / sum(sel)` and divides by five; that is the same sum. Unused
 slots count as above. The embedding table is `[central type][neighbor type]`
 here as well: DeePMD-kit 3.1.3 builds this descriptor with one net per
-neighbor type, which the converter repeats for every central type.
+neighbor type, which the converter repeats for every central type and marks
+with `type_one_side`.
 
 Forces use the analytic chain rule through the quintic switch, environment
 normalization, embeddings, descriptor contraction, and fitting networks.

@@ -26,6 +26,11 @@ distributed execution, and physically representative training validation. The
 current staircase schedule does not implement warmup, continuous decay, a rate
 floor, adaptive scheduling or scheduled loss weights.
 
+The separate [GPU runtime trainer](GPU_TRAINING.md) is not bound by this list:
+it trains models of any network size from fresh networks, computes the
+normalization statistics and energy offsets from the data, keeps one-side
+embedding nets tied and also trains the se_e2_r descriptor.
+
 This is not full DeepMD training-system compatibility. Converted native-v1 models
 can initialize a new optimizer only when they satisfy the documented subset and
 resource bounds. Source framework aliases are not preserved as tied parameters.

@@ -117,8 +117,8 @@ Milliseconds per energy/force/virial evaluation; DeepMD-kit 3.1.3 is LAMMPS
 - LAMMPS reuses its neighbor list for about 13 steps, while omniMD rebuilds it on
   every evaluation. The 98,304-atom LAMMPS runs stopped with a TorchScript runtime
   error (probably out of memory; not verified).
-- Scope: one GPU, se_e2_a or se_e2_r (inference; training is se_e2_a's) with
-  one embedding net per type pair. The engine can
+- Scope: one GPU, se_e2_a or se_e2_r with one embedding net per type pair or
+  per neighbor type. The engine can
   select it for dynamics, minimization, batch evaluation and model deviation
   (`gpu_runtime` in the model options). It has a trainer of its own (below); the
   bounded `train-native` trainers do not use it.
@@ -150,16 +150,25 @@ seconds: 9,198 run-steps per second against 58 to 78 in the LAMMPS records
 of the same models. The ensemble is not a production-qualified potential; see the
 [summary](mlmd/bench/results/SUMMARY.md) for the protocol.
 
-`omnimd-native-gpu-train` trains se_e2_a models of any size on the GPU with
-DeepMD-kit's `ener` loss, learning-rate schedule and Adam settings, from a DeepMD
-`model` section or an existing native model, with snapshots and restart. On the
+`omnimd-native-gpu-train` trains se_e2_a and se_e2_r models of any size on the
+GPU with DeepMD-kit's `ener` loss, learning-rate schedule and Adam settings,
+from a DeepMD `model` section or an existing native model, with one embedding
+net per pair of types or per neighbor type (`type_one_side`), with snapshots
+and restart. On the
 frames and with the settings of that pipeline's iteration-0 DeepMD training (171
 frames, 300,000 steps per model), four models train at once in 30 minutes with
 float32 networks, against 30.8 hours recorded for the pipeline's four DeepMD-kit
 models one after the other on the same machine, and they score like those on
 the pipeline's 83-frame sealed test: force RMSE 0.0698 to 0.0723 eV/angstrom
 (DeepMD 0.0699 to 0.0711), energy RMSE 1.64 to 1.78 meV/atom (DeepMD 1.64 to
-1.74). [Contract, checks and the full comparison](mlmd/native/GPU_TRAINING.md).
+1.74). The radial descriptor se_e2_r trains at about 1,240 steps per second
+with float32 networks on those frames (se_e2_a 544), where DeepMD-kit's PyTorch
+backend makes 41 on the same request; after 20,000 steps of it four seeds of
+each trainer score alike on the sealed test (force RMSE 0.304 to 0.352
+against 0.338 to 0.347 eV/angstrom). On this data the radial descriptor is no
+substitute for se_e2_a: the full schedule brings it to 0.15 to 0.18, where
+se_e2_a reaches 0.07.
+[Contract, checks and the full comparison](mlmd/native/GPU_TRAINING.md).
 
 `omnimd-native-stat` computes DeepMD-style dataset statistics: `dp neighbor-stat`,
 the se_e2_a input statistics `davg`/`dstd` and the per-type energy bias. They
@@ -278,14 +287,15 @@ see [DeepMD setup and limits](mlmd/deepmd/README.md).
   and fully flexible coupling and fixed axes, but no surface-tension coupling. Optional
   CUDA inference is available within the separate scopes above; training
   retains CPU stages.
-- The GPU se_e2_a trainer takes one frame per step on one GPU and has no
-  fine-tuning controls; the bounded `train-native` trainers do not use the GPU
-  runtime, and the engine passes each frame through the host.
+- The GPU trainer (se_e2_a and se_e2_r) takes one frame per step on one GPU
+  and has no fine-tuning controls; the bounded `train-native` trainers do not
+  use the GPU runtime, and the engine passes each frame through the host.
 - Arbitrary DeepMD architectures, hybrid se_e3 or generic .pb/.pth/pickle import.
 - Partial PBC, mixed-type/virtual atoms or automatic unit/type-map guessing.
 - Classical-potential mixing and the full legacy Simulation/Propagator pipeline.
 - Sharded/distributed or end-to-end GPU training, learned normalization or generic
-  DeepMD training compatibility; duplicated one-side embeddings are not tied.
+  DeepMD training compatibility; the bounded trainers do not tie duplicated
+  one-side embeddings (the GPU trainer does).
 - Production validation, long-time stability guarantees or general speedup claims.
 
 The root legacy workspace remains available with its original default features;
