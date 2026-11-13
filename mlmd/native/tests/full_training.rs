@@ -275,6 +275,52 @@ fn validation_labels_never_enter_updates_and_unsupported_activation_fails() {
     assert!(Checkpoint::start(&unsupported, &dataset, &c).is_err());
 }
 
+/// This trainer gives every pair of types a net of its own. A model marked as
+/// having one net per neighbor type (`type_one_side`) is therefore trained
+/// without the mark: as the same model unmarked, resumable, and valid when
+/// its rows have moved apart.
+#[test]
+fn a_model_with_a_net_per_neighbor_type_is_trained_as_one_with_a_net_per_pair() {
+    let (mut plain, dataset) = data(4);
+    plain.descriptor.embedding[1] = plain.descriptor.embedding[0].clone();
+    let mut marked = plain.clone();
+    marked.descriptor.type_one_side = true;
+    marked.validate().unwrap();
+    let c = config(3);
+    let start = Checkpoint::start(&marked, &dataset, &c).unwrap();
+    assert!(!start.initial_model.descriptor.type_one_side);
+    assert!(!start.model.descriptor.type_one_side);
+    let trained = train_full(start, &dataset, &c, |_| Ok(()))
+        .unwrap()
+        .checkpoint;
+    let model = &trained.model;
+    assert!(!model.descriptor.type_one_side);
+    assert_ne!(model.descriptor.embedding[1], model.descriptor.embedding[0]);
+    model.validate().unwrap();
+    let reference = train_full(
+        Checkpoint::start(&plain, &dataset, &c).unwrap(),
+        &dataset,
+        &c,
+        |_| Ok(()),
+    )
+    .unwrap()
+    .checkpoint;
+    assert_eq!(
+        serde_json::to_value(model).unwrap(),
+        serde_json::to_value(&reference.model).unwrap()
+    );
+    // With the mark those rows would not be a model.
+    let mut still_marked = model.clone();
+    still_marked.descriptor.type_one_side = true;
+    assert!(still_marked.validate().is_err());
+    // The checkpoint resumes, for four steps more.
+    let restored: Checkpoint =
+        serde_json::from_str(&serde_json::to_string(&trained).unwrap()).unwrap();
+    let more = train_full(restored, &dataset, &config(4), |_| Ok(())).unwrap();
+    assert_eq!(more.checkpoint.step, 7);
+    assert!(!more.checkpoint.model.descriptor.type_one_side);
+}
+
 #[test]
 fn scheduled_adam_oracle_constant_parity_and_serialized_boundary_restart() {
     use omnimd_native::full_training::LearningRateSchedule;

@@ -30,6 +30,13 @@ pub struct Descriptor {
     /// Per-center-type, uniform across neighbor slots. se_e2_r has the
     /// radial entry only: its other means are zero and its other widths one.
     pub normalization: Vec<Normalization>,
+    /// The embedding nets depend on the neighbor type only (DeePMD's
+    /// `type_one_side`): every row of `embedding` is then the same, and the
+    /// GPU trainer keeps it so (the bounded trainers train the net of every
+    /// pair on its own and drop the mark). Left out or false, the nets of
+    /// every pair of types are their own, alike or not.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub type_one_side: bool,
     /// Ordered [central type][neighbor type]. One-side models repeat rows.
     pub embedding: Vec<Vec<Network>>,
 }
@@ -95,13 +102,13 @@ impl Descriptor {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Network {
     pub layers: Vec<Layer>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Layer {
     /// Input-major matrix: weights[input][output].
@@ -113,7 +120,7 @@ pub struct Layer {
     pub timestep: Option<Vec<f64>>,
 }
 
-#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Activation {
     Linear,
@@ -122,7 +129,7 @@ pub enum Activation {
     Softplus,
 }
 
-#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Residual {
     None,
@@ -252,6 +259,10 @@ impl Model {
             }
         }
         let width = width.unwrap();
+        require(
+            !d.type_one_side || d.embedding.iter().all(|row| *row == d.embedding[0]),
+            "type_one_side: the embedding nets of a neighbor type must be the same for every central type",
+        )?;
         let input = match kind {
             DescriptorKind::SeE2A => {
                 require(

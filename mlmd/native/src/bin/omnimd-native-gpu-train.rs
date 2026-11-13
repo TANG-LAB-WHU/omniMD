@@ -1,16 +1,18 @@
-//! Trains a native se_e2_a model on the omnimd-gpu runtime (device 0).
+//! Trains a native se_e2_a or se_e2_r model on the omnimd-gpu runtime
+//! (device 0).
 //!
 //! ```text
-//! omnimd-native-gpu-train REQUEST.json
+//! omnimd-native-gpu-train REQUEST.json [REQUEST.json ...]
 //! ```
 //!
 //! The request names a dataset and a new output file, and carries the
 //! `learning_rate`, `loss` and `training` sections of a DeePMD input script
 //! with the same meaning (see `GPU_TRAINING.md`). `model` is either the path
 //! of a native model to continue from, or the `model` section of a DeePMD
-//! input script: then the networks are drawn afresh, and the normalization
-//! (`davg`, `dstd`), the energy bias and an `"auto"` `sel` are computed from
-//! the dataset.
+//! input script (`se_e2_a`, or `se_e2_r` under that name or `se_r`; with
+//! `type_one_side` one embedding net per neighbor type): then the networks
+//! are drawn afresh, and the normalization (`davg`, `dstd`), the energy bias
+//! and an `"auto"` `sel` are computed from the dataset.
 //!
 //! ```json
 //! {"model": "/abs/initial.native.json", "dataset": "/abs/train.jsonl",
@@ -344,6 +346,11 @@ fn fresh_model(spec: &ModelSpec, data: &Dataset) -> Result<Model, Box<dyn std::e
         .map(|f| f.labels.energy.ok_or("frame without an energy label"))
         .collect::<Result<_, _>>()?;
     let d = &spec.descriptor;
+    if matches!(d.kind.as_str(), "se_e2_r" | "se_r") && !d.type_one_side {
+        note(format_args!(
+            "se_e2_r with an embedding net for every pair of types, as type_one_side says; DeePMD-kit's PyTorch backend gives this descriptor one net per neighbor type whatever that key is: set it to true for that model"
+        ));
+    }
     let sel = match (&d.sel, d.sel.auto_factor()?) {
         (_, Some(factor)) => {
             let stat = neighbor_stat(&frames, &spec.type_map, d.rcut)?;

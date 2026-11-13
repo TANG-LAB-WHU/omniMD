@@ -267,6 +267,7 @@ fn identity_model() -> Model {
                 mean: [0.2, 0.0, 0.0, 0.0],
                 std: [0.5, 1.0, 1.0, 1.0],
             }],
+            type_one_side: false,
             embedding: vec![vec![linear(vec![vec![1.0]], vec![0.0])]],
         },
         fitting: vec![linear(vec![vec![1.0]], vec![0.0])],
@@ -445,4 +446,42 @@ fn the_trainers_of_the_other_descriptor_refuse_it() {
         error,
         "the readout trainer supports the se_e2_a descriptor only, not se_e2_r"
     );
+}
+
+/// `type_one_side` says that every central type has the same embedding nets:
+/// a model that says so and has rows that differ is refused.
+#[test]
+fn the_one_side_mark_needs_rows_that_are_alike() {
+    // The fixture was converted from a DeePMD-kit model with one embedding
+    // net per neighbor type.
+    let marked = model();
+    assert!(marked.descriptor.type_one_side);
+    assert_eq!(
+        marked.descriptor.embedding[1],
+        marked.descriptor.embedding[0]
+    );
+    assert!(NativePotential::new(marked.clone()).is_ok());
+    let mut apart = marked.clone();
+    apart.descriptor.embedding[1][0].layers[0].bias[0] += 1e-9;
+    let error = NativePotential::new(apart.clone()).unwrap_err().to_string();
+    assert!(
+        error.contains("type_one_side: the embedding nets of a neighbor type must be the same"),
+        "{error}"
+    );
+    // Without the mark the same nets are a model like any other.
+    apart.descriptor.type_one_side = false;
+    assert!(NativePotential::new(apart).is_ok());
+    // The mark is written only where it is set, and read back.
+    let text = serde_json::to_string(&marked).unwrap();
+    assert!(text.contains("\"type_one_side\":true"));
+    let back: Model = serde_json::from_str(&text).unwrap();
+    assert!(back.descriptor.type_one_side);
+    let plain = serde_json::to_string(&identity_model()).unwrap();
+    assert!(!plain.contains("type_one_side"));
+    // An se_e2_a model with nets of its own for every pair cannot carry it.
+    let mut pairs: Model =
+        serde_json::from_str(include_str!("../fixtures/synthetic-v1.json")).unwrap();
+    assert!(!pairs.descriptor.type_one_side);
+    pairs.descriptor.type_one_side = true;
+    assert!(NativePotential::new(pairs).is_err());
 }

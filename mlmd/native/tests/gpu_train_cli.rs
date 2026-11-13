@@ -285,3 +285,138 @@ fn a_given_energy_bias_is_used_and_a_zero_prefactor_turns_a_term_off() {
     assert!(String::from_utf8_lossy(&output.stderr).contains("atom_ener"));
     std::fs::remove_dir_all(directory).unwrap();
 }
+
+/// A request may name the radial descriptor under either of DeePMD-kit's
+/// names for it, and either descriptor with one embedding net per neighbor
+/// type; and a model trained so is a model to continue from.
+#[test]
+fn se_e2_r_and_nets_per_neighbor_type_train_from_a_request() {
+    if !gpu_available() {
+        return;
+    }
+    let directory =
+        std::env::temp_dir().join(format!("omnimd-train-cli-radial-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&directory);
+    std::fs::create_dir_all(&directory).unwrap();
+    let edit = |name: &str, change: &dyn Fn(&mut Value)| -> PathBuf {
+        let path = request(&directory, name, 5);
+        let mut body: Value =
+            serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
+        change(&mut body);
+        std::fs::write(&path, body.to_string()).unwrap();
+        path
+    };
+    let radial = |body: &mut Value, name: &str, one_side: bool| {
+        let descriptor = body["model"]["descriptor"].as_object_mut().unwrap();
+        descriptor.insert("type".into(), json!(name));
+        descriptor.remove("axis_neuron");
+        descriptor.insert("type_one_side".into(), json!(one_side));
+    };
+    // What the trainer said of DeePMD-kit's PyTorch backend, which gives the
+    // radial descriptor a net per neighbor type whatever the script says.
+    let said = std::cell::RefCell::new(Vec::new());
+    let trained = |name: &str, request: &Path| -> Value {
+        let run = train(&[request]);
+        let notes = String::from_utf8_lossy(&run.stderr).into_owned();
+        assert!(run.status.success(), "{name}: {notes}");
+        if notes.contains("one net per neighbor type whatever") {
+            said.borrow_mut().push(name.to_string());
+        }
+        let summary: Value = serde_json::from_slice(&run.stdout).unwrap();
+        assert_eq!(summary["steps"].as_u64(), Some(12), "{name}");
+        let path = directory.join(format!("{name}.native.json"));
+        // The model that was written is one the CPU reference takes.
+        omnimd_native::NativePotential::load(&path).unwrap();
+        serde_json::from_str(&std::fs::read_to_string(path).unwrap()).unwrap()
+    };
+    let rows_alike = |model: &Value| {
+        let rows = model["descriptor"]["embedding"].as_array().unwrap();
+        rows.iter().all(|row| row == &rows[0])
+    };
+
+    // The radial descriptor with a net for every pair of types.
+    let pairs = trained(
+        "pairs",
+        &edit("pairs", &|body| radial(body, "se_e2_r", false)),
+    );
+    assert_eq!(pairs["format"], "omnimd-native-se-e2-r");
+    assert_eq!(pairs["descriptor"]["kind"], "se_e2_r");
+    assert_eq!(pairs["descriptor"]["axis_neuron"], 0);
+    assert!(pairs["descriptor"].get("type_one_side").is_none());
+    assert!(!rows_alike(&pairs));
+    for entry in pairs["descriptor"]["normalization"].as_array().unwrap() {
+        assert_eq!(
+            entry["std"].as_array().unwrap()[1..],
+            vec![json!(1.0); 3][..]
+        );
+        assert_eq!(
+            entry["mean"].as_array().unwrap()[1..],
+            vec![json!(0.0); 3][..]
+        );
+    }
+    // Its fitting nets take the embedding width.
+    let first = &pairs["fitting"][0]["layers"][0]["weights"];
+    assert_eq!(first.as_array().unwrap().len(), 8);
+
+    // Under its other name, with a net per neighbor type: after twelve
+    // updates the rows of the model are still alike.
+    let shared = trained(
+        "shared",
+        &edit("shared", &|body| radial(body, "se_r", true)),
+    );
+    assert_eq!(shared["descriptor"]["kind"], "se_e2_r");
+    assert_eq!(shared["descriptor"]["type_one_side"], true);
+    assert!(rows_alike(&shared));
+    // se_e2_a with a net per neighbor type.
+    let angular = trained(
+        "angular",
+        &edit("angular", &|body| {
+            body["model"]["descriptor"]["type_one_side"] = json!(true)
+        }),
+    );
+    assert_eq!(angular["format"], "omnimd-native-se-e2-a");
+    assert_eq!(angular["descriptor"]["type_one_side"], true);
+    assert!(rows_alike(&angular));
+
+    // Continuing from the trained models: the descriptor and the shared
+    // nets are the model's own.
+    for (name, source) in [("pairs", &pairs), ("shared", &shared)] {
+        let next = format!("{name}-more");
+        let more = trained(
+            &next,
+            &edit(&next, &|body| {
+                body["model"] = json!(directory.join(format!("{name}.native.json")))
+            }),
+        );
+        assert_eq!(more["descriptor"]["kind"], "se_e2_r");
+        assert_eq!(rows_alike(&more), name == "shared");
+        assert_ne!(
+            more["fitting"], source["fitting"],
+            "{name}: nothing was learned"
+        );
+    }
+    // Only the fresh radial model with a net per pair of types differs from
+    // what DeePMD-kit's PyTorch backend would build from the same script;
+    // se_e2_a with a net per pair, the plain request, does not.
+    trained("plain", &request(&directory, "plain", 5));
+    assert_eq!(*said.borrow(), ["pairs"]);
+
+    // What a request cannot ask for.
+    let refused = |name: &str, change: &dyn Fn(&mut Value)| {
+        let run = train(&[&edit(name, change)]);
+        assert!(!run.status.success(), "{name}");
+        assert!(
+            !directory.join(format!("{name}.native.json")).exists(),
+            "{name}"
+        );
+        String::from_utf8_lossy(&run.stderr).into_owned()
+    };
+    let error = refused("axis", &|body| {
+        radial(body, "se_e2_r", false);
+        body["model"]["descriptor"]["axis_neuron"] = json!(2);
+    });
+    assert!(error.contains("se_e2_r has no axis_neuron"), "{error}");
+    let error = refused("unknown", &|body| radial(body, "se_e3", false));
+    assert!(error.contains("only se_e2_a and se_e2_r"), "{error}");
+    std::fs::remove_dir_all(directory).unwrap();
+}

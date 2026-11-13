@@ -1,4 +1,4 @@
-//! se_e2_a training on the omnimd-gpu runtime (plan I-8): the loss of
+//! se_e2_a and se_e2_r training on the omnimd-gpu runtime (plan I-8): the loss of
 //! DeePMD-kit's `ener` loss for one frame and its gradient with respect to
 //! every network parameter, plus an Adam update, all on the device.
 //!
@@ -22,8 +22,15 @@
 //! Networks run in `P`; geometry, the `B` accumulation, forces, virial and
 //! the loss are float64. A frame is processed in one piece (no chunking), so
 //! it must fit in device memory with its recorded intermediates.
+//!
+//! An se_e2_r model takes the same passes with the kernels of its
+//! descriptor, a mean of embedding rows: only what lies between the
+//! embedding and the fitting nets differs. A model whose embedding nets
+//! depend on the neighbor type only (`type_one_side`) has each of them once
+//! among the parameters, and every row of that neighbor type goes through
+//! it, whatever its center.
 use crate::gpu_model::{launch_error, SOURCE as MODEL_SOURCE};
-use crate::{Activation, Layer, Model, Network, Residual};
+use crate::{Activation, DescriptorKind, Layer, Model, Network, Residual, RADIAL_RESCALE};
 use omnimd_gpu::{
     Activation as DeviceActivation, Cell, CudaFunction, CudaSlice, Device, LaunchConfig,
     NeighborList, PushKernelArg, Scalar, TrainLayer, TrainSet,
@@ -201,6 +208,60 @@ __device__ void descriptor_reverse(const double* env, const double* envdot, cons
     }
 }
 
+// se_e2_r: the tangent of D[m] = scale · sum over the slots of G[slot][m]
+// when the radial entry of every neighbor moves by envdot[..][0]. An empty
+// slot does not move. One block per atom.
+template <typename P>
+__device__ void radial_descriptor_tangent(const double* envdot, const P* dg, const int* slot_type,
+        const int* slot_local, const int* rows, int ntypes, int slots, int width, double scale,
+        P* ddot_out) {
+    int i = blockIdx.x;
+    for (int m = threadIdx.x; m < width; m += blockDim.x) {
+        double acc = 0.0;
+        for (int s = 0; s < slots; ++s) {
+            if (slot_local[s] >= rows[3 * ((long long)i * ntypes + slot_type[s]) + 1]) continue;
+            long long row = train_row(rows, ntypes, i, slot_type[s], slot_local[s]) * width + m;
+            acc += (double)dg[row] * envdot[((long long)i * slots + s) * 4];
+        }
+        ddot_out[(long long)i * width + m] = (P)(acc * scale);
+    }
+}
+
+// se_e2_r: adjoints of every embedding row and of its derivative along the
+// radial input, from the adjoints of D and of its tangent. D takes every
+// row with the same weight: the adjoint of a neighbor's row is that of D
+// times the scale, and the adjoint of its derivative that of the tangent of
+// D times the tangent of the neighbor's radial entry. The empty slots of a
+// type have no tangent and add the adjoint of D, times their number, to the
+// row they share with the other atoms of this type. One block per atom;
+// gbar and gpbar start from zero.
+template <typename P>
+__device__ void radial_descriptor_reverse(const double* envdot, const P* dbar_in,
+        const P* ddbar_in, const int* slot_type, const int* slot_local, const int* sel,
+        const int* rows, int ntypes, int slots, int width, double scale, P* gbar, P* gpbar) {
+    int i = blockIdx.x;
+    const P* dbar = dbar_in + (long long)i * width;
+    const P* ddbar = ddbar_in + (long long)i * width;
+    int lane = threadIdx.x & 31, warp = threadIdx.x >> 5, warps = blockDim.x >> 5;
+    const int* mine = rows + 3 * (long long)i * ntypes;
+    for (int s = warp; s < slots; s += warps) {
+        if (slot_local[s] >= mine[3 * slot_type[s] + 1]) continue;
+        long long row = train_row(rows, ntypes, i, slot_type[s], slot_local[s]) * width;
+        double rd = envdot[4 * ((long long)i * slots + s)];
+        for (int m = lane; m < width; m += 32) {
+            gbar[row + m] = (P)((double)dbar[m] * scale);
+            gpbar[row + m] = (P)((double)ddbar[m] * rd * scale);
+        }
+    }
+    for (int t = 0; t < ntypes; ++t) {
+        int empty = sel[t] - mine[3 * t + 1];
+        if (empty <= 0) continue;
+        for (int m = threadIdx.x; m < width; m += blockDim.x)
+            atomicAdd(&gbar[(long long)mine[3 * t + 2] * width + m],
+                      (P)(empty * (double)dbar[m] * scale));
+    }
+}
+
 // Adam with bias correction, as torch.optim.Adam.
 template <typename P>
 __device__ void adam(P* theta, const P* grad, P* m, P* v, long long n, P lr, P beta1, P beta2,
@@ -249,6 +310,18 @@ extern "C" __global__ void se_e2_a_descriptor_reverse_##S(const double* env,    
         P* gpbar) {                                                                               \
     descriptor_reverse<P>(env, envdot, b_in, bdot_in, dbar, ddbar, slot_type, slot_local, sel,    \
                           offset, rows, ntypes, slots, width, axis, gbar, gpbar);                 \
+}                                                                                                 \
+extern "C" __global__ void se_e2_r_descriptor_tangent_##S(const double* envdot, const P* dg,      \
+        const int* slot_type, const int* slot_local, const int* rows, int ntypes, int slots,      \
+        int width, double scale, P* ddot_out) {                                                   \
+    radial_descriptor_tangent<P>(envdot, dg, slot_type, slot_local, rows, ntypes, slots, width,   \
+                                 scale, ddot_out);                                                \
+}                                                                                                 \
+extern "C" __global__ void se_e2_r_descriptor_reverse_##S(const double* envdot, const P* dbar,    \
+        const P* ddbar, const int* slot_type, const int* slot_local, const int* sel,              \
+        const int* rows, int ntypes, int slots, int width, double scale, P* gbar, P* gpbar) {     \
+    radial_descriptor_reverse<P>(envdot, dbar, ddbar, slot_type, slot_local, sel, rows, ntypes,   \
+                                 slots, width, scale, gbar, gpbar);                               \
 }                                                                                                 \
 extern "C" __global__ void adam_##S(P* theta, const P* grad, P* m, P* v, long long n, P lr,       \
         P beta1, P beta2, P eps, P correction1, P correction2) {                                  \
@@ -392,7 +465,16 @@ pub struct GpuTrainer<P: Scalar> {
     model: Model,
     slots: usize,
     width: usize,
+    /// The descriptor: which kernels stand between the embedding and the
+    /// fitting nets.
+    kind: DescriptorKind,
+    /// se_e2_a: the axis neurons. None for se_e2_r.
     axis: usize,
+    /// Components of the descriptor: the input of a fitting net.
+    features: usize,
+    /// The embedding nets depend on the neighbor type only: the parameters
+    /// hold one per neighbor type instead of one per pair of types.
+    one_side: bool,
     /// The parameters the networks compute with.
     theta: CudaSlice<P>,
     /// For float32 networks: the parameters in float64, which the optimizer
@@ -400,7 +482,8 @@ pub struct GpuTrainer<P: Scalar> {
     master: Option<CudaSlice<f64>>,
     gradient: CudaSlice<P>,
     adam: Option<AdamState<P>>,
-    /// Net `center type · ntypes + neighbor type`: the layouts, and all of
+    /// Net `center type · ntypes + neighbor type`, or net `neighbor type`
+    /// when the nets do not depend on the center: the layouts, and all of
     /// them as one set that evaluates every row with the net it names.
     embedding: Vec<Vec<TrainLayer>>,
     embedding_set: TrainSet<P>,
@@ -566,11 +649,17 @@ fn filled_slots(device: &Device, list: &NeighborList) -> Result<Vec<usize>> {
 /// the table the kernels read (per atom and neighbor type: first row,
 /// neighbors, shared row or -1), the rows of every net as (net, first row,
 /// rows), and the number of rows.
+///
+/// With `one_side` there is one net per neighbor type: the rows are laid
+/// out as before, a shared row per center type included (its input differs
+/// with the normalization of the center), and all rows of a neighbor type,
+/// which follow each other, are that net's.
 #[allow(clippy::type_complexity)]
 fn embedding_rows(
     filled: &[usize],
     block: &[usize],
     sel: &[usize],
+    one_side: bool,
 ) -> Result<(Vec<i32>, Vec<(usize, usize, usize)>, usize)> {
     let ntypes = sel.len();
     let int =
@@ -578,6 +667,7 @@ fn embedding_rows(
     let mut table = vec![-1i32; filled.len() * 3];
     let (mut nets, mut next) = (Vec::new(), 0usize);
     for (neighbor, &capacity) in sel.iter().enumerate() {
+        let of_neighbor = next;
         for center in 0..ntypes {
             let (first, mut shared) = (next, false);
             for atom in block[center]..block[center + 1] {
@@ -598,39 +688,61 @@ fn embedding_rows(
                 }
                 next += 1;
             }
-            if next > first {
+            if !one_side && next > first {
                 nets.push((center * ntypes + neighbor, first, next - first));
             }
+        }
+        if one_side && next > of_neighbor {
+            nets.push((neighbor, of_neighbor, next - of_neighbor));
         }
     }
     int(next)?;
     Ok((table, nets, next))
 }
 
+/// Shared memory of the se_e2_r force kernel per block: dE/d(radial entry)
+/// of every slot and the block's sums in double, dE/dD in `P`.
+fn radial_force_shared<P>(slots: usize, width: usize) -> usize {
+    (slots + 12) * 8 + (width * std::mem::size_of::<P>()).next_multiple_of(8)
+}
+
 impl<P: Scalar> GpuTrainer<P> {
     pub fn new(model: &Model, device: Arc<Device>) -> Result<Self> {
         let metadata = model.validate()?;
-        model.require_se_e2_a("the GPU trainer")?;
         let d = &model.descriptor;
+        let kind = model.descriptor_kind();
         let ntypes = model.type_map.len();
         let width = d.embedding[0][0].output_size();
         let slots: usize = d.sel.iter().sum();
-        if (16 * width + 12 + 4 * slots) * 8 + 4 * width * std::mem::size_of::<P>() > SHARED_LIMIT {
+        // The most shared memory a kernel of the descriptor takes per block.
+        let real = std::mem::size_of::<P>();
+        let shared = match kind {
+            DescriptorKind::SeE2A => (16 * width + 12 + 4 * slots) * 8 + 4 * width * real,
+            DescriptorKind::SeE2R => radial_force_shared::<P>(slots, width),
+        };
+        if shared > SHARED_LIMIT {
             return Err(Error(format!(
-                "GPU se_e2_a training does not fit shared memory with embedding width {width} and {slots} neighbor slots"
+                "GPU {} training does not fit shared memory with embedding width {width} and {slots} neighbor slots",
+                kind.name()
             )));
         }
+        // One net per neighbor type when the nets are shared between the
+        // central types, else the net of every pair of types.
+        let one_side = d.type_one_side;
+        let nets: Vec<&Network> = match one_side {
+            true => d.embedding[0].iter().collect(),
+            false => d.embedding.iter().flatten().collect(),
+        };
         let mut theta = Vec::new();
-        let embedding: Vec<Vec<TrainLayer>> = d
-            .embedding
-            .iter()
-            .flatten()
+        let embedding: Vec<Vec<TrainLayer>> = nets
+            .into_iter()
             .map(|network| pack(network, 1, &mut theta))
             .collect();
         let embedding_set = TrainSet::new(&device, embedding.clone())?;
+        let features = d.features();
         let mut fitting = Vec::with_capacity(ntypes);
         for network in &model.fitting {
-            let layers = pack(network, width * d.axis_neuron, &mut theta);
+            let layers = pack(network, features, &mut theta);
             if layers.last().map(|l| l.output) != Some(1) {
                 return Err(Error("fitting networks must end in one output".into()));
             }
@@ -656,13 +768,16 @@ impl<P: Scalar> GpuTrainer<P> {
                 .function(MODEL_SOURCE, &format!("{name}_{}", P::SUFFIX))
         };
         let train_kernel = |name: &str| device.kernels().function(SOURCE, name);
+        // The environment kernels serve both descriptors: se_e2_r reads the
+        // radial entry of what they give.
+        let name = kind.name();
         let kernels = Kernels {
             env: model_kernel("se_e2_a_env_rows")?,
-            descriptor: model_kernel("se_e2_a_descriptor_rows")?,
-            force: model_kernel("se_e2_a_backward_rows")?,
+            descriptor: model_kernel(&format!("{name}_descriptor_rows"))?,
+            force: model_kernel(&format!("{name}_backward_rows"))?,
             env_tangent: train_kernel("se_e2_a_env_tangent")?,
-            descriptor_tangent: train_kernel(&format!("se_e2_a_descriptor_tangent_{}", P::SUFFIX))?,
-            descriptor_reverse: train_kernel(&format!("se_e2_a_descriptor_reverse_{}", P::SUFFIX))?,
+            descriptor_tangent: train_kernel(&format!("{name}_descriptor_tangent_{}", P::SUFFIX))?,
+            descriptor_reverse: train_kernel(&format!("{name}_descriptor_reverse_{}", P::SUFFIX))?,
             adam: train_kernel(&format!("adam_{}", P::SUFFIX))?,
             adam_master: train_kernel("adam_master")?,
         };
@@ -672,7 +787,10 @@ impl<P: Scalar> GpuTrainer<P> {
             model: model.clone(),
             slots,
             width,
+            kind,
             axis: d.axis_neuron,
+            features,
+            one_side,
             gradient: device.zeros::<P>(cast.len())?,
             theta: device.upload(&cast)?,
             master: match P::SUFFIX {
@@ -748,7 +866,8 @@ impl<P: Scalar> GpuTrainer<P> {
         // all its empty slots, whose input is the same normalized zero.
         let filled = filled_slots(device, &list)?;
         list.check(device)?;
-        let (row_table, blocks, rows_embedding) = embedding_rows(&filled, &block, &d.sel)?;
+        let (row_table, blocks, rows_embedding) =
+            embedding_rows(&filled, &block, &d.sel, self.one_side)?;
         let prepared = Arc::new(Prepared {
             positions: frame.positions.clone(),
             cell: frame.cell,
@@ -795,8 +914,9 @@ impl<P: Scalar> GpuTrainer<P> {
         self.theta.len()
     }
 
-    /// The parameters, embedding nets first (center type major), then the
-    /// fitting nets; per layer weights `[input][output]`, bias, timestep.
+    /// The parameters, embedding nets first (center type major; with
+    /// `type_one_side` one per neighbor type), then the fitting nets; per
+    /// layer weights `[input][output]`, bias, timestep.
     ///
     /// Float32 networks compute with these rounded to float32; the values
     /// here are the float64 ones the optimizer keeps.
@@ -832,9 +952,14 @@ impl<P: Scalar> GpuTrainer<P> {
     pub fn model(&self) -> Result<Model> {
         let theta = self.parameters()?;
         let mut model = self.model.clone();
+        // A net shared between the central types goes to every row.
+        let nets = match self.one_side {
+            true => model.type_map.len(),
+            false => self.embedding.len(),
+        };
         let embedding = model.descriptor.embedding.iter_mut().flatten();
-        for (network, layout) in embedding.zip(&self.embedding) {
-            unpack(&mut network.layers, layout, &theta);
+        for (place, network) in embedding.enumerate() {
+            unpack(&mut network.layers, &self.embedding[place % nets], &theta);
         }
         for (network, layout) in model.fitting.iter_mut().zip(&self.fitting) {
             unpack(&mut network.layers, layout, &theta);
@@ -1010,7 +1135,13 @@ impl<P: Scalar> GpuTrainer<P> {
         }
         let (ntypes, slots) = (self.model.descriptor.sel.len(), self.slots);
         let (width, axis) = (self.width, self.axis);
-        let features = width * axis;
+        let features = self.features;
+        let radial = self.kind == DescriptorKind::SeE2R;
+        // se_e2_r: the mean of the embedding rows over the slots, over five.
+        let radial_scale = RADIAL_RESCALE / slots as f64;
+        let one_side_i = i32::from(self.one_side);
+        // What a kernel gets for a buffer it is not to touch.
+        let no_buffer = 0u64;
 
         let prepared = self.prepare(frame, &types, clock)?;
         let (order, block, list) = (&prepared.order, &prepared.block, &prepared.list);
@@ -1034,8 +1165,12 @@ impl<P: Scalar> GpuTrainer<P> {
         };
         // SAFETY (all `alloc_uninit` below): each buffer is fully written by
         // the kernel or copy that follows before anything reads it.
-        let mut env = unsafe { device.alloc_uninit::<f64>(rows_total * 4)? };
-        let mut radial = unsafe { device.alloc_uninit::<P>(rows_embedding)? };
+        // The environment rows, B and its tangent are se_e2_a's.
+        let mut env = match radial {
+            false => Some(unsafe { device.alloc_uninit::<f64>(rows_total * 4)? }),
+            true => None,
+        };
+        let mut radial_input = unsafe { device.alloc_uninit::<P>(rows_embedding)? };
         let mut network = unsafe { device.alloc_uninit::<i32>(rows_embedding)? };
         {
             let mut launch = stream.launch_builder(&self.kernels.env);
@@ -1055,11 +1190,16 @@ impl<P: Scalar> GpuTrainer<P> {
                 .arg(&slots_i)
                 .arg(&ntypes_i)
                 .arg(&d.rcut_smth)
-                .arg(&inv_range)
-                .arg(&mut env)
-                .arg(&mut radial)
+                .arg(&inv_range);
+            match env.as_mut() {
+                Some(env) => launch.arg(env),
+                None => launch.arg(&no_buffer),
+            };
+            launch
+                .arg(&mut radial_input)
                 .arg(&mut network)
-                .arg(row_table);
+                .arg(row_table)
+                .arg(&one_side_i);
             unsafe { launch.launch(per_slot) }
                 .map(drop)
                 .map_err(launch_error("environment"))?;
@@ -1068,18 +1208,25 @@ impl<P: Scalar> GpuTrainer<P> {
 
         // Embedding with the unit tangent: G and dG/d(radial input); every
         // row names its (center type, neighbor type) net.
-        let embedding_tape =
-            self.embedding_set
-                .forward(device, &self.theta, &radial, &network, rows_embedding)?;
+        let embedding_tape = self.embedding_set.forward(
+            device,
+            &self.theta,
+            &radial_input,
+            &network,
+            rows_embedding,
+        )?;
         let (g, dg) = (embedding_tape.output(), embedding_tape.tangent());
         clock.lap(|t| &mut t.embedding)?;
 
-        let mut b = unsafe { device.alloc_uninit::<f64>(natoms * width * 4)? };
+        let mut b = match radial {
+            false => Some(unsafe { device.alloc_uninit::<f64>(natoms * width * 4)? }),
+            true => None,
+        };
         let mut descriptor = unsafe { device.alloc_uninit::<P>(natoms * features)? };
-        {
+        if let (Some(env), Some(b)) = (&env, &mut b) {
             let mut launch = stream.launch_builder(&self.kernels.descriptor);
             launch
-                .arg(&env)
+                .arg(env)
                 .arg(g)
                 .arg(&self.slot_type)
                 .arg(&self.slot_local)
@@ -1089,11 +1236,29 @@ impl<P: Scalar> GpuTrainer<P> {
                 .arg(&slots_i)
                 .arg(&w_i)
                 .arg(&axis_i)
-                .arg(&mut b)
+                .arg(b)
                 .arg(&mut descriptor)
                 .arg(row_table)
                 .arg(&ntypes_i);
             unsafe { launch.launch(per_atom(4 * width * 8)) }
+                .map(drop)
+                .map_err(launch_error("descriptor"))?;
+        } else {
+            let mut launch = stream.launch_builder(&self.kernels.descriptor);
+            launch
+                .arg(g)
+                .arg(&self.slot_type)
+                .arg(&self.slot_local)
+                .arg(&self.sel_d)
+                .arg(&self.offset_d)
+                .arg(&n_i)
+                .arg(&slots_i)
+                .arg(&w_i)
+                .arg(&radial_scale)
+                .arg(&mut descriptor)
+                .arg(row_table)
+                .arg(&ntypes_i);
+            unsafe { launch.launch(per_atom(0)) }
                 .map(drop)
                 .map_err(launch_error("descriptor"))?;
         }
@@ -1138,11 +1303,12 @@ impl<P: Scalar> GpuTrainer<P> {
         let mut virial = unsafe { device.alloc_uninit::<f64>(natoms * 9)? };
         {
             let mut launch = stream.launch_builder(&self.kernels.force);
+            if let (Some(env), Some(b)) = (&env, &b) {
+                launch.arg(env).arg(g).arg(dg).arg(b);
+            } else {
+                launch.arg(dg);
+            }
             launch
-                .arg(&env)
-                .arg(g)
-                .arg(dg)
-                .arg(&b)
                 .arg(&d_descriptor)
                 .arg(&list.index)
                 .arg(&list.delta)
@@ -1156,15 +1322,23 @@ impl<P: Scalar> GpuTrainer<P> {
                 .arg(&zero_i)
                 .arg(&n_i)
                 .arg(&slots_i)
-                .arg(&w_i)
-                .arg(&axis_i)
+                .arg(&w_i);
+            // The axis neurons of se_e2_a, the scale of se_e2_r.
+            match radial {
+                false => launch.arg(&axis_i),
+                true => launch.arg(&radial_scale),
+            };
+            launch
                 .arg(&d.rcut_smth)
                 .arg(&inv_range)
                 .arg(&mut force)
                 .arg(&mut virial)
                 .arg(row_table)
                 .arg(&ntypes_i);
-            let shared = (4 * width + 4 * slots + 12) * 8 + 4 * width * std::mem::size_of::<P>();
+            let shared = match radial {
+                false => (4 * width + 4 * slots + 12) * 8 + 4 * width * std::mem::size_of::<P>(),
+                true => radial_force_shared::<P>(slots, width),
+            };
             unsafe { launch.launch(per_atom(shared)) }
                 .map(drop)
                 .map_err(launch_error("force"))?;
@@ -1260,16 +1434,19 @@ impl<P: Scalar> GpuTrainer<P> {
                 .map(drop)
                 .map_err(launch_error("environment tangent"))?;
         }
-        let mut bdot = unsafe { device.alloc_uninit::<f64>(natoms * width * 4)? };
+        let mut bdot = match radial {
+            false => Some(unsafe { device.alloc_uninit::<f64>(natoms * width * 4)? }),
+            true => None,
+        };
         let mut ddot = unsafe { device.alloc_uninit::<P>(natoms * features)? };
-        {
+        if let (Some(env), Some(b), Some(bdot)) = (&env, &b, &mut bdot) {
             let mut launch = stream.launch_builder(&self.kernels.descriptor_tangent);
             launch
-                .arg(&env)
+                .arg(env)
                 .arg(&envdot)
                 .arg(g)
                 .arg(dg)
-                .arg(&b)
+                .arg(b)
                 .arg(&self.slot_type)
                 .arg(&self.slot_local)
                 .arg(row_table)
@@ -1277,9 +1454,25 @@ impl<P: Scalar> GpuTrainer<P> {
                 .arg(&slots_i)
                 .arg(&w_i)
                 .arg(&axis_i)
-                .arg(&mut bdot)
+                .arg(bdot)
                 .arg(&mut ddot);
             unsafe { launch.launch(per_atom(8 * width * 8)) }
+                .map(drop)
+                .map_err(launch_error("descriptor tangent"))?;
+        } else {
+            let mut launch = stream.launch_builder(&self.kernels.descriptor_tangent);
+            launch
+                .arg(&envdot)
+                .arg(dg)
+                .arg(&self.slot_type)
+                .arg(&self.slot_local)
+                .arg(row_table)
+                .arg(&ntypes_i)
+                .arg(&slots_i)
+                .arg(&w_i)
+                .arg(&radial_scale)
+                .arg(&mut ddot);
+            unsafe { launch.launch(per_atom(0)) }
                 .map(drop)
                 .map_err(launch_error("descriptor tangent"))?;
         }
@@ -1319,13 +1512,13 @@ impl<P: Scalar> GpuTrainer<P> {
         // From zero: the rows of the empty slots collect sums.
         let mut gbar = device.zeros::<P>(rows_embedding * width)?;
         let mut gpbar = device.zeros::<P>(rows_embedding * width)?;
-        {
+        if let (Some(env), Some(b), Some(bdot)) = (&env, &b, &bdot) {
             let mut launch = stream.launch_builder(&self.kernels.descriptor_reverse);
             launch
-                .arg(&env)
+                .arg(env)
                 .arg(&envdot)
-                .arg(&b)
-                .arg(&bdot)
+                .arg(b)
+                .arg(bdot)
                 .arg(&dbar)
                 .arg(&ddbar)
                 .arg(&self.slot_type)
@@ -1340,6 +1533,25 @@ impl<P: Scalar> GpuTrainer<P> {
                 .arg(&mut gbar)
                 .arg(&mut gpbar);
             unsafe { launch.launch(per_atom(16 * width * 8)) }
+                .map(drop)
+                .map_err(launch_error("descriptor reverse"))?;
+        } else {
+            let mut launch = stream.launch_builder(&self.kernels.descriptor_reverse);
+            launch
+                .arg(&envdot)
+                .arg(&dbar)
+                .arg(&ddbar)
+                .arg(&self.slot_type)
+                .arg(&self.slot_local)
+                .arg(&self.sel_d)
+                .arg(row_table)
+                .arg(&ntypes_i)
+                .arg(&slots_i)
+                .arg(&w_i)
+                .arg(&radial_scale)
+                .arg(&mut gbar)
+                .arg(&mut gpbar);
+            unsafe { launch.launch(per_atom(0)) }
                 .map(drop)
                 .map_err(launch_error("descriptor reverse"))?;
         }
@@ -1371,7 +1583,7 @@ mod tests {
         // Atoms 0 and 1 of type 0, atom 2 of type 1; two and three slots.
         // Neighbors held, per atom and neighbor type:
         let filled = [2, 1, 1, 3, 0, 0];
-        let (table, nets, rows) = embedding_rows(&filled, &[0, 2, 3], &[2, 3]).unwrap();
+        let (table, nets, rows) = embedding_rows(&filled, &[0, 2, 3], &[2, 3], false).unwrap();
         // Neighbor type 0: net (0, 0) has the rows 0..3 of its neighbors and
         // the shared row 3, net (1, 0) only the shared row 4. Neighbor type
         // 1: net (0, 1) has 5..9 and the shared row 9, net (1, 1) row 10.
@@ -1382,11 +1594,18 @@ mod tests {
             table,
             vec![0, 2, 3, 5, 1, 9, 2, 1, 3, 6, 3, 9, 4, 0, 4, 10, 0, 10]
         );
+        // One net per neighbor type: the same rows, and those of a neighbor
+        // type, shared rows included, are one net's.
+        let (shared, nets, total) = embedding_rows(&filled, &[0, 2, 3], &[2, 3], true).unwrap();
+        assert_eq!((shared, total), (table.clone(), 11));
+        assert_eq!(nets, vec![(0, 0, 5), (1, 5, 6)]);
         // Full slots share no row, and a type without atoms has no net.
-        let (table, nets, rows) = embedding_rows(&[1, 1], &[0, 1, 1], &[1, 1]).unwrap();
+        let (table, nets, rows) = embedding_rows(&[1, 1], &[0, 1, 1], &[1, 1], false).unwrap();
         assert_eq!((table, rows), (vec![0, 1, -1, 1, 1, -1], 2));
         assert_eq!(nets, vec![(0, 0, 1), (1, 1, 1)]);
         // More neighbors than slots cannot be laid out.
-        assert!(embedding_rows(&[3, 0], &[0, 1, 1], &[2, 1]).is_err());
+        assert!(embedding_rows(&[3, 0], &[0, 1, 1], &[2, 1], false).is_err());
+        let (_, nets, _) = embedding_rows(&[1, 1], &[0, 1, 1], &[1, 1], true).unwrap();
+        assert_eq!(nets, vec![(0, 0, 1), (1, 1, 1)]);
     }
 }

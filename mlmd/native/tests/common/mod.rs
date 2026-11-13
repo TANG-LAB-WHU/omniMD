@@ -151,6 +151,7 @@ pub fn model_of_width(
                     std: [0.3, 0.2, 0.2, 0.2],
                 })
                 .collect(),
+            type_one_side: false,
             embedding,
         },
         fitting,
@@ -169,6 +170,18 @@ pub fn radial_model(ntypes: usize, sel: Vec<usize>, rcut: f64, seed: u64, width:
     for normalization in &mut model.descriptor.normalization {
         normalization.std = [normalization.std[0], 1.0, 1.0, 1.0];
     }
+    model
+}
+
+/// The model with the embedding nets of its first central type for every
+/// central type, and the mark that says so (`type_one_side`).
+#[allow(dead_code)]
+pub fn one_sided(mut model: Model) -> Model {
+    let first = model.descriptor.embedding[0].clone();
+    for row in &mut model.descriptor.embedding {
+        *row = first.clone();
+    }
+    model.descriptor.type_one_side = true;
     model
 }
 

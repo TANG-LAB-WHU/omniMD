@@ -989,14 +989,6 @@ fn se_e2_r_in_float32_compressed_in_batches_and_committees() {
             );
         }
     }
-    // The GPU trainer has the other descriptor's arithmetic only.
-    let error = omnimd_native::gpu_train::GpuTrainer::<f64>::new(&models[0], device.clone())
-        .err()
-        .unwrap();
-    assert_eq!(
-        error.to_string(),
-        "the GPU trainer supports the se_e2_a descriptor only, not se_e2_r"
-    );
     // Models of the two descriptors are not one committee.
     let other = model(2, vec![80, 160], 4.5, 6);
     let mixed = [&models[0], &other];

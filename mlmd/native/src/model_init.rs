@@ -1,7 +1,7 @@
-//! A fresh se_e2_a model from DeePMD's `model` input section (plan W2): the
-//! network shapes and residual rules of DeePMD-kit, its random initialization
-//! distributions, and normalization and energy bias supplied by the caller
-//! (see [`crate::stats`]).
+//! A fresh se_e2_a or se_e2_r model from DeePMD's `model` input section (plan
+//! W2): the network shapes and residual rules of DeePMD-kit, its random
+//! initialization distributions, and normalization and energy bias supplied
+//! by the caller (see [`crate::stats`]).
 //!
 //! Initialization follows DeePMD-kit's PyTorch backend (`MLPLayer`): weights
 //! are normal with standard deviation `1/sqrt(inputs + outputs)`, biases
@@ -9,7 +9,9 @@
 //! 0.001. A hidden layer is residual when it keeps or doubles its width, and
 //! has a timestep when it is residual and `resnet_dt` is set. The random
 //! stream is omniMD's own, so a seed does not reproduce DeePMD's numbers.
-use crate::{Activation, Descriptor, Layer, Model, Network, Normalization, Residual};
+use crate::{
+    Activation, Descriptor, DescriptorKind, Layer, Model, Network, Normalization, Residual,
+};
 use omnimd_ml_contract::{Error, Result, Units};
 use serde::Deserialize;
 
@@ -63,9 +65,15 @@ pub struct DescriptorSpec {
     pub rcut: f64,
     pub rcut_smth: f64,
     pub neuron: Vec<usize>,
+    /// se_e2_a only; se_e2_r has no axis neurons.
+    #[serde(default)]
     pub axis_neuron: usize,
     #[serde(default)]
     pub resnet_dt: bool,
+    /// One embedding net per neighbor type instead of one per pair of
+    /// types. DeePMD-kit's input default is false for both descriptors; its
+    /// PyTorch backend (3.1.3) gives se_e2_r a net per neighbor type
+    /// whatever this says.
     #[serde(default)]
     pub type_one_side: bool,
     #[serde(default = "tanh_name")]
@@ -101,8 +109,8 @@ fn resnet_dt_default() -> bool {
     true
 }
 
-/// The `model` section of a DeePMD input script, se_e2_a with an energy
-/// fitting net.
+/// The `model` section of a DeePMD input script, se_e2_a or se_e2_r (also
+/// written `se_r`) with an energy fitting net.
 #[derive(Clone, Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct ModelSpec {
@@ -156,47 +164,71 @@ fn layer(rng: &mut Rng, input: usize, output: usize, hidden: bool, resnet_dt: bo
     }
 }
 
-fn check_spec(spec: &ModelSpec, sel: &[usize]) -> Result<()> {
+/// The descriptor a spec names: `se_e2_a`, or `se_e2_r` under either of
+/// DeePMD-kit's names for it.
+fn spec_kind(spec: &ModelSpec) -> Option<DescriptorKind> {
+    match spec.descriptor.kind.as_str() {
+        "se_e2_a" => Some(DescriptorKind::SeE2A),
+        "se_e2_r" | "se_r" => Some(DescriptorKind::SeE2R),
+        _ => None,
+    }
+}
+
+fn check_spec(spec: &ModelSpec, sel: &[usize]) -> Result<DescriptorKind> {
     let d = &spec.descriptor;
     let f = &spec.fitting_net;
-    let supported = d.kind == "se_e2_a"
-        && !d.type_one_side
-        && d.activation_function == "tanh"
+    let supported = d.activation_function == "tanh"
         && f.activation_function == "tanh"
         && f.kind.as_deref().is_none_or(|k| k == "ener")
         && [&d.precision, &f.precision]
             .iter()
             .all(|p| *p == "default" || *p == "float64");
-    if !supported {
+    let Some(kind) = spec_kind(spec).filter(|_| supported) else {
         return Err(Error(
-            "only se_e2_a with type_one_side=false, tanh activations, an ener fitting net and float64 parameters can be initialized".into(),
+            "only se_e2_a and se_e2_r with tanh activations, an ener fitting net and float64 parameters can be initialized".into(),
         ));
-    }
+    };
     if spec.type_map.is_empty()
         || sel.len() != spec.type_map.len()
         || d.neuron.is_empty()
         || f.neuron.is_empty()
         || d.neuron.iter().chain(&f.neuron).any(|&n| n == 0)
-        || d.axis_neuron == 0
-        || d.axis_neuron > *d.neuron.last().unwrap()
     {
         return Err(Error(
-            "model needs a type map, one sel per type, nonempty positive neuron lists and 0 < axis_neuron <= the embedding width".into(),
+            "model needs a type map, one sel per type and nonempty positive neuron lists".into(),
         ));
     }
-    Ok(())
+    let axis_fits = match kind {
+        DescriptorKind::SeE2A => d.axis_neuron > 0 && d.axis_neuron <= *d.neuron.last().unwrap(),
+        DescriptorKind::SeE2R => d.axis_neuron == 0,
+    };
+    if !axis_fits {
+        return Err(Error(
+            "se_e2_a needs 0 < axis_neuron <= the embedding width; se_e2_r has no axis_neuron"
+                .into(),
+        ));
+    }
+    Ok(kind)
 }
 
 /// Builds the model with freshly drawn parameters. `sel` is the resolved
 /// neighbor selection (from the spec or from neighbor statistics);
-/// `normalization` and `atom_energy_bias` have one entry per type.
+/// `normalization` and `atom_energy_bias` have one entry per type. Of the
+/// normalization an se_e2_r model keeps the radial entry, which is all its
+/// descriptor reads.
 pub fn initialize(
     spec: &ModelSpec,
     sel: Vec<usize>,
-    normalization: Vec<Normalization>,
+    mut normalization: Vec<Normalization>,
     atom_energy_bias: Vec<f64>,
 ) -> Result<Model> {
-    check_spec(spec, &sel)?;
+    let kind = check_spec(spec, &sel)?;
+    if kind == DescriptorKind::SeE2R {
+        for entry in &mut normalization {
+            entry.mean = [entry.mean[0], 0.0, 0.0, 0.0];
+            entry.std = [entry.std[0], 1.0, 1.0, 1.0];
+        }
+    }
     let ntypes = spec.type_map.len();
     if normalization.len() != ntypes || atom_energy_bias.len() != ntypes {
         return Err(Error(format!(
@@ -225,22 +257,25 @@ pub fn initialize(
     let stream = |seed: u64, index: usize| {
         Rng(seed.wrapping_mul(0x2545_f491_4f6c_dd1d) ^ ((index as u64 + 1) << 32))
     };
+    // A net for every pair of types, or with `type_one_side` one for every
+    // neighbor type, which all central types then have.
     let embedding = (0..ntypes)
         .map(|i| {
             (0..ntypes)
                 .map(|j| {
-                    network(
-                        &mut stream(d.seed, i * ntypes + j),
-                        1,
-                        &d.neuron,
-                        d.resnet_dt,
-                        None,
-                    )
+                    let index = match d.type_one_side {
+                        true => j,
+                        false => i * ntypes + j,
+                    };
+                    network(&mut stream(d.seed, index), 1, &d.neuron, d.resnet_dt, None)
                 })
                 .collect()
         })
         .collect();
-    let features = d.neuron.last().unwrap() * d.axis_neuron;
+    let features = match kind {
+        DescriptorKind::SeE2A => d.neuron.last().unwrap() * d.axis_neuron,
+        DescriptorKind::SeE2R => *d.neuron.last().unwrap(),
+    };
     let f = &spec.fitting_net;
     let fitting = (0..ntypes)
         .map(|i| {
@@ -254,18 +289,19 @@ pub fn initialize(
         })
         .collect();
     let model = Model {
-        format: "omnimd-native-se-e2-a".into(),
+        format: kind.format().into(),
         version: 1,
         precision: "float64".into(),
         units: Units::EvAngstrom,
         type_map: spec.type_map.clone(),
         descriptor: Descriptor {
-            kind: "se_e2_a".into(),
+            kind: kind.name().into(),
             rcut: d.rcut,
             rcut_smth: d.rcut_smth,
             sel,
             axis_neuron: d.axis_neuron,
             normalization,
+            type_one_side: d.type_one_side,
             embedding,
         },
         fitting,
@@ -382,10 +418,96 @@ mod tests {
     }
 
     #[test]
+    fn one_net_per_neighbor_type_and_the_radial_descriptor() {
+        // se_e2_a with one embedding net per neighbor type: every central
+        // type has the same row, and the model says so.
+        let mut one_side = spec();
+        one_side.descriptor.type_one_side = true;
+        let model = initialize(
+            &one_side,
+            vec![44, 16, 60],
+            unit_normalization(3),
+            vec![0.0; 3],
+        )
+        .unwrap();
+        assert!(model.descriptor.type_one_side);
+        let rows = &model.descriptor.embedding;
+        assert!(rows[1] == rows[0] && rows[2] == rows[0]);
+        assert_ne!(rows[0][0], rows[0][1]);
+        // The nets of the pairs differ, and that model does not carry the mark.
+        let pairs = initialize(
+            &spec(),
+            vec![44, 16, 60],
+            unit_normalization(3),
+            vec![0.0; 3],
+        )
+        .unwrap();
+        assert!(!pairs.descriptor.type_one_side);
+        assert_ne!(pairs.descriptor.embedding[1], pairs.descriptor.embedding[0]);
+        assert!(!serde_json::to_string(&pairs)
+            .unwrap()
+            .contains("type_one_side"));
+        assert!(serde_json::to_string(&model)
+            .unwrap()
+            .contains("\"type_one_side\":true"));
+
+        // se_e2_r under both of its names: no axis neurons, fitting nets on
+        // the embedding width, the radial normalization only.
+        for (name, shared) in [("se_e2_r", false), ("se_r", true)] {
+            let mut radial = spec();
+            radial.descriptor.kind = name.into();
+            radial.descriptor.axis_neuron = 0;
+            radial.descriptor.type_one_side = shared;
+            let model = initialize(
+                &radial,
+                vec![44, 16, 60],
+                unit_normalization(3),
+                vec![-1.0, -2.0, -3.0],
+            )
+            .unwrap();
+            assert_eq!(model.format, "omnimd-native-se-e2-r");
+            assert_eq!(model.descriptor.kind, "se_e2_r");
+            assert_eq!(model.descriptor_kind(), DescriptorKind::SeE2R);
+            assert_eq!(model.descriptor.axis_neuron, 0);
+            assert_eq!(model.descriptor.type_one_side, shared);
+            assert_eq!(
+                model.descriptor.embedding[1] == model.descriptor.embedding[0],
+                shared
+            );
+            for entry in &model.descriptor.normalization {
+                assert_eq!(entry.mean, [0.1, 0.0, 0.0, 0.0]);
+                assert_eq!(entry.std, [0.2, 1.0, 1.0, 1.0]);
+            }
+            let shapes: Vec<_> = model.fitting[1]
+                .layers
+                .iter()
+                .map(|l| (l.weights.len(), l.bias.len()))
+                .collect();
+            assert_eq!(shapes, [(100, 240), (240, 240), (240, 240), (240, 1)]);
+            assert_eq!(model.atom_energy_bias, [-1.0, -2.0, -3.0]);
+            // An axis neuron has no meaning for it.
+            radial.descriptor.axis_neuron = 16;
+            assert!(initialize(
+                &radial,
+                vec![44, 16, 60],
+                unit_normalization(3),
+                vec![0.0; 3]
+            )
+            .is_err());
+        }
+        // A script of se_e2_r may leave axis_neuron out; one of se_e2_a not.
+        let text = r#"{"type_map": ["O", "H"],
+            "descriptor": {"type": "se_e2_r", "sel": [4, 8], "rcut_smth": 0.5, "rcut": 4.0,
+                           "neuron": [4, 8]},
+            "fitting_net": {"neuron": [6, 6]}}"#;
+        let radial: ModelSpec = serde_json::from_str(text).unwrap();
+        assert!(initialize(&radial, vec![4, 8], unit_normalization(2), vec![0.0; 2]).is_ok());
+        let angular: ModelSpec = serde_json::from_str(&text.replace("se_e2_r", "se_e2_a")).unwrap();
+        assert!(initialize(&angular, vec![4, 8], unit_normalization(2), vec![0.0; 2]).is_err());
+    }
+
+    #[test]
     fn unsupported_models_are_rejected() {
-        let mut bad = spec();
-        bad.descriptor.type_one_side = true;
-        assert!(initialize(&bad, vec![1, 1, 1], unit_normalization(3), vec![0.0; 3]).is_err());
         let mut bad = spec();
         bad.descriptor.kind = "se_e3".into();
         assert!(initialize(&bad, vec![1, 1, 1], unit_normalization(3), vec![0.0; 3]).is_err());

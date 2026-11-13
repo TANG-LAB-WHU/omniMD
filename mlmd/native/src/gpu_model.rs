@@ -84,13 +84,14 @@ __device__ long long slot_row(const int* rows, int ntypes, int count, int i, int
 // one to skip (network id -1): the embedding kernels leave such rows alone
 // and the descriptor adds what the empty slots of a type contribute in one
 // term. With `rows` the empty slots write the normalized zero to the row
-// they share.
+// they share. `one_side` names the embedding net of a row by its neighbor
+// type alone: the nets of a trainer whose model has one per neighbor type.
 template <typename P, typename E>
 __device__ void env_impl(const int* index, const double* delta, const double* dist,
         const int* atype, const double* davg, const double* dstd_inv, const int* slot_type,
         const int* slot_local, const int* sel, const int* offset, int first, int count, int slots,
         int ntypes, double rmin, double inv_range, E* env, P* radial, int* network,
-        const int* rows) {
+        const int* rows, int one_side) {
     long long idx = (long long)blockIdx.x * blockDim.x + threadIdx.x;
     if (idx >= (long long)count * slots) return;
     int model = blockIdx.y;
@@ -122,8 +123,9 @@ __device__ void env_impl(const int* index, const double* delta, const double* di
     }
     // Every empty slot of a shared row writes the same two values there.
     radial[row] = (P)r4[0];
-    // Embedding net of this row: (model, center type, neighbor type).
-    network[row] = c * ntypes + slot_type[s];
+    // Embedding net of this row: (model, center type, neighbor type), or the
+    // neighbor type when the nets are the same for every center.
+    network[row] = one_side ? slot_type[s] : c * ntypes + slot_type[s];
 }
 
 // How many neighbors of each type an atom has, counted by all threads of its
@@ -357,31 +359,41 @@ __device__ void backward_impl(const E* env, const P* g, const P* dg, const E* b_
 // slot, the sum of each type apart, and the empty slots of a type enter as
 // their number times the row they share, as in the se_e2_a kernel. The
 // environment rows are not needed: the embedding has taken their radial
-// entry already.
-template <typename P>
+// entry already. With `rows` (the trainer) every slot has its row in that
+// table, the empty ones of a pair of types the one they share, and all are
+// summed alike. The sums are formed in `E`, as those of se_e2_a.
+template <typename P, typename E>
 __device__ void radial_descriptor_impl(const P* g, const int* slot_type, const int* slot_local,
         const int* sel, const int* offset, int count, int slots, int width, double scale,
-        P* d_out, int ntypes, const int* index, const int* atype, const P* g_empty, int first) {
+        P* d_out, int ntypes, const int* index, const int* atype, const P* g_empty, int first,
+        const int* rows) {
     extern __shared__ int radial_filled[];  // this atom's neighbors of each type, [ntypes]
     int i = blockIdx.x, model = blockIdx.y;
     g += (long long)model * count * slots * width;
     long long center = (long long)model * count + i;
-    count_neighbors(index + (long long)(first + i) * slots, slot_type, slot_local, sel, slots,
-                    ntypes, radial_filled);
-    __syncthreads();
-    int c = model * ntypes + atype[first + i];
+    if (!rows) {
+        count_neighbors(index + (long long)(first + i) * slots, slot_type, slot_local, sel,
+                        slots, ntypes, radial_filled);
+        __syncthreads();
+    }
     for (int m = threadIdx.x; m < width; m += blockDim.x) {
-        P acc = 0;
-        for (int t = 0; t < ntypes; ++t) {
-            P part = 0;
-            int neighbors = radial_filled[t];
-            const P* mine = g + embed_row(count, i, t, 0, sel, offset) * width + m;
-            for (int k = 0; k < neighbors; ++k) part += mine[(long long)k * width];
-            if (neighbors < sel[t])
-                part += (P)(sel[t] - neighbors) * g_empty[((long long)c * ntypes + t) * width + m];
-            acc += part;
+        E acc = 0;
+        if (rows) {
+            for (int s = 0; s < slots; ++s)
+                acc += (E)g[slot_row(rows, ntypes, count, i, slot_type[s], slot_local[s], sel, offset) * width + m];
+        } else {
+            int c = model * ntypes + atype[first + i];
+            for (int t = 0; t < ntypes; ++t) {
+                E part = 0;
+                int neighbors = radial_filled[t];
+                const P* mine = g + embed_row(count, i, t, 0, sel, offset) * width + m;
+                for (int k = 0; k < neighbors; ++k) part += (E)mine[(long long)k * width];
+                if (neighbors < sel[t])
+                    part += (E)(sel[t] - neighbors) * (E)g_empty[((long long)c * ntypes + t) * width + m];
+                acc += part;
+            }
         }
-        d_out[center * width + m] = (P)(acc * (P)scale);
+        d_out[center * width + m] = (P)(acc * (E)scale);
     }
 }
 
@@ -398,7 +410,7 @@ __device__ void radial_backward_impl(const P* dg, const P* dd_in, const int* ind
         const double* delta, const double* dist, const int* atype, const double* dstd_inv,
         const int* slot_type, const int* slot_local, const int* sel, const int* offset,
         int first, int count, int slots, int width, double scale, double rmin, double inv_range,
-        double* force, double* virial, int ntypes, int natoms) {
+        double* force, double* virial, int ntypes, int natoms, const int* rows) {
     extern __shared__ double radial_shared[];
     double* ds_all = radial_shared;      // [slots]: dE/d(radial entry)
     double* red = ds_all + slots;        // [12]: center force, virial
@@ -415,7 +427,7 @@ __device__ void radial_backward_impl(const P* dg, const P* dd_in, const int* ind
     for (int s = warp; s < slots; s += warps) {
         long long slot = (long long)i * slots + s;
         if (index[slot] < 0) continue;
-        long long row = embed_row(count, li, slot_type[s], slot_local[s], sel, offset) * width;
+        long long row = slot_row(rows, ntypes, count, li, slot_type[s], slot_local[s], sel, offset) * width;
         P sum = 0;
         for (int m = lane; m < width; m += 32) sum += dd[m] * dg[row + m];
         sum = warp_sum(sum);
@@ -456,16 +468,16 @@ extern "C" __global__ void se_e2_a_env_##S(const int* index, const double* delta
         P* radial, int* network) {                                                                \
     env_impl<P, P>(index, delta, dist, atype, davg, dstd_inv, slot_type, slot_local, sel,         \
                    offset, first, count, slots, ntypes, rmin, inv_range, env, radial, network,    \
-                   nullptr);                                                                      \
+                   nullptr, 0);                                                                   \
 }                                                                                                 \
 extern "C" __global__ void se_e2_a_env_rows_##S(const int* index, const double* delta,            \
         const double* dist, const int* atype, const double* davg, const double* dstd_inv,         \
         const int* slot_type, const int* slot_local, const int* sel, const int* offset,           \
         int first, int count, int slots, int ntypes, double rmin, double inv_range, double* env,  \
-        P* radial, int* network, const int* rows) {                                               \
+        P* radial, int* network, const int* rows, int one_side) {                                 \
     env_impl<P, double>(index, delta, dist, atype, davg, dstd_inv, slot_type, slot_local, sel,    \
                         offset, first, count, slots, ntypes, rmin, inv_range, env, radial,        \
-                        network, rows);                                                           \
+                        network, rows, one_side);                                                 \
 }                                                                                                 \
 extern "C" __global__ void se_e2_a_descriptor_##S(const P* env, const P* g,                       \
         const int* slot_type, const int* slot_local, const int* sel, const int* offset,           \
@@ -507,8 +519,15 @@ extern "C" __global__ void se_e2_r_descriptor_##S(const P* g, const int* slot_ty
         const int* slot_local, const int* sel, const int* offset, int count, int slots,           \
         int width, double scale, P* d_out, int ntypes, const int* index, const int* atype,        \
         const P* g_empty, int first) {                                                            \
-    radial_descriptor_impl<P>(g, slot_type, slot_local, sel, offset, count, slots, width, scale,  \
-                              d_out, ntypes, index, atype, g_empty, first);                       \
+    radial_descriptor_impl<P, P>(g, slot_type, slot_local, sel, offset, count, slots, width,      \
+                                 scale, d_out, ntypes, index, atype, g_empty, first, nullptr);    \
+}                                                                                                 \
+extern "C" __global__ void se_e2_r_descriptor_rows_##S(const P* g, const int* slot_type,          \
+        const int* slot_local, const int* sel, const int* offset, int count, int slots,           \
+        int width, double scale, P* d_out, const int* rows, int ntypes) {                         \
+    radial_descriptor_impl<P, double>(g, slot_type, slot_local, sel, offset, count, slots,        \
+                                      width, scale, d_out, ntypes, nullptr, nullptr, nullptr, 0,  \
+                                      rows);                                                      \
 }                                                                                                 \
 extern "C" __global__ void se_e2_r_backward_##S(const P* dg, const P* dd_in, const int* index,    \
         const double* delta, const double* dist, const int* atype, const double* dstd_inv,        \
@@ -517,7 +536,17 @@ extern "C" __global__ void se_e2_r_backward_##S(const P* dg, const P* dd_in, con
         double inv_range, double* force, double* virial, int ntypes, int natoms) {                \
     radial_backward_impl<P>(dg, dd_in, index, delta, dist, atype, dstd_inv, slot_type,            \
                             slot_local, sel, offset, first, count, slots, width, scale, rmin,     \
-                            inv_range, force, virial, ntypes, natoms);                            \
+                            inv_range, force, virial, ntypes, natoms, nullptr);                   \
+}                                                                                                 \
+extern "C" __global__ void se_e2_r_backward_rows_##S(const P* dg, const P* dd_in,                 \
+        const int* index, const double* delta, const double* dist, const int* atype,              \
+        const double* dstd_inv, const int* slot_type, const int* slot_local, const int* sel,      \
+        const int* offset, int first, int count, int slots, int width, double scale,              \
+        double rmin, double inv_range, double* force, double* virial, const int* rows,            \
+        int ntypes) {                                                                             \
+    radial_backward_impl<P>(dg, dd_in, index, delta, dist, atype, dstd_inv, slot_type,            \
+                            slot_local, sel, offset, first, count, slots, width, scale, rmin,     \
+                            inv_range, force, virial, ntypes, 0, rows);                           \
 }
 INSTANTIATE(float, f32)
 INSTANTIATE(double, f64)

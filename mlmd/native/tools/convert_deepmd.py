@@ -285,10 +285,13 @@ def convert(data, geometry):
         # even when model weights, coordinates and environment math are f64.
         rc, rs = (struct.unpack('<f', struct.pack('<f', value))[0] for value in (rc,rs))
         need(0 <= rs < rc and math.isfinite(rc), 'TensorFlow cutoff rounding collapses/overflows radii')
+    # One net per neighbor type: the native table repeats it for every central
+    # type and says so, for a trainer to keep the rows alike.
+    one_side = {'type_one_side':True} if ndim == 1 else {}
     result = {'format':'omnimd-native-se-e2-r' if radial else 'omnimd-native-se-e2-a',
               'version':1,'precision':'float64','units':'EvAngstrom',
               'type_map':types,'descriptor':{'kind':'se_e2_r' if radial else 'se_e2_a','rcut':rc,'rcut_smth':rs,'sel':sel,
-                  'axis_neuron':axis,'normalization':normalization,'embedding':embedding},
+                  'axis_neuron':axis,'normalization':normalization,**one_side,'embedding':embedding},
               'fitting':fitting,'atom_energy_bias':[bias[i][0]+offset[i][0] for i in range(nt)]}
     # Validate the entire result is JSON-finite before exposing any output file.
     json.dumps(result,allow_nan=False)

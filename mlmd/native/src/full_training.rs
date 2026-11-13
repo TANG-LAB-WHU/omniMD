@@ -468,6 +468,12 @@ impl Checkpoint {
             config.virial_loss.as_ref(),
             config.max_frame_atoms(),
         )?;
+        // Every pair of types trains a net of its own here. A model whose
+        // nets are marked as one per neighbor type (`type_one_side`) stops
+        // being one at the first step, so it is trained without the mark.
+        let mut untied = model.clone();
+        untied.descriptor.type_one_side = false;
+        let model = &untied;
         let layout = ParameterLayout::new(model)?;
         let (training_indices, validation_indices) = partition(dataset, &config.split)?;
         validate_virial_scales(
