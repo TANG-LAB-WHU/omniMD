@@ -1458,7 +1458,9 @@ label test of their own (below). The `train-native` trainers do not use it.
 A model with the radial descriptor se_e2_r
 ([format](native/README.md#model-format-v1), converted from DeePMD-kit like
 an se_e2_a one) is evaluated by the same commands and trained by the same
-trainer.
+trainer. A model with the three-body descriptor se_e3 is evaluated by the
+same commands too, with its exact embedding nets: it has no `--compress`
+and no trainer yet.
 
 Requirements: an NVIDIA GPU with a current driver, and the CUDA 12 runtime
 libraries for NVRTC and cuBLAS on the library path (`%CUDA_PATH%\bin` on Windows,

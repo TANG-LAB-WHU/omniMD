@@ -38,7 +38,11 @@ The same six steps time the radial descriptor: `make_water_case.py cases/se-r
 --descriptor se_e2_r` builds an se_e2_r model of the same sizes and the same
 boxes, and every later step takes `cases/se-r` and `water-se_e2_r-float64`
 where it has `cases` and `water-se_e2_a-float64` (step 4 does not apply: the
-CUDA subset has se_e2_a only).
+CUDA subset has se_e2_a only). `--descriptor se_e3` with `cases/se-e3` and
+`water-se_e3-float64` does the same for the three-body descriptor, with the
+embedding sizes DeePMD-kit's input has by default for it ([10, 20, 40]) and
+without the compressed mode; DeePMD's reference for it is taken at 192 atoms
+only.
 
 For a compressed DeePMD baseline, run `compress_deepmd.py cases` in the image
 (the `dp --pt compress` steps with the minimum neighbor distance set to 0.5 Å,

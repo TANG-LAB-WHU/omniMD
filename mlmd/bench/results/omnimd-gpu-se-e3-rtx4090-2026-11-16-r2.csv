@@ -1,0 +1,9 @@
+engine,route,device,precision,natoms,ms_per_eval,us_per_atom_step,ns_per_day,peak_mem_mb,status,note
+omnimd,gpu-se_e3-cli,gpu,float64,192,11.181246000000002,58.235656250000005,,,ok,"100 in-process evaluations after 1 warmup; network float64, geometry and forces float64; 1 chunk(s)"
+omnimd,gpu-se_e3-cli,gpu,float32,192,2.345474,12.216010416666665,,,ok,"100 in-process evaluations after 1 warmup; network float32, geometry and forces float64; 1 chunk(s)"
+omnimd,gpu-se_e3-cli,gpu,float64,1536,86.33411400000001,56.20710546875001,,,ok,"100 in-process evaluations after 1 warmup; network float64, geometry and forces float64; 1 chunk(s)"
+omnimd,gpu-se_e3-cli,gpu,float32,1536,15.807745,10.291500651041668,,,ok,"100 in-process evaluations after 1 warmup; network float32, geometry and forces float64; 1 chunk(s)"
+omnimd,gpu-se_e3-cli,gpu,float64,12288,659.35964,53.658824869791665,,,ok,"20 in-process evaluations after 1 warmup; network float64, geometry and forces float64; 5 chunk(s)"
+omnimd,gpu-se_e3-cli,gpu,float32,12288,121.69891,9.903882649739584,,,ok,"20 in-process evaluations after 1 warmup; network float32, geometry and forces float64; 3 chunk(s)"
+omnimd,gpu-se_e3-cli,gpu,float64,98304,5535.29092,56.30789103190104,,,ok,"10 in-process evaluations after 1 warmup; network float64, geometry and forces float64; 39 chunk(s)"
+omnimd,gpu-se_e3-cli,gpu,float32,98304,1071.7805,10.902715047200521,,,ok,"10 in-process evaluations after 1 warmup; network float32, geometry and forces float64; 20 chunk(s)"

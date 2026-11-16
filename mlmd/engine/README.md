@@ -37,7 +37,7 @@ inference needs no DeepMD, Python, GPU or LibTorch installation.
 
 ## The omnimd-gpu se_e2_a runtime
 
-A second, independent GPU path runs native se_e2_a and se_e2_r models of any
+A second, independent GPU path runs native se_e2_a, se_e2_r and se_e3 models of any
 network size entirely on the device (see [guide step 28](../GETTING_STARTED.md#28-run-se_e2_a-on-the-gpu-runtime-and-compute-dataset-statistics)).
 Build the engine with it:
 

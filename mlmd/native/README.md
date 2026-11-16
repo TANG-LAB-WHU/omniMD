@@ -12,6 +12,7 @@ This is a progressively implemented subset, not all DeepMD functionality:
 | --- | --- | --- |
 | Native-v1 se_e2_a scalar-energy inference, E/F/virial | Implemented | Implemented within [CUDA bounds](CUDA.md) |
 | Native-v1 se_e2_r (radial descriptor) inference, E/F/virial | Implemented | On the [GPU runtime](../gpu/README.md) (`gpu` feature), whose [trainer](GPU_TRAINING.md) also trains it; the CUDA subset and the bounded trainers refuse it |
+| Native-v1 se_e3 (three-body descriptor) inference, E/F/virial | Implemented | On the [GPU runtime](../gpu/README.md) (`gpu` feature), with the exact embedding nets (no tables); the CUDA subset and every trainer refuse it |
 | tanh/linear, explicit residuals and timesteps | Implemented | Implemented |
 | sigmoid/softplus inference | Implemented | Rejected |
 | Final-readout E/F fitting | Implemented, bounded | Implemented: GPU features, CPU QR/assessment |
@@ -199,16 +200,16 @@ Every native model object rejects unknown fields.
 
 | Field | Required meaning |
 | --- | --- |
-| `format`, `version` | `"omnimd-native-se-e2-a"` or `"omnimd-native-se-e2-r"`, integer `1` |
+| `format`, `version` | `"omnimd-native-se-e2-a"`, `"omnimd-native-se-e2-r"` or `"omnimd-native-se-e3"`, integer `1` |
 | `precision`, `units` | `"float64"`, `"EvAngstrom"` |
 | `type_map` | Ordered unique chemical symbols; no inferred atomic-number mapping |
-| `descriptor.kind` | `"se_e2_a"` in the first format, `"se_e2_r"` in the second; any other pairing is refused |
+| `descriptor.kind` | `"se_e2_a"` in the first format, `"se_e2_r"` in the second, `"se_e3"` in the third; any other pairing is refused |
 | `rcut_smth`, `rcut` | Finite radii with `0 <= rcut_smth < rcut` |
 | `sel` | Fixed per-neighbor-species capacities in `type_map` order |
-| `axis_neuron` | se_e2_a: positive, no larger than embedding output width. se_e2_r: zero, or left out |
-| `normalization` | One `{mean: [4], std: [4]}` per central type, repeated across slots. se_e2_r uses the first entry of each; the others are a zero mean and a unit width |
-| `type_one_side` | Optional, false when left out. True says that the embedding nets depend on the neighbor type only (DeePMD's key of that name): every row of `embedding` must then hold the same nets, and the [GPU trainer](GPU_TRAINING.md) trains one net per neighbor type. False leaves the nets of every pair of types their own, alike or not |
-| `embedding` | Network table `[central type][neighbor type]`; with `type_one_side` every row repeats the nets of the neighbor types |
+| `axis_neuron` | se_e2_a: positive, no larger than embedding output width. se_e2_r and se_e3: zero, or left out |
+| `normalization` | One `{mean: [4], std: [4]}` per central type, repeated across slots. se_e2_r uses the first entry of each; the others are a zero mean and a unit width. se_e3 uses the width of the other three; its first entry is a zero mean and a unit width |
+| `type_one_side` | Optional, false when left out. True says that the embedding nets depend on the neighbor type only (DeePMD's key of that name): every row of `embedding` must then hold the same nets, and the [GPU trainer](GPU_TRAINING.md) trains one net per neighbor type. False leaves the nets of every pair of types their own, alike or not. Not for se_e3 |
+| `embedding` | Network table `[central type][neighbor type]`; with `type_one_side` every row repeats the nets of the neighbor types. se_e3: `[neighbor type][neighbor type]`, the net of a pair of neighbor types, the same in either order |
 | `fitting` | One network per central type; final output is a scalar |
 | `atom_energy_bias` | One finite additive energy offset per central type |
 
@@ -216,7 +217,7 @@ Normalization requires zero angular means, equal positive angular standard
 deviations, and a positive radial standard deviation. All embedding networks
 start with a scalar input and share one output width. Fitting input width is
 `embedding_width * axis_neuron` for se_e2_a and `embedding_width` for
-se_e2_r. No units or precision conversion is implicit.
+se_e2_r and se_e3. No units or precision conversion is implicit.
 
 Each network has a nonempty `layers` array. Each layer has `weights[input][output]`,
 `bias[output]`, `activation`, `residual`, and optional `timestep[output]` (or null).
@@ -266,6 +267,25 @@ slots count as above. The embedding table is `[central type][neighbor type]`
 here as well: DeePMD-kit 3.1.3 builds this descriptor with one net per
 neighbor type, which the converter repeats for every central type and marks
 with `type_one_side`.
+
+An se_e3 model (DeePMD-kit's `se_e3`, also `se_at` and `se_a_3be`) takes
+the neighbors of an atom in pairs. With `a = R[1..4]`, the three direction
+entries of a slot's normalized row:
+
+```text
+theta_jk = a_j . a_k
+D[m] = sum over neighbor types t <= u, slots j of t, slots k of u:
+           theta_jk * embedding[t][u](theta_jk)[m] / (sel[t] * sel[u])
+E = sum_i (fitting[type_i](D_i) + atom_energy_bias[type_i])
+```
+
+Within one type the sum has every ordered pair of slots, a slot with itself
+included. An unused slot has zero direction entries (their mean is zero) and
+adds nothing, so only neighbors count, while the denominator stays the
+capacity. The nets do not depend on the central type; the central type
+enters through the width of its direction entries. The number of pairs grows
+with the square of the neighbors: n(n + 1)/2 evaluations of an embedding net
+for an atom with n neighbors, where the other two descriptors have n.
 
 Forces use the analytic chain rule through the quintic switch, environment
 normalization, embeddings, descriptor contraction, and fitting networks.

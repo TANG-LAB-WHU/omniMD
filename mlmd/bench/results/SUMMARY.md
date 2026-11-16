@@ -1,3 +1,96 @@
+# The se_e3 descriptor, 2026-11-16
+
+A native model can have DeePMD-kit's three-body descriptor (`se_e3`, also
+`se_at` and `se_a_3be`): every pair of an atom's neighbors gives the product
+θ of their normalized directions to an embedding net of the pair of neighbor
+types, and the descriptor is the sum of θ·G(θ) over the pairs. It is
+evaluated on the CPU and on the GPU runtime (float64 or float32, batches of
+frames and committees of models, with the exact embedding nets: there are no
+tables for it) and converted from DeePMD-kit 3.1.3 `.dp`/YAML by
+`convert_deepmd.py`. Inference only: every trainer refuses the descriptor.
+Format and formulas are in
+[`native/README.md`](../../native/README.md#model-format-v1).
+
+**Agreement with DeePMD-kit 3.1.3** (PyTorch backend, CPU, float64):
+
+- A fixture of 27 atoms of three types, each type with a width of its own
+  for the directions and with a radial mean and width that the descriptor
+  must not read (`native/tools/make_se_e3_fixture.py`), periodic and without
+  a cell. The CPU evaluation gives DeePMD's energy within 7.1e-15 eV, its
+  forces within 9.5e-17 eV/Å (the largest force is 0.05 and 0.08 eV/Å) and
+  its virial within 1.2e-15 eV. The GPU runtime in float64 gives the three
+  within 7.1e-15 eV, 1.6e-15 eV/Å and 3.6e-15 eV, a second model included
+  whose `sel` of [3, 4, 2] is far below the neighbors an atom has there (up
+  to 9, 12 and 6 of the three types; largest force 0.8 eV/Å), so that the
+  result depends on which neighbors are kept.
+- The water case below at 192 atoms (largest force 0.027 eV/Å: the model is
+  untrained): float64 within 9.5e-15 eV per atom and 5.6e-17 eV/Å, float32
+  within 6.1e-9 eV per atom and 9.3e-9 eV/Å.
+
+**Water benchmark with an se_e3 model**: the cutoff and `sel` of the other
+water models (6.0 Å, [46, 92]), the embedding sizes DeePMD-kit's input has by
+default for this descriptor ([10, 20, 40]), fitting [240, 240, 240] on the 40
+embedding outputs; untrained, seeded weights (`make_water_case.py
+--descriptor se_e3`). ms per energy, force and virial evaluation. DeePMD:
+LAMMPS `pair_style deepmd`, NVE loop time per step, 2026-11-15
+(`deepmd-3.1.3-lammps-se-e3-2026-11-15.csv`). omniMD: `omnimd-native-gpu-eval`
+in process, the faster of two runs (`omnimd-gpu-se-e3-rtx4090-2026-11-16.csv`
+and `-r2`; the two differ by up to 16% that night, the card was not quiet):
+
+| atoms | precision | DeePMD | omniMD | speed-up |
+|---:|---|---:|---:|---:|
+| 192 | fp64 | 92.3 | 11.0 | 8.4× |
+| 1,536 | fp64 | 6,494 | 86.3 | 75× |
+| 12,288 | fp64 | out of memory | 659 | |
+| 98,304 | fp64 | error | 5,263 | |
+| 192 | fp32 | 28.8 | 2.33 | 12× |
+| 1,536 | fp32 | 219 | 15.8 | 14× |
+| 12,288 | fp32 | error | 121 | |
+| 98,304 | fp32 | error | 994 | |
+
+- The descriptor is of another order of cost than the two-body ones: an
+  atom of this water has 84 neighbors on average and 3,559 pairs of them,
+  each an evaluation of an embedding net, where se_e2_a has one for each of
+  its 138 slots. DeePMD-kit evaluates the nets for all 14,812 pairs of slots
+  of an atom, empty slots and both orders of a pair included; omniMD for the
+  pairs of neighbors, each once: 4.2 times fewer evaluations in this water.
+- DeePMD's float64 step at 1,536 atoms takes seventy times that at 192 for
+  eight times the atoms. Probably the run no longer fits the card's own
+  memory there (its memory use was not measured); from 12,288 atoms on
+  LAMMPS stops with a TorchScript error (reported as out of memory for
+  float64 at 12,288 atoms). As before, LAMMPS keeps a neighbor list for
+  several steps and omniMD searches at every evaluation.
+- omniMD lays the pairs out as rows of the embedding nets, the kernel the
+  other descriptors use, and takes the atoms in chunks whose rows fit the
+  device memory: 5 chunks at 12,288 atoms in float64 and 3 in float32, 39
+  and 20 at 98,304. The rows of a frame are laid out from the number of
+  neighbors every atom holds, which costs one small download per evaluation.
+- Where the time goes (stage times with a synchronization after each). 192
+  atoms, float32, 2.33 ms: embedding nets 1.17 ms, forces 0.41, descriptor
+  0.27, the rows of the pairs 0.14, neighbor search 0.12 to 0.16, fitting
+  0.14. 98,304 atoms, float32, 994 ms: embedding nets 671 ms, forces 198,
+  descriptor 101, rows 35. In float64 the embedding nets are more than four
+  fifths (192 atoms: 9.1 of 11.0 ms).
+- The descriptor and force kernels read the embedding rows of an atom, and a
+  warp waits for every row it reads. In their first version one or two
+  warps (descriptor) and four with atomics on shared sums (forces) went
+  through an atom's rows: 0.68 and 1.7 ms of then 3.9 ms at 192 atoms in
+  float32. Now eight warps share the rows of the descriptor and thirty-two
+  those of the forces, which gather their sums neighbor by neighbor without
+  atomics: 0.27 and 0.41 ms. A thread per row was tried for the forces: as
+  fast at 192 atoms, up to twice slower at 1,536 and more (its loads are
+  scattered).
+- Not built: tables for these nets (DeePMD-kit has them), and kernels that
+  contract the rows as they are made instead of storing them. At 1,536 atoms
+  in float32 the embedding stage writes 1.7 GB of values and tangents, and
+  the descriptor and force kernels, which only read them back, take 4.6 of
+  the 15.8 ms.
+- Through the engine, `run` takes such a model on the CPU and on the GPU
+  runtime like any native model (tests `engine/tests/se_e3.rs`: the GPU run
+  follows the CPU trajectory within 1e-10 Å over 60 steps, the error of the
+  total energy falls about fourfold when the time step is halved, and a
+  request for embedding tables is refused with the reason).
+
 # Training se_e2_r, and one embedding net per neighbor type, 2026-11-13
 
 `omnimd-native-gpu-train` trains the radial descriptor as well, and either

@@ -105,10 +105,10 @@ with executable commands; pending branch work is not counted as integrated.
 
 ## Remaining substantial compatibility gaps
 
-- Native model coverage remains `se_e2_a` and `se_e2_r` with restricted
-  conversion (`se_e2_r` on the CPU reference and on the
-  [GPU runtime](mlmd/gpu/README.md), whose trainer takes both descriptors);
-  `se_e3`/hybrid, attention/DPA, type embeddings, spin and tensor models
+- Native model coverage remains `se_e2_a`, `se_e2_r` and `se_e3` with
+  restricted conversion (`se_e2_r` and `se_e3` on the CPU reference and on
+  the [GPU runtime](mlmd/gpu/README.md), whose trainer takes the first two);
+  hybrid, attention/DPA, type embeddings, spin and tensor models
   are not implemented. Two audited frozen graph profiles are not a generic
   `.pb` importer; native `.pth`/JAX/Paddle import and compression are absent.
 - Training supports full-batch defaults and explicit deterministic minibatches

@@ -33,9 +33,10 @@ are printed by the converter. Native JSON remains schema v1.
   producer versions. The `model` tree is authoritative, not `model_def_script`.
 - Serialized classes/versions: Model 2, Descriptor 2, Fitting 4,
   NetworkCollection 1, EmbeddingNetwork 2, FittingNetwork 1, Layer 2, ndarray 1.
-- A standard energy model with a single `se_e2_a` descriptor, or with a single
-  `se_e2_r` descriptor (serialized as `se_r`; see below); explicit float64
-  arrays; scalar, species-specific energy fitting; ordered chemical type maps.
+- A standard energy model with a single `se_e2_a` descriptor, with a single
+  `se_e2_r` descriptor (serialized as `se_r`; see below) or with a single
+  `se_e3` descriptor (see below); explicit float64 arrays; scalar,
+  species-specific energy fitting; ordered chemical type maps.
 - One-sided or two-sided embeddings. For two-sided collections, DeepMD's flat
   index is `central + ntypes*neighbor`; the importer reorders this into native
   `[central][neighbor]`. A one-sided collection (`type_one_side`: one net per
@@ -70,6 +71,22 @@ with `--geometry dpmodel` only: its radii in a frozen TensorFlow graph have
 not been checked. `tools/make_se_r_fixture.py` builds two such models in the
 DeePMD-kit image, converts them and records DeePMD's energy, forces and
 virial, against which `tests/se_e2_r.rs` (CPU) and `tests/gpu_parity.rs` (GPU
+runtime) compare.
+
+An `se_e3` descriptor becomes a native `omnimd-native-se-e3` model: it has
+no `axis_neuron` and no `type_one_side`, and its fitting nets take
+`neuron[-1]` inputs. Its `davg`/`dstd` hold four entries per slot like those
+of se_e2_a, uniform per central type. The descriptor reads the three
+direction entries only, so the radial mean and width DeePMD-kit stores are
+not carried over: the native model has a zero and a one there. Its network
+collection has a net for every ordered pair of neighbor types, of which
+DeePMD-kit evaluates those at `t + ntypes*u` with `t <= u` (its reference
+backend writes the others as zeros, its PyTorch backend as they were drawn);
+the native table gets the evaluated net of a pair in both orders. It is
+converted with `--geometry dpmodel` only, like `se_r`.
+`tools/make_se_e3_fixture.py` builds two such models of three types in the
+DeePMD-kit image, converts them and records DeePMD's energy, forces and
+virial, against which `tests/se_e3.rs` (CPU) and `tests/gpu_parity.rs` (GPU
 runtime) compare.
 
 This interchange converter does **not** consume `.pb`, `.pth`, checkpoint

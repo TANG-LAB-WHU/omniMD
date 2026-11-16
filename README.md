@@ -117,8 +117,14 @@ Milliseconds per energy/force/virial evaluation; DeepMD-kit 3.1.3 is LAMMPS
 - LAMMPS reuses its neighbor list for about 13 steps, while omniMD rebuilds it on
   every evaluation. The 98,304-atom LAMMPS runs stopped with a TorchScript runtime
   error (probably out of memory; not verified).
+- The three-body descriptor se_e3 with the same cutoff and `sel` and embedding
+  [10, 20, 40] costs 2.33 ms at 192 atoms and 15.8 ms at 1,536 in float32
+  (DeepMD-kit in LAMMPS: 28.8 and 219 ms), 11.0 and 86.3 ms in float64 (92.3
+  and 6,494 ms), and 994 ms at 98,304 atoms in float32; omniMD's float64
+  result equals DeepMD-kit's at 192 atoms within 1e-14 eV per atom and
+  6e-17 eV/angstrom.
 - Scope: one GPU, se_e2_a or se_e2_r with one embedding net per type pair or
-  per neighbor type. The engine can
+  per neighbor type, or se_e3 (inference). The engine can
   select it for dynamics, minimization, batch evaluation and model deviation
   (`gpu_runtime` in the model options). It has a trainer of its own (below); the
   bounded `train-native` trainers do not use it.
@@ -290,7 +296,8 @@ see [DeepMD setup and limits](mlmd/deepmd/README.md).
 - The GPU trainer (se_e2_a and se_e2_r) takes one frame per step on one GPU
   and has no fine-tuning controls; the bounded `train-native` trainers do not
   use the GPU runtime, and the engine passes each frame through the host.
-- Arbitrary DeepMD architectures, hybrid se_e3 or generic .pb/.pth/pickle import.
+- Arbitrary DeepMD architectures, hybrid descriptors or generic .pb/.pth/pickle import;
+  se_e3 has inference only, without embedding tables.
 - Partial PBC, mixed-type/virtual atoms or automatic unit/type-map guessing.
 - Classical-potential mixing and the full legacy Simulation/Propagator pipeline.
 - Sharded/distributed or end-to-end GPU training, learned normalization or generic
