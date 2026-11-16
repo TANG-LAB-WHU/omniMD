@@ -42,7 +42,8 @@ CUDA subset has se_e2_a only). `--descriptor se_e3` with `cases/se-e3` and
 `water-se_e3-float64` does the same for the three-body descriptor, with the
 embedding sizes DeePMD-kit's input has by default for it ([10, 20, 40]) and
 without the compressed mode; DeePMD's reference for it is taken at 192 atoms
-only.
+only, and DeePMD-kit 3.1.3's compressed model of it was not usable as a
+baseline (it does not reproduce the uncompressed model: see the summary).
 
 For a compressed DeePMD baseline, run `compress_deepmd.py cases` in the image
 (the `dp --pt compress` steps with the minimum neighbor distance set to 0.5 Å,

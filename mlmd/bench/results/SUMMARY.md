@@ -60,6 +60,21 @@ and `-r2`; the two differ by up to 16% that night, the card was not quiet):
   LAMMPS stops with a TorchScript error (reported as out of memory for
   float64 at 12,288 atoms). As before, LAMMPS keeps a neighbor list for
   several steps and omniMD searches at every evaluation.
+- A compressed DeePMD-kit model could not be timed: the model that the steps
+  of `dp --pt compress` make of this one (`compress_deepmd.py`) is not the
+  uncompressed model. On the 192-atom frame (Python API, GPU, float64) its
+  energy is 0.012 eV per atom off and its forces up to 0.04 eV/Å, where the
+  largest force is 0.027; two compressions with the same settings differ in
+  the third decimal of the energy, another minimum distance or stride gives
+  another result (0.013 and 0.028 eV per atom), and on the CPU the model
+  returns NaN. In LAMMPS the NVE run heats from 305 K to 15,000 K within 200
+  steps and loses atoms (192 atoms, float64) or LAMMPS aborts at the first
+  evaluation (1,536 atoms); the one run that completed (192 atoms, float32,
+  10.9 ms a step with a neighbor list at nearly every step) is not the time
+  of a working model. The se_e2_a model compressed by the same script equals
+  its uncompressed model within 3e-16 eV/Å on both devices. The rows are in
+  `deepmd-3.1.3-lammps-se-e3-compressed-2026-11-16.csv`; the cause inside
+  DeePMD-kit 3.1.3 was not looked for.
 - omniMD lays the pairs out as rows of the embedding nets, the kernel the
   other descriptors use, and takes the atoms in chunks whose rows fit the
   device memory: 5 chunks at 12,288 atoms in float64 and 3 in float32, 39
@@ -80,11 +95,11 @@ and `-r2`; the two differ by up to 16% that night, the card was not quiet):
   atomics: 0.27 and 0.41 ms. A thread per row was tried for the forces: as
   fast at 192 atoms, up to twice slower at 1,536 and more (its loads are
   scattered).
-- Not built: tables for these nets (DeePMD-kit has them), and kernels that
-  contract the rows as they are made instead of storing them. At 1,536 atoms
-  in float32 the embedding stage writes 1.7 GB of values and tangents, and
-  the descriptor and force kernels, which only read them back, take 4.6 of
-  the 15.8 ms.
+- Not built: tables for these nets (DeePMD-kit has them, with the result
+  above), and kernels that contract the rows as they are made instead of
+  storing them. At 1,536 atoms in float32 the embedding stage writes 1.7 GB
+  of values and tangents, and the descriptor and force kernels, which only
+  read them back, take 4.6 of the 15.8 ms.
 - Through the engine, `run` takes such a model on the CPU and on the GPU
   runtime like any native model (tests `engine/tests/se_e3.rs`: the GPU run
   follows the CPU trajectory within 1e-10 Å over 60 steps, the error of the
