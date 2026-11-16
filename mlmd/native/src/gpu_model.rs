@@ -1,4 +1,4 @@
-//! se_e2_a and se_e2_r inference on the omnimd-gpu runtime (plan W6–W7).
+//! se_e2_a, se_e2_r and se_e3 inference on the omnimd-gpu runtime (plan W6–W7).
 //!
 //! Pipeline per frame, all on the device after one upload:
 //! cell-list neighbors (DeePMD truncation to `sel`) → environment matrix →
@@ -11,6 +11,13 @@
 //! An se_e2_r model goes the same way with a descriptor of its own: a fifth
 //! of the mean of the embedding rows, which needs the radial entry of the
 //! environment only (see [`crate::DescriptorKind`]).
+//!
+//! An se_e3 model has other rows for its embedding nets: not the neighbor
+//! slots of an atom but the pairs of its neighbors, whose number goes with
+//! the square of the neighbors an atom has. They are laid out from the
+//! numbers of neighbors (one small download per evaluation), and a chunk
+//! of atoms ends where its rows would be too many; the embedding nets
+//! themselves are the same kernel.
 //!
 //! `P` is the network precision (ADR-3). Geometry is always float64: the
 //! neighbor vectors, the environment rows as they are worked out, and their
@@ -455,6 +462,237 @@ __device__ void radial_backward_impl(const P* dg, const P* dd_in, const int* ind
     block_sums(fi, vir, red, force, virial, i);
 }
 
+// se_e3, DeePMD-kit's three-body descriptor. With a = sw·d / (r·std) the
+// direction entries of the normalized environment row of a neighbor, every
+// pair of an atom's neighbors gives θ = a_j·a_k to the embedding net of its
+// pair of neighbor types, and D[m] is the sum over the pairs of
+// weight·θ·G[m](θ). DeePMD-kit sums the pairs of types t <= u over all slots
+// of both and divides by sel[t]·sel[u]: an empty slot has no direction and
+// adds nothing, and within one type two neighbors come in both orders. So
+// every pair of neighbors is one row of the embedding nets here, with the
+// weight 2 / sel[t]² for two neighbors of one type and 1 / (sel[t]·sel[u])
+// otherwise (a neighbor with itself, or neighbors of two types).
+//
+// The neighbors of an atom are numbered in the order of their slots, 0 to
+// n - 1, so that their types do not decrease, and the pair (j <= k) is row
+// j·n - j(j - 1)/2 + (k - j) of the atom's n(n + 1)/2 rows. `row_start` has
+// the first row of every atom of the frame as if all its atoms were laid
+// out one after the other; a chunk has its rows from that of its first atom
+// on, model after model (`chunk_rows` each).
+
+// Neighbors held by every atom, one thread per atom: the host lays out the
+// rows from them.
+extern "C" __global__ void se_e3_count(const int* index, int natoms, int slots, int* held) {
+    long long i = (long long)blockIdx.x * blockDim.x + threadIdx.x;
+    if (i >= natoms) return;
+    const int* mine = index + i * slots;
+    int n = 0;
+    for (int s = 0; s < slots; ++s) n += mine[s] >= 0;
+    held[i] = n;
+}
+
+// The neighbors of the block's atom in shared memory, there for all threads
+// when this returns: `list[k]` the slot of neighbor k, `a[3k..3k + 3]` its
+// direction entries in double precision, `first_of[t]` the number of the
+// first neighbor of type t and `first_of[ntypes]` the number of neighbors.
+// `mine`, `delta` and `dist` are the atom's own slots.
+__device__ void three_body_neighbors(const int* mine, const double* delta, const double* dist,
+        double inv_std, const int* slot_type, const int* slot_local, const int* sel, int slots,
+        int ntypes, double rmin, double inv_range, double* a, int* list, int* first_of) {
+    count_neighbors(mine, slot_type, slot_local, sel, slots, ntypes, first_of);
+    __syncthreads();
+    if (threadIdx.x == 0) {
+        int before = 0;
+        for (int t = 0; t < ntypes; ++t) {
+            int n = first_of[t];
+            first_of[t] = before;
+            before += n;
+        }
+        first_of[ntypes] = before;
+    }
+    __syncthreads();
+    for (int s = threadIdx.x; s < slots; s += blockDim.x) {
+        if (mine[s] < 0) continue;
+        const double* d = delta + 3 * s;
+        double r = dist[s], inv = 1.0 / r, q, dq;
+        switch_fn(r, rmin, inv_range, &q, &dq);
+        double scale = q * inv * inv * inv_std;
+        int k = first_of[slot_type[s]] + slot_local[s];
+        list[k] = s;
+        for (int c = 0; c < 3; ++c) a[3 * k + c] = d[c] * scale;
+    }
+    __syncthreads();
+}
+
+// One block per atom writes the rows of its pairs: the input θ of the
+// embedding net (worked out in double precision), the net of the pair of
+// types (of this model) and the weight of the pair in the descriptor.
+// Thread j has the pairs (j, k >= j).
+template <typename P>
+__device__ void three_body_pairs_impl(const int* index, const double* delta, const double* dist,
+        const int* atype, const double* dstd_inv, const int* slot_type, const int* slot_local,
+        const int* sel, const double* sel_inv, int first, int slots, int ntypes, double rmin,
+        double inv_range, const long long* row_start, long long chunk_rows, P* theta, P* weight,
+        int* network) {
+    extern __shared__ double pairs_shared[];
+    double* a = pairs_shared;            // [slots][3]
+    int* list = (int*)(a + 3 * slots);   // [slots]
+    int* first_of = list + slots;        // [ntypes + 1]
+    int i = first + blockIdx.x, model = blockIdx.y;
+    long long at = (long long)i * slots;
+    int c = model * ntypes + atype[i];
+    three_body_neighbors(index + at, delta + 3 * at, dist + at, dstd_inv[4 * c + 1], slot_type,
+                         slot_local, sel, slots, ntypes, rmin, inv_range, a, list, first_of);
+    int n = first_of[ntypes];
+    long long base = (long long)model * chunk_rows + (row_start[i] - row_start[first]);
+    for (int j = threadIdx.x; j < n; j += blockDim.x) {
+        int tj = slot_type[list[j]];
+        long long row = base + (long long)j * n - (long long)j * (j - 1) / 2;
+        for (int k = j; k < n; ++k, ++row) {
+            int tk = slot_type[list[k]];
+            double th = a[3 * j] * a[3 * k] + a[3 * j + 1] * a[3 * k + 1]
+                      + a[3 * j + 2] * a[3 * k + 2];
+            double orders = (k != j && tk == tj) ? 2.0 : 1.0;
+            theta[row] = (P)th;
+            weight[row] = (P)(orders * sel_inv[tj] * sel_inv[tk]);
+            network[row] = (model * ntypes + tj) * ntypes + tk;
+        }
+    }
+}
+
+// One block per atom: D[m] = sum over the atom's rows of weight·θ·G[row][m].
+// The rows are streams of device memory, and a thread waits for each of its
+// loads. So the warps of the block share the rows (warp w has the rows w,
+// w + warps, ...) and the lanes of a warp the outputs, C of them a lane at a
+// time (m, m + 32, ...) in registers: a row is read once, by one warp. A
+// warp adds its rows thirty-two at a time, so that a sum in single precision
+// stays short, and leaves its sums in shared memory, where the first threads
+// add those of all warps.
+template <typename P, int C>
+__device__ void three_body_descriptor_impl(const P* g, const P* theta, const P* weight,
+        const long long* row_start, long long chunk_rows, int first, int count, int width,
+        P* d_out) {
+    extern __shared__ double descriptor_shared[];
+    P* sums = (P*)descriptor_shared;     // [warps][width]
+    int li = blockIdx.x, model = blockIdx.y;
+    long long base = (long long)model * chunk_rows + (row_start[first + li] - row_start[first]);
+    long long rows = row_start[first + li + 1] - row_start[first + li];
+    long long center = (long long)model * count + li;
+    theta += base;
+    weight += base;
+    g += base * width;
+    int lane = threadIdx.x & 31, warp = threadIdx.x >> 5, warps = blockDim.x >> 5;
+    for (int m0 = lane; m0 < width; m0 += 32 * C) {
+        P acc[C], part[C];
+        for (int c = 0; c < C; ++c) { acc[c] = 0; part[c] = 0; }
+        int held = 0;
+        for (long long p = warp; p < rows; p += warps) {
+            P scaled = weight[p] * theta[p];
+            const P* row = g + p * width + m0;
+            for (int c = 0; c < C; ++c)
+                if (m0 + 32 * c < width) part[c] += scaled * row[32 * c];
+            if (++held == 32) {
+                for (int c = 0; c < C; ++c) { acc[c] += part[c]; part[c] = 0; }
+                held = 0;
+            }
+        }
+        for (int c = 0; c < C; ++c)
+            if (m0 + 32 * c < width) sums[warp * width + m0 + 32 * c] = acc[c] + part[c];
+    }
+    __syncthreads();
+    for (int m = threadIdx.x; m < width; m += blockDim.x) {
+        P total = 0;
+        for (int w = 0; w < warps; ++w) total += sums[w * width + m];
+        d_out[center * width + m] = total;
+    }
+}
+
+// The forces of an se_e3 model, one block per atom, two phases:
+//  1. one warp per row (lanes over the embedding width, so that the rows of
+//     G and dG/dθ are read coalesced) contracts dE/dD with G + θ·dG/dθ in
+//     the network precision and leaves dE/dθ of the pair, weight included,
+//     at the row's place in `dtheta`. The warps of the block share the rows,
+//     as in the descriptor kernel. (A thread per row, each summing over the
+//     width by itself, was no faster for a few hundred atoms and up to
+//     twice slower for thousands: its loads are scattered.)
+//  2. one thread per neighbor j adds dE/dθ·a_k over its partners k, in
+//     float64: θ of a pair moves by a_k with a_j, and that of j with itself
+//     by twice a_j. The row of the pair (j, k) is that of the smaller number
+//     first. The same thread then applies the float64 Jacobian of the
+//     direction entries of j, as the last phase of the se_e2_a kernel does
+//     for a row without its radial entry.
+template <typename P>
+__device__ void three_body_backward_impl(const P* g, const P* dg, const P* theta,
+        const P* weight, P* dtheta, const P* dd_in, const int* index, const double* delta,
+        const double* dist, const int* atype, const double* dstd_inv, const int* slot_type,
+        const int* slot_local, const int* sel, const long long* row_start, long long chunk_rows,
+        int first, int count, int slots, int width, int ntypes, double rmin, double inv_range,
+        double* force, double* virial, int natoms) {
+    extern __shared__ double back_shared[];
+    double* a = back_shared;             // [slots][3]: directions of the neighbors
+    double* red = a + 3 * slots;         // [12]: center force, virial
+    P* dd = (P*)(red + 12);              // [width]: dE/dD of this atom, on 8 bytes' bounds
+    int* list = (int*)(red + 12 + (width * sizeof(P) + 7) / 8);  // [slots]
+    int* first_of = list + slots;        // [ntypes + 1]
+    int li = blockIdx.x, i = first + li, model = blockIdx.y;
+    long long at = (long long)i * slots;
+    long long center = (long long)model * count + li;
+    const double inv_std = dstd_inv[4 * (model * ntypes + atype[i]) + 1];
+    force += 3 * (long long)model * natoms;
+    virial += 9 * (long long)model * natoms;
+    for (int m = threadIdx.x; m < width; m += blockDim.x) dd[m] = dd_in[center * width + m];
+    for (int e = threadIdx.x; e < 12; e += blockDim.x) red[e] = 0.0;
+    three_body_neighbors(index + at, delta + 3 * at, dist + at, inv_std, slot_type, slot_local,
+                         sel, slots, ntypes, rmin, inv_range, a, list, first_of);
+    int n = first_of[ntypes];
+    long long base = (long long)model * chunk_rows + (row_start[i] - row_start[first]);
+    long long rows = row_start[i + 1] - row_start[i];
+    int lane = threadIdx.x & 31, warp = threadIdx.x >> 5, warps = blockDim.x >> 5;
+    for (long long p = warp; p < rows; p += warps) {
+        long long row = base + p;
+        const P* gr = g + row * width;
+        const P* dgr = dg + row * width;
+        P th = theta[row], sum = 0;
+        for (int m = lane; m < width; m += 32) sum += dd[m] * (gr[m] + th * dgr[m]);
+        sum = warp_sum(sum);
+        if (lane == 0) dtheta[row] = weight[row] * sum;
+    }
+    __syncthreads();
+    double fi[3] = {0.0, 0.0, 0.0}, vir[9] = {0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0};
+    for (int j = threadIdx.x; j < n; j += blockDim.x) {
+        // dE/da_j. The pairs (j, k >= j) follow each other from `own` on.
+        long long own = base + (long long)j * n - (long long)j * (j - 1) / 2;
+        double da[3] = {0.0, 0.0, 0.0};
+        for (int k = 0; k < n; ++k) {
+            long long row = k >= j ? own + (k - j)
+                                   : base + (long long)k * n - (long long)k * (k - 1) / 2 + (j - k);
+            double w = (double)dtheta[row];
+            if (k == j) w *= 2.0;
+            for (int c = 0; c < 3; ++c) da[c] += w * a[3 * k + c];
+        }
+        long long slot = at + list[j];
+        int neighbor = index[slot];
+        const double* d = delta + 3 * slot;
+        double rr = dist[slot], inv = 1.0 / rr, q, dq;
+        switch_fn(rr, rmin, inv_range, &q, &dq);
+        double u[3] = {d[0] * inv, d[1] * inv, d[2] * inv};
+        // The direction entries are sw u with sw = q / r: along c they change
+        // by dsw u_a u_c + (sw / r)(delta_ac - u_a u_c). Contracted with the
+        // adjoint e over the normalization: u_c (dsw - sw / r)(e · u)
+        // + (sw / r) e_c.
+        double sw = q * inv, dsw = (dq - sw) * inv, across = sw * inv;
+        double adj[3] = {da[0] * inv_std, da[1] * inv_std, da[2] * inv_std};
+        double along = (dsw - across) * (adj[0] * u[0] + adj[1] * u[1] + adj[2] * u[2]);
+        for (int c = 0; c < 3; ++c) {
+            double grad = u[c] * along + across * adj[c];
+            atomicAdd(&force[3 * (long long)neighbor + c], -grad);
+            fi[c] += grad;
+            for (int e = 0; e < 3; ++e) vir[3 * e + c] -= d[e] * grad;
+        }
+    }
+    block_sums(fi, vir, red, force, virial, i);
+}
+
 // The `_rows` kernels take the row table of `slot_row` (and the number of
 // types it is laid out by), are launched one model deep and keep the
 // environment and B in double precision (the trainer's); the others skip
@@ -547,6 +785,32 @@ extern "C" __global__ void se_e2_r_backward_rows_##S(const P* dg, const P* dd_in
     radial_backward_impl<P>(dg, dd_in, index, delta, dist, atype, dstd_inv, slot_type,            \
                             slot_local, sel, offset, first, count, slots, width, scale, rmin,     \
                             inv_range, force, virial, ntypes, 0, rows);                           \
+}                                                                                                 \
+extern "C" __global__ void se_e3_pairs_##S(const int* index, const double* delta,                 \
+        const double* dist, const int* atype, const double* dstd_inv, const int* slot_type,       \
+        const int* slot_local, const int* sel, const double* sel_inv, int first, int slots,       \
+        int ntypes, double rmin, double inv_range, const long long* row_start,                    \
+        long long chunk_rows, P* theta, P* weight, int* network) {                                \
+    three_body_pairs_impl<P>(index, delta, dist, atype, dstd_inv, slot_type, slot_local, sel,     \
+                             sel_inv, first, slots, ntypes, rmin, inv_range, row_start,           \
+                             chunk_rows, theta, weight, network);                                 \
+}                                                                                                 \
+extern "C" __global__ void se_e3_descriptor_##S(const P* g, const P* theta, const P* weight,      \
+        const long long* row_start, long long chunk_rows, int first, int count, int width,        \
+        P* d_out) {                                                                               \
+    three_body_descriptor_impl<P, 4>(g, theta, weight, row_start, chunk_rows, first, count,       \
+                                     width, d_out);                                               \
+}                                                                                                 \
+extern "C" __global__ void se_e3_backward_##S(const P* g, const P* dg, const P* theta,            \
+        const P* weight, P* dtheta, const P* dd_in, const int* index, const double* delta,        \
+        const double* dist, const int* atype, const double* dstd_inv, const int* slot_type,       \
+        const int* slot_local, const int* sel, const long long* row_start,                        \
+        long long chunk_rows, int first, int count, int slots, int width, int ntypes,             \
+        double rmin, double inv_range, double* force, double* virial, int natoms) {               \
+    three_body_backward_impl<P>(g, dg, theta, weight, dtheta, dd_in, index, delta, dist, atype,   \
+                                dstd_inv, slot_type, slot_local, sel, row_start, chunk_rows,      \
+                                first, count, slots, width, ntypes, rmin, inv_range, force,       \
+                                virial, natoms);                                                  \
 }
 INSTANTIATE(float, f32)
 INSTANTIATE(double, f64)
@@ -580,6 +844,84 @@ struct Kernels {
     env: CudaFunction,
     descriptor: CudaFunction,
     backward: CudaFunction,
+    /// se_e3: the neighbors every atom holds, and the rows of their pairs.
+    count: Option<CudaFunction>,
+    pairs: Option<CudaFunction>,
+}
+
+/// The rows of the embedding nets of an se_e3 frame: the pairs of the
+/// neighbors of each atom, n(n + 1)/2 for an atom with n neighbors.
+struct PairRows {
+    /// The first row of every atom, as if all atoms were laid out one after
+    /// the other, and the number of all rows after the last.
+    start: CudaSlice<i64>,
+    host: Vec<i64>,
+    /// Chunks of atoms (first, end) within the limits of atoms and of rows.
+    chunks: Vec<(usize, usize)>,
+    /// Rows of the chunk that has most.
+    most: usize,
+}
+
+impl PairRows {
+    /// Rows of the atoms `first..end`.
+    fn rows(&self, first: usize, end: usize) -> usize {
+        (self.host[end] - self.host[first]) as usize
+    }
+}
+
+/// The first row of every atom that holds `held[atom]` neighbors (and the
+/// number of all rows), and the atoms in chunks of at most `atoms` atoms and
+/// `rows` rows. An atom is never split: one with more rows than that is a
+/// chunk of its own.
+fn pair_layout(held: &[i32], atoms: usize, rows: usize) -> (Vec<i64>, Vec<(usize, usize)>) {
+    let mut start = Vec::with_capacity(held.len() + 1);
+    let mut next = 0i64;
+    for &n in held {
+        start.push(next);
+        next += i64::from(n) * (i64::from(n) + 1) / 2;
+    }
+    start.push(next);
+    let mut chunks = Vec::new();
+    let mut first = 0;
+    while first < held.len() {
+        let mut end = first + 1;
+        while end < held.len()
+            && end - first < atoms.max(1)
+            && (start[end + 1] - start[first]) as u64 <= rows as u64
+        {
+            end += 1;
+        }
+        chunks.push((first, end));
+        first = end;
+    }
+    (start, chunks)
+}
+
+/// Device bytes of one row of an se_e3 chunk: the embedding values and
+/// tangents, θ of the pair, its weight and dE/dθ, and its net.
+fn bytes_per_pair<P>(width: usize) -> usize {
+    let p = std::mem::size_of::<P>();
+    2 * width * p + 3 * p + 4
+}
+
+/// Threads per block of the se_e3 force kernel: thirty-two warps, each with
+/// a row of the atom at a time. A warp waits for the rows it reads, so a
+/// few hundred atoms go faster the more warps share an atom's rows (192
+/// atoms in float32: 0.43 ms with thirty-two warps, 0.67 with eight);
+/// thousands of atoms are bound by reading the rows either way.
+const PAIR_BLOCK: u32 = 1024;
+
+/// Warps per block of the se_e3 descriptor kernel, which share the rows of
+/// an atom: as many as have their sums (`width` each) in shared memory, at
+/// most eight.
+fn descriptor_warps<P>(width: usize) -> usize {
+    (SHARED_LIMIT / (width * std::mem::size_of::<P>()).max(1)).clamp(1, 8)
+}
+
+/// Shared memory of the se_e3 pair kernel per block: the directions of the
+/// atom's neighbors in double, their slots and the first of each type.
+fn pair_shared(slots: usize, ntypes: usize) -> usize {
+    3 * slots * 8 + (4 * (slots + ntypes + 1)).next_multiple_of(8)
 }
 
 /// Wall-clock milliseconds per stage of the last evaluation (summed over
@@ -643,7 +985,7 @@ pub struct GpuPotential<P: Scalar> {
     width: usize,
     /// The descriptor of the models: which kernels the embedding rows go to.
     kind: DescriptorKind,
-    /// se_e2_a: the axis neurons. None for se_e2_r.
+    /// se_e2_a: the axis neurons. None for the others.
     axis: usize,
     /// Components of the descriptor: the input of a fitting net.
     features: usize,
@@ -684,11 +1026,16 @@ pub struct GpuPotential<P: Scalar> {
     slot_type: CudaSlice<i32>,
     slot_local: CudaSlice<i32>,
     sel_d: CudaSlice<i32>,
+    /// 1 / sel per neighbor type (zero for a type without slots): what a
+    /// pair of an se_e3 atom's neighbors counts is a product of two.
+    sel_inv: CudaSlice<f64>,
     offset_d: CudaSlice<i32>,
     kernels: Kernels,
     /// Dynamic shared memory of the force kernel, bytes.
     backward_shared: usize,
     chunk_atoms: usize,
+    /// se_e3: rows of the embedding nets (pairs of neighbors) per chunk.
+    chunk_pairs: usize,
     /// Neighbor search with its device buffers, kept between evaluations.
     search: NeighborSearch,
     last_truncated: bool,
@@ -821,7 +1168,8 @@ fn in_parallel<T: Sync, R: Send>(items: &[T], f: impl Fn(&T) -> R + Sync) -> Vec
 
 /// Device bytes per center atom in one chunk: radial input, embedding values
 /// and tangents, descriptor and its adjoint, fitting tapes, and for se_e2_a
-/// the environment rows and B.
+/// the environment rows and B. The embedding rows of se_e3 do not go by
+/// atom: see [`bytes_per_pair`].
 fn bytes_per_atom<P>(
     kind: DescriptorKind,
     slots: usize,
@@ -830,11 +1178,13 @@ fn bytes_per_atom<P>(
     fitting_width: usize,
 ) -> usize {
     let p = std::mem::size_of::<P>();
-    let angular = match kind {
-        DescriptorKind::SeE2A => slots * 4 * p + width * 4 * p,
-        DescriptorKind::SeE2R => 0,
+    let rows = slots * (p + 4 + 2 * width * p);
+    let by_slot = match kind {
+        DescriptorKind::SeE2A => rows + slots * 4 * p + width * 4 * p,
+        DescriptorKind::SeE2R => rows,
+        DescriptorKind::SeE3 => 0,
     };
-    slots * (p + 4 + 2 * width * p) + angular + 2 * features * p + 4 * fitting_width * p
+    by_slot + 2 * features * p + 4 * fitting_width * p
 }
 
 impl<P: Scalar> GpuPotential<P> {
@@ -857,6 +1207,7 @@ impl<P: Scalar> GpuPotential<P> {
         metadata.backend = match kind {
             DescriptorKind::SeE2A => "native-gpu-se-e2-a".into(),
             DescriptorKind::SeE2R => "native-gpu-se-e2-r".into(),
+            DescriptorKind::SeE3 => "native-gpu-se-e3".into(),
         };
         // Network precision; geometry, forces and virial are float64 either way.
         metadata.precision = if std::mem::size_of::<P>() == 4 {
@@ -897,6 +1248,14 @@ impl<P: Scalar> GpuPotential<P> {
             DescriptorKind::SeE2A => (4 * slots + 12) * 8 + 8 * width * std::mem::size_of::<P>(),
             DescriptorKind::SeE2R => {
                 (slots + 12) * 8 + (width * std::mem::size_of::<P>()).next_multiple_of(8)
+            }
+            // se_e3: the directions of the neighbors and the block's sums in
+            // double, dE/dD in the precision of the networks, the neighbors'
+            // slots and the first of each type.
+            DescriptorKind::SeE3 => {
+                (3 * slots + 12) * 8
+                    + (width * std::mem::size_of::<P>()).next_multiple_of(8)
+                    + (4 * (slots + ntypes + 1)).next_multiple_of(8)
             }
         };
         if backward_shared > SHARED_LIMIT {
@@ -991,16 +1350,31 @@ impl<P: Scalar> GpuPotential<P> {
             slot_local.extend(0..count as i32);
         }
         let sel_i: Vec<i32> = d.sel.iter().map(|&s| s as i32).collect();
+        let sel_inv: Vec<f64> = d
+            .sel
+            .iter()
+            .map(|&s| if s == 0 { 0.0 } else { 1.0 / s as f64 })
+            .collect();
         let function = |name: &str| {
             device
                 .kernels()
                 .function(SOURCE, &format!("{name}_{}", P::SUFFIX))
         };
-        // The environment kernel serves both descriptors.
+        let three_body = kind == DescriptorKind::SeE3;
+        // The environment kernel serves se_e2_a and se_e2_r; se_e3 has its
+        // rows from a kernel of its own.
         let kernels = Kernels {
             env: function("se_e2_a_env")?,
             descriptor: function(&format!("{}_descriptor", kind.name()))?,
             backward: function(&format!("{}_backward", kind.name()))?,
+            count: match three_body {
+                true => Some(device.kernels().function(SOURCE, "se_e3_count")?),
+                false => None,
+            },
+            pairs: match three_body {
+                true => Some(function("se_e3_pairs")?),
+                false => None,
+            },
         };
         let fitting_width = first
             .fitting
@@ -1009,7 +1383,14 @@ impl<P: Scalar> GpuPotential<P> {
             .sum::<usize>();
         let (free, _) = device.memory_info()?;
         let per_atom = bytes_per_atom::<P>(kind, slot_type.len(), width, features, fitting_width);
-        let chunk_atoms = ((free as f64 * MEMORY_FRACTION) as usize / per_atom.max(1)).max(1);
+        let budget = (free as f64 * MEMORY_FRACTION) as usize;
+        // se_e3: half for what goes by atom, half for the rows of the pairs.
+        let (by_atom, by_pair) = match three_body {
+            true => (budget / 2, budget / 2),
+            false => (budget, 0),
+        };
+        let chunk_atoms = (by_atom / per_atom.max(1)).max(1);
+        let chunk_pairs = (by_pair / bytes_per_pair::<P>(width)).max(1);
         Ok(Self {
             metadata,
             models: models.len(),
@@ -1045,10 +1426,12 @@ impl<P: Scalar> GpuPotential<P> {
             slot_type: device.upload(&slot_type)?,
             slot_local: device.upload(&slot_local)?,
             sel_d: device.upload(&sel_i)?,
+            sel_inv: device.upload(&sel_inv)?,
             offset_d: device.upload(&offsets)?,
             kernels,
             backward_shared,
             chunk_atoms,
+            chunk_pairs,
             search: NeighborSearch::new(d.rcut, &d.sel)?,
             last_truncated: false,
             profile: None,
@@ -1084,6 +1467,72 @@ impl<P: Scalar> GpuPotential<P> {
         self.chunk_atoms = atoms.max(1);
     }
 
+    /// se_e3: the rows of the embedding nets (pairs of an atom's neighbors,
+    /// n(n + 1)/2 for n neighbors) evaluated per chunk. Their values and
+    /// tangents are what takes the device memory of such a model, so a
+    /// chunk of atoms ends where its rows would pass this number, before
+    /// [`Self::chunk_atoms`] if need be; an atom is never split. The
+    /// members of a committee share it like the atoms.
+    pub fn chunk_pairs(&self) -> usize {
+        self.chunk_pairs
+    }
+
+    /// Override the number of rows per chunk derived from free device
+    /// memory at load time.
+    pub fn set_chunk_pairs(&mut self, pairs: usize) {
+        self.chunk_pairs = pairs.max(1);
+    }
+
+    /// The rows of this frame's pairs of neighbors (se_e3) and its atoms in
+    /// chunks of at most `atoms` atoms and `rows` rows: one launch counts
+    /// the neighbors every atom holds, and the host lays the rows out.
+    /// (Not a method: the neighbor list is borrowed from the potential.)
+    fn pair_rows(
+        device: &Device,
+        kernels: &Kernels,
+        list: &NeighborList,
+        atoms: usize,
+        rows: usize,
+    ) -> Result<PairRows> {
+        let function = kernels
+            .count
+            .as_ref()
+            .ok_or_else(|| Error("only an se_e3 potential lays out pairs of neighbors".into()))?;
+        let natoms = list.natoms;
+        let stream = device.stream();
+        // SAFETY: the kernel writes every element before the download.
+        let mut held = unsafe { device.alloc_uninit::<i32>(natoms)? };
+        let (natoms_i, slots_i) = (natoms as i32, list.slots as i32);
+        {
+            let mut launch = stream.launch_builder(function);
+            launch
+                .arg(&list.index)
+                .arg(&natoms_i)
+                .arg(&slots_i)
+                .arg(&mut held);
+            let config = LaunchConfig {
+                grid_dim: (natoms.div_ceil(BLOCK as usize) as u32, 1, 1),
+                block_dim: (BLOCK, 1, 1),
+                shared_mem_bytes: 0,
+            };
+            unsafe { launch.launch(config) }
+                .map(drop)
+                .map_err(launch_error("neighbor count"))?;
+        }
+        let (host, chunks) = pair_layout(&device.download(&held)?, atoms, rows);
+        let most = chunks
+            .iter()
+            .map(|&(first, end)| (host[end] - host[first]) as usize)
+            .max()
+            .unwrap_or(0);
+        Ok(PairRows {
+            start: device.upload(&host)?,
+            host,
+            chunks,
+            most,
+        })
+    }
+
     /// Model compression (DeePMD `dp compress`): replaces every embedding
     /// net by a piecewise quintic table with knots every `step` in the
     /// normalized radial input, covering neighbor distances from
@@ -1095,6 +1544,12 @@ impl<P: Scalar> GpuPotential<P> {
     /// results never depend on the range. Empty neighbor slots do not go
     /// through the tables: their row is the networks' own.
     pub fn compress(&mut self, min_distance: f64, step: f64) -> Result<()> {
+        if self.kind == DescriptorKind::SeE3 {
+            return Err(Error(
+                "the embedding nets of se_e3 are not tabulated: evaluate the model without compression"
+                    .into(),
+            ));
+        }
         if !(min_distance.is_finite() && 0.0 < min_distance && min_distance < self.rcut) {
             return Err(Error(format!(
                 "compression needs 0 < min_distance < rcut, got {min_distance}"
@@ -1355,27 +1810,65 @@ impl<P: Scalar> GpuPotential<P> {
         let (slots, width, axis) = (self.slots, self.width, self.axis);
         let (kind, features) = (self.kind, self.features);
         let radial = kind == DescriptorKind::SeE2R;
+        let angular = kind == DescriptorKind::SeE2A;
         // se_e2_r: the mean of the embedding rows over the slots, over five.
         let radial_scale = RADIAL_RESCALE / slots as f64;
         // What a kernel gets for a buffer it is not to touch.
         let no_buffer = 0u64;
         // Atoms per chunk: every model works on a chunk at once.
         let chunk = (self.chunk_atoms / members).clamp(1, natoms);
-        let wide = members * chunk;
+        // se_e3: the rows of the embedding nets are the pairs of each atom's
+        // neighbors, and a chunk ends where its atoms or its rows are too
+        // many.
+        let pairs = match kind {
+            DescriptorKind::SeE3 => {
+                let rows = (self.chunk_pairs / members).max(1);
+                Some(Self::pair_rows(device, &self.kernels, list, chunk, rows)?)
+            }
+            _ => None,
+        };
+        let chunks: Vec<(usize, usize)> = match &pairs {
+            Some(pairs) => pairs.chunks.clone(),
+            None => (0..natoms)
+                .step_by(chunk)
+                .map(|first| (first, (first + chunk).min(natoms)))
+                .collect(),
+        };
+        // The centers of the largest chunk for all models, and the rows of
+        // the embedding nets of a chunk: a row per slot, or per pair.
+        let most = chunks.iter().map(|&(first, end)| end - first).max();
+        let wide = members * most.unwrap_or(1);
+        let all_rows = members
+            * match &pairs {
+                Some(pairs) => pairs.most.max(1),
+                None => most.unwrap_or(1) * slots,
+            };
         // Per-chunk work buffers, reused by every chunk. Each element a chunk
         // reads was written earlier in the same chunk.
-        // The environment rows and B are se_e2_a's: se_e2_r has neither.
-        let mut env = match radial {
-            false => Some(unsafe { device.alloc_uninit::<P>(wide * slots * 4)? }),
-            true => None,
+        // The environment rows and B are se_e2_a's: the others have neither.
+        let mut env = match angular {
+            true => Some(unsafe { device.alloc_uninit::<P>(wide * slots * 4)? }),
+            false => None,
         };
-        let mut radial_input = unsafe { device.alloc_uninit::<P>(wide * slots)? };
-        let mut network = unsafe { device.alloc_uninit::<i32>(wide * slots)? };
-        let mut g = unsafe { device.alloc_uninit::<P>(wide * slots * width)? };
-        let mut dg = unsafe { device.alloc_uninit::<P>(wide * slots * width)? };
-        let mut b = match radial {
-            false => Some(unsafe { device.alloc_uninit::<P>(wide * width * 4)? }),
-            true => None,
+        // The input of the embedding nets: the radial entry of a slot, or θ
+        // of a pair of neighbors.
+        let mut radial_input = unsafe { device.alloc_uninit::<P>(all_rows)? };
+        let mut network = unsafe { device.alloc_uninit::<i32>(all_rows)? };
+        let mut g = unsafe { device.alloc_uninit::<P>(all_rows * width)? };
+        let mut dg = unsafe { device.alloc_uninit::<P>(all_rows * width)? };
+        // se_e3: what each pair counts in the descriptor, and dE/dθ of it.
+        let mut of_pairs = match &pairs {
+            Some(_) => Some(unsafe {
+                (
+                    device.alloc_uninit::<P>(all_rows)?,
+                    device.alloc_uninit::<P>(all_rows)?,
+                )
+            }),
+            None => None,
+        };
+        let mut b = match angular {
+            true => Some(unsafe { device.alloc_uninit::<P>(wide * width * 4)? }),
+            false => None,
         };
         let mut descriptor = unsafe { device.alloc_uninit::<P>(wide * features)? };
         let mut d_descriptor = unsafe { device.alloc_uninit::<P>(wide * features)? };
@@ -1386,10 +1879,15 @@ impl<P: Scalar> GpuPotential<P> {
         let deep = members as u32;
         let tables = self.tables.as_ref().filter(|_| compressed);
 
-        for first in (0..natoms).step_by(chunk) {
-            let end = (first + chunk).min(natoms);
+        for &(first, end) in &chunks {
             let count = end - first;
             let (first_i, count_i) = (first as i32, count as i32);
+            // Rows of the embedding nets of this chunk for one model.
+            let chunk_rows = match &pairs {
+                Some(pairs) => pairs.rows(first, end),
+                None => count * slots,
+            };
+            let chunk_rows_i = chunk_rows as i64;
             // Center-type ranges of this chunk, in chunk-local atoms.
             let ranges: Vec<(usize, usize, usize)> = (0..ntypes)
                 .filter_map(|t| {
@@ -1398,7 +1896,41 @@ impl<P: Scalar> GpuPotential<P> {
                     (hi > lo).then(|| (t, lo - first, hi - first))
                 })
                 .collect();
-            {
+            if let (Some(pairs), Some((weight, _))) = (&pairs, &mut of_pairs) {
+                let function =
+                    self.kernels.pairs.as_ref().ok_or_else(|| {
+                        Error("an se_e3 potential without its pair kernel".into())
+                    })?;
+                let mut launch = stream.launch_builder(function);
+                launch
+                    .arg(&list.index)
+                    .arg(&list.delta)
+                    .arg(&list.dist)
+                    .arg(atype)
+                    .arg(&self.dstd_inv)
+                    .arg(&self.slot_type)
+                    .arg(&self.slot_local)
+                    .arg(&self.sel_d)
+                    .arg(&self.sel_inv)
+                    .arg(&first_i)
+                    .arg(&slots_i)
+                    .arg(&ntypes_i)
+                    .arg(&self.rcut_smth)
+                    .arg(&self.inv_range)
+                    .arg(&pairs.start)
+                    .arg(&chunk_rows_i)
+                    .arg(&mut radial_input)
+                    .arg(weight)
+                    .arg(&mut network);
+                let config = LaunchConfig {
+                    grid_dim: (count as u32, deep, 1),
+                    block_dim: (BLOCK, 1, 1),
+                    shared_mem_bytes: pair_shared(slots, ntypes) as u32,
+                };
+                unsafe { launch.launch(config) }
+                    .map(drop)
+                    .map_err(launch_error("pairs"))?;
+            } else {
                 let mut launch = stream.launch_builder(&self.kernels.env);
                 launch
                     .arg(&list.index)
@@ -1435,9 +1967,11 @@ impl<P: Scalar> GpuPotential<P> {
             clock.lap(|t| &mut t.environment)?;
 
             // Embedding values and d/d(radial) tangents for every row of the
-            // chunk in one launch, [model][neighbor type][local atom][slot][width].
-            {
-                let rows = members * count * slots;
+            // chunk in one launch, [model][neighbor type][local atom][slot][width]
+            // (se_e3: [model][local atom][pair][width], and atoms without
+            // neighbors have no row).
+            if chunk_rows > 0 {
+                let rows = members * chunk_rows;
                 let x = radial_input.slice(0..rows);
                 let ids = network.slice(0..rows);
                 let mut out = g.slice_mut(0..rows * width);
@@ -1459,7 +1993,30 @@ impl<P: Scalar> GpuPotential<P> {
             }
             clock.lap(|t| &mut t.embedding)?;
 
-            if let (Some(env), Some(b)) = (&env, &mut b) {
+            if let (Some(pairs), Some((weight, _))) = (&pairs, &of_pairs) {
+                let mut launch = stream.launch_builder(&self.kernels.descriptor);
+                launch
+                    .arg(&g)
+                    .arg(&radial_input)
+                    .arg(weight)
+                    .arg(&pairs.start)
+                    .arg(&chunk_rows_i)
+                    .arg(&first_i)
+                    .arg(&count_i)
+                    .arg(&w_i)
+                    .arg(&mut descriptor);
+                let warps = descriptor_warps::<P>(width);
+                let config = LaunchConfig {
+                    grid_dim: (count as u32, deep, 1),
+                    block_dim: (32 * warps as u32, 1, 1),
+                    // The sums of every warp.
+                    shared_mem_bytes: (warps * width * std::mem::size_of::<P>()).next_multiple_of(8)
+                        as u32,
+                };
+                unsafe { launch.launch(config) }
+                    .map(drop)
+                    .map_err(launch_error("descriptor"))?;
+            } else if let (Some(env), Some(b)) = (&env, &mut b) {
                 let mut launch = stream.launch_builder(&self.kernels.descriptor);
                 launch
                     .arg(env)
@@ -1563,7 +2120,44 @@ impl<P: Scalar> GpuPotential<P> {
             }
             clock.lap(|t| &mut t.fitting)?;
 
-            {
+            if let (Some(pairs), Some((weight, dtheta))) = (&pairs, &mut of_pairs) {
+                let mut launch = stream.launch_builder(&self.kernels.backward);
+                launch
+                    .arg(&g)
+                    .arg(&dg)
+                    .arg(&radial_input)
+                    .arg(&*weight)
+                    .arg(dtheta)
+                    .arg(&d_descriptor)
+                    .arg(&list.index)
+                    .arg(&list.delta)
+                    .arg(&list.dist)
+                    .arg(atype)
+                    .arg(&self.dstd_inv)
+                    .arg(&self.slot_type)
+                    .arg(&self.slot_local)
+                    .arg(&self.sel_d)
+                    .arg(&pairs.start)
+                    .arg(&chunk_rows_i)
+                    .arg(&first_i)
+                    .arg(&count_i)
+                    .arg(&slots_i)
+                    .arg(&w_i)
+                    .arg(&ntypes_i)
+                    .arg(&self.rcut_smth)
+                    .arg(&self.inv_range)
+                    .arg(&mut force)
+                    .arg(&mut virial)
+                    .arg(&natoms_i);
+                let config = LaunchConfig {
+                    grid_dim: (count as u32, deep, 1),
+                    block_dim: (PAIR_BLOCK, 1, 1),
+                    shared_mem_bytes: self.backward_shared as u32,
+                };
+                unsafe { launch.launch(config) }
+                    .map(drop)
+                    .map_err(launch_error("force"))?;
+            } else {
                 let mut launch = stream.launch_builder(&self.kernels.backward);
                 if let (Some(env), Some(b)) = (&env, &b) {
                     launch.arg(env).arg(&g).arg(&dg).arg(b);
@@ -1633,9 +2227,8 @@ impl<P: Scalar> GpuPotential<P> {
         // The energy of an atom for a model: the energies of a chunk are
         // [model][local atom], chunk after chunk.
         let energy_at = |model: usize, k: usize| {
-            let first = k - k % chunk;
-            let count = chunk.min(natoms - first);
-            atomic[members * first + model * count + (k - first)].to_f64()
+            let (first, end) = chunks[chunks.partition_point(|&(first, _)| first <= k) - 1];
+            atomic[members * first + model * (end - first) + (k - first)].to_f64()
         };
         let mut all: Vec<Vec<Evaluation>> = frames
             .iter()
@@ -1838,7 +2431,35 @@ impl<P: Scalar> Committee for GpuPotential<P> {
 
 #[cfg(test)]
 mod tests {
-    use super::in_parallel;
+    use super::{in_parallel, pair_layout};
+
+    #[test]
+    fn pairs_of_neighbors_are_laid_out_atom_by_atom_in_chunks() {
+        // Two, no, three and one neighbors: three, no, six and one pair.
+        let held = [2, 0, 3, 1];
+        let (start, chunks) = pair_layout(&held, 2, 7);
+        assert_eq!(start, [0, 3, 3, 9, 10]);
+        // Two atoms a chunk, and the last two have seven rows together.
+        assert_eq!(chunks, [(0, 2), (2, 4)]);
+        // At most five rows: the third atom's six are a chunk of their own,
+        // since an atom is not split.
+        assert_eq!(pair_layout(&held, 4, 5).1, [(0, 2), (2, 3), (3, 4)]);
+        // Rows enough, atoms one at a time; and all in one chunk.
+        assert_eq!(
+            pair_layout(&held, 1, 100).1,
+            [(0, 1), (1, 2), (2, 3), (3, 4)]
+        );
+        assert_eq!(pair_layout(&held, 100, 100).1, [(0, 4)]);
+        // Atoms without neighbors have no row and still their chunks.
+        assert_eq!(
+            pair_layout(&[0, 0, 0], 2, 1),
+            (vec![0; 4], vec![(0, 2), (2, 3)])
+        );
+        assert_eq!(pair_layout(&[], 2, 1), (vec![0], vec![]));
+        // Many neighbors: the rows do not fit thirty-two bits.
+        let (start, _) = pair_layout(&[65535, 65535], 2, 1);
+        assert_eq!(start[2], 2 * 65535 * 65536 / 2);
+    }
 
     #[test]
     fn parallel_results_keep_the_order_of_their_items() {

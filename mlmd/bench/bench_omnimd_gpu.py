@@ -1,4 +1,4 @@
-"""Time the omniMD GPU se_e2_a evaluator on the benchmark cases (host, release
+"""Time the omniMD GPU evaluator on the benchmark cases (host, release
 build with `--features gpu`) and check it against DeePMD-kit reference E/F/V.
 
     python bench_omnimd_gpu.py cases <target>/release results/omnimd-gpu-<tag>.csv \
@@ -61,7 +61,8 @@ def main():
             frame = (args.case_dir / f'{name}.jsonl').read_text()
             bench = max(10, min(100, 250000 // natoms))
             float64 = None
-            modes = [(precision, compressed) for compressed in (False, True)
+            # The embedding nets of se_e3 have no tables.
+            modes = [(precision, compressed) for compressed in ((False,) if descriptor == 'se_e3' else (False, True))
                      for precision in ('float64', 'float32')]
             for precision, compressed in modes:
                 extra = ['--compress', args.compress] if compressed else []

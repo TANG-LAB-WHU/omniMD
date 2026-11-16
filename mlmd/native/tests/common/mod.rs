@@ -173,6 +173,35 @@ pub fn radial_model(ntypes: usize, sel: Vec<usize>, rcut: f64, seed: u64, width:
     model
 }
 
+/// The same networks around an se_e3 descriptor: the net of a pair of
+/// neighbor types in either order, no axis neurons, the width of the
+/// direction entries only (one for each central type), fitting nets that
+/// take the embedding width.
+#[allow(dead_code)]
+pub fn three_body_model(
+    ntypes: usize,
+    sel: Vec<usize>,
+    rcut: f64,
+    seed: u64,
+    width: usize,
+) -> Model {
+    let mut model = model_of_width(ntypes, sel, rcut, seed, width, 1);
+    model.format = "omnimd-native-se-e3".into();
+    model.descriptor.kind = "se_e3".into();
+    model.descriptor.axis_neuron = 0;
+    for (i, normalization) in model.descriptor.normalization.iter_mut().enumerate() {
+        let direction = 0.15 + 0.02 * i as f64;
+        normalization.mean = [0.0; 4];
+        normalization.std = [1.0, direction, direction, direction];
+    }
+    for t in 0..ntypes {
+        for u in 0..t {
+            model.descriptor.embedding[t][u] = model.descriptor.embedding[u][t].clone();
+        }
+    }
+    model
+}
+
 /// The model with the embedding nets of its first central type for every
 /// central type, and the mark that says so (`type_one_side`).
 #[allow(dead_code)]

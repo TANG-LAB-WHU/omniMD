@@ -200,7 +200,8 @@ fn check_spec(spec: &ModelSpec, sel: &[usize]) -> Result<DescriptorKind> {
     }
     let axis_fits = match kind {
         DescriptorKind::SeE2A => d.axis_neuron > 0 && d.axis_neuron <= *d.neuron.last().unwrap(),
-        DescriptorKind::SeE2R => d.axis_neuron == 0,
+        // (A script cannot name se_e3 here: see `spec_kind`.)
+        DescriptorKind::SeE2R | DescriptorKind::SeE3 => d.axis_neuron == 0,
     };
     if !axis_fits {
         return Err(Error(
@@ -274,7 +275,7 @@ pub fn initialize(
         .collect();
     let features = match kind {
         DescriptorKind::SeE2A => d.neuron.last().unwrap() * d.axis_neuron,
-        DescriptorKind::SeE2R => *d.neuron.last().unwrap(),
+        DescriptorKind::SeE2R | DescriptorKind::SeE3 => *d.neuron.last().unwrap(),
     };
     let f = &spec.fitting_net;
     let fitting = (0..ntypes)

@@ -719,6 +719,12 @@ impl<P: Scalar> GpuTrainer<P> {
         let shared = match kind {
             DescriptorKind::SeE2A => (16 * width + 12 + 4 * slots) * 8 + 4 * width * real,
             DescriptorKind::SeE2R => radial_force_shared::<P>(slots, width),
+            DescriptorKind::SeE3 => {
+                return Err(Error(
+                    "the GPU trainer supports the se_e2_a and se_e2_r descriptors, not se_e3"
+                        .into(),
+                ))
+            }
         };
         if shared > SHARED_LIMIT {
             return Err(Error(format!(

@@ -1,6 +1,6 @@
-//! GPU se_e2_a (omnimd-gpu) against the CPU reference `NativePotential`, which
-//! is itself checked against DeePMD. Skips without a CUDA driver unless
-//! OMNIMD_REQUIRE_GPU=1.
+//! GPU se_e2_a, se_e2_r and se_e3 (omnimd-gpu) against the CPU reference
+//! `NativePotential`, which is itself checked against DeePMD. Skips without a
+//! CUDA driver unless OMNIMD_REQUIRE_GPU=1.
 #![cfg(feature = "gpu")]
 mod common;
 use common::{device, frame, model};
@@ -1006,4 +1006,336 @@ fn se_e2_r_in_float32_compressed_in_batches_and_committees() {
         "model 1 differs from the first in its descriptor"
     );
     assert!(omnimd_native::gpu_model::committee_mismatch(&members).is_none());
+}
+
+/// The se_e2_a test model's networks around an se_e3 descriptor.
+fn three_body(ntypes: usize, sel: Vec<usize>, rcut: f64, seed: u64) -> Model {
+    common::three_body_model(ntypes, sel, rcut, seed, 16)
+}
+
+/// se_e3 on the device against the CPU reference, on the kinds of frames the
+/// other descriptors' checks use, and in chunks that end by their rows.
+#[test]
+fn se_e3_matches_cpu() {
+    let triclinic = [[9.0, 0.0, 0.0], [1.5, 8.5, 0.0], [-1.0, 0.8, 9.2]];
+    check(
+        "three-body, triclinic",
+        three_body(2, vec![80, 160], 4.5, 81),
+        &frame(triclinic, 5, 2, true, 82),
+    );
+    // Narrower than the cutoff: neighbors include several images.
+    let small = [[4.2, 0.0, 0.0], [0.0, 4.2, 0.0], [0.0, 0.0, 4.2]];
+    check(
+        "three-body, several images",
+        three_body(2, vec![60, 120], 4.5, 83),
+        &frame(small, 2, 2, true, 84),
+    );
+    let cubic = [[8.0, 0.0, 0.0], [0.0, 8.0, 0.0], [0.0, 0.0, 8.0]];
+    check(
+        "three-body, open",
+        three_body(3, vec![30, 30, 30], 4.0, 85),
+        &frame(cubic, 4, 3, false, 86),
+    );
+    // An embedding wider than a warp, and wider than a block of the kernels.
+    let lattice = [[7.0, 0.0, 0.0], [0.5, 7.0, 0.0], [0.0, 0.0, 7.0]];
+    check(
+        "three-body, wide embedding",
+        common::three_body_model(2, vec![40, 80], 4.0, 87, 40),
+        &frame(lattice, 3, 2, true, 88),
+    );
+    check(
+        "three-body, embedding wider than a block",
+        common::three_body_model(2, vec![40, 80], 4.0, 89, 136),
+        &frame(lattice, 3, 2, true, 90),
+    );
+    // A type without slots, and without atoms in the frame.
+    check(
+        "three-body, no slots for the last type",
+        three_body(3, vec![30, 30, 0], 4.0, 91),
+        &frame(cubic, 4, 2, false, 92),
+    );
+
+    // Chunks that end where their rows (pairs of neighbors) are too many,
+    // down to one atom a chunk, give what one chunk gives.
+    let Some(device) = device() else { return };
+    let model = three_body(3, vec![30, 30, 30], 4.0, 93);
+    let open = frame(cubic, 4, 3, false, 94);
+    let expected = NativePotential::new(model.clone())
+        .unwrap()
+        .eval(&open)
+        .unwrap();
+    let mut gpu = GpuPotential::<f64>::new(&model, device.clone()).unwrap();
+    assert!(gpu.chunk_pairs() > 1_000_000, "{}", gpu.chunk_pairs());
+    for rows in [1, 40, 333, 5000] {
+        gpu.set_chunk_pairs(rows);
+        assert_eq!(gpu.chunk_pairs(), rows);
+        compare(
+            &format!("three-body, {rows} rows a chunk"),
+            &gpu.eval(&open).unwrap(),
+            &expected,
+            FLOAT64,
+        );
+    }
+    // Atoms without neighbors have no row; alone in a chunk they have no
+    // work for the embedding nets at all. One pair, and one atom far away.
+    let sparse = Frame {
+        positions: vec![[0.0, 0.0, 0.0], [20.0, 1.0, 3.0], [1.3, 0.4, -0.2]],
+        species: vec!["H".into(), "O".into(), "C".into()],
+        cell: None,
+        units: Units::EvAngstrom,
+    };
+    let expected = NativePotential::new(model.clone())
+        .unwrap()
+        .eval(&sparse)
+        .unwrap();
+    assert!(expected.forces[0].iter().any(|f| f.abs() > 1e-6));
+    assert_eq!(expected.forces[1], [0.0; 3]);
+    let mut gpu = GpuPotential::<f64>::new(&model, device).unwrap();
+    compare(
+        "three-body, an atom alone",
+        &gpu.eval(&sparse).unwrap(),
+        &expected,
+        FLOAT64,
+    );
+    gpu.set_chunk_atoms(1);
+    compare(
+        "three-body, an atom alone in its chunk",
+        &gpu.eval(&sparse).unwrap(),
+        &expected,
+        FLOAT64,
+    );
+}
+
+/// se_e3 against DeePMD-kit 3.1.3 itself (`tools/make_se_e3_fixture.py`): the
+/// model whose `sel` holds every neighbor, with and without a cell, and the
+/// one with `sel` = [3, 4, 2] against some 27 neighbors, where the result
+/// depends on which neighbors are kept.
+#[test]
+fn se_e3_matches_deepmd_reference() {
+    let Some(device) = device() else { return };
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("fixtures");
+    let reference: RadialReference = serde_json::from_str(
+        &std::fs::read_to_string(root.join("se-e3-deepmd-reference.json")).unwrap(),
+    )
+    .unwrap();
+    assert_eq!(reference.cases.len(), 3);
+    let mut worst = [0.0f64; 3];
+    for (index, case) in reference.cases.into_iter().enumerate() {
+        let model = NativePotential::load(root.join(&case.model)).unwrap();
+        let expected = Evaluation {
+            energy: case.energy,
+            forces: case.forces,
+            virial: case.virial,
+            units: Units::EvAngstrom,
+        };
+        let label = format!("{} (case {index})", case.model);
+        let mut gpu = GpuPotential::<f64>::new(model.model(), device.clone()).unwrap();
+        assert_eq!(gpu.metadata().backend, "native-gpu-se-e3");
+        let got = gpu.eval(&case.frame).unwrap();
+        assert_eq!(
+            gpu.last_truncated(),
+            case.model == "se-e3-tight-model.native.json",
+            "{label}"
+        );
+        compare(&label, &got, &expected, FLOAT64);
+        worst[0] = worst[0].max((got.energy - expected.energy).abs());
+        for (a, b) in got
+            .forces
+            .iter()
+            .flatten()
+            .zip(expected.forces.iter().flatten())
+        {
+            worst[1] = worst[1].max((a - b).abs());
+        }
+        for (a, b) in got
+            .virial
+            .iter()
+            .flatten()
+            .zip(expected.virial.iter().flatten())
+        {
+            worst[2] = worst[2].max((a - b).abs());
+        }
+        gpu.set_chunk_atoms(5);
+        compare(
+            &format!("{label}, chunks"),
+            &gpu.eval(&case.frame).unwrap(),
+            &expected,
+            FLOAT64,
+        );
+        gpu.set_chunk_pairs(100);
+        compare(
+            &format!("{label}, chunks by rows"),
+            &gpu.eval(&case.frame).unwrap(),
+            &expected,
+            FLOAT64,
+        );
+    }
+    eprintln!(
+        "se_e3 on the device against DeePMD-kit: energy within {:.1e} eV, forces {:.1e} eV/A, virial {:.1e} eV",
+        worst[0], worst[1], worst[2]
+    );
+}
+
+/// Float32, batches and committees take an se_e3 model through the same
+/// stages as the other descriptors: each against the CPU. Its embedding
+/// nets are not tabulated, and the trainer does not have it.
+#[test]
+fn se_e3_in_float32_in_batches_and_committees() {
+    let Some(device) = device() else { return };
+    let triclinic = [[9.0, 0.0, 0.0], [1.5, 8.5, 0.0], [-1.0, 0.8, 9.2]];
+    let cubic = [[8.0, 0.0, 0.0], [0.0, 8.0, 0.0], [0.0, 0.0, 8.0]];
+    let frames = [
+        frame(triclinic, 5, 2, true, 101),
+        frame(cubic, 4, 2, false, 102),
+        frame(triclinic, 4, 2, true, 103),
+    ];
+    let models: Vec<Model> = (0..3)
+        .map(|member| {
+            let mut model = three_body(2, vec![80, 160], 4.5, 104 + 7 * member as u64);
+            // Each member with widths of its own, and each type of each.
+            for (t, normalization) in model.descriptor.normalization.iter_mut().enumerate() {
+                let direction =
+                    normalization.std[1] * (1.0 + 0.05 * member as f64 + 0.02 * t as f64);
+                normalization.std = [1.0, direction, direction, direction];
+            }
+            for bias in &mut model.atom_energy_bias {
+                *bias += 0.37 * member as f64;
+            }
+            model
+        })
+        .collect();
+    let expected: Vec<Vec<Evaluation>> = frames
+        .iter()
+        .map(|frame| {
+            models
+                .iter()
+                .map(|model| {
+                    NativePotential::new(model.clone())
+                        .unwrap()
+                        .eval(frame)
+                        .unwrap()
+                })
+                .collect()
+        })
+        .collect();
+    let batch: Vec<&Frame> = frames.iter().collect();
+    let members: Vec<&Model> = models.iter().collect();
+    // The forces are not small: the comparisons below mean something.
+    let largest = expected
+        .iter()
+        .flatten()
+        .flat_map(|evaluation| evaluation.forces.iter().flatten())
+        .fold(0.0f64, |m, f| m.max(f.abs()));
+    eprintln!("se_e3 test models: largest force {largest:.3e} eV/A");
+    assert!(largest > 1e-2, "{largest}");
+
+    // Float64: a batch for one model, then for the committee.
+    let mut one = GpuPotential::<f64>::new(&models[0], device.clone()).unwrap();
+    for (index, got) in one.eval_batch(&batch).unwrap().iter().enumerate() {
+        compare(
+            &format!("three-body batch, frame {index}"),
+            got,
+            &expected[index][0],
+            FLOAT64,
+        );
+    }
+    let mut committee = GpuPotential::<f64>::committee(&members, device.clone()).unwrap();
+    assert_eq!(committee.members(), 3);
+    for chunked in [false, true] {
+        if chunked {
+            // The members share the rows of a chunk as they share its atoms.
+            committee.set_chunk_atoms(50);
+            committee.set_chunk_pairs(20_000);
+        }
+        for (index, of_frame) in committee.eval_members(&batch).unwrap().iter().enumerate() {
+            for (member, got) in of_frame.iter().enumerate() {
+                compare(
+                    &format!(
+                        "three-body committee (chunks: {chunked}), frame {index}, member {member}"
+                    ),
+                    got,
+                    &expected[index][member],
+                    FLOAT64,
+                );
+            }
+        }
+    }
+    // No tables for these nets: asked for, they are refused.
+    let error = committee.compress(0.8, 0.01).unwrap_err().to_string();
+    assert!(error.contains("se_e3 are not tabulated"), "{error}");
+    assert!(!committee.is_compressed());
+    // Float32 networks and sums: about single precision, nothing worse.
+    let mut single = GpuPotential::<f32>::committee(&members, device.clone()).unwrap();
+    let mut worst = (0.0f64, 0.0f64);
+    for (index, of_frame) in single.eval_members(&batch).unwrap().iter().enumerate() {
+        for (member, got) in of_frame.iter().enumerate() {
+            let reference = &expected[index][member];
+            compare(
+                &format!("three-body float32, frame {index}, member {member}"),
+                got,
+                reference,
+                (1e-6, 1e-4),
+            );
+            worst.0 = worst
+                .0
+                .max((got.energy - reference.energy).abs() / frames[index].positions.len() as f64);
+            for (a, b) in got
+                .forces
+                .iter()
+                .flatten()
+                .zip(reference.forces.iter().flatten())
+            {
+                worst.1 = worst.1.max((a - b).abs());
+            }
+        }
+    }
+    eprintln!(
+        "se_e3 in float32 against the CPU: energy within {:.1e} eV per atom, forces {:.1e} eV/A",
+        worst.0, worst.1
+    );
+    // The forces are the gradient of the energy the device gives.
+    let h = 1e-5;
+    let base = &frames[0];
+    let forces = one.eval(base).unwrap().forces;
+    for atom in [0, 7, 19] {
+        for axis in 0..3 {
+            let mut shifted = |s: f64| {
+                let mut f = base.clone();
+                f.positions[atom][axis] += s;
+                one.eval(&f).unwrap().energy
+            };
+            let fd = -(shifted(h) - shifted(-h)) / (2.0 * h);
+            let error = (fd - forces[atom][axis]).abs();
+            assert!(
+                error < 1e-6 * forces[atom][axis].abs().max(1.0),
+                "atom {atom} axis {axis}: {fd} vs {}",
+                forces[atom][axis]
+            );
+        }
+    }
+    // Models of two descriptors are not one committee.
+    let other = radial(2, vec![80, 160], 4.5, 6);
+    let mixed = [&models[0], &other];
+    let error = GpuPotential::<f64>::committee(&mixed, device.clone())
+        .err()
+        .unwrap();
+    assert!(
+        error
+            .to_string()
+            .contains("differs from the first in its descriptor"),
+        "{error}"
+    );
+    assert_eq!(
+        omnimd_native::gpu_model::committee_mismatch(&mixed).unwrap(),
+        "model 1 differs from the first in its descriptor"
+    );
+    assert!(omnimd_native::gpu_model::committee_mismatch(&members).is_none());
+    // The GPU trainer has the arithmetic of the other two descriptors only.
+    let error = omnimd_native::gpu_train::GpuTrainer::<f64>::new(&models[0], device)
+        .err()
+        .unwrap();
+    assert_eq!(
+        error.to_string(),
+        "the GPU trainer supports the se_e2_a and se_e2_r descriptors, not se_e3"
+    );
 }

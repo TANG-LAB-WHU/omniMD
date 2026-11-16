@@ -8,6 +8,11 @@ randomly oriented and replicated to 192, 1536, 12288 and 98304 atoms.
 `--descriptor se_e2_r` builds the radial descriptor instead, with the same
 cutoffs, `sel`, embedding and fitting sizes (its fitting nets take the 100
 embedding outputs); the boxes are the same for the same seed.
+
+`--descriptor se_e3` builds the three-body descriptor with the same cutoffs
+and `sel` and the embedding sizes DeePMD-kit's input has by default for it,
+[10, 20, 40]: its embedding nets are evaluated for every pair of an atom's
+neighbor slots, some fifteen thousand here, against 138 slots for the others.
 """
 import argparse
 from copy import deepcopy
@@ -23,20 +28,22 @@ REPLICAS = [1, 2, 4, 8]
 def build_model(output, precision, seed, kind='se_e2_a'):
     from deepmd.dpmodel.descriptor.se_e2_a import DescrptSeA
     from deepmd.dpmodel.descriptor.se_r import DescrptSeR
+    from deepmd.dpmodel.descriptor.se_t import DescrptSeT
     from deepmd.dpmodel.fitting.ener_fitting import EnergyFittingNet
     from deepmd.dpmodel.model.ener_model import EnergyModel
     from deepmd.dpmodel.utils.serialization import save_dp_model
     from deepmd.pt.utils.serialization import deserialize_to_file
 
-    radial = kind == 'se_e2_r'
-    descriptor_config = dict(rcut=6.0, rcut_smth=0.5, sel=[46, 92], neuron=[25, 50, 100],
+    radial, three_body = kind == 'se_e2_r', kind == 'se_e3'
+    neuron = [10, 20, 40] if three_body else [25, 50, 100]
+    descriptor_config = dict(rcut=6.0, rcut_smth=0.5, sel=[46, 92], neuron=neuron,
                              resnet_dt=False, precision=precision, type_map=TYPES, seed=seed,
-                             **(dict(type_one_side=True) if radial
+                             **({} if three_body else dict(type_one_side=True) if radial
                                 else dict(axis_neuron=16, type_one_side=False)))
-    fitting_config = dict(ntypes=2, dim_descrpt=100 if radial else 100 * 16,
+    fitting_config = dict(ntypes=2, dim_descrpt=neuron[-1] * (1 if radial or three_body else 16),
                           neuron=[240, 240, 240], resnet_dt=True,
                           precision=precision, type_map=TYPES, seed=seed + 1)
-    descriptor = (DescrptSeR if radial else DescrptSeA)(**descriptor_config)
+    descriptor = (DescrptSeT if three_body else DescrptSeR if radial else DescrptSeA)(**descriptor_config)
     fitting = EnergyFittingNet(**fitting_config)
     # Plausible normalization for liquid water; angular mean zero and isotropic std
     # as required by the native converter.
@@ -83,7 +90,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('output_dir', type=Path)
     parser.add_argument('--seed', type=int, default=20261029)
-    parser.add_argument('--descriptor', choices=['se_e2_a', 'se_e2_r'], default='se_e2_a')
+    parser.add_argument('--descriptor', choices=['se_e2_a', 'se_e2_r', 'se_e3'], default='se_e2_a')
     args = parser.parse_args()
     import deepmd
     if deepmd.__version__ != '3.1.3':

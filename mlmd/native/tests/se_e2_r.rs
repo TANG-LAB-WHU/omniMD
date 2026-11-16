@@ -367,7 +367,7 @@ fn a_format_names_its_descriptor_and_other_models_are_refused() {
     );
     refused(
         "another format",
-        &|m| m.format = "omnimd-native-se-e3".into(),
+        &|m| m.format = "omnimd-native-dpa".into(),
         "unsupported native format/version",
     );
     refused(

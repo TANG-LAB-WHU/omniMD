@@ -1,5 +1,5 @@
-//! CPU float64 inference for the explicitly versioned native se_e2_a and
-//! se_e2_r subsets.
+//! CPU float64 inference for the explicitly versioned native se_e2_a,
+//! se_e2_r and se_e3 subsets.
 mod autodiff;
 #[cfg(feature = "cuda")]
 pub mod cuda;
@@ -92,8 +92,10 @@ impl NativePotential {
         rows: impl IntoIterator<Item = (usize, Option<&'a Neighbor>, [f64; 4], [[f64; 3]; 4])>,
         result: &mut Evaluation,
     ) -> Result<()> {
-        if self.model.descriptor_kind() == DescriptorKind::SeE2R {
-            return self.radial_atom(center, kind, rows, result);
+        match self.model.descriptor_kind() {
+            DescriptorKind::SeE2A => {}
+            DescriptorKind::SeE2R => return self.radial_atom(center, kind, rows, result),
+            DescriptorKind::SeE3 => return self.three_body_atom(center, kind, rows, result),
         }
         let d = &self.model.descriptor;
         let width = d.embedding[kind][0].output_size();
@@ -197,11 +199,94 @@ impl NativePotential {
         }
         Ok(())
     }
+
+    /// One atom of an se_e3 model. With a_s the direction entries of the
+    /// normalized environment row of slot s, DeePMD-kit sums over the pairs
+    /// of neighbor types t <= u and over every slot j of type t and k of
+    /// type u: θ = a_j·a_k goes through the net of (t, u), and D[m] is the
+    /// sum of θ·G[m](θ) / (sel[t]·sel[u]). An empty slot has a zero
+    /// direction and adds nothing, so only neighbors are paired here, each
+    /// pair once: within one type DeePMD-kit's sum has a pair of two
+    /// neighbors in both orders, which is twice the pair, and a neighbor
+    /// with itself once.
+    fn three_body_atom<'a>(
+        &self,
+        center: usize,
+        kind: usize,
+        rows: impl IntoIterator<Item = (usize, Option<&'a Neighbor>, [f64; 4], [[f64; 3]; 4])>,
+        result: &mut Evaluation,
+    ) -> Result<()> {
+        let d = &self.model.descriptor;
+        let width = d.width();
+        // The neighbors: type, neighbor, direction entries and their Jacobian.
+        let near: Vec<(usize, &Neighbor, [f64; 3], [[f64; 3]; 3])> = rows
+            .into_iter()
+            .filter_map(|(species, neighbor, r, jac)| {
+                neighbor.map(|n| (species, n, [r[1], r[2], r[3]], [jac[1], jac[2], jac[3]]))
+            })
+            .collect();
+        let mut descriptor = vec![0.0; width];
+        let mut pairs = Vec::new();
+        for (j, &(tj, _, aj, _)) in near.iter().enumerate() {
+            for (k, &(tk, _, ak, _)) in near.iter().enumerate().skip(j) {
+                let weight = three_body_weight(j == k, tj == tk, d.sel[tj], d.sel[tk]);
+                let theta: f64 = (0..3).map(|a| aj[a] * ak[a]).sum();
+                let (g, dg) = d.embedding[tj][tk].scalar_with_derivative(theta)?;
+                for m in 0..width {
+                    descriptor[m] += weight * theta * g[m];
+                }
+                pairs.push((j, k, weight, theta, g, dg));
+            }
+        }
+        let (energy, dd) = self.model.fitting[kind].scalar_with_gradient(&descriptor)?;
+        result.energy += energy + self.model.atom_energy_bias[kind];
+        // dE/d(direction entries) of every neighbor: θ changes by a_k when
+        // a_j moves, and by a_j when a_k does (twice a_j for a pair of j
+        // with itself).
+        let mut adjoint = vec![[0.0; 3]; near.len()];
+        for (j, k, weight, theta, g, dg) in pairs {
+            let w = weight
+                * (0..width)
+                    .map(|m| dd[m] * (g[m] + theta * dg[m]))
+                    .sum::<f64>();
+            for a in 0..3 {
+                adjoint[j][a] += w * near[k].2[a];
+                adjoint[k][a] += w * near[j].2[a];
+            }
+        }
+        for ((_, n, _, jac), da) in near.iter().zip(&adjoint) {
+            for c in 0..3 {
+                let grad: f64 = (0..3).map(|a| da[a] * jac[a][c]).sum();
+                result.forces[center][c] += grad;
+                result.forces[n.atom][c] -= grad;
+                for a in 0..3 {
+                    result.virial[a][c] -= n.delta[a] * grad;
+                }
+            }
+        }
+        if !result.energy.is_finite() {
+            return Err(Error(format!("nonfinite native energy at atom {center}")));
+        }
+        Ok(())
+    }
 }
 
 /// DeePMD-kit's `res_rescale` of se_e2_r: the mean of the embedding rows is
 /// divided by five.
 pub const RADIAL_RESCALE: f64 = 0.2;
+
+/// What a pair of neighbors of an se_e3 atom counts in its descriptor: once
+/// over the slots of its two types, and twice that for two different
+/// neighbors of one type, which DeePMD-kit's sum holds in both orders.
+pub fn three_body_weight(
+    same_slot: bool,
+    same_type: bool,
+    sel_first: usize,
+    sel_second: usize,
+) -> f64 {
+    let orders = if same_type && !same_slot { 2.0 } else { 1.0 };
+    orders / (sel_first as f64 * sel_second as f64)
+}
 
 impl Potential for NativePotential {
     fn metadata(&self) -> &ModelMetadata {
