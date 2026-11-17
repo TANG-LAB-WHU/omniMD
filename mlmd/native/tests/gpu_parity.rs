@@ -767,6 +767,31 @@ fn a_committee_matches_its_members_alone() {
         },
         "embedding nets",
     );
+    // Other axis neurons, or another width of the embedding: named as the
+    // layout of the descriptor, not as nets of another shape further on.
+    let layout = |other: Model, what: &str| {
+        let mixed = [&models[0], &other];
+        assert_eq!(
+            committee_mismatch(&mixed).unwrap(),
+            format!("model 1 differs from the first in its {what}")
+        );
+        let error = GpuPotential::<f64>::committee(&mixed, device.clone())
+            .err()
+            .unwrap()
+            .to_string();
+        assert!(
+            error.contains("differs from the first in its descriptor, type map, cutoffs, sel, axis_neuron or embedding width"),
+            "{what}: {error}"
+        );
+    };
+    layout(
+        common::model_of_width(2, vec![80, 160], 4.5, 47, 16, 2),
+        "axis_neuron",
+    );
+    layout(
+        common::model_of_width(2, vec![80, 160], 4.5, 47, 8, 4),
+        "embedding nets",
+    );
     assert!(GpuPotential::<f64>::committee(&[], device).is_err());
 }
 
@@ -1426,6 +1451,25 @@ fn hybrid_matches_cpu() {
         model,
         &frame(triclinic, 5, 2, true, 206),
     );
+    // The slots of the list and a shorter cutoff: the second descriptor
+    // still has a table of its own, without the neighbors beyond 3.5.
+    let model = common::hybrid_model(
+        &[
+            model_of(2, vec![80, 160], 4.5, 261),
+            tuned(
+                common::radial_model(2, vec![80, 160], 3.5, 262, 16),
+                0.7,
+                1.3,
+            ),
+        ],
+        263,
+    );
+    assert_eq!(model.descriptor.list[1].sel, model.descriptor.sel);
+    check(
+        "hybrid, a shorter cutoff only",
+        model,
+        &frame(triclinic, 5, 2, true, 264),
+    );
     // Narrower than the cutoff: neighbors include several images.
     let small = [[4.2, 0.0, 0.0], [0.0, 4.2, 0.0], [0.0, 0.0, 4.2]];
     check(
@@ -1582,6 +1626,26 @@ fn hybrid_matches_cpu() {
         &expected,
         FLOAT64,
     );
+
+    // One potential serves frames of different sizes in turn: the tables of
+    // its descriptors grow with the frame.
+    let model = open(265);
+    let mut cpu = NativePotential::new(model.clone()).unwrap();
+    let mut gpu = GpuPotential::<f64>::new(&model, device.clone()).unwrap();
+    let sizes = [
+        frame(cubic, 2, 3, false, 266),
+        frame(cubic, 4, 3, false, 267),
+        frame(cubic, 3, 3, false, 268),
+        frame(cubic, 4, 3, false, 269),
+    ];
+    for (index, f) in sizes.iter().enumerate() {
+        compare(
+            &format!("hybrid, frame {index} of {} atoms", f.positions.len()),
+            &gpu.eval(f).unwrap(),
+            &cpu.eval(f).unwrap(),
+            FLOAT64,
+        );
+    }
 
     // One descriptor in a list is that descriptor: the same launches with
     // the same numbers. (Not the same bits: the sums of the forces and of
@@ -1749,6 +1813,36 @@ fn a_hybrid_reports_the_neighbors_a_descriptor_drops() {
     assert!(!dropped);
     let expected = NativePotential::new(near).unwrap().eval(&cluster).unwrap();
     compare("hybrid, a short cutoff", &result, &expected, FLOAT64);
+    // One neighbor more than slots is enough: an O with two H within the
+    // cutoff of a descriptor that has one slot for them, and no other atom
+    // with two neighbors of a type.
+    let water = Frame {
+        positions: vec![[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 1.1, 0.0]],
+        species: vec!["O".into(), "H".into(), "H".into()],
+        cell: None,
+        units: Units::EvAngstrom,
+    };
+    let drops = |sel: Vec<usize>| {
+        let model = hybrid(sel, 1.3);
+        let mut gpu = GpuPotential::<f64>::new(&model, device.clone()).unwrap();
+        gpu.eval(&water).unwrap();
+        gpu.last_truncated()
+    };
+    assert!(drops(vec![1, 1, 1]));
+    assert!(!drops(vec![1, 2, 1]));
+    // Atoms in one place are an error also where a descriptor drops
+    // neighbors: the two reports are kept apart. In a periodic box every
+    // atom has neighbors of the second type within 3.5, and this descriptor
+    // no slot for them, so both atoms of the pair carry both reports.
+    let bulk = frame(cubic, 4, 3, true, 245);
+    let none = hybrid(vec![30, 0, 30], 3.5);
+    let mut gpu = GpuPotential::<f64>::new(&none, device.clone()).unwrap();
+    gpu.eval(&bulk).unwrap();
+    assert!(gpu.last_truncated());
+    let mut touching = bulk.clone();
+    touching.positions[22] = touching.positions[21];
+    let error = gpu.eval(&touching).unwrap_err().to_string();
+    assert!(error.contains("coincident"), "{error}");
     // The CPU reference refuses what the device reports.
     let error = NativePotential::new(hybrid(vec![30, 2, 30], 3.5))
         .unwrap()
@@ -2044,6 +2138,30 @@ fn hybrid_in_float32_compressed_in_batches_and_committees() {
     let (reason, error) = mismatch(&|m| m.descriptor.list[2].sel[0] -= 1);
     assert_eq!(reason.unwrap(), "model 1 differs from the first in its sel");
     assert!(error.unwrap().contains("differs from the first"));
+    // A descriptor less (and fitting nets for the components that are left).
+    let parts: Vec<Model> = models[1].descriptor.list[..2]
+        .iter()
+        .map(|part| {
+            let mut plain = models[1].clone();
+            plain.descriptor = part.clone();
+            plain
+        })
+        .collect();
+    let shorter = common::hybrid_model(&parts, 297);
+    assert!(NativePotential::new(shorter.clone()).is_ok());
+    for pair in [[&models[0], &shorter], [&shorter, &models[0]]] {
+        assert_eq!(
+            omnimd_native::gpu_model::committee_mismatch(&pair).unwrap(),
+            "model 1 differs from the first in its descriptor"
+        );
+        let error = GpuPotential::<f64>::committee(&pair, device.clone())
+            .err()
+            .unwrap();
+        assert!(
+            error.to_string().contains("differs from the first"),
+            "{error}"
+        );
+    }
     // A model of one descriptor and a hybrid of that descriptor.
     let plain = model_of(2, vec![60, 90], 3.8, 295);
     let mut listed = common::hybrid_model(std::slice::from_ref(&plain), 296);

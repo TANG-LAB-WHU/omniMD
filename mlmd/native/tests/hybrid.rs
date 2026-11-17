@@ -1,7 +1,7 @@
 //! The hybrid descriptor on the CPU: against DeePMD-kit itself, against
 //! finite differences, against its descriptors one by one, and what the
 //! format refuses.
-use omnimd_ml_contract::{Evaluation, Frame, Potential};
+use omnimd_ml_contract::{Evaluation, Frame, Potential, Units};
 use omnimd_native::{
     full_gradient::ParameterLayout, readout::ReadoutBasis, Activation, Descriptor, DescriptorKind,
     Layer, Model, NativePotential, Network, Residual, HYBRID_FORMAT, HYBRID_KIND, MAX_HYBRID_PARTS,
@@ -474,6 +474,26 @@ fn a_descriptor_reads_the_nearest_of_the_list_within_its_own_cutoff() {
         error.contains("type H: more than sel=3 within 3.4 of a descriptor of the hybrid"),
         "{error}"
     );
+    // One neighbor more than slots is enough: an O with two H within the
+    // cutoff of a descriptor that has two slots for them, or one.
+    let water = Frame {
+        positions: vec![[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 1.1, 0.0]],
+        species: vec!["O".into(), "H".into(), "H".into()],
+        cell: None,
+        units: Units::EvAngstrom,
+    };
+    let with_slots = |slots: usize| {
+        let mut first = parts[0].clone();
+        first.sel = vec![1, slots, 1];
+        let model = with_linear_fitting(hybrid_of(vec![first, parts[1].clone()]), &weights);
+        NativePotential::new(model).unwrap().eval(&water)
+    };
+    assert!(with_slots(2).is_ok());
+    let error = with_slots(1).unwrap_err().to_string();
+    assert!(
+        error.contains("atom 0, type H: more than sel=1 within 3.4"),
+        "{error}"
+    );
 }
 
 #[test]
@@ -550,6 +570,11 @@ fn a_hybrid_names_its_descriptors_and_other_models_are_refused() {
     refused(
         "axis neurons of its own",
         &|m| m.descriptor.axis_neuron = 3,
+        "a hybrid descriptor has no axis neurons, normalization or embedding nets of its own",
+    );
+    refused(
+        "a mark for nets it does not have",
+        &|m| m.descriptor.type_one_side = true,
         "a hybrid descriptor has no axis neurons, normalization or embedding nets of its own",
     );
     refused(

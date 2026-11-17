@@ -3,6 +3,18 @@
 Two routes per case: the Python DeepPot API (one E/F/V evaluation per call) and
 LAMMPS `pair_style deepmd` NVE dynamics. Failures such as out-of-memory are
 recorded as rows, not raised.
+
+The benchmark models are untrained and have no repulsion: in dynamics the
+atoms fall into each other, sooner or later, and the steps after that are no
+longer steps of the benchmark's water (the log of a run shows it: the
+temperature, and what the loop took before and after). `--held` takes a time
+step of 1e-6 fs instead, so that every step evaluates the frame of the case
+itself; LAMMPS then never rebuilds its neighbor list.
+
+A LAMMPS run that has no result after `--timeout` seconds is stopped and
+recorded as such. On Windows a run that needs more than the card's memory is
+not refused: the driver gives it system memory, and a step then takes
+minutes.
 """
 import argparse
 import csv
@@ -74,7 +86,7 @@ mass 2 1.008
 pair_style deepmd {model}
 pair_coeff * * O H
 velocity all create 300.0 {seed} mom yes rot yes
-timestep 0.0005
+timestep {timestep}
 fix 1 all nve
 thermo 100
 run 20
@@ -93,21 +105,26 @@ def write_lammps_data(path, case_npz):
     path.write_text('\n'.join(lines) + '\n')
 
 
-def run_lammps(case_dir, work_dir, model, case, natoms, precision, tag=''):
+def run_lammps(case_dir, work_dir, model, case, natoms, precision, tag='', held=False, timeout=600):
     steps = max(50, min(1000, 200000 // natoms))
     data = work_dir / f'{case}.data'
     write_lammps_data(data, case_dir / f'{case}.npz')
     # `tag` keeps the input and the log of a compressed model beside those of the model itself.
     script = work_dir / f'{case}-{precision}{tag}.in'
     # LAMMPS runs with cwd=work_dir, so every path it reads must be absolute.
+    # In ps: 0.5 fs, or with the atoms held a step in which nothing moves.
     script.write_text(LAMMPS_INPUT.format(data=data.resolve(), model=(case_dir / model).resolve(),
-                                          seed=12345, steps=steps))
+                                          seed=12345, steps=steps, timestep='1.0e-9' if held else '0.0005'))
     row = {'engine': 'deepmd-3.1.3', 'route': 'lammps-pair-deepmd', 'device': 'gpu',
            'precision': precision, 'natoms': natoms}
     # The image runs as root, which Open MPI refuses unless told otherwise.
     env = dict(os.environ, OMPI_ALLOW_RUN_AS_ROOT='1', OMPI_ALLOW_RUN_AS_ROOT_CONFIRM='1')
-    proc = subprocess.run(['lmp', '-in', str(script.resolve()), '-log', str(script.with_suffix('.log').resolve())],
-                          capture_output=True, text=True, cwd=work_dir, env=env)
+    try:
+        proc = subprocess.run(['lmp', '-in', str(script.resolve()), '-log', str(script.with_suffix('.log').resolve())],
+                              capture_output=True, text=True, cwd=work_dir, env=env, timeout=timeout)
+    except subprocess.TimeoutExpired:
+        row.update(status='timeout', note=f'no result within {timeout} s; stopped')
+        return row
     perf = re.findall(r'Performance:\s*([\d.]+) ns/day', proc.stdout)
     loop = re.findall(r'Loop time of ([\d.eE+-]+) on .* for (\d+) steps with', proc.stdout)
     if proc.returncode == 0 and perf and loop:
@@ -115,7 +132,8 @@ def run_lammps(case_dir, work_dir, model, case, natoms, precision, tag=''):
         row.update(status='ok', ns_per_day=float(perf[-1]),
                    ms_per_eval=seconds / nsteps * 1e3,
                    us_per_atom_step=seconds / nsteps * 1e6 / natoms,
-                   note=f'NVE 0.5 fs, {nsteps} timed steps after 20 warmup steps')
+                   note=(f'atoms held (NVE with a step of 1e-6 fs), {nsteps} timed steps after 20 warmup steps'
+                         if held else f'NVE 0.5 fs, {nsteps} timed steps after 20 warmup steps'))
     else:
         text = proc.stdout + proc.stderr
         lines = [l.strip() for l in text.splitlines() if l.strip().strip('-')]
@@ -139,6 +157,10 @@ def main():
     parser.add_argument('--skip-deeppot', action='store_true')
     parser.add_argument('--compressed', action='store_true',
                         help='time the models written by compress_deepmd.py')
+    parser.add_argument('--held', action='store_true',
+                        help='LAMMPS with a time step of 1e-6 fs: every step evaluates the frame of the case')
+    parser.add_argument('--max-atoms', type=int, help='skip the cases with more atoms')
+    parser.add_argument('--timeout', type=int, default=600, help='seconds a LAMMPS run may take')
     args = parser.parse_args()
     manifest = json.loads((args.case_dir / 'manifest.json').read_text())
     work_dir = args.case_dir / 'lammps'
@@ -151,6 +173,8 @@ def main():
         def record(row):
             if args.compressed:
                 row['route'] += '-compressed'
+            if args.held and row['route'].startswith('lammps'):
+                row['route'] += '-held'
             writer.writerow(row)
             handle.flush()
             print(json.dumps(row), flush=True)
@@ -159,6 +183,8 @@ def main():
             model = f'{stem}.pth'
             for case in manifest['cases']:
                 name, natoms = case['name'], case['natoms']
+                if args.max_atoms and natoms > args.max_atoms:
+                    continue
                 if not args.skip_deeppot:
                     record(run_deeppot(args.case_dir, model, name, natoms, 'gpu', precision, args.cpu_threads))
                 if not args.skip_deeppot and natoms <= args.cpu_max_atoms:
@@ -167,7 +193,8 @@ def main():
                     record(row)
                 if not args.skip_lammps:
                     record(run_lammps(args.case_dir, work_dir, model, name, natoms, precision,
-                                      '-compressed' if args.compressed else ''))
+                                      ('-compressed' if args.compressed else '')
+                                      + ('-held' if args.held else ''), args.held, args.timeout))
 
 
 if __name__ == '__main__':
