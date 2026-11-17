@@ -1,5 +1,7 @@
 //! Dataset statistics: closed forms, and DeePMD-kit 3.1.3 reference values
-//! for a small mixed-composition dataset (`tools/make_stats_fixture.py`).
+//! for a small mixed-composition dataset (`tools/make_stats_fixture.py`),
+//! also for the descriptors of a hybrid
+//! (`tools/make_hybrid_stats_fixture.py`).
 use omnimd_ml_contract::{Frame, Units};
 use omnimd_native::stats::{energy_bias, env_mat_stat, neighbor_stat};
 use omnimd_native::training_data::Dataset;
@@ -205,4 +207,94 @@ fn statistics_match_deepmd_reference() {
         assert!(close(*ours, *theirs), "bias {ours} vs {theirs}");
     }
     assert!(close(fit.std, reference.energy_std));
+}
+
+#[derive(serde::Deserialize)]
+struct HybridReference {
+    parts: Vec<PartReference>,
+}
+
+/// A descriptor of the hybrid with DeePMD-kit's statistics for it, and the
+/// statistics over what it reads in the forward pass of the hybrid.
+#[derive(serde::Deserialize)]
+struct PartReference {
+    #[serde(rename = "type")]
+    kind: String,
+    rcut: f64,
+    rcut_smth: f64,
+    sel: Vec<usize>,
+    davg: Vec<Vec<f64>>,
+    dstd: Vec<Vec<f64>>,
+    as_in_the_forward_pass: Readings,
+}
+
+#[derive(serde::Deserialize)]
+struct Readings {
+    davg: Vec<Vec<f64>>,
+    dstd: Vec<Vec<f64>>,
+}
+
+/// DeePMD-kit gives every descriptor of a hybrid the statistics it has as
+/// the descriptor of a model: over the neighbors it selects itself, within
+/// its own cutoff and with its own slots. In the forward pass of the hybrid
+/// the descriptor reads other neighbors where slots are short (the first
+/// slots of each type of the list of all descriptors), and the statistics
+/// over those are other numbers: the fixture has both, from DeePMD-kit.
+/// What a trainer computes for a descriptor of a hybrid is the first.
+#[test]
+fn the_descriptors_of_a_hybrid_have_the_statistics_they_have_alone() {
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("fixtures");
+    let dataset = Dataset::load(root.join("stats-dataset.jsonl")).unwrap();
+    let reference: HybridReference = serde_json::from_str(
+        &std::fs::read_to_string(root.join("hybrid-stats-deepmd-reference.json")).unwrap(),
+    )
+    .unwrap();
+    let names = &dataset.header.type_map;
+    let frames: Vec<&Frame> = dataset.frames.iter().map(|f| &f.frame).collect();
+    let close = |a: f64, b: f64| (a - b).abs() <= 1e-8 * b.abs().max(1.0);
+    assert_eq!(reference.parts.len(), 2);
+    for part in &reference.parts {
+        let stats = env_mat_stat(&frames, names, part.rcut, part.rcut_smth, &part.sel).unwrap();
+        assert_eq!(stats.len(), part.davg.len(), "{}", part.kind);
+        // se_e2_r has the radial entry only; of se_e2_a all four.
+        let entries = part.davg[0].len();
+        assert_eq!(
+            entries,
+            if part.kind == "se_e2_r" { 1 } else { 4 },
+            "{}",
+            part.kind
+        );
+        // How far the statistics over what the descriptor reads in the
+        // forward pass are from these, at most over the central types.
+        let mut other_reading = 0.0_f64;
+        for (t, normalization) in stats.iter().enumerate() {
+            for a in 0..entries {
+                assert!(
+                    close(normalization.mean[a], part.davg[t][a]),
+                    "{} davg[{t}][{a}]: {} vs {}",
+                    part.kind,
+                    normalization.mean[a],
+                    part.davg[t][a]
+                );
+                assert!(
+                    close(normalization.std[a], part.dstd[t][a]),
+                    "{} dstd[{t}][{a}]: {} vs {}",
+                    part.kind,
+                    normalization.std[a],
+                    part.dstd[t][a]
+                );
+                let forward = &part.as_in_the_forward_pass;
+                other_reading = other_reading
+                    .max((forward.davg[t][a] - part.davg[t][a]).abs())
+                    .max((forward.dstd[t][a] - part.dstd[t][a]).abs());
+            }
+        }
+        // The fixture tells the two apart: by 6e-5 for the mean of the
+        // angular descriptor, 1e-6 for that of the radial one.
+        assert!(
+            other_reading > 5e-7,
+            "{}: the readings differ by {other_reading} only",
+            part.kind
+        );
+    }
 }

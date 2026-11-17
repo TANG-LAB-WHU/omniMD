@@ -146,6 +146,14 @@ impl Descriptor {
         }
     }
 
+    /// [`Self::parts`], to change them: a trainer writes its networks back.
+    pub fn parts_mut(&mut self) -> &mut [Descriptor] {
+        match self.is_hybrid() {
+            true => &mut self.list,
+            false => std::slice::from_mut(self),
+        }
+    }
+
     /// Outputs of an embedding net (of a validated model: all alike). Not
     /// for a hybrid, whose descriptors each have their own.
     pub fn width(&self) -> usize {

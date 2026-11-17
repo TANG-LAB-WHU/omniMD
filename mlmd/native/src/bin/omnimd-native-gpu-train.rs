@@ -1,5 +1,5 @@
-//! Trains a native se_e2_a or se_e2_r model on the omnimd-gpu runtime
-//! (device 0).
+//! Trains a native se_e2_a or se_e2_r model, or a hybrid of such
+//! descriptors, on the omnimd-gpu runtime (device 0).
 //!
 //! ```text
 //! omnimd-native-gpu-train REQUEST.json [REQUEST.json ...]
@@ -10,9 +10,10 @@
 //! with the same meaning (see `GPU_TRAINING.md`). `model` is either the path
 //! of a native model to continue from, or the `model` section of a DeePMD
 //! input script (`se_e2_a`, or `se_e2_r` under that name or `se_r`; with
-//! `type_one_side` one embedding net per neighbor type): then the networks
-//! are drawn afresh, and the normalization (`davg`, `dstd`), the energy bias
-//! and an `"auto"` `sel` are computed from the dataset.
+//! `type_one_side` one embedding net per neighbor type; or `hybrid` with a
+//! `list` of such descriptors): then the networks are drawn afresh, and the
+//! normalization (`davg`, `dstd`), the energy bias and an `"auto"` `sel` are
+//! computed from the dataset, for every descriptor of a hybrid its own.
 //!
 //! ```json
 //! {"model": "/abs/initial.native.json", "dataset": "/abs/train.jsonl",
@@ -30,7 +31,7 @@ use omnimd_ml_contract::Frame;
 use omnimd_native::gpu_train::{
     FrameLabels, GpuTrainer, LossTerms, LossWeights, OptimizerState, TrainStageTimes,
 };
-use omnimd_native::model_init::{initialize, ModelSpec};
+use omnimd_native::model_init::{initialize, DescriptorInput, ModelSpec, SelSpec};
 use omnimd_native::stats::{energy_bias, env_mat_stat, neighbor_stat};
 use omnimd_native::training_data::{Dataset, DatasetFrame};
 use omnimd_native::{Model, NativePotential};
@@ -182,11 +183,24 @@ fn default_disp_freq() -> u64 {
 }
 
 /// A native model file to continue from, or a DeePMD `model` section.
-#[derive(Deserialize)]
-#[serde(untagged)]
 enum ModelSource {
     Path(PathBuf),
     Spec(ModelSpec),
+}
+
+/// A string is the path; anything else is read as a `model` section, so
+/// that what is wrong with a section is said (a key it does not have, a
+/// descriptor of a hybrid by its place in the list).
+impl<'de> Deserialize<'de> for ModelSource {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        use serde::de::Error as _;
+        match serde_json::Value::deserialize(deserializer)? {
+            serde_json::Value::String(path) => Ok(Self::Path(path.into())),
+            section => serde_json::from_value(section)
+                .map(Self::Spec)
+                .map_err(|e| D::Error::custom(format!("model: {e}"))),
+        }
+    }
 }
 
 #[derive(Deserialize)]
@@ -338,6 +352,12 @@ fn note(line: std::fmt::Arguments) {
 }
 
 /// A fresh model for `spec`, with statistics from the training frames.
+///
+/// Every descriptor of a hybrid gets its own: an `"auto"` selection from
+/// the neighbors within its cutoff, and the normalization of the neighbors
+/// it would select if it were the descriptor of a model, as in DeePMD-kit
+/// (whose descriptors each take their statistics with their own cutoff and
+/// selection, not with the neighbor list they share in the hybrid).
 fn fresh_model(spec: &ModelSpec, data: &Dataset) -> Result<Model, Box<dyn std::error::Error>> {
     let frames: Vec<&Frame> = data.frames.iter().map(|f| &f.frame).collect();
     let energies: Vec<f64> = data
@@ -345,45 +365,63 @@ fn fresh_model(spec: &ModelSpec, data: &Dataset) -> Result<Model, Box<dyn std::e
         .iter()
         .map(|f| f.labels.energy.ok_or("frame without an energy label"))
         .collect::<Result<_, _>>()?;
-    let d = &spec.descriptor;
-    if matches!(d.kind.as_str(), "se_e2_r" | "se_r") && !d.type_one_side {
-        note(format_args!(
-            "se_e2_r with an embedding net for every pair of types, as type_one_side says; DeePMD-kit's PyTorch backend gives this descriptor one net per neighbor type whatever that key is: set it to true for that model"
-        ));
-    }
-    let sel = match (&d.sel, d.sel.auto_factor()?) {
-        (_, Some(factor)) => {
-            let stat = neighbor_stat(&frames, &spec.type_map, d.rcut)?;
+    let section = &spec.descriptor;
+    let mut inputs = Vec::with_capacity(section.parts().len());
+    for (number, d) in section.parts().iter().enumerate() {
+        // Before the lines about a descriptor of a hybrid: its place.
+        let place = section.context(number);
+        if matches!(d.kind.as_str(), "se_e2_r" | "se_r") && !d.type_one_side {
             note(format_args!(
-                "neighbor statistics: nearest pair {:.4} A, most neighbors per type {:?}",
-                stat.min_nbor_dist, stat.max_nbor_size
+                "{place}se_e2_r with an embedding net for every pair of types, as type_one_side says; DeePMD-kit's PyTorch backend gives this descriptor one net per neighbor type whatever that key is: set it to true for that model"
             ));
-            stat.auto_sel(factor)
         }
-        (omnimd_native::model_init::SelSpec::Counts(counts), None) => counts.clone(),
-        _ => unreachable!("auto_factor is None only for explicit counts"),
+        let sel = match (&d.sel, d.sel.auto_factor()?) {
+            (_, Some(factor)) => {
+                let stat = neighbor_stat(&frames, &spec.type_map, d.rcut)?;
+                note(format_args!(
+                    "{place}neighbor statistics: nearest pair {:.4} A, most neighbors per type {:?}",
+                    stat.min_nbor_dist, stat.max_nbor_size
+                ));
+                stat.auto_sel(factor)
+            }
+            (SelSpec::Counts(counts), None) => counts.clone(),
+            _ => unreachable!("auto_factor is None only for explicit counts"),
+        };
+        let normalization = env_mat_stat(&frames, &spec.type_map, d.rcut, d.rcut_smth, &sel)?;
+        if section.is_hybrid() {
+            note(format_args!(
+                "{place}{} within {} A, sel {sel:?}",
+                d.kind, d.rcut
+            ));
+        }
+        inputs.push(DescriptorInput { sel, normalization });
+    }
+    // The line about the bias names the selection of a model's one
+    // descriptor; those of a hybrid have had a line each.
+    let selection = match section.is_hybrid() {
+        true => String::new(),
+        false => format!("sel {:?}; ", inputs[0].sel),
     };
-    let normalization = env_mat_stat(&frames, &spec.type_map, d.rcut, d.rcut_smth, &sel)?;
     let bias = match &spec.fitting_net.atom_ener {
         Some(given) => {
             if given.len() != spec.type_map.len() || given.iter().any(|b| !b.is_finite()) {
                 return Err("atom_ener needs one finite energy for every type".into());
             }
             note(format_args!(
-                "sel {sel:?}; energy bias per type {given:?} (atom_ener)"
+                "{selection}energy bias per type {given:?} (atom_ener)"
             ));
             given.clone()
         }
         None => {
             let fitted = energy_bias(&frames, &energies, &spec.type_map)?;
             note(format_args!(
-                "sel {sel:?}; energy bias per type {:?} (rank {})",
+                "{selection}energy bias per type {:?} (rank {})",
                 fitted.bias, fitted.rank
             ));
             fitted.bias
         }
     };
-    Ok(initialize(spec, sel, normalization, bias)?)
+    Ok(initialize(spec, inputs, bias)?)
 }
 
 fn train<P: Scalar>(

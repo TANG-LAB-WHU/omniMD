@@ -9,8 +9,9 @@ writes them from its dataset). The `model`, `learning_rate` and `loss`
 sections and the number of steps, the batch size, the seed and the display
 interval go into a DeePMD input script unchanged, so both trainers run the
 same settings. The request's `precision` becomes the precision of DeePMD's
-networks; note that omniMD's `float32` keeps float64 parameters under
-float32 networks, which DeePMD-kit has no counterpart of.
+networks (of every descriptor of a hybrid); note that omniMD's `float32`
+keeps float64 parameters under float32 networks, which DeePMD-kit has no
+counterpart of.
 
 A new `OUT_DIR` receives `input.json`, what `dp --pt train` and `dp --pt
 freeze` leave (`train.log`, `lcurve.out`, checkpoints, `graph.pth`),
@@ -43,7 +44,10 @@ def main():
         raise SystemExit(f'no DeePMD systems under {args.systems}')
     precision = request.get('precision', 'float64')
     model = json.loads(json.dumps(model))
-    model['descriptor']['precision'] = precision
+    # The precision is a key of a descriptor: of a hybrid, of every one in its list.
+    descriptor = model['descriptor']
+    for part in descriptor['list'] if descriptor.get('type') == 'hybrid' else [descriptor]:
+        part['precision'] = precision
     model['fitting_net']['precision'] = precision
     training = request['training']
     steps = training['numb_steps']

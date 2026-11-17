@@ -1,6 +1,6 @@
-//! `omnimd-native-gpu-train` as a program: one request, and several
-//! requests at once on streams of one device. Skips without a CUDA device
-//! unless OMNIMD_REQUIRE_GPU is set.
+//! `omnimd-native-gpu-train` as a program: one request, several requests at
+//! once on streams of one device, and the descriptors a request may ask
+//! for. Skips without a CUDA device unless OMNIMD_REQUIRE_GPU is set.
 #![cfg(feature = "gpu")]
 use serde_json::{json, Value};
 use std::path::{Path, PathBuf};
@@ -418,5 +418,273 @@ fn se_e2_r_and_nets_per_neighbor_type_train_from_a_request() {
     assert!(error.contains("se_e2_r has no axis_neuron"), "{error}");
     let error = refused("unknown", &|body| radial(body, "se_e3", false));
     assert!(error.contains("only se_e2_a and se_e2_r"), "{error}");
+    std::fs::remove_dir_all(directory).unwrap();
+}
+
+/// The numbers of a part of a model, in the order they are written.
+fn numbers_of(value: &Value) -> Vec<f64> {
+    let mut out = Vec::new();
+    numbers(value, &mut out);
+    out
+}
+
+/// Largest difference between two lists of as many numbers.
+fn apart(a: &[f64], b: &[f64]) -> f64 {
+    assert_eq!(a.len(), b.len(), "the parts differ in shape");
+    assert!(!a.is_empty());
+    a.iter()
+        .zip(b)
+        .map(|(p, q)| (p - q).abs())
+        .fold(0.0, f64::max)
+}
+
+/// A request may ask for a hybrid, `{"type": "hybrid", "list": [...]}`: every
+/// descriptor of the list with its own cutoffs, selection, nets and seed.
+/// Each gets the statistics it gets as the descriptor of a model, and the
+/// trained model is a hybrid to evaluate and to continue from.
+#[test]
+fn a_hybrid_trains_from_a_request() {
+    if !gpu_available() {
+        return;
+    }
+    let directory =
+        std::env::temp_dir().join(format!("omnimd-train-cli-hybrid-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&directory);
+    std::fs::create_dir_all(&directory).unwrap();
+    let edit = |name: &str, change: &dyn Fn(&mut Value)| -> PathBuf {
+        let path = request(&directory, name, 5);
+        let mut body: Value =
+            serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
+        change(&mut body);
+        std::fs::write(&path, body.to_string()).unwrap();
+        path
+    };
+    // The descriptors of the hybrid: an angular one of the near neighbors
+    // and a radial one, with wider nets, of all within 4 A.
+    let angular = json!({"type": "se_e2_a", "sel": "auto", "rcut": 3.0, "rcut_smth": 0.5,
+                         "neuron": [4, 8], "axis_neuron": 2, "seed": 5});
+    let radial = json!({"type": "se_r", "sel": "auto:1.5", "rcut": 4.0, "rcut_smth": 1.0,
+                        "neuron": [6, 12], "type_one_side": true, "seed": 5});
+    let trained = |name: &str, request: &Path| -> (Value, String) {
+        let run = train(&[request]);
+        let notes = String::from_utf8_lossy(&run.stderr).into_owned();
+        assert!(run.status.success(), "{name}: {notes}");
+        let summary: Value = serde_json::from_slice(&run.stdout).unwrap();
+        assert_eq!(summary["steps"].as_u64(), Some(12), "{name}");
+        let path = directory.join(format!("{name}.native.json"));
+        // The model that was written is one the CPU reference takes.
+        omnimd_native::NativePotential::load(&path).unwrap();
+        let model = serde_json::from_str(&std::fs::read_to_string(path).unwrap()).unwrap();
+        (model, notes)
+    };
+    let list = json!([angular, radial]);
+    let (hybrid, notes) = trained(
+        "hybrid",
+        &edit("hybrid", &|body| {
+            body["model"]["descriptor"] = json!({"type": "hybrid", "list": list})
+        }),
+    );
+    assert_eq!(hybrid["format"], "omnimd-native-hybrid");
+    let d = &hybrid["descriptor"];
+    assert_eq!(d["kind"], "hybrid");
+    assert_eq!((&d["rcut"], &d["rcut_smth"]), (&json!(4.0), &json!(0.5)));
+    let parts = d["list"].as_array().unwrap();
+    assert_eq!(parts.len(), 2);
+    assert_eq!(
+        (&parts[0]["kind"], &parts[1]["kind"]),
+        (&json!("se_e2_a"), &json!("se_e2_r"))
+    );
+    assert_eq!(
+        (&parts[0]["rcut"], &parts[1]["rcut"]),
+        (&json!(3.0), &json!(4.0))
+    );
+    assert_eq!(parts[1]["type_one_side"], true);
+    assert!(parts[0].get("type_one_side").is_none());
+    // The list has of every type the most slots of the two.
+    let sel = |value: &Value| -> Vec<u64> {
+        value["sel"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|s| s.as_u64().unwrap())
+            .collect()
+    };
+    let (near, far) = (sel(&parts[0]), sel(&parts[1]));
+    assert_ne!(near, far);
+    let most: Vec<u64> = near.iter().zip(&far).map(|(a, b)| *a.max(b)).collect();
+    assert_eq!(sel(d), most);
+    // The fitting nets take the components of both: 8 · 2 + 12.
+    let first = &hybrid["fitting"][0]["layers"][0]["weights"];
+    assert_eq!(first.as_array().unwrap().len(), 28);
+    // What the trainer said: of every descriptor its own statistics.
+    for line in [
+        "descriptor.list[0]: neighbor statistics:",
+        "descriptor.list[1]: neighbor statistics:",
+        "descriptor.list[0]: se_e2_a within 3 A, sel [",
+        "descriptor.list[1]: se_r within 4 A, sel [",
+    ] {
+        assert!(notes.contains(line), "{line}: {notes}");
+    }
+    assert!(
+        !notes.contains("one net per neighbor type whatever"),
+        "{notes}"
+    );
+    // The line about the energy bias names no selection: every descriptor
+    // has had a line with its own.
+    assert!(
+        notes
+            .lines()
+            .any(|line| line.starts_with("energy bias per type")),
+        "{notes}"
+    );
+
+    // Each descriptor alone, as the descriptor of a model, has the
+    // selection and the normalization it has in the hybrid.
+    let (alone, _) = trained(
+        "angular",
+        &edit("angular", &|body| {
+            body["model"]["descriptor"] = angular.clone()
+        }),
+    );
+    assert_eq!(alone["format"], "omnimd-native-se-e2-a");
+    assert_eq!(sel(&alone["descriptor"]), near);
+    assert_eq!(
+        alone["descriptor"]["normalization"],
+        parts[0]["normalization"]
+    );
+    let (alone, _) = trained(
+        "radial",
+        &edit("radial", &|body| {
+            body["model"]["descriptor"] = radial.clone()
+        }),
+    );
+    assert_eq!(alone["format"], "omnimd-native-se-e2-r");
+    assert_eq!(sel(&alone["descriptor"]), far);
+    assert_eq!(
+        alone["descriptor"]["normalization"],
+        parts[1]["normalization"]
+    );
+
+    // A list of one descriptor trains to the nets of that descriptor alone.
+    let (single, _) = trained(
+        "single",
+        &edit("single", &|body| {
+            body["model"]["descriptor"] = json!({"type": "hybrid", "list": [radial]})
+        }),
+    );
+    assert_eq!(single["format"], "omnimd-native-hybrid");
+    let part = &single["descriptor"]["list"][0];
+    let difference = apart(
+        &numbers_of(&part["embedding"]),
+        &numbers_of(&alone["descriptor"]["embedding"]),
+    );
+    assert!(difference < 1e-8, "embedding nets differ by {difference}");
+    let difference = apart(
+        &numbers_of(&single["fitting"]),
+        &numbers_of(&alone["fitting"]),
+    );
+    assert!(difference < 1e-8, "fitting nets differ by {difference}");
+    // In the hybrid of two the same descriptor has learned other nets.
+    let other = apart(
+        &numbers_of(&parts[1]["embedding"]),
+        &numbers_of(&alone["descriptor"]["embedding"]),
+    );
+    assert!(other > 1e-3, "{other}");
+
+    // Continuing from the trained hybrid: the descriptors are the model's.
+    let (more, _) = trained(
+        "more",
+        &edit("more", &|body| {
+            body["model"] = json!(directory.join("hybrid.native.json"))
+        }),
+    );
+    assert_eq!(more["format"], "omnimd-native-hybrid");
+    let more_parts = more["descriptor"]["list"].as_array().unwrap();
+    assert_eq!(more_parts.len(), 2);
+    for (number, (after, before)) in more_parts.iter().zip(parts).enumerate() {
+        assert_eq!(after["sel"], before["sel"], "descriptor {number}");
+        assert_eq!(after["normalization"], before["normalization"]);
+        assert_ne!(
+            after["embedding"], before["embedding"],
+            "descriptor {number}: nothing was learned"
+        );
+    }
+    let rows = more_parts[1]["embedding"].as_array().unwrap();
+    assert!(rows.iter().all(|row| row == &rows[0]));
+    assert_ne!(more["fitting"], hybrid["fitting"]);
+
+    // The radial descriptor with a net for every pair of types: the note
+    // about DeePMD-kit's PyTorch backend names it by its place.
+    let mut pairs = radial.clone();
+    pairs["type_one_side"] = json!(false);
+    let (_, notes) = trained(
+        "pairs",
+        &edit("pairs", &|body| {
+            body["model"]["descriptor"] = json!({"type": "hybrid", "list": [angular, pairs]})
+        }),
+    );
+    assert!(
+        notes.contains("descriptor.list[1]: se_e2_r with an embedding net for every pair"),
+        "{notes}"
+    );
+
+    // What a request cannot ask for is said, with the place in the list.
+    let refused = |name: &str, descriptor: Value| {
+        let run = train(&[&edit(name, &|body| {
+            body["model"]["descriptor"] = descriptor.clone()
+        })]);
+        assert!(!run.status.success(), "{name}");
+        assert!(
+            !directory.join(format!("{name}.native.json")).exists(),
+            "{name}"
+        );
+        String::from_utf8_lossy(&run.stderr).into_owned()
+    };
+    let mut three_body = radial.clone();
+    three_body["type"] = json!("se_e3");
+    let error = refused(
+        "three-body",
+        json!({"type": "hybrid", "list": [angular, three_body]}),
+    );
+    assert!(
+        error.contains("descriptor.list[1]: only se_e2_a and se_e2_r descriptors"),
+        "{error}"
+    );
+    let mut typo = angular.clone();
+    typo["rcut_smooth"] = json!(0.5);
+    let error = refused(
+        "typo",
+        json!({"type": "hybrid", "list": [typo.clone(), radial]}),
+    );
+    assert!(
+        error.contains("model: descriptor.list[0]: unknown field `rcut_smooth`"),
+        "{error}"
+    );
+    let error = refused("plain-typo", typo);
+    assert!(
+        error.contains("model: descriptor: unknown field `rcut_smooth`"),
+        "{error}"
+    );
+    let error = refused(
+        "nested",
+        json!({"type": "hybrid", "list": [angular, {"type": "hybrid", "list": [radial]}]}),
+    );
+    assert!(
+        error.contains("descriptor.list[1]: a hybrid cannot hold another hybrid"),
+        "{error}"
+    );
+    let error = refused("empty", json!({"type": "hybrid", "list": []}));
+    assert!(
+        error.contains("a hybrid descriptor has 1..=16 descriptors in its list, got 0"),
+        "{error}"
+    );
+    let error = refused(
+        "keys",
+        json!({"type": "hybrid", "list": [angular], "rcut": 4.0}),
+    );
+    assert!(
+        error.contains("model: descriptor: unknown field `rcut`"),
+        "{error}"
+    );
     std::fs::remove_dir_all(directory).unwrap();
 }

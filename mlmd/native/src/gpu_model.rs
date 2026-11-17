@@ -758,9 +758,9 @@ extern "C" __global__ void hybrid_slots(const int* index, const double* delta,
 // types it is laid out by), are launched one model deep and keep the
 // environment and B in double precision (the trainer's); the others skip
 // empty slots, take the number of atoms a model's forces span and keep
-// them in the precision of the networks, and take the stride of the
-// descriptor in the buffers of all descriptors of the model and whether
-// their virial is added to the one that is there.
+// them in the precision of the networks. All take the stride of the
+// descriptor in the buffers of all descriptors of the model, and the force
+// kernels whether their virial is added to the one that is there.
 #define INSTANTIATE(P, S)                                                                         \
 extern "C" __global__ void se_e2_a_env_##S(const int* index, const double* delta,                 \
         const double* dist, const int* atype, const double* davg, const double* dstd_inv,         \
@@ -792,10 +792,10 @@ extern "C" __global__ void se_e2_a_descriptor_##S(const P* env, const P* g,     
 extern "C" __global__ void se_e2_a_descriptor_rows_##S(const double* env, const P* g,             \
         const int* slot_type, const int* slot_local, const int* sel, const int* offset,           \
         int count, int slots, int width, int axis, double* b_out, P* d_out, const int* rows,      \
-        int ntypes) {                                                                             \
+        int ntypes, int stride) {                                                                 \
     descriptor_impl<P, double>(env, g, slot_type, slot_local, sel, offset, count, slots, width,   \
                                axis, b_out, d_out, rows, ntypes, nullptr, nullptr, nullptr,       \
-                               nullptr, 0, width * axis);                                         \
+                               nullptr, 0, stride);                                               \
 }                                                                                                 \
 extern "C" __global__ void se_e2_a_backward_##S(const P* env, const P* g, const P* dg,            \
         const P* b_in, const P* dd_in, const int* index, const double* delta,                     \
@@ -812,11 +812,11 @@ extern "C" __global__ void se_e2_a_backward_rows_##S(const double* env, const P*
         const double* dist, const int* atype, const double* dstd_inv, const int* slot_type,       \
         const int* slot_local, const int* sel, const int* offset, int first, int count,           \
         int slots, int width, int axis, double rmin, double inv_range, double* force,             \
-        double* virial, const int* rows, int ntypes) {                                            \
+        double* virial, const int* rows, int ntypes, int stride, int add) {                       \
     backward_impl<P, double>(env, g, dg, b_in, dd_in, index, delta, dist, atype, dstd_inv,        \
                              slot_type, slot_local, sel, offset, first, count, slots, width,      \
-                             axis, rmin, inv_range, force, virial, rows, ntypes, 0,               \
-                             width * axis, 0);                                                    \
+                             axis, rmin, inv_range, force, virial, rows, ntypes, 0, stride,       \
+                             add);                                                                \
 }                                                                                                 \
 extern "C" __global__ void se_e2_r_descriptor_##S(const P* g, const int* slot_type,               \
         const int* slot_local, const int* sel, const int* offset, int count, int slots,           \
@@ -828,10 +828,10 @@ extern "C" __global__ void se_e2_r_descriptor_##S(const P* g, const int* slot_ty
 }                                                                                                 \
 extern "C" __global__ void se_e2_r_descriptor_rows_##S(const P* g, const int* slot_type,          \
         const int* slot_local, const int* sel, const int* offset, int count, int slots,           \
-        int width, double scale, P* d_out, const int* rows, int ntypes) {                         \
+        int width, double scale, P* d_out, const int* rows, int ntypes, int stride) {             \
     radial_descriptor_impl<P, double>(g, slot_type, slot_local, sel, offset, count, slots,        \
                                       width, scale, d_out, ntypes, nullptr, nullptr, nullptr, 0,  \
-                                      rows, width);                                               \
+                                      rows, stride);                                              \
 }                                                                                                 \
 extern "C" __global__ void se_e2_r_backward_##S(const P* dg, const P* dd_in, const int* index,    \
         const double* delta, const double* dist, const int* atype, const double* dstd_inv,        \
@@ -848,10 +848,10 @@ extern "C" __global__ void se_e2_r_backward_rows_##S(const P* dg, const P* dd_in
         const double* dstd_inv, const int* slot_type, const int* slot_local, const int* sel,      \
         const int* offset, int first, int count, int slots, int width, double scale,              \
         double rmin, double inv_range, double* force, double* virial, const int* rows,            \
-        int ntypes) {                                                                             \
+        int ntypes, int stride, int add) {                                                        \
     radial_backward_impl<P>(dg, dd_in, index, delta, dist, atype, dstd_inv, slot_type,            \
                             slot_local, sel, offset, first, count, slots, width, scale, rmin,     \
-                            inv_range, force, virial, ntypes, 0, rows, width, 0);                 \
+                            inv_range, force, virial, ntypes, 0, rows, stride, add);              \
 }                                                                                                 \
 extern "C" __global__ void se_e3_pairs_##S(const int* index, const double* delta,                 \
         const double* dist, const int* atype, const double* dstd_inv, const int* slot_type,       \

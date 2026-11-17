@@ -1361,7 +1361,7 @@ fn se_e3_in_float32_in_batches_and_committees() {
         .unwrap();
     assert_eq!(
         error.to_string(),
-        "the GPU trainer supports the se_e2_a and se_e2_r descriptors, not se_e3"
+        "the GPU trainer supports the se_e2_a and se_e2_r descriptors and hybrids of them, not se_e3"
     );
 }
 
@@ -2172,12 +2172,13 @@ fn hybrid_in_float32_compressed_in_batches_and_committees() {
         "model 1 differs from the first in its descriptor"
     );
     assert!(GpuPotential::<f64>::committee(&pair, device.clone()).is_err());
-    // The GPU trainer has the arithmetic of one descriptor only.
+    // The GPU trainer has no arithmetic for the three-body descriptor, in a
+    // hybrid either: it names the descriptor by its place in the list.
     let error = omnimd_native::gpu_train::GpuTrainer::<f64>::new(&models[0], device)
         .err()
         .unwrap();
     assert_eq!(
         error.to_string(),
-        "the GPU trainer supports the se_e2_a and se_e2_r descriptors, not hybrid"
+        "descriptor.list[2]: the GPU trainer supports the se_e2_a and se_e2_r descriptors and hybrids of them, not se_e3"
     );
 }

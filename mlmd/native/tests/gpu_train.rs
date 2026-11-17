@@ -1,8 +1,8 @@
 //! The GPU trainer: prediction and loss against the inference path, the loss
 //! gradient against finite differences, batching, Adam against a host
-//! reference, and a short optimization; for se_e2_a, for se_e2_r, and for
-//! models with one embedding net per neighbor type. Skips without a CUDA
-//! driver unless OMNIMD_REQUIRE_GPU=1.
+//! reference, and a short optimization; for se_e2_a, for se_e2_r, for
+//! models with one embedding net per neighbor type, and for hybrids of such
+//! descriptors. Skips without a CUDA driver unless OMNIMD_REQUIRE_GPU=1.
 #![cfg(feature = "gpu")]
 mod common;
 use common::{device, frame, model, values};
@@ -960,4 +960,617 @@ fn se_e2_r_training_fits_a_teacher() {
         exported.descriptor.embedding[1],
         exported.descriptor.embedding[0]
     );
+}
+
+// Hybrids: the descriptors of a list side by side, each with its own nets,
+// and fitting nets that take the components of all of them.
+
+/// The parameters of a model in the order of the trainer's, by what they
+/// belong to: the embedding nets of every descriptor, then the fitting nets.
+fn parameter_ranges(model: &omnimd_native::Model) -> Vec<(String, std::ops::Range<usize>)> {
+    let mut ranges = Vec::new();
+    let mut first = 0;
+    for (number, d) in model.descriptor.parts().iter().enumerate() {
+        // A net that the central types share is there once.
+        let nets: Vec<&omnimd_native::Network> = match d.type_one_side {
+            true => d.embedding[0].iter().collect(),
+            false => d.embedding.iter().flatten().collect(),
+        };
+        let count: usize = nets.into_iter().map(parameters_of).sum();
+        ranges.push((
+            format!("embedding nets of descriptor {number} ({})", d.kind),
+            first..first + count,
+        ));
+        first += count;
+    }
+    let count: usize = model.fitting.iter().map(parameters_of).sum();
+    ranges.push(("fitting nets".to_string(), first..first + count));
+    ranges
+}
+
+/// The loss gradient of the trainer against central differences of its own
+/// loss, for `each` parameters of every range, evenly spread over it. No
+/// range may be without a gradient: every descriptor reaches the loss.
+fn every_range_has_the_loss_gradient(
+    trainer: &mut GpuTrainer<f64>,
+    data: &Labeled,
+    weights: &LossWeights,
+    ranges: &[(String, std::ops::Range<usize>)],
+    each: usize,
+    case: &str,
+) {
+    let theta = trainer.parameters().unwrap();
+    assert_eq!(ranges.last().unwrap().1.end, theta.len(), "{case}");
+    trainer.zero_gradient().unwrap();
+    trainer
+        .accumulate(&data.frame, &data.labels(), weights, 1.0)
+        .unwrap();
+    let gradient = trainer.gradient().unwrap();
+    let scale = gradient.iter().fold(0.0_f64, |m, g| m.max(g.abs()));
+    assert!(scale > 1e-6, "{case}: gradient is zero");
+    let h = 1e-5;
+    for (name, range) in ranges {
+        let largest = gradient[range.clone()]
+            .iter()
+            .fold(0.0_f64, |m, g| m.max(g.abs()));
+        // Measured: the embedding nets of a descriptor have gradients of
+        // 4e-3 to 0.7 of the largest of the model.
+        assert!(
+            largest > 1e-3 * scale,
+            "{case}: {name}: largest gradient {largest} of {scale}"
+        );
+        // An error of a descriptor is seen against its own gradients, not
+        // against those of the fitting nets.
+        let tolerance = 1e-6 * largest.max(1e-2 * scale);
+        let (stride, mut checked) = ((range.len() / each).max(1), 0);
+        for k in range.clone().step_by(stride) {
+            let mut loss = |shift: f64| {
+                let mut moved = theta.clone();
+                moved[k] += shift;
+                trainer.set_parameters(&moved).unwrap();
+                trainer
+                    .accumulate(&data.frame, &data.labels(), weights, 1.0)
+                    .unwrap()
+                    .0
+                    .loss
+            };
+            let numeric = (loss(h) - loss(-h)) / (2.0 * h);
+            assert!(
+                (gradient[k] - numeric).abs() < tolerance + 1e-5 * numeric.abs(),
+                "{case}: {name}: parameter {k}: {} vs {numeric} (largest of the range {largest}, of all {scale})",
+                gradient[k]
+            );
+            checked += 1;
+        }
+        assert!(
+            checked >= each.min(range.len()),
+            "{case}: {name}: only {checked} parameters checked"
+        );
+    }
+    trainer.set_parameters(&theta).unwrap();
+}
+
+/// Neighbors of the atoms of the frame of [`labeled`] within `rcut`: the
+/// fewest and the most of one type around one atom.
+fn fewest_and_most(seed: u64, rcut: f64) -> (usize, usize) {
+    let counts = neighbor_counts(&frame(LATTICE, 3, 2, true, seed), rcut);
+    (
+        *counts.iter().flatten().min().unwrap(),
+        *counts.iter().flatten().max().unwrap(),
+    )
+}
+
+/// The model with larger weights in the output layer of its fitting nets:
+/// the forces of the hybrids of the helpers are of some thousandths of an
+/// eV/A else, which says less than it could.
+fn stronger(mut model: omnimd_native::Model) -> omnimd_native::Model {
+    for net in &mut model.fitting {
+        let output = net.layers.last_mut().unwrap();
+        for weight in output.weights.iter_mut().flatten() {
+            *weight *= 8.0;
+        }
+    }
+    model
+}
+
+/// An angular descriptor of the near neighbors and a radial one of all
+/// within the cutoff of the list. The first is narrower than a warp of the
+/// kernels and has a table of the list of its own (a shorter cutoff, fewer
+/// slots); the second is wider than a warp, has one net per neighbor type
+/// and reads the list as it is.
+fn near_angular_far_radial(seed: u64) -> omnimd_native::Model {
+    stronger(common::hybrid_model(
+        &[
+            model(2, vec![24, 48], 3.2, seed),
+            common::one_sided(common::radial_model(2, vec![40, 80], 4.0, seed + 1, 40)),
+        ],
+        seed + 2,
+    ))
+}
+
+/// Three descriptors, so that the middle one has components before and
+/// after its own: a radial one on the list, a wide angular one with a net
+/// per neighbor type and a narrow angular one, both on tables of their own.
+fn three_descriptors(seed: u64) -> omnimd_native::Model {
+    stronger(common::hybrid_model(
+        &[
+            common::radial_model(2, vec![40, 80], 4.0, seed, 16),
+            common::one_sided(common::model_of_width(
+                2,
+                vec![30, 60],
+                3.6,
+                seed + 1,
+                40,
+                3,
+            )),
+            model(2, vec![20, 44], 3.0, seed + 2),
+        ],
+        seed + 3,
+    ))
+}
+
+/// A hybrid goes through the passes of a model of one descriptor, each
+/// stage once for every descriptor: the prediction is that of the inference
+/// path, virial included, and the gradient that of the loss, in the nets of
+/// every descriptor and in the fitting nets.
+#[test]
+fn a_hybrid_trains_like_the_inference_path() {
+    let Some(device) = device() else { return };
+    // Short of slots, for the frame of seed 133: the list holds fewer
+    // neighbors of the first type than some atoms have, and each descriptor
+    // has fewer slots of one type than the list (so both read tables of
+    // their own). The radial one, with the shorter cutoff, fills its slots
+    // of the first type around every atom and never those of the second.
+    let (fewest_near, most_near) = fewest_and_most(133, 3.2);
+    let (fewest, most) = fewest_and_most(133, 4.0);
+    assert!(
+        fewest_near >= 1 && most_near > fewest_near && most > fewest + 3,
+        "{fewest_near} {most_near} {fewest} {most}"
+    );
+    let middle = (fewest + most) / 2;
+    let roomy = (most_near + 2).max(middle + 1);
+    let short = stronger(common::hybrid_model(
+        &[
+            model(2, vec![middle, middle - 1], 4.0, 131),
+            common::radial_model(2, vec![fewest_near, roomy], 3.2, 132, 16),
+        ],
+        134,
+    ));
+    assert_eq!(short.descriptor.sel, [middle, roomy]);
+    // The slots of the list and a shorter cutoff: the angular descriptor
+    // still needs a table of its own, in which the neighbors between the
+    // two cutoffs are empty slots (its switch is not zero beyond its cutoff
+    // unless they are).
+    let same_slots = stronger(common::hybrid_model(
+        &[
+            common::radial_model(2, vec![40, 80], 4.0, 135, 16),
+            model(2, vec![40, 80], 3.2, 136),
+        ],
+        137,
+    ));
+    let cases = [
+        (
+            "near angular, far radial",
+            near_angular_far_radial(121),
+            124,
+        ),
+        ("three descriptors", three_descriptors(125), 129),
+        ("short of slots", short, 133),
+        ("the slots of the list, a shorter cutoff", same_slots, 138),
+    ];
+    let only = |energy: f64, force: f64, virial: f64| LossWeights {
+        energy,
+        force,
+        virial,
+    };
+    for (case, hybrid, seed) in cases {
+        let mut trainer = GpuTrainer::<f64>::new(&hybrid, device.clone()).unwrap();
+        let ranges = parameter_ranges(&hybrid);
+        assert_eq!(ranges.len(), hybrid.descriptor.list.len() + 1, "{case}");
+        assert_eq!(
+            ranges.last().unwrap().1.end,
+            trainer.parameter_count(),
+            "{case}"
+        );
+        let data = labeled(&mut trainer, seed);
+        let (_, prediction) = trainer
+            .accumulate(&data.frame, &data.labels(), &ALL, 1.0)
+            .unwrap();
+        let expected = GpuPotential::<f64>::new(&hybrid, device.clone())
+            .unwrap()
+            .eval(&data.frame)
+            .unwrap();
+        assert!(
+            (prediction.energy - expected.energy).abs() < 1e-10,
+            "{case}: {} against {}",
+            prediction.energy,
+            expected.energy
+        );
+        let mut largest = 0.0_f64;
+        for (ours, theirs) in prediction.forces.iter().zip(&expected.forces) {
+            for a in 0..3 {
+                assert!((ours[a] - theirs[a]).abs() < 1e-10, "{case}: force");
+                largest = largest.max(theirs[a].abs());
+            }
+        }
+        eprintln!("{case}: largest force {largest:.2e} eV/A");
+        assert!(largest > 3e-3, "{case}: forces of {largest} say little");
+        for (ours, theirs) in prediction
+            .virial
+            .iter()
+            .flatten()
+            .zip(expected.virial.iter().flatten())
+        {
+            assert!(
+                (ours - theirs).abs() < 1e-9,
+                "{case}: virial {ours} against {theirs}"
+            );
+        }
+        for (term, weights) in [
+            ("energy", only(0.7, 0.0, 0.0)),
+            ("force", only(0.0, 30.0, 0.0)),
+            ("virial", only(0.0, 0.0, 0.4)),
+            ("all", ALL),
+        ] {
+            every_range_has_the_loss_gradient(
+                &mut trainer,
+                &data,
+                &weights,
+                &ranges,
+                40,
+                &format!("{case}, {term}"),
+            );
+        }
+        // The exported model is the hybrid it was, with every net in its place.
+        let exported = trainer.model().unwrap();
+        assert_eq!(
+            serde_json::to_value(&exported).unwrap(),
+            serde_json::to_value(&hybrid).unwrap(),
+            "{case}"
+        );
+    }
+}
+
+/// A list of one descriptor is that descriptor: the same parameters in the
+/// same order, the same loss and gradient, and the same nets after an update.
+#[test]
+fn a_hybrid_of_one_descriptor_trains_as_that_descriptor_alone() {
+    let Some(device) = device() else { return };
+    let cases = [
+        ("se_e2_a", model(2, vec![40, 80], 4.0, 141), 141),
+        (
+            "se_e2_r, a net per neighbor type",
+            common::one_sided(common::radial_model(2, vec![40, 80], 4.0, 142, 40)),
+            142,
+        ),
+    ];
+    for (case, alone, seed) in cases {
+        // The fitting nets of a hybrid of the helpers are those of the model
+        // of the same seed.
+        let listed = common::hybrid_model(std::slice::from_ref(&alone), seed);
+        assert_eq!(listed.fitting, alone.fitting, "{case}");
+        let mut plain = GpuTrainer::<f64>::new(&alone, device.clone()).unwrap();
+        let mut hybrid = GpuTrainer::<f64>::new(&listed, device.clone()).unwrap();
+        assert_eq!(
+            plain.parameters().unwrap(),
+            hybrid.parameters().unwrap(),
+            "{case}"
+        );
+        let data = labeled(&mut plain, 143);
+        let step = |trainer: &mut GpuTrainer<f64>| {
+            trainer.zero_gradient().unwrap();
+            let (terms, prediction) = trainer
+                .accumulate(&data.frame, &data.labels(), &ALL, 1.0)
+                .unwrap();
+            (terms.loss, prediction, trainer.gradient().unwrap())
+        };
+        let (loss, prediction, gradient) = step(&mut plain);
+        let (listed_loss, listed_prediction, listed_gradient) = step(&mut hybrid);
+        assert!((listed_loss - loss).abs() < 1e-12 * loss.abs(), "{case}");
+        assert_eq!(listed_prediction.energy, prediction.energy, "{case}");
+        for (ours, theirs) in listed_prediction.forces.iter().zip(&prediction.forces) {
+            for a in 0..3 {
+                assert!((ours[a] - theirs[a]).abs() < 1e-12, "{case}: force");
+            }
+        }
+        let scale = gradient.iter().fold(0.0_f64, |m, g| m.max(g.abs()));
+        assert!(scale > 1e-6, "{case}");
+        for (k, (ours, theirs)) in listed_gradient.iter().zip(&gradient).enumerate() {
+            assert!(
+                (ours - theirs).abs() < 1e-11 * scale,
+                "{case}: parameter {k}: {ours} against {theirs}"
+            );
+        }
+        plain.adam_step(1e-3).unwrap();
+        hybrid.adam_step(1e-3).unwrap();
+        let (moved, listed_moved) = (plain.parameters().unwrap(), hybrid.parameters().unwrap());
+        for (ours, theirs) in listed_moved.iter().zip(&moved) {
+            assert!((ours - theirs).abs() < 1e-12, "{case}: after an update");
+        }
+        // The exported hybrid is a hybrid still, with the nets of the model
+        // of one descriptor in its list.
+        let (exported, listed_exported) = (plain.model().unwrap(), hybrid.model().unwrap());
+        assert_eq!(listed_exported.format, "omnimd-native-hybrid", "{case}");
+        assert_eq!(listed_exported.descriptor.list.len(), 1, "{case}");
+        let part = &listed_exported.descriptor.list[0];
+        assert_eq!(part.kind, exported.descriptor.kind, "{case}");
+        assert_ne!(part.embedding, alone.descriptor.embedding, "{case}");
+        let again = GpuTrainer::<f64>::new(&listed_exported, device.clone()).unwrap();
+        assert_eq!(again.parameters().unwrap(), listed_moved, "{case}");
+        let again = GpuTrainer::<f64>::new(&exported, device.clone()).unwrap();
+        assert_eq!(again.parameters().unwrap(), moved, "{case}");
+    }
+}
+
+/// A frame seen before keeps what every descriptor reads of it, its tables
+/// of the neighbor list included, and those count toward the memory the
+/// kept frames may take.
+#[test]
+fn a_hybrid_keeps_the_tables_of_a_frame_it_has_seen() {
+    let Some(device) = device() else { return };
+    let hybrid = three_descriptors(151);
+    let mut trainer = GpuTrainer::<f64>::new(&hybrid, device.clone()).unwrap();
+    let data = labeled(&mut trainer, 155);
+    assert_eq!(trainer.cached_frames(), 1);
+    let gradient = |trainer: &mut GpuTrainer<f64>, frame: &Frame| {
+        trainer.zero_gradient().unwrap();
+        let (terms, _) = trainer
+            .accumulate(frame, &data.labels(), &ALL, 1.0)
+            .unwrap();
+        (terms.loss, trainer.gradient().unwrap())
+    };
+    let (loss, kept) = gradient(&mut trainer, &data.frame);
+    assert_eq!(trainer.cached_frames(), 1);
+    let mut fresh = GpuTrainer::<f64>::new(&hybrid, device.clone()).unwrap();
+    fresh.set_frame_cache(0);
+    let (fresh_loss, afresh) = gradient(&mut fresh, &data.frame);
+    assert_eq!(fresh.cached_frames(), 0);
+    assert!((loss - fresh_loss).abs() < 1e-12 * loss.abs());
+    let scale = kept.iter().fold(0.0_f64, |m, g| m.max(g.abs()));
+    for (a, b) in kept.iter().zip(&afresh) {
+        assert!((a - b).abs() < 1e-11 * scale, "{a} vs {b}");
+    }
+    // Another frame has other tables: its own loss, and the first one
+    // still gives its own.
+    let mut moved = data.frame.clone();
+    moved.positions[5][1] += 0.01;
+    let (moved_loss, _) = gradient(&mut trainer, &moved);
+    assert_eq!(trainer.cached_frames(), 2);
+    assert!((moved_loss - loss).abs() > 1e-6 * loss.abs());
+    let (again, _) = gradient(&mut trainer, &data.frame);
+    assert!((again - loss).abs() < 1e-12 * loss.abs());
+
+    // What a kept frame holds on the device, in bytes. The list: the type
+    // of every atom, of every slot the neighbor, its vector and distance,
+    // of every atom the neighbors of each type and the nearest distance.
+    let (atoms, types) = (data.frame.positions.len(), 2);
+    let list_slots: usize = hybrid.descriptor.sel.iter().sum();
+    let list = atoms * (4 + list_slots * (4 + 24 + 8) + types * 4 + 8);
+    // Every descriptor: three numbers of its rows per atom and type, and
+    // the two that do not read the list as it is their own tables of it.
+    let rows = 3 * atoms * types * 3 * 4;
+    let tables: usize = hybrid.descriptor.list[1..]
+        .iter()
+        .map(|d| atoms * d.sel.iter().sum::<usize>() * (4 + 24 + 8))
+        .sum();
+    assert!(tables > list / 2, "tables of {tables} bytes beside {list}");
+    let bytes = list + rows + tables;
+    for (room, held) in [(bytes, 1), (bytes - 1, 0)] {
+        let mut limited = GpuTrainer::<f64>::new(&hybrid, device.clone()).unwrap();
+        limited.set_frame_cache(room);
+        gradient(&mut limited, &data.frame);
+        assert_eq!(
+            limited.cached_frames(),
+            held,
+            "room for {room} of {bytes} bytes"
+        );
+    }
+}
+
+/// Float32 networks give the loss and the gradient of float64 ones to their
+/// precision, and a hybrid with other random networks learns the labels of
+/// a hybrid, in both precisions; the trained model keeps every descriptor.
+#[test]
+fn a_hybrid_trains_in_float32_and_fits_a_teacher() {
+    let Some(device) = device() else { return };
+    for (case, hybrid) in [
+        ("near angular, far radial", near_angular_far_radial(161)),
+        ("three descriptors", three_descriptors(165)),
+    ] {
+        let mut double = GpuTrainer::<f64>::new(&hybrid, device.clone()).unwrap();
+        let mut single = GpuTrainer::<f32>::new(&hybrid, device.clone()).unwrap();
+        assert_eq!(single.parameter_count(), double.parameter_count());
+        let data = labeled(&mut double, 169);
+        double.zero_gradient().unwrap();
+        single.zero_gradient().unwrap();
+        let (exact, _) = double
+            .accumulate(&data.frame, &data.labels(), &ALL, 1.0)
+            .unwrap();
+        let (rounded, _) = single
+            .accumulate(&data.frame, &data.labels(), &ALL, 1.0)
+            .unwrap();
+        assert!(
+            (rounded.loss - exact.loss).abs() < 1e-5 * exact.loss,
+            "{case}: loss {} against {}",
+            rounded.loss,
+            exact.loss
+        );
+        let (of_double, of_single) = (double.gradient().unwrap(), single.gradient().unwrap());
+        let scale = of_double.iter().fold(0.0_f64, |m, g| m.max(g.abs()));
+        let worst = of_double
+            .iter()
+            .zip(&of_single)
+            .map(|(a, b)| (a - b).abs())
+            .fold(0.0, f64::max);
+        eprintln!(
+            "{case}: float32 loss off by {:.1e}, gradient by {:.1e} of its largest entry",
+            (rounded.loss - exact.loss).abs() / exact.loss,
+            worst / scale
+        );
+        assert!(scale > 1e-6, "{case}: gradient is zero");
+        assert!(
+            worst < 2e-5 * scale,
+            "{case}: {worst} against a largest entry of {scale}"
+        );
+    }
+
+    let mut teacher =
+        GpuPotential::<f64>::new(&near_angular_far_radial(171), device.clone()).unwrap();
+    let data = [taught(&mut teacher, 174), taught(&mut teacher, 175)];
+    let student = near_angular_far_radial(176);
+    let mut double = GpuTrainer::<f64>::new(&student, device.clone()).unwrap();
+    let (start, end) = fit(&mut double, &data);
+    eprintln!("hybrid float64: {start} -> {end}");
+    assert!(end < 0.1 * start, "float64: {start} -> {end}");
+    // The trained model: a hybrid of the same descriptors, every one with
+    // nets that have moved, the radial one with its rows still alike; it
+    // predicts what its trainer does.
+    let exported = double.model().unwrap();
+    assert_eq!(exported.format, "omnimd-native-hybrid");
+    let kinds: Vec<&str> = exported
+        .descriptor
+        .list
+        .iter()
+        .map(|d| d.kind.as_str())
+        .collect();
+    assert_eq!(kinds, ["se_e2_a", "se_e2_r"]);
+    for (trained, initial) in exported
+        .descriptor
+        .list
+        .iter()
+        .zip(&student.descriptor.list)
+    {
+        assert_ne!(trained.embedding, initial.embedding, "{}", trained.kind);
+        assert_eq!(trained.sel, initial.sel);
+        assert_eq!(trained.type_one_side, initial.type_one_side);
+    }
+    let radial = &exported.descriptor.list[1];
+    assert!(radial.type_one_side && radial.embedding[1] == radial.embedding[0]);
+    let angular = &exported.descriptor.list[0];
+    assert_ne!(angular.embedding[1], angular.embedding[0]);
+    assert_ne!(exported.fitting, student.fitting);
+    let mut potential = GpuPotential::<f64>::new(&exported, device.clone()).unwrap();
+    let (_, prediction) = double
+        .accumulate(&data[0].frame, &data[0].labels(), &ALL, 0.0)
+        .unwrap();
+    let reloaded = potential.eval(&data[0].frame).unwrap();
+    assert!((reloaded.energy - prediction.energy).abs() < 1e-9);
+    for (ours, theirs) in reloaded.forces.iter().zip(&prediction.forces) {
+        for a in 0..3 {
+            assert!((ours[a] - theirs[a]).abs() < 1e-9);
+        }
+    }
+
+    let mut single = GpuTrainer::<f32>::new(&student, device).unwrap();
+    let (start, end) = fit(&mut single, &data);
+    eprintln!("hybrid float32: {start} -> {end}");
+    assert!(end < 0.1 * start, "float32: {start} -> {end}");
+}
+
+/// A run of a hybrid that is stopped continues from its exported model and
+/// its optimizer state as if it had gone on.
+#[test]
+fn a_saved_optimizer_state_continues_the_run_of_a_hybrid() {
+    let Some(device) = device() else { return };
+    let mut teacher = GpuPotential::<f64>::new(&three_descriptors(181), device.clone()).unwrap();
+    let data = taught(&mut teacher, 185);
+    let student = three_descriptors(186);
+    let step = |trainer: &mut GpuTrainer<f64>| {
+        trainer.zero_gradient().unwrap();
+        trainer
+            .accumulate(&data.frame, &data.labels(), &ALL, 1.0)
+            .unwrap();
+        trainer.adam_step(1e-3).unwrap();
+    };
+    let mut straight = GpuTrainer::<f64>::new(&student, device.clone()).unwrap();
+    for _ in 0..6 {
+        step(&mut straight);
+    }
+    let mut first = GpuTrainer::<f64>::new(&student, device.clone()).unwrap();
+    for _ in 0..3 {
+        step(&mut first);
+    }
+    let (snapshot, state) = (first.model().unwrap(), first.optimizer_state().unwrap());
+    assert_eq!(state.step, 3);
+    assert_eq!(state.m.len(), first.parameter_count());
+    let mut second = GpuTrainer::<f64>::new(&snapshot, device.clone()).unwrap();
+    second.set_optimizer_state(&state).unwrap();
+    for _ in 0..3 {
+        step(&mut second);
+    }
+    let (a, b) = (straight.parameters().unwrap(), second.parameters().unwrap());
+    let worst = a
+        .iter()
+        .zip(&b)
+        .map(|(x, y)| (x - y).abs())
+        .fold(0.0, f64::max);
+    assert!(worst < 1e-11, "restart differs by {worst}");
+    // Without the optimizer state the continuation is another run.
+    let mut cold = GpuTrainer::<f64>::new(&snapshot, device).unwrap();
+    for _ in 0..3 {
+        step(&mut cold);
+    }
+    let apart = a
+        .iter()
+        .zip(&cold.parameters().unwrap())
+        .map(|(x, y)| (x - y).abs())
+        .fold(0.0, f64::max);
+    assert!(apart > 1e-6);
+}
+
+/// What the trainer has no arithmetic for is refused by name, a descriptor
+/// of a hybrid by its place in the list.
+#[test]
+fn a_hybrid_with_a_three_body_descriptor_is_refused() {
+    let Some(device) = device() else { return };
+    let three_body = common::three_body_model(2, vec![20, 30], 3.0, 191, 8);
+    let error = GpuTrainer::<f64>::new(&three_body, device.clone())
+        .err()
+        .unwrap();
+    assert_eq!(
+        error.to_string(),
+        "the GPU trainer supports the se_e2_a and se_e2_r descriptors and hybrids of them, not se_e3"
+    );
+    let hybrid = common::hybrid_model(&[model(2, vec![40, 80], 4.0, 192), three_body], 193);
+    for (name, error) in [
+        (
+            "float64",
+            GpuTrainer::<f64>::new(&hybrid, device.clone()).err(),
+        ),
+        ("float32", GpuTrainer::<f32>::new(&hybrid, device).err()),
+    ] {
+        assert_eq!(
+            error.unwrap().to_string(),
+            "descriptor.list[1]: the GPU trainer supports the se_e2_a and se_e2_r descriptors and hybrids of them, not se_e3",
+            "{name}"
+        );
+    }
+}
+
+/// Two atoms in one place have no direction between them: the trainer
+/// refuses the frame by name, for a hybrid as for one descriptor, and keeps
+/// nothing of it.
+#[test]
+fn a_frame_with_two_atoms_in_one_place_is_refused() {
+    let Some(device) = device() else { return };
+    let none = FrameLabels {
+        energy: None,
+        forces: None,
+        virial: None,
+    };
+    for (case, model) in [
+        ("se_e2_a", model(2, vec![40, 80], 4.0, 201)),
+        ("hybrid", three_descriptors(202)),
+    ] {
+        let mut trainer = GpuTrainer::<f64>::new(&model, device.clone()).unwrap();
+        let mut frame = frame(LATTICE, 3, 2, true, 206);
+        frame.positions[4] = frame.positions[9];
+        let error = trainer
+            .accumulate(&frame, &none, &ALL, 1.0)
+            .err()
+            .unwrap()
+            .to_string();
+        assert!(error.contains("coincident"), "{case}: {error}");
+        assert_eq!(trainer.cached_frames(), 0, "{case}");
+    }
 }

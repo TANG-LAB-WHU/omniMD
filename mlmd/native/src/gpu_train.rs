@@ -1,4 +1,5 @@
-//! se_e2_a and se_e2_r training on the omnimd-gpu runtime (plan I-8): the loss of
+//! se_e2_a and se_e2_r training on the omnimd-gpu runtime (plan I-8), for a
+//! model of one of these descriptors or a hybrid of several: the loss of
 //! DeePMD-kit's `ener` loss for one frame and its gradient with respect to
 //! every network parameter, plus an Adam update, all on the device.
 //!
@@ -29,11 +30,26 @@
 //! depend on the neighbor type only (`type_one_side`) has each of them once
 //! among the parameters, and every row of that neighbor type goes through
 //! it, whatever its center.
+//!
+//! A hybrid has the descriptors of its list side by side: the components of
+//! all of them, one after the other, are the input of the fitting nets.
+//! Each descriptor has its own embedding nets (a [`omnimd_gpu::TrainSet`]
+//! each, since their shapes may differ), cutoffs, slots and statistics, and
+//! takes every stage of a step with its own kernels: environment, embedding,
+//! descriptor and forces, then tangent and reverse, into and out of its
+//! place in the buffers of D. The fitting nets run once for all of them.
+//! One neighbor list serves them, made with the largest cutoff and of every
+//! type the most slots, as in DeePMD-kit; a descriptor with a shorter cutoff
+//! or fewer slots reads its own table of that list (of every type the
+//! nearest neighbors in its slots, none at or beyond its cutoff), which is
+//! kept with the frame like the list itself.
 use crate::gpu_model::{launch_error, SOURCE as MODEL_SOURCE};
-use crate::{Activation, DescriptorKind, Layer, Model, Network, Residual, RADIAL_RESCALE};
+use crate::{
+    Activation, Descriptor, DescriptorKind, Layer, Model, Network, Residual, RADIAL_RESCALE,
+};
 use omnimd_gpu::{
     Activation as DeviceActivation, Cell, CudaFunction, CudaSlice, Device, LaunchConfig,
-    NeighborList, PushKernelArg, Scalar, TrainLayer, TrainSet,
+    NeighborList, PushKernelArg, Scalar, SetTape, TrainLayer, TrainSet,
 };
 use omnimd_ml_contract::{Error, Evaluation, Frame, ModelMetadata, Result, Units};
 use std::collections::HashMap;
@@ -89,14 +105,20 @@ extern "C" __global__ void se_e2_a_env_tangent(const int* index, const double* d
     for (int a = 0; a < 4; ++a) envdot[4 * idx + a] = out[a];
 }
 
+// The components of an atom lie `stride` values apart in the buffers of D,
+// of its tangent and of their adjoints: the number of components of all
+// descriptors of the model, with the buffer given from the first component
+// of this descriptor on. For a model of one descriptor that is its own
+// number of components.
+//
 // One block per atom: tangents of B and of D = B·B[:axis]^T. The embedding
 // tangent of a row is dg (its derivative along the radial input) times the
 // tangent of that input, envdot[..][0].
 template <typename P>
 __device__ void descriptor_tangent(const double* env, const double* envdot, const P* g,
         const P* dg, const double* b_in, const int* slot_type, const int* slot_local,
-        const int* rows, int ntypes, int slots, int width, int axis, double* bdot_out,
-        P* ddot_out) {
+        const int* rows, int ntypes, int slots, int width, int axis, int stride,
+        double* bdot_out, P* ddot_out) {
     extern __shared__ double shared[];
     double* b = shared;
     double* bd = b + 4 * width;
@@ -125,7 +147,7 @@ __device__ void descriptor_tangent(const double* env, const double* envdot, cons
         int m = e / axis, k = e % axis;
         double v = 0.0;
         for (int a = 0; a < 4; ++a) v += bd[4 * m + a] * b[4 * k + a] + b[4 * m + a] * bd[4 * k + a];
-        ddot_out[(long long)i * width * axis + e] = (P)v;
+        ddot_out[(long long)i * stride + e] = (P)v;
     }
 }
 
@@ -140,7 +162,7 @@ template <typename P>
 __device__ void descriptor_reverse(const double* env, const double* envdot, const double* b_in,
         const double* bdot_in, const P* dbar_in, const P* ddbar_in, const int* slot_type,
         const int* slot_local, const int* sel, const int* offset, const int* rows, int ntypes,
-        int slots, int width, int axis, P* gbar, P* gpbar) {
+        int slots, int width, int axis, int stride, P* gbar, P* gpbar) {
     extern __shared__ double shared[];
     double* b = shared;
     double* bd = b + 4 * width;
@@ -152,8 +174,8 @@ __device__ void descriptor_reverse(const double* env, const double* envdot, cons
         bd[e] = bdot_in[(long long)i * width * 4 + e];
     }
     __syncthreads();
-    const P* dbar = dbar_in + (long long)i * width * axis;
-    const P* ddbar = ddbar_in + (long long)i * width * axis;
+    const P* dbar = dbar_in + (long long)i * stride;
+    const P* ddbar = ddbar_in + (long long)i * stride;
     for (int m = threadIdx.x; m < width; m += blockDim.x) {
         double value[4] = {0.0, 0.0, 0.0, 0.0}, tangent[4] = {0.0, 0.0, 0.0, 0.0};
         for (int k = 0; k < axis; ++k) {
@@ -214,7 +236,7 @@ __device__ void descriptor_reverse(const double* env, const double* envdot, cons
 template <typename P>
 __device__ void radial_descriptor_tangent(const double* envdot, const P* dg, const int* slot_type,
         const int* slot_local, const int* rows, int ntypes, int slots, int width, double scale,
-        P* ddot_out) {
+        int stride, P* ddot_out) {
     int i = blockIdx.x;
     for (int m = threadIdx.x; m < width; m += blockDim.x) {
         double acc = 0.0;
@@ -223,7 +245,7 @@ __device__ void radial_descriptor_tangent(const double* envdot, const P* dg, con
             long long row = train_row(rows, ntypes, i, slot_type[s], slot_local[s]) * width + m;
             acc += (double)dg[row] * envdot[((long long)i * slots + s) * 4];
         }
-        ddot_out[(long long)i * width + m] = (P)(acc * scale);
+        ddot_out[(long long)i * stride + m] = (P)(acc * scale);
     }
 }
 
@@ -238,10 +260,11 @@ __device__ void radial_descriptor_tangent(const double* envdot, const P* dg, con
 template <typename P>
 __device__ void radial_descriptor_reverse(const double* envdot, const P* dbar_in,
         const P* ddbar_in, const int* slot_type, const int* slot_local, const int* sel,
-        const int* rows, int ntypes, int slots, int width, double scale, P* gbar, P* gpbar) {
+        const int* rows, int ntypes, int slots, int width, double scale, int stride, P* gbar,
+        P* gpbar) {
     int i = blockIdx.x;
-    const P* dbar = dbar_in + (long long)i * width;
-    const P* ddbar = ddbar_in + (long long)i * width;
+    const P* dbar = dbar_in + (long long)i * stride;
+    const P* ddbar = ddbar_in + (long long)i * stride;
     int lane = threadIdx.x & 31, warp = threadIdx.x >> 5, warps = blockDim.x >> 5;
     const int* mine = rows + 3 * (long long)i * ntypes;
     for (int s = warp; s < slots; s += warps) {
@@ -299,29 +322,30 @@ extern "C" __global__ void adam_master(double* master, float* theta, const float
 extern "C" __global__ void se_e2_a_descriptor_tangent_##S(const double* env,                      \
         const double* envdot, const P* g, const P* dg, const double* b_in, const int* slot_type,  \
         const int* slot_local, const int* rows, int ntypes, int slots, int width, int axis,       \
-        double* bdot_out, P* ddot_out) {                                                          \
+        int stride, double* bdot_out, P* ddot_out) {                                              \
     descriptor_tangent<P>(env, envdot, g, dg, b_in, slot_type, slot_local, rows, ntypes, slots,   \
-                          width, axis, bdot_out, ddot_out);                                       \
+                          width, axis, stride, bdot_out, ddot_out);                               \
 }                                                                                                 \
 extern "C" __global__ void se_e2_a_descriptor_reverse_##S(const double* env,                      \
         const double* envdot, const double* b_in, const double* bdot_in, const P* dbar,           \
         const P* ddbar, const int* slot_type, const int* slot_local, const int* sel,              \
-        const int* offset, const int* rows, int ntypes, int slots, int width, int axis, P* gbar,  \
-        P* gpbar) {                                                                               \
+        const int* offset, const int* rows, int ntypes, int slots, int width, int axis,           \
+        int stride, P* gbar, P* gpbar) {                                                          \
     descriptor_reverse<P>(env, envdot, b_in, bdot_in, dbar, ddbar, slot_type, slot_local, sel,    \
-                          offset, rows, ntypes, slots, width, axis, gbar, gpbar);                 \
+                          offset, rows, ntypes, slots, width, axis, stride, gbar, gpbar);         \
 }                                                                                                 \
 extern "C" __global__ void se_e2_r_descriptor_tangent_##S(const double* envdot, const P* dg,      \
         const int* slot_type, const int* slot_local, const int* rows, int ntypes, int slots,      \
-        int width, double scale, P* ddot_out) {                                                   \
+        int width, double scale, int stride, P* ddot_out) {                                       \
     radial_descriptor_tangent<P>(envdot, dg, slot_type, slot_local, rows, ntypes, slots, width,   \
-                                 scale, ddot_out);                                                \
+                                 scale, stride, ddot_out);                                        \
 }                                                                                                 \
 extern "C" __global__ void se_e2_r_descriptor_reverse_##S(const double* envdot, const P* dbar,    \
         const P* ddbar, const int* slot_type, const int* slot_local, const int* sel,              \
-        const int* rows, int ntypes, int slots, int width, double scale, P* gbar, P* gpbar) {     \
+        const int* rows, int ntypes, int slots, int width, double scale, int stride, P* gbar,     \
+        P* gpbar) {                                                                               \
     radial_descriptor_reverse<P>(envdot, dbar, ddbar, slot_type, slot_local, sel, rows, ntypes,   \
-                                 slots, width, scale, gbar, gpbar);                               \
+                                 slots, width, scale, stride, gbar, gpbar);                       \
 }                                                                                                 \
 extern "C" __global__ void adam_##S(P* theta, const P* grad, P* m, P* v, long long n, P lr,       \
         P beta1, P beta2, P eps, P correction1, P correction2) {                                  \
@@ -378,6 +402,8 @@ impl LossTerms {
     }
 }
 
+/// The kernels of one descriptor: what stands between its embedding nets
+/// and the fitting nets, forward, along the tangent and in reverse.
 struct Kernels {
     env: CudaFunction,
     descriptor: CudaFunction,
@@ -385,8 +411,6 @@ struct Kernels {
     env_tangent: CudaFunction,
     descriptor_tangent: CudaFunction,
     descriptor_reverse: CudaFunction,
-    adam: CudaFunction,
-    adam_master: CudaFunction,
 }
 
 /// Wall-clock milliseconds per stage of [`GpuTrainer::accumulate`] and of the
@@ -463,18 +487,12 @@ pub struct GpuTrainer<P: Scalar> {
     metadata: ModelMetadata,
     /// Structure, normalization and bias; parameters are refreshed on export.
     model: Model,
-    slots: usize,
-    width: usize,
-    /// The descriptor: which kernels stand between the embedding and the
-    /// fitting nets.
-    kind: DescriptorKind,
-    /// se_e2_a: the axis neurons. None for se_e2_r.
-    axis: usize,
-    /// Components of the descriptor: the input of a fitting net.
+    /// The descriptors: one for a model of one descriptor, those of the list
+    /// of a hybrid in its order.
+    parts: Vec<Part<P>>,
+    /// Components of the descriptor, for a hybrid those of all its
+    /// descriptors one after the other: the input of a fitting net.
     features: usize,
-    /// The embedding nets depend on the neighbor type only: the parameters
-    /// hold one per neighbor type instead of one per pair of types.
-    one_side: bool,
     /// The parameters the networks compute with.
     theta: CudaSlice<P>,
     /// For float32 networks: the parameters in float64, which the optimizer
@@ -482,14 +500,50 @@ pub struct GpuTrainer<P: Scalar> {
     master: Option<CudaSlice<f64>>,
     gradient: CudaSlice<P>,
     adam: Option<AdamState<P>>,
+    /// One fitting net per center type: the layouts, and all of them as one
+    /// set that evaluates every atom with the net of its type.
+    fitting: Vec<Vec<TrainLayer>>,
+    fitting_set: TrainSet<P>,
+    adam_kernel: CudaFunction,
+    adam_master: CudaFunction,
+    /// hybrid: writes the table of slots of a descriptor that does not read
+    /// the neighbor list as it is.
+    narrow: Option<CudaFunction>,
+    profile: Option<TrainStageTimes>,
+    /// Frames prepared before, by a hash of their content.
+    prepared: HashMap<u64, Arc<Prepared>>,
+    prepared_bytes: usize,
+    prepared_limit: usize,
+}
+
+/// One descriptor of the model: its embedding nets among the parameters and
+/// what its kernels read. A model has one; a hybrid has one for every
+/// descriptor of its list, each with cutoffs, slots, statistics and nets of
+/// its own.
+struct Part<P: Scalar> {
+    /// Which kernels stand between the embedding and the fitting nets.
+    kind: DescriptorKind,
+    rcut: f64,
+    rcut_smth: f64,
+    /// 1 / (rcut - rcut_smth), for the switching function.
+    inv_range: f64,
+    sel: Vec<usize>,
+    slots: usize,
+    width: usize,
+    /// se_e2_a: the axis neurons. None for se_e2_r.
+    axis: usize,
+    /// Components of this descriptor, and the first of them among the
+    /// components of all descriptors of the model.
+    features: usize,
+    first_feature: usize,
+    /// The embedding nets depend on the neighbor type only: the parameters
+    /// hold one per neighbor type instead of one per pair of types.
+    one_side: bool,
     /// Net `center type · ntypes + neighbor type`, or net `neighbor type`
     /// when the nets do not depend on the center: the layouts, and all of
     /// them as one set that evaluates every row with the net it names.
     embedding: Vec<Vec<TrainLayer>>,
     embedding_set: TrainSet<P>,
-    /// One fitting net per center type, likewise.
-    fitting: Vec<Vec<TrainLayer>>,
-    fitting_set: TrainSet<P>,
     davg: CudaSlice<f64>,
     /// Reciprocals of the normalization widths: the kernels multiply.
     dstd_inv: CudaSlice<f64>,
@@ -498,17 +552,24 @@ pub struct GpuTrainer<P: Scalar> {
     sel_d: CudaSlice<i32>,
     offset_d: CudaSlice<i32>,
     kernels: Kernels,
-    profile: Option<TrainStageTimes>,
-    /// Frames prepared before, by a hash of their content.
-    prepared: HashMap<u64, Arc<Prepared>>,
-    prepared_bytes: usize,
-    prepared_limit: usize,
+    /// hybrid: how this descriptor reads the neighbor list of all of them,
+    /// when its slots or its cutoff are not those of the list.
+    view: Option<View>,
+}
+
+/// The slots of the neighbor list by type and the first slot of each type:
+/// what the kernel reads that writes a descriptor's own table of the list
+/// (`hybrid_slots` of the model kernels).
+struct View {
+    list_sel: CudaSlice<i32>,
+    list_offset: CudaSlice<i32>,
+    list_slots: usize,
 }
 
 /// What a frame needs before the networks run and what never changes for the
 /// same frame: its atoms sorted by type, their neighbor list on the device
-/// and the layout of the embedding rows. A training set visits the same
-/// frames again and again.
+/// and, for every descriptor, the layout of the embedding rows. A training
+/// set visits the same frames again and again.
 struct Prepared {
     /// The frame as given, to recognize it.
     positions: Vec<[f64; 3]>,
@@ -520,6 +581,15 @@ struct Prepared {
     block: Vec<usize>,
     atype: CudaSlice<i32>,
     list: NeighborList,
+    /// The frame as each descriptor reads it, in the order of the trainer's.
+    parts: Vec<Seen>,
+}
+
+/// A frame as one descriptor reads it.
+struct Seen {
+    /// hybrid: the descriptor's own table of the neighbor list, when it does
+    /// not read the list as it is.
+    table: Option<SlotTable>,
     /// The row table of the kernels and the rows of every embedding net
     /// ([`embedding_rows`]).
     row_table: CudaSlice<i32>,
@@ -527,12 +597,44 @@ struct Prepared {
     rows_embedding: usize,
 }
 
+/// The slots of a descriptor for every atom of a frame, like those of a
+/// neighbor list: `[atoms][slots]` neighbors (-1 for an empty slot), their
+/// vectors and distances.
+struct SlotTable {
+    index: CudaSlice<i32>,
+    delta: CudaSlice<f64>,
+    dist: CudaSlice<f64>,
+}
+
+impl Seen {
+    /// The neighbor slots the kernels of the descriptor read (neighbors,
+    /// vectors, distances): its own table, or the list itself.
+    fn slots<'a>(
+        &'a self,
+        list: &'a NeighborList,
+    ) -> (&'a CudaSlice<i32>, &'a CudaSlice<f64>, &'a CudaSlice<f64>) {
+        match &self.table {
+            Some(table) => (&table.index, &table.delta, &table.dist),
+            None => (&list.index, &list.delta, &list.dist),
+        }
+    }
+
+    /// Device memory this holds.
+    fn bytes(&self) -> usize {
+        let table = self.table.as_ref().map_or(0, |table| {
+            4 * table.index.len() + 8 * (table.delta.len() + table.dist.len())
+        });
+        4 * self.row_table.len() + table
+    }
+}
+
 impl Prepared {
     /// Device memory this holds.
     fn bytes(&self) -> usize {
-        4 * (self.atype.len() + self.row_table.len() + self.list.index.len())
-            + 4 * self.list.count.len()
-            + 8 * (self.list.delta.len() + self.list.min_distance.len())
+        let list = &self.list;
+        4 * (self.atype.len() + list.index.len() + list.count.len())
+            + 8 * (list.delta.len() + list.dist.len() + list.min_distance.len())
+            + self.parts.iter().map(Seen::bytes).sum::<usize>()
     }
 }
 
@@ -607,9 +709,9 @@ fn unpack(layers: &mut [Layer], layout: &[TrainLayer], theta: &[f64]) {
     }
 }
 
-/// Neighbors that hold a slot, `[atoms][types]`. Without truncation these
-/// are the neighbor counts of the list; a truncated list is counted slot by
-/// slot.
+/// Neighbors that hold a slot of the list, `[atoms][types]`. Without
+/// truncation these are the neighbor counts of the list; a truncated list
+/// is counted slot by slot.
 fn filled_slots(device: &Device, list: &NeighborList) -> Result<Vec<usize>> {
     let ntypes = list.sel.len();
     let counts = device.download(&list.count)?;
@@ -621,11 +723,18 @@ fn filled_slots(device: &Device, list: &NeighborList) -> Result<Vec<usize>> {
     if !truncated {
         return Ok(counts.into_iter().map(|count| count as usize).collect());
     }
-    let index = device.download(&list.index)?;
-    let mut filled = Vec::with_capacity(counts.len());
-    for atom in index.chunks_exact(list.slots) {
+    held_slots(&device.download(&list.index)?, &list.sel)
+}
+
+/// Neighbors that hold a slot, `[atoms][types]`, counted slot by slot in
+/// `index` (`[atoms][slots]`, -1 for an empty slot, `sel[t]` slots of each
+/// type in the order of the types).
+fn held_slots(index: &[i32], sel: &[usize]) -> Result<Vec<usize>> {
+    let slots: usize = sel.iter().sum();
+    let mut filled = Vec::with_capacity(index.len() / slots.max(1) * sel.len());
+    for atom in index.chunks_exact(slots) {
         let mut first = 0;
-        for &sel in &list.sel {
+        for &sel in sel {
             let segment = &atom[first..first + sel];
             let held = segment.iter().take_while(|&&j| j >= 0).count();
             if segment[held..].iter().any(|&j| j >= 0) {
@@ -706,21 +815,46 @@ fn radial_force_shared<P>(slots: usize, width: usize) -> usize {
     (slots + 12) * 8 + (width * std::mem::size_of::<P>()).next_multiple_of(8)
 }
 
-impl<P: Scalar> GpuTrainer<P> {
-    pub fn new(model: &Model, device: Arc<Device>) -> Result<Self> {
-        let metadata = model.validate()?;
-        let d = &model.descriptor;
-        // Before anything reads the nets of the descriptor: a hybrid has
-        // none of its own.
-        let Some(kind @ (DescriptorKind::SeE2A | DescriptorKind::SeE2R)) = model.descriptor_kind()
+/// What the environment kernel gives of one descriptor.
+struct Rows<P: Scalar> {
+    /// se_e2_a: the normalized environment rows. se_e2_r has none.
+    env: Option<CudaSlice<f64>>,
+    /// The input and the net of every embedding row.
+    input: CudaSlice<P>,
+    network: CudaSlice<i32>,
+}
+
+fn per_atom(natoms: usize, shared: usize) -> LaunchConfig {
+    LaunchConfig {
+        grid_dim: (natoms as u32, 1, 1),
+        block_dim: (BLOCK, 1, 1),
+        shared_mem_bytes: shared as u32,
+    }
+}
+
+impl<P: Scalar> Part<P> {
+    /// The descriptor `d` of a model whose neighbor list has the slots
+    /// `list_sel` within `list_rcut`. Its embedding nets go to the end of
+    /// `theta`; `first_feature` is the place of its components among those
+    /// of the model, and `context` goes before the message of a descriptor
+    /// that cannot be trained (its place in the list of a hybrid).
+    fn new(
+        device: &Device,
+        d: &Descriptor,
+        list_sel: &[usize],
+        list_rcut: f64,
+        first_feature: usize,
+        theta: &mut Vec<f64>,
+        context: &str,
+    ) -> Result<Self> {
+        let Some(kind @ (DescriptorKind::SeE2A | DescriptorKind::SeE2R)) = d.descriptor_kind()
         else {
             return Err(Error(format!(
-                "the GPU trainer supports the se_e2_a and se_e2_r descriptors, not {}",
+                "{context}the GPU trainer supports the se_e2_a and se_e2_r descriptors and hybrids of them, not {}",
                 d.kind
             )));
         };
-        let ntypes = model.type_map.len();
-        let width = d.embedding[0][0].output_size();
+        let width = d.width();
         let slots: usize = d.sel.iter().sum();
         // The most shared memory a kernel of the descriptor takes per block.
         let real = std::mem::size_of::<P>();
@@ -730,7 +864,7 @@ impl<P: Scalar> GpuTrainer<P> {
         };
         if shared > SHARED_LIMIT {
             return Err(Error(format!(
-                "GPU {} training does not fit shared memory with embedding width {width} and {slots} neighbor slots",
+                "{context}GPU {} training does not fit shared memory with embedding width {width} and {slots} neighbor slots",
                 kind.name()
             )));
         }
@@ -741,22 +875,11 @@ impl<P: Scalar> GpuTrainer<P> {
             true => d.embedding[0].iter().collect(),
             false => d.embedding.iter().flatten().collect(),
         };
-        let mut theta = Vec::new();
         let embedding: Vec<Vec<TrainLayer>> = nets
             .into_iter()
-            .map(|network| pack(network, 1, &mut theta))
+            .map(|network| pack(network, 1, theta))
             .collect();
-        let embedding_set = TrainSet::new(&device, embedding.clone())?;
-        let features = d.features();
-        let mut fitting = Vec::with_capacity(ntypes);
-        for network in &model.fitting {
-            let layers = pack(network, features, &mut theta);
-            if layers.last().map(|l| l.output) != Some(1) {
-                return Err(Error("fitting networks must end in one output".into()));
-            }
-            fitting.push(layers);
-        }
-        let fitting_set = TrainSet::new(&device, fitting.clone())?;
+        let embedding_set = TrainSet::new(device, embedding.clone())?;
         let davg: Vec<f64> = d.normalization.iter().flat_map(|n| n.mean).collect();
         let dstd_inv: Vec<f64> = d
             .normalization
@@ -775,7 +898,11 @@ impl<P: Scalar> GpuTrainer<P> {
                 .kernels()
                 .function(MODEL_SOURCE, &format!("{name}_{}", P::SUFFIX))
         };
-        let train_kernel = |name: &str| device.kernels().function(SOURCE, name);
+        let train_kernel = |name: &str| {
+            device
+                .kernels()
+                .function(SOURCE, &format!("{name}_{}", P::SUFFIX))
+        };
         // The environment kernels serve both descriptors: se_e2_r reads the
         // radial entry of what they give.
         let name = kind.name();
@@ -783,33 +910,46 @@ impl<P: Scalar> GpuTrainer<P> {
             env: model_kernel("se_e2_a_env_rows")?,
             descriptor: model_kernel(&format!("{name}_descriptor_rows"))?,
             force: model_kernel(&format!("{name}_backward_rows"))?,
-            env_tangent: train_kernel("se_e2_a_env_tangent")?,
-            descriptor_tangent: train_kernel(&format!("{name}_descriptor_tangent_{}", P::SUFFIX))?,
-            descriptor_reverse: train_kernel(&format!("{name}_descriptor_reverse_{}", P::SUFFIX))?,
-            adam: train_kernel(&format!("adam_{}", P::SUFFIX))?,
-            adam_master: train_kernel("adam_master")?,
+            env_tangent: device.kernels().function(SOURCE, "se_e2_a_env_tangent")?,
+            descriptor_tangent: train_kernel(&format!("{name}_descriptor_tangent"))?,
+            descriptor_reverse: train_kernel(&format!("{name}_descriptor_reverse"))?,
         };
-        let cast: Vec<P> = theta.iter().map(|&v| P::from_f64(v)).collect();
+        // A descriptor with the slots and the cutoff of the list reads the
+        // list as it is; any other, its own table of it.
+        let view = match d.sel == list_sel && d.rcut == list_rcut {
+            true => None,
+            false => {
+                let mut first = 0i32;
+                let list_offset: Vec<i32> = list_sel
+                    .iter()
+                    .map(|&count| {
+                        let offset = first;
+                        first += count as i32;
+                        offset
+                    })
+                    .collect();
+                let list_sel_i: Vec<i32> = list_sel.iter().map(|&s| s as i32).collect();
+                Some(View {
+                    list_sel: device.upload(&list_sel_i)?,
+                    list_offset: device.upload(&list_offset)?,
+                    list_slots: list_sel.iter().sum(),
+                })
+            }
+        };
         Ok(Self {
-            metadata,
-            model: model.clone(),
+            kind,
+            rcut: d.rcut,
+            rcut_smth: d.rcut_smth,
+            inv_range: 1.0 / (d.rcut - d.rcut_smth),
+            sel: d.sel.clone(),
             slots,
             width,
-            kind,
             axis: d.axis_neuron,
-            features,
+            features: d.features(),
+            first_feature,
             one_side,
-            gradient: device.zeros::<P>(cast.len())?,
-            theta: device.upload(&cast)?,
-            master: match P::SUFFIX {
-                "f32" => Some(device.upload(&theta)?),
-                _ => None,
-            },
-            adam: None,
             embedding,
             embedding_set,
-            fitting,
-            fitting_set,
             davg: device.upload(&davg)?,
             dstd_inv: device.upload(&dstd_inv)?,
             slot_type: device.upload(&slot_type)?,
@@ -817,6 +957,514 @@ impl<P: Scalar> GpuTrainer<P> {
             sel_d: device.upload(&sel_i)?,
             offset_d: device.upload(&offsets)?,
             kernels,
+            view,
+        })
+    }
+
+    /// se_e2_r: the mean of the embedding rows over the slots, over five.
+    fn radial_scale(&self) -> f64 {
+        RADIAL_RESCALE / self.slots as f64
+    }
+
+    fn per_slot(&self, natoms: usize) -> LaunchConfig {
+        LaunchConfig {
+            grid_dim: ((natoms * self.slots).div_ceil(BLOCK as usize) as u32, 1, 1),
+            block_dim: (BLOCK, 1, 1),
+            shared_mem_bytes: 0,
+        }
+    }
+
+    /// How this descriptor reads a frame: its own table of the neighbor
+    /// list, when its slots or its cutoff are not the list's, and the rows
+    /// of its embedding nets for atoms sorted by type (`block`).
+    fn see(
+        &self,
+        device: &Device,
+        list: &NeighborList,
+        block: &[usize],
+        narrow: Option<&CudaFunction>,
+    ) -> Result<Seen> {
+        let natoms = list.natoms;
+        let (table, filled) = match &self.view {
+            None => (None, filled_slots(device, list)?),
+            Some(view) => {
+                let function = narrow.ok_or_else(|| {
+                    Error("a hybrid trainer without the kernel of its tables".into())
+                })?;
+                // SAFETY: the kernel below writes every element.
+                let mut table = unsafe {
+                    SlotTable {
+                        index: device.alloc_uninit::<i32>(natoms * self.slots)?,
+                        delta: device.alloc_uninit::<f64>(3 * natoms * self.slots)?,
+                        dist: device.alloc_uninit::<f64>(natoms * self.slots)?,
+                    }
+                };
+                // The kernel also marks the atoms of which this descriptor
+                // leaves neighbors out for lack of slots. Training takes
+                // the nearest, as it does when the list itself is short.
+                let mut dropped = device.zeros::<i32>(natoms)?;
+                let (natoms_i, slots_i) = (natoms as i32, self.slots as i32);
+                let (list_slots_i, ntypes_i) = (view.list_slots as i32, self.sel.len() as i32);
+                let stream = device.stream();
+                let mut launch = stream.launch_builder(function);
+                launch
+                    .arg(&list.index)
+                    .arg(&list.delta)
+                    .arg(&list.dist)
+                    .arg(&self.slot_type)
+                    .arg(&self.slot_local)
+                    .arg(&self.sel_d)
+                    .arg(&view.list_sel)
+                    .arg(&view.list_offset)
+                    .arg(&natoms_i)
+                    .arg(&slots_i)
+                    .arg(&list_slots_i)
+                    .arg(&ntypes_i)
+                    .arg(&self.rcut)
+                    .arg(&mut table.index)
+                    .arg(&mut table.delta)
+                    .arg(&mut table.dist)
+                    .arg(&mut dropped);
+                unsafe { launch.launch(self.per_slot(natoms)) }
+                    .map(drop)
+                    .map_err(launch_error("slot table"))?;
+                let filled = held_slots(&device.download(&table.index)?, &self.sel)?;
+                (Some(table), filled)
+            }
+        };
+        // Embedding rows: one per neighbor, and one per pair of types for
+        // all its empty slots, whose input is the same normalized zero.
+        let (row_table, blocks, rows_embedding) =
+            embedding_rows(&filled, block, &self.sel, self.one_side)?;
+        Ok(Seen {
+            table,
+            row_table: device.upload(&row_table)?,
+            blocks,
+            rows_embedding,
+        })
+    }
+
+    /// The normalized environment rows of every atom (se_e2_a) and, for the
+    /// embedding nets, the radial entry and the net of every row.
+    fn environment(
+        &self,
+        device: &Device,
+        list: &NeighborList,
+        seen: &Seen,
+        atype: &CudaSlice<i32>,
+    ) -> Result<Rows<P>> {
+        let natoms = list.natoms;
+        let (index, delta, dist) = seen.slots(list);
+        let (zero_i, n_i, slots_i) = (0i32, natoms as i32, self.slots as i32);
+        let (ntypes_i, one_side_i) = (self.sel.len() as i32, i32::from(self.one_side));
+        // What a kernel gets for a buffer it is not to touch.
+        let no_buffer = 0u64;
+        // SAFETY: the kernel writes every element of these buffers.
+        let mut env = match self.kind {
+            DescriptorKind::SeE2A => {
+                Some(unsafe { device.alloc_uninit::<f64>(natoms * self.slots * 4)? })
+            }
+            _ => None,
+        };
+        let mut input = unsafe { device.alloc_uninit::<P>(seen.rows_embedding)? };
+        let mut network = unsafe { device.alloc_uninit::<i32>(seen.rows_embedding)? };
+        let stream = device.stream();
+        let mut launch = stream.launch_builder(&self.kernels.env);
+        launch
+            .arg(index)
+            .arg(delta)
+            .arg(dist)
+            .arg(atype)
+            .arg(&self.davg)
+            .arg(&self.dstd_inv)
+            .arg(&self.slot_type)
+            .arg(&self.slot_local)
+            .arg(&self.sel_d)
+            .arg(&self.offset_d)
+            .arg(&zero_i)
+            .arg(&n_i)
+            .arg(&slots_i)
+            .arg(&ntypes_i)
+            .arg(&self.rcut_smth)
+            .arg(&self.inv_range);
+        match env.as_mut() {
+            Some(env) => launch.arg(env),
+            None => launch.arg(&no_buffer),
+        };
+        launch
+            .arg(&mut input)
+            .arg(&mut network)
+            .arg(&seen.row_table)
+            .arg(&one_side_i);
+        unsafe { launch.launch(self.per_slot(natoms)) }
+            .map(drop)
+            .map_err(launch_error("environment"))?;
+        Ok(Rows {
+            env,
+            input,
+            network,
+        })
+    }
+
+    /// The components of this descriptor of every atom from the embedding
+    /// rows `g`, into their places in `descriptor` (`stride` components per
+    /// atom). se_e2_a also gives B.
+    #[allow(clippy::too_many_arguments)]
+    fn descriptor(
+        &self,
+        device: &Device,
+        seen: &Seen,
+        natoms: usize,
+        env: Option<&CudaSlice<f64>>,
+        g: &CudaSlice<P>,
+        descriptor: &mut CudaSlice<P>,
+        stride: usize,
+    ) -> Result<Option<CudaSlice<f64>>> {
+        let (n_i, slots_i, w_i) = (natoms as i32, self.slots as i32, self.width as i32);
+        let (ntypes_i, stride_i) = (self.sel.len() as i32, stride as i32);
+        let mut out = descriptor.slice_mut(self.first_feature..);
+        let stream = device.stream();
+        let mut launch = stream.launch_builder(&self.kernels.descriptor);
+        let Some(env) = env else {
+            let scale = self.radial_scale();
+            launch
+                .arg(g)
+                .arg(&self.slot_type)
+                .arg(&self.slot_local)
+                .arg(&self.sel_d)
+                .arg(&self.offset_d)
+                .arg(&n_i)
+                .arg(&slots_i)
+                .arg(&w_i)
+                .arg(&scale)
+                .arg(&mut out)
+                .arg(&seen.row_table)
+                .arg(&ntypes_i)
+                .arg(&stride_i);
+            unsafe { launch.launch(per_atom(natoms, 0)) }
+                .map(drop)
+                .map_err(launch_error("descriptor"))?;
+            return Ok(None);
+        };
+        let axis_i = self.axis as i32;
+        // SAFETY: the kernel writes every element.
+        let mut b = unsafe { device.alloc_uninit::<f64>(natoms * self.width * 4)? };
+        launch
+            .arg(env)
+            .arg(g)
+            .arg(&self.slot_type)
+            .arg(&self.slot_local)
+            .arg(&self.sel_d)
+            .arg(&self.offset_d)
+            .arg(&n_i)
+            .arg(&slots_i)
+            .arg(&w_i)
+            .arg(&axis_i)
+            .arg(&mut b)
+            .arg(&mut out)
+            .arg(&seen.row_table)
+            .arg(&ntypes_i)
+            .arg(&stride_i);
+        unsafe { launch.launch(per_atom(natoms, 4 * self.width * 8)) }
+            .map(drop)
+            .map_err(launch_error("descriptor"))?;
+        Ok(Some(b))
+    }
+
+    /// Adds to `force` what this descriptor gives every atom, from dE/dD
+    /// (`d_descriptor`, `stride` components per atom), and its share of the
+    /// virial of every atom: written when `add` is false, added to what is
+    /// there otherwise.
+    #[allow(clippy::too_many_arguments)]
+    fn forces(
+        &self,
+        device: &Device,
+        list: &NeighborList,
+        seen: &Seen,
+        atype: &CudaSlice<i32>,
+        rows: &Rows<P>,
+        b: Option<&CudaSlice<f64>>,
+        tape: &SetTape<P>,
+        d_descriptor: &CudaSlice<P>,
+        stride: usize,
+        add: bool,
+        force: &mut CudaSlice<f64>,
+        virial: &mut CudaSlice<f64>,
+    ) -> Result<()> {
+        let natoms = list.natoms;
+        let (index, delta, dist) = seen.slots(list);
+        let (zero_i, n_i, slots_i) = (0i32, natoms as i32, self.slots as i32);
+        let (w_i, ntypes_i) = (self.width as i32, self.sel.len() as i32);
+        let (stride_i, add_i) = (stride as i32, i32::from(add));
+        let (axis_i, scale) = (self.axis as i32, self.radial_scale());
+        let (g, dg) = (tape.output(), tape.tangent());
+        let dd = d_descriptor.slice(self.first_feature..);
+        let stream = device.stream();
+        let mut launch = stream.launch_builder(&self.kernels.force);
+        let shared = match (&rows.env, b) {
+            (Some(env), Some(b)) => {
+                launch.arg(env).arg(g).arg(dg).arg(b);
+                (4 * self.width + 4 * self.slots + 12) * 8
+                    + 4 * self.width * std::mem::size_of::<P>()
+            }
+            _ => {
+                launch.arg(dg);
+                radial_force_shared::<P>(self.slots, self.width)
+            }
+        };
+        launch
+            .arg(&dd)
+            .arg(index)
+            .arg(delta)
+            .arg(dist)
+            .arg(atype)
+            .arg(&self.dstd_inv)
+            .arg(&self.slot_type)
+            .arg(&self.slot_local)
+            .arg(&self.sel_d)
+            .arg(&self.offset_d)
+            .arg(&zero_i)
+            .arg(&n_i)
+            .arg(&slots_i)
+            .arg(&w_i);
+        // The axis neurons of se_e2_a, the scale of se_e2_r.
+        match self.kind {
+            DescriptorKind::SeE2A => launch.arg(&axis_i),
+            _ => launch.arg(&scale),
+        };
+        launch
+            .arg(&self.rcut_smth)
+            .arg(&self.inv_range)
+            .arg(force)
+            .arg(virial)
+            .arg(&seen.row_table)
+            .arg(&ntypes_i)
+            .arg(&stride_i)
+            .arg(&add_i);
+        unsafe { launch.launch(per_atom(natoms, shared)) }
+            .map(drop)
+            .map_err(launch_error("force"))
+    }
+
+    /// The tangent of this descriptor when every neighbor vector `d` moves
+    /// along `c[j] - c[i] + wᵀd`: that of the environment rows, which is
+    /// returned with that of B (se_e2_a), and that of D, into its place in
+    /// `ddot` (`stride` components per atom).
+    #[allow(clippy::too_many_arguments, clippy::type_complexity)]
+    fn tangent(
+        &self,
+        device: &Device,
+        list: &NeighborList,
+        seen: &Seen,
+        atype: &CudaSlice<i32>,
+        c: &CudaSlice<f64>,
+        w: &CudaSlice<f64>,
+        rows: &Rows<P>,
+        b: Option<&CudaSlice<f64>>,
+        tape: &SetTape<P>,
+        ddot: &mut CudaSlice<P>,
+        stride: usize,
+    ) -> Result<(CudaSlice<f64>, Option<CudaSlice<f64>>)> {
+        let natoms = list.natoms;
+        let (index, delta, dist) = seen.slots(list);
+        let (n_i, slots_i, w_i) = (natoms as i32, self.slots as i32, self.width as i32);
+        let (ntypes_i, stride_i) = (self.sel.len() as i32, stride as i32);
+        let stream = device.stream();
+        // SAFETY: the kernels write every element of these buffers.
+        let mut envdot = unsafe { device.alloc_uninit::<f64>(natoms * self.slots * 4)? };
+        {
+            let mut launch = stream.launch_builder(&self.kernels.env_tangent);
+            launch
+                .arg(index)
+                .arg(delta)
+                .arg(dist)
+                .arg(atype)
+                .arg(&self.dstd_inv)
+                .arg(c)
+                .arg(w)
+                .arg(&n_i)
+                .arg(&slots_i)
+                .arg(&self.rcut_smth)
+                .arg(&self.inv_range)
+                .arg(&mut envdot);
+            unsafe { launch.launch(self.per_slot(natoms)) }
+                .map(drop)
+                .map_err(launch_error("environment tangent"))?;
+        }
+        let (g, dg) = (tape.output(), tape.tangent());
+        let mut out = ddot.slice_mut(self.first_feature..);
+        let mut launch = stream.launch_builder(&self.kernels.descriptor_tangent);
+        let (Some(env), Some(b)) = (&rows.env, b) else {
+            let scale = self.radial_scale();
+            launch
+                .arg(&envdot)
+                .arg(dg)
+                .arg(&self.slot_type)
+                .arg(&self.slot_local)
+                .arg(&seen.row_table)
+                .arg(&ntypes_i)
+                .arg(&slots_i)
+                .arg(&w_i)
+                .arg(&scale)
+                .arg(&stride_i)
+                .arg(&mut out);
+            unsafe { launch.launch(per_atom(natoms, 0)) }
+                .map(drop)
+                .map_err(launch_error("descriptor tangent"))?;
+            return Ok((envdot, None));
+        };
+        let axis_i = self.axis as i32;
+        let mut bdot = unsafe { device.alloc_uninit::<f64>(natoms * self.width * 4)? };
+        launch
+            .arg(env)
+            .arg(&envdot)
+            .arg(g)
+            .arg(dg)
+            .arg(b)
+            .arg(&self.slot_type)
+            .arg(&self.slot_local)
+            .arg(&seen.row_table)
+            .arg(&ntypes_i)
+            .arg(&slots_i)
+            .arg(&w_i)
+            .arg(&axis_i)
+            .arg(&stride_i)
+            .arg(&mut bdot)
+            .arg(&mut out);
+        unsafe { launch.launch(per_atom(natoms, 8 * self.width * 8)) }
+            .map(drop)
+            .map_err(launch_error("descriptor tangent"))?;
+        Ok((envdot, Some(bdot)))
+    }
+
+    /// Back through this descriptor: the adjoints of every embedding row
+    /// and of its derivative along the radial input, from the adjoints of D
+    /// and of its tangent (`dbar`, `ddbar`: `stride` components per atom).
+    #[allow(clippy::too_many_arguments)]
+    fn reverse(
+        &self,
+        device: &Device,
+        seen: &Seen,
+        natoms: usize,
+        rows: &Rows<P>,
+        envdot: &CudaSlice<f64>,
+        b: Option<&CudaSlice<f64>>,
+        bdot: Option<&CudaSlice<f64>>,
+        dbar: &CudaSlice<P>,
+        ddbar: &CudaSlice<P>,
+        stride: usize,
+    ) -> Result<(CudaSlice<P>, CudaSlice<P>)> {
+        let (slots_i, w_i) = (self.slots as i32, self.width as i32);
+        let (ntypes_i, stride_i) = (self.sel.len() as i32, stride as i32);
+        // From zero: the rows of the empty slots collect sums.
+        let mut gbar = device.zeros::<P>(seen.rows_embedding * self.width)?;
+        let mut gpbar = device.zeros::<P>(seen.rows_embedding * self.width)?;
+        let (dbar, ddbar) = (
+            dbar.slice(self.first_feature..),
+            ddbar.slice(self.first_feature..),
+        );
+        let (axis_i, scale) = (self.axis as i32, self.radial_scale());
+        let stream = device.stream();
+        let mut launch = stream.launch_builder(&self.kernels.descriptor_reverse);
+        let shared = match (&rows.env, b, bdot) {
+            (Some(env), Some(b), Some(bdot)) => {
+                launch
+                    .arg(env)
+                    .arg(envdot)
+                    .arg(b)
+                    .arg(bdot)
+                    .arg(&dbar)
+                    .arg(&ddbar)
+                    .arg(&self.slot_type)
+                    .arg(&self.slot_local)
+                    .arg(&self.sel_d)
+                    .arg(&self.offset_d)
+                    .arg(&seen.row_table)
+                    .arg(&ntypes_i)
+                    .arg(&slots_i)
+                    .arg(&w_i)
+                    .arg(&axis_i);
+                16 * self.width * 8
+            }
+            _ => {
+                launch
+                    .arg(envdot)
+                    .arg(&dbar)
+                    .arg(&ddbar)
+                    .arg(&self.slot_type)
+                    .arg(&self.slot_local)
+                    .arg(&self.sel_d)
+                    .arg(&seen.row_table)
+                    .arg(&ntypes_i)
+                    .arg(&slots_i)
+                    .arg(&w_i)
+                    .arg(&scale);
+                0
+            }
+        };
+        launch.arg(&stride_i).arg(&mut gbar).arg(&mut gpbar);
+        unsafe { launch.launch(per_atom(natoms, shared)) }
+            .map(drop)
+            .map_err(launch_error("descriptor reverse"))?;
+        Ok((gbar, gpbar))
+    }
+}
+
+impl<P: Scalar> GpuTrainer<P> {
+    pub fn new(model: &Model, device: Arc<Device>) -> Result<Self> {
+        let metadata = model.validate()?;
+        let d = &model.descriptor;
+        // The parameters: the embedding nets of every descriptor in the
+        // order of the descriptors, then the fitting nets.
+        let mut theta = Vec::new();
+        let mut parts = Vec::with_capacity(d.parts().len());
+        let mut features = 0;
+        for (number, part) in d.parts().iter().enumerate() {
+            let context = match d.is_hybrid() {
+                true => format!("descriptor.list[{number}]: "),
+                false => String::new(),
+            };
+            let part = Part::new(
+                &device, part, &d.sel, d.rcut, features, &mut theta, &context,
+            )?;
+            features += part.features;
+            parts.push(part);
+        }
+        let mut fitting = Vec::with_capacity(model.fitting.len());
+        for network in &model.fitting {
+            let layers = pack(network, features, &mut theta);
+            if layers.last().map(|l| l.output) != Some(1) {
+                return Err(Error("fitting networks must end in one output".into()));
+            }
+            fitting.push(layers);
+        }
+        let fitting_set = TrainSet::new(&device, fitting.clone())?;
+        let narrow = match parts.iter().any(|part| part.view.is_some()) {
+            true => Some(device.kernels().function(MODEL_SOURCE, "hybrid_slots")?),
+            false => None,
+        };
+        let adam_kernel = device
+            .kernels()
+            .function(SOURCE, &format!("adam_{}", P::SUFFIX))?;
+        let adam_master = device.kernels().function(SOURCE, "adam_master")?;
+        let cast: Vec<P> = theta.iter().map(|&v| P::from_f64(v)).collect();
+        Ok(Self {
+            metadata,
+            model: model.clone(),
+            parts,
+            features,
+            gradient: device.zeros::<P>(cast.len())?,
+            theta: device.upload(&cast)?,
+            master: match P::SUFFIX {
+                "f32" => Some(device.upload(&theta)?),
+                _ => None,
+            },
+            adam: None,
+            fitting,
+            fitting_set,
+            adam_kernel,
+            adam_master,
+            narrow,
             profile: None,
             prepared: HashMap::new(),
             prepared_bytes: 0,
@@ -869,13 +1517,14 @@ impl<P: Scalar> GpuTrainer<P> {
         let cell = frame.cell.map_or(Cell::Open, Cell::Periodic);
         let atype = device.upload(&sorted_types)?;
         clock.lap(|t| &mut t.host_prepare)?;
+        // One list for all descriptors: of a hybrid, with the largest of
+        // their cutoffs and of every type the most slots any of them has.
         let list = NeighborList::build(device, &positions, &sorted_types, &cell, d.rcut, &d.sel)?;
-        // Embedding rows: one per neighbor, and one per pair of types for
-        // all its empty slots, whose input is the same normalized zero.
-        let filled = filled_slots(device, &list)?;
         list.check(device)?;
-        let (row_table, blocks, rows_embedding) =
-            embedding_rows(&filled, &block, &d.sel, self.one_side)?;
+        let mut parts = Vec::with_capacity(self.parts.len());
+        for part in &self.parts {
+            parts.push(part.see(device, &list, &block, self.narrow.as_ref())?);
+        }
         let prepared = Arc::new(Prepared {
             positions: frame.positions.clone(),
             cell: frame.cell,
@@ -883,10 +1532,8 @@ impl<P: Scalar> GpuTrainer<P> {
             order,
             block,
             atype,
-            row_table: device.upload(&row_table)?,
             list,
-            blocks,
-            rows_embedding,
+            parts,
         });
         clock.lap(|t| &mut t.neighbors)?;
         let bytes = prepared.bytes();
@@ -923,7 +1570,8 @@ impl<P: Scalar> GpuTrainer<P> {
     }
 
     /// The parameters, embedding nets first (center type major; with
-    /// `type_one_side` one per neighbor type), then the fitting nets; per
+    /// `type_one_side` one per neighbor type; of a hybrid those of its
+    /// descriptors in the order of its list), then the fitting nets; per
     /// layer weights `[input][output]`, bias, timestep.
     ///
     /// Float32 networks compute with these rounded to float32; the values
@@ -960,14 +1608,14 @@ impl<P: Scalar> GpuTrainer<P> {
     pub fn model(&self) -> Result<Model> {
         let theta = self.parameters()?;
         let mut model = self.model.clone();
-        // A net shared between the central types goes to every row.
-        let nets = match self.one_side {
-            true => model.type_map.len(),
-            false => self.embedding.len(),
-        };
-        let embedding = model.descriptor.embedding.iter_mut().flatten();
-        for (place, network) in embedding.enumerate() {
-            unpack(&mut network.layers, &self.embedding[place % nets], &theta);
+        for (part, descriptor) in self.parts.iter().zip(model.descriptor.parts_mut()) {
+            // Its nets in the order of the parameters; a net shared between
+            // the central types goes to every row.
+            let nets = part.embedding.len();
+            let embedding = descriptor.embedding.iter_mut().flatten();
+            for (place, network) in embedding.enumerate() {
+                unpack(&mut network.layers, &part.embedding[place % nets], &theta);
+            }
         }
         for (network, layout) in model.fitting.iter_mut().zip(&self.fitting) {
             unpack(&mut network.layers, layout, &theta);
@@ -1028,11 +1676,11 @@ impl<P: Scalar> GpuTrainer<P> {
         let mixed = self.master.is_some();
         let mut launch = match &mut self.master {
             Some(master) => {
-                let mut launch = stream.launch_builder(&self.kernels.adam_master);
+                let mut launch = stream.launch_builder(&self.adam_master);
                 launch.arg(master);
                 launch
             }
-            None => stream.launch_builder(&self.kernels.adam),
+            None => stream.launch_builder(&self.adam_kernel),
         };
         launch
             .arg(&mut self.theta)
@@ -1135,140 +1783,59 @@ impl<P: Scalar> GpuTrainer<P> {
         frame.validate()?;
         let device = Arc::clone(&self.device);
         let device = &*device;
-        let stream = device.stream();
         let types = frame.type_ids(&self.metadata)?;
         let natoms = types.len();
         if labels.forces.is_some_and(|f| f.len() != natoms) {
             return Err(Error("force labels do not match the atom count".into()));
         }
-        let (ntypes, slots) = (self.model.descriptor.sel.len(), self.slots);
-        let (width, axis) = (self.width, self.axis);
+        let ntypes = self.model.descriptor.sel.len();
+        // The components of all descriptors of an atom follow each other in
+        // its row of D, of the tangent of D and of their adjoints.
         let features = self.features;
-        let radial = self.kind == DescriptorKind::SeE2R;
-        // se_e2_r: the mean of the embedding rows over the slots, over five.
-        let radial_scale = RADIAL_RESCALE / slots as f64;
-        let one_side_i = i32::from(self.one_side);
-        // What a kernel gets for a buffer it is not to touch.
-        let no_buffer = 0u64;
 
         let prepared = self.prepare(frame, &types, clock)?;
         let (order, block, list) = (&prepared.order, &prepared.block, &prepared.list);
-        let (atype, row_table) = (&prepared.atype, &prepared.row_table);
-        let (blocks, rows_embedding) = (&prepared.blocks, prepared.rows_embedding);
-        let d = &self.model.descriptor;
+        let atype = &prepared.atype;
+        // Every descriptor with what it reads of the frame.
+        let parts = self.parts.iter().zip(&prepared.parts);
 
-        let rows_total = natoms * slots;
-        let (n_i, slots_i, w_i, axis_i) = (natoms as i32, slots as i32, width as i32, axis as i32);
-        let (ntypes_i, zero_i) = (ntypes as i32, 0i32);
-        let inv_range = 1.0 / (d.rcut - d.rcut_smth);
-        let per_slot = LaunchConfig {
-            grid_dim: (rows_total.div_ceil(BLOCK as usize) as u32, 1, 1),
-            block_dim: (BLOCK, 1, 1),
-            shared_mem_bytes: 0,
-        };
-        let per_atom = |shared: usize| LaunchConfig {
-            grid_dim: (natoms as u32, 1, 1),
-            block_dim: (BLOCK, 1, 1),
-            shared_mem_bytes: shared as u32,
-        };
-        // SAFETY (all `alloc_uninit` below): each buffer is fully written by
-        // the kernel or copy that follows before anything reads it.
-        // The environment rows, B and its tangent are se_e2_a's.
-        let mut env = match radial {
-            false => Some(unsafe { device.alloc_uninit::<f64>(rows_total * 4)? }),
-            true => None,
-        };
-        let mut radial_input = unsafe { device.alloc_uninit::<P>(rows_embedding)? };
-        let mut network = unsafe { device.alloc_uninit::<i32>(rows_embedding)? };
-        {
-            let mut launch = stream.launch_builder(&self.kernels.env);
-            launch
-                .arg(&list.index)
-                .arg(&list.delta)
-                .arg(&list.dist)
-                .arg(atype)
-                .arg(&self.davg)
-                .arg(&self.dstd_inv)
-                .arg(&self.slot_type)
-                .arg(&self.slot_local)
-                .arg(&self.sel_d)
-                .arg(&self.offset_d)
-                .arg(&zero_i)
-                .arg(&n_i)
-                .arg(&slots_i)
-                .arg(&ntypes_i)
-                .arg(&d.rcut_smth)
-                .arg(&inv_range);
-            match env.as_mut() {
-                Some(env) => launch.arg(env),
-                None => launch.arg(&no_buffer),
-            };
-            launch
-                .arg(&mut radial_input)
-                .arg(&mut network)
-                .arg(row_table)
-                .arg(&one_side_i);
-            unsafe { launch.launch(per_slot) }
-                .map(drop)
-                .map_err(launch_error("environment"))?;
+        let mut rows = Vec::with_capacity(self.parts.len());
+        for (part, seen) in parts.clone() {
+            rows.push(part.environment(device, list, seen, atype)?);
         }
         clock.lap(|t| &mut t.environment)?;
 
         // Embedding with the unit tangent: G and dG/d(radial input); every
         // row names its (center type, neighbor type) net.
-        let embedding_tape = self.embedding_set.forward(
-            device,
-            &self.theta,
-            &radial_input,
-            &network,
-            rows_embedding,
-        )?;
-        let (g, dg) = (embedding_tape.output(), embedding_tape.tangent());
+        let mut tapes = Vec::with_capacity(self.parts.len());
+        for ((part, seen), rows) in parts.clone().zip(&rows) {
+            tapes.push(part.embedding_set.forward(
+                device,
+                &self.theta,
+                &rows.input,
+                &rows.network,
+                seen.rows_embedding,
+            )?);
+        }
         clock.lap(|t| &mut t.embedding)?;
 
-        let mut b = match radial {
-            false => Some(unsafe { device.alloc_uninit::<f64>(natoms * width * 4)? }),
-            true => None,
-        };
+        // SAFETY (all `alloc_uninit` below): each buffer is fully written by
+        // the kernels or the copy that follow before anything reads it; of
+        // the buffers of D and of what goes with it, every descriptor
+        // writes its own components of every atom.
         let mut descriptor = unsafe { device.alloc_uninit::<P>(natoms * features)? };
-        if let (Some(env), Some(b)) = (&env, &mut b) {
-            let mut launch = stream.launch_builder(&self.kernels.descriptor);
-            launch
-                .arg(env)
-                .arg(g)
-                .arg(&self.slot_type)
-                .arg(&self.slot_local)
-                .arg(&self.sel_d)
-                .arg(&self.offset_d)
-                .arg(&n_i)
-                .arg(&slots_i)
-                .arg(&w_i)
-                .arg(&axis_i)
-                .arg(b)
-                .arg(&mut descriptor)
-                .arg(row_table)
-                .arg(&ntypes_i);
-            unsafe { launch.launch(per_atom(4 * width * 8)) }
-                .map(drop)
-                .map_err(launch_error("descriptor"))?;
-        } else {
-            let mut launch = stream.launch_builder(&self.kernels.descriptor);
-            launch
-                .arg(g)
-                .arg(&self.slot_type)
-                .arg(&self.slot_local)
-                .arg(&self.sel_d)
-                .arg(&self.offset_d)
-                .arg(&n_i)
-                .arg(&slots_i)
-                .arg(&w_i)
-                .arg(&radial_scale)
-                .arg(&mut descriptor)
-                .arg(row_table)
-                .arg(&ntypes_i);
-            unsafe { launch.launch(per_atom(0)) }
-                .map(drop)
-                .map_err(launch_error("descriptor"))?;
+        // B of every se_e2_a descriptor.
+        let mut b = Vec::with_capacity(self.parts.len());
+        for (((part, seen), rows), tape) in parts.clone().zip(&rows).zip(&tapes) {
+            b.push(part.descriptor(
+                device,
+                seen,
+                natoms,
+                rows.env.as_ref(),
+                tape.output(),
+                &mut descriptor,
+                features,
+            )?);
         }
         clock.lap(|t| &mut t.descriptor)?;
 
@@ -1307,49 +1874,27 @@ impl<P: Scalar> GpuTrainer<P> {
         )?;
         let atomic = first_pass.output();
         clock.lap(|t| &mut t.fitting)?;
+        // Every descriptor adds its forces; the virial of an atom is
+        // written by the first and added to by the others.
         let mut force = device.zeros::<f64>(natoms * 3)?;
         let mut virial = unsafe { device.alloc_uninit::<f64>(natoms * 9)? };
+        for (number, (((part, seen), rows), tape)) in
+            parts.clone().zip(&rows).zip(&tapes).enumerate()
         {
-            let mut launch = stream.launch_builder(&self.kernels.force);
-            if let (Some(env), Some(b)) = (&env, &b) {
-                launch.arg(env).arg(g).arg(dg).arg(b);
-            } else {
-                launch.arg(dg);
-            }
-            launch
-                .arg(&d_descriptor)
-                .arg(&list.index)
-                .arg(&list.delta)
-                .arg(&list.dist)
-                .arg(atype)
-                .arg(&self.dstd_inv)
-                .arg(&self.slot_type)
-                .arg(&self.slot_local)
-                .arg(&self.sel_d)
-                .arg(&self.offset_d)
-                .arg(&zero_i)
-                .arg(&n_i)
-                .arg(&slots_i)
-                .arg(&w_i);
-            // The axis neurons of se_e2_a, the scale of se_e2_r.
-            match radial {
-                false => launch.arg(&axis_i),
-                true => launch.arg(&radial_scale),
-            };
-            launch
-                .arg(&d.rcut_smth)
-                .arg(&inv_range)
-                .arg(&mut force)
-                .arg(&mut virial)
-                .arg(row_table)
-                .arg(&ntypes_i);
-            let shared = match radial {
-                false => (4 * width + 4 * slots + 12) * 8 + 4 * width * std::mem::size_of::<P>(),
-                true => radial_force_shared::<P>(slots, width),
-            };
-            unsafe { launch.launch(per_atom(shared)) }
-                .map(drop)
-                .map_err(launch_error("force"))?;
+            part.forces(
+                device,
+                list,
+                seen,
+                atype,
+                rows,
+                b[number].as_ref(),
+                tape,
+                &d_descriptor,
+                features,
+                number > 0,
+                &mut force,
+                &mut virial,
+            )?;
         }
         clock.lap(|t| &mut t.forces)?;
 
@@ -1422,67 +1967,25 @@ impl<P: Scalar> GpuTrainer<P> {
         let c = device.upload(&force_seed)?;
         let w = device.upload(&virial_seed)?;
         clock.lap(|t| &mut t.loss)?;
-        let mut envdot = unsafe { device.alloc_uninit::<f64>(rows_total * 4)? };
-        {
-            let mut launch = stream.launch_builder(&self.kernels.env_tangent);
-            launch
-                .arg(&list.index)
-                .arg(&list.delta)
-                .arg(&list.dist)
-                .arg(atype)
-                .arg(&self.dstd_inv)
-                .arg(&c)
-                .arg(&w)
-                .arg(&n_i)
-                .arg(&slots_i)
-                .arg(&d.rcut_smth)
-                .arg(&inv_range)
-                .arg(&mut envdot);
-            unsafe { launch.launch(per_slot) }
-                .map(drop)
-                .map_err(launch_error("environment tangent"))?;
-        }
-        let mut bdot = match radial {
-            false => Some(unsafe { device.alloc_uninit::<f64>(natoms * width * 4)? }),
-            true => None,
-        };
         let mut ddot = unsafe { device.alloc_uninit::<P>(natoms * features)? };
-        if let (Some(env), Some(b), Some(bdot)) = (&env, &b, &mut bdot) {
-            let mut launch = stream.launch_builder(&self.kernels.descriptor_tangent);
-            launch
-                .arg(env)
-                .arg(&envdot)
-                .arg(g)
-                .arg(dg)
-                .arg(b)
-                .arg(&self.slot_type)
-                .arg(&self.slot_local)
-                .arg(row_table)
-                .arg(&ntypes_i)
-                .arg(&slots_i)
-                .arg(&w_i)
-                .arg(&axis_i)
-                .arg(bdot)
-                .arg(&mut ddot);
-            unsafe { launch.launch(per_atom(8 * width * 8)) }
-                .map(drop)
-                .map_err(launch_error("descriptor tangent"))?;
-        } else {
-            let mut launch = stream.launch_builder(&self.kernels.descriptor_tangent);
-            launch
-                .arg(&envdot)
-                .arg(dg)
-                .arg(&self.slot_type)
-                .arg(&self.slot_local)
-                .arg(row_table)
-                .arg(&ntypes_i)
-                .arg(&slots_i)
-                .arg(&w_i)
-                .arg(&radial_scale)
-                .arg(&mut ddot);
-            unsafe { launch.launch(per_atom(0)) }
-                .map(drop)
-                .map_err(launch_error("descriptor tangent"))?;
+        // The tangents of the environment rows and of B of every descriptor.
+        let mut tangents = Vec::with_capacity(self.parts.len());
+        for (number, (((part, seen), rows), tape)) in
+            parts.clone().zip(&rows).zip(&tapes).enumerate()
+        {
+            tangents.push(part.tangent(
+                device,
+                list,
+                seen,
+                atype,
+                &c,
+                &w,
+                rows,
+                b[number].as_ref(),
+                tape,
+                &mut ddot,
+                features,
+            )?);
         }
         clock.lap(|t| &mut t.tangent)?;
 
@@ -1515,65 +2018,38 @@ impl<P: Scalar> GpuTrainer<P> {
         )?;
         clock.lap(|t| &mut t.fitting_gradient)?;
 
-        // Back through the descriptor to every embedding row, then through
-        // the embedding nets.
-        // From zero: the rows of the empty slots collect sums.
-        let mut gbar = device.zeros::<P>(rows_embedding * width)?;
-        let mut gpbar = device.zeros::<P>(rows_embedding * width)?;
-        if let (Some(env), Some(b), Some(bdot)) = (&env, &b, &bdot) {
-            let mut launch = stream.launch_builder(&self.kernels.descriptor_reverse);
-            launch
-                .arg(env)
-                .arg(&envdot)
-                .arg(b)
-                .arg(bdot)
-                .arg(&dbar)
-                .arg(&ddbar)
-                .arg(&self.slot_type)
-                .arg(&self.slot_local)
-                .arg(&self.sel_d)
-                .arg(&self.offset_d)
-                .arg(row_table)
-                .arg(&ntypes_i)
-                .arg(&slots_i)
-                .arg(&w_i)
-                .arg(&axis_i)
-                .arg(&mut gbar)
-                .arg(&mut gpbar);
-            unsafe { launch.launch(per_atom(16 * width * 8)) }
-                .map(drop)
-                .map_err(launch_error("descriptor reverse"))?;
-        } else {
-            let mut launch = stream.launch_builder(&self.kernels.descriptor_reverse);
-            launch
-                .arg(&envdot)
-                .arg(&dbar)
-                .arg(&ddbar)
-                .arg(&self.slot_type)
-                .arg(&self.slot_local)
-                .arg(&self.sel_d)
-                .arg(row_table)
-                .arg(&ntypes_i)
-                .arg(&slots_i)
-                .arg(&w_i)
-                .arg(&radial_scale)
-                .arg(&mut gbar)
-                .arg(&mut gpbar);
-            unsafe { launch.launch(per_atom(0)) }
-                .map(drop)
-                .map_err(launch_error("descriptor reverse"))?;
+        // Back through every descriptor to its embedding rows, then through
+        // its embedding nets.
+        let mut adjoints = Vec::with_capacity(self.parts.len());
+        for (number, ((part, seen), rows)) in parts.clone().zip(&rows).enumerate() {
+            let (envdot, bdot) = &tangents[number];
+            adjoints.push(part.reverse(
+                device,
+                seen,
+                natoms,
+                rows,
+                envdot,
+                b[number].as_ref(),
+                bdot.as_ref(),
+                &dbar,
+                &ddbar,
+                features,
+            )?);
         }
         clock.lap(|t| &mut t.descriptor_reverse)?;
-        self.embedding_set.backward(
-            device,
-            &self.theta,
-            &mut self.gradient,
-            &embedding_tape,
-            &network,
-            &gbar,
-            &gpbar,
-            blocks,
-        )?;
+        for (number, ((part, seen), rows)) in parts.zip(&rows).enumerate() {
+            let (gbar, gpbar) = &adjoints[number];
+            part.embedding_set.backward(
+                device,
+                &self.theta,
+                &mut self.gradient,
+                &tapes[number],
+                &rows.network,
+                gbar,
+                gpbar,
+                &seen.blocks,
+            )?;
+        }
         clock.lap(|t| &mut t.embedding_gradient)?;
         if let Some(times) = &mut clock.times {
             times.frames += 1;
