@@ -546,12 +546,17 @@ nothing else on the card):
   3.2e-10, where DeePMD-kit had moved them by 1.3e-2 to 1.8e-2; the errors
   of the steps DeePMD-kit displayed are the same in the three digits it
   prints; and both models score 0.391268 eV/Å and 45.5012 meV/atom on the
-  sealed test. Loss, prefactors, gradient, Adam and schedule are therefore
-  DeePMD-kit's, for a hybrid and with it for everything a model of one
-  descriptor goes through; what differs between runs of the two trainers
-  is their random numbers, the initial networks and the order of the frames
+  sealed test
   ([`bench/deepmd_replay.py`](../bench/deepmd_replay.py), which also
-  continued the run from a snapshot twice on the way).
+  continued the run from a snapshot twice on the way). What was replayed:
+  the energy and force terms of the loss with their prefactors following
+  the learning rate, the gradient through both descriptors with a net per
+  neighbor type, Adam and the stepped schedule, in float64, one frame a
+  step. For that, a run of DeePMD-kit and a run of omniMD differ by their
+  random numbers only, the initial networks and the order of the frames.
+  The virial term (off in that request) and nets per pair of types were
+  not replayed: they rest on the finite differences above, not on
+  DeePMD-kit's step.
 - Of 54 single-line errors introduced into the places of a descriptor in the
   buffers of D, in the trainer kernels (6) and on the host (6), the table a
   descriptor has of the list (11), the export of the nets, the memory of the
@@ -825,9 +830,9 @@ and largest of the four models:
 - So the two sets of four are draws from one wide distribution as far as
   this comparison can tell, and it cannot tell a difference of a few
   percent between the trainers from none. What can is under How it was
-  checked: the replay of 4,000 steps, in which the learning rate falls
-  after a hundred steps and nothing is amplified, ends on DeePMD-kit's
-  parameters.
+  checked: the replay of 4,000 steps of this request, in which the
+  learning rate falls after a hundred steps and nothing is amplified, ends
+  on DeePMD-kit's parameters.
 - The full schedule was not run with DeePMD-kit: at its 27.8 steps/s it is
   three hours a model.
 - The second descriptor of a hybrid starts from other nets than the first

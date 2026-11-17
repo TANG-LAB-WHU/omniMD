@@ -26,8 +26,13 @@ DeePMD-kit's model: the embedding nets 1.6e-10 and 4.3e-10 away on average
 and the fitting nets 3.2e-10, where DeePMD-kit had moved them by 1.3e-2 to
 1.8e-2; the same errors at every step DeePMD-kit displayed, in the three
 digits it prints; 0.391268 eV/Å and 45.5012 meV/atom on the sealed test for
-both. Runs of the two trainers therefore differ by their random numbers
-only: the initial networks and the order of the frames.
+both. For what that run has, runs of the two trainers therefore differ by
+their random numbers only, the initial networks and the order of the
+frames: the energy and force terms with prefactors that follow the learning
+rate, a net per neighbor type in both descriptors, Adam and the stepped
+schedule, float64, one frame a step. The virial term (off in that request)
+and nets per pair of types were not replayed; they rest on finite
+differences of omniMD's own loss.
 
 **Speed.** One request, steps per second, the best of three alternated
 rounds (20,000 steps in float32, 6,000 in float64); DeePMD-kit 3.1.3

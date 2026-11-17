@@ -200,9 +200,10 @@ substitute for se_e2_a: the full schedule brings it to 0.15 to 0.18, where
 se_e2_a reaches 0.07. A hybrid of se_e2_a and se_e2_r descriptors trains the
 same way, each descriptor with its own cutoffs, selection and nets. Given
 DeepMD-kit's initial model and the frames in the order DeepMD-kit took them,
-omniMD arrives at DeepMD-kit's trained model (4,000 steps: its parameters
-end 4e-10 away on average), at 471 steps per second with float32 networks
-against DeepMD-kit's 27.8 on the same request. On those frames an angular
+omniMD arrives at DeepMD-kit's trained model (4,000 steps with energy and
+force terms in float64: its parameters end 4e-10 away on average). It
+trains at 471 steps per second with float32 networks and 220 with float64
+ones against DeepMD-kit's 27.8 in float64 on the same request. On those frames an angular
 descriptor to 4 angstrom with a radial one to 6 reaches a force RMSE of
 0.072 to 0.075 eV/angstrom after the full schedule: close to se_e2_a to
 6 angstrom (0.070 to 0.072), well below the angular descriptor to 4
