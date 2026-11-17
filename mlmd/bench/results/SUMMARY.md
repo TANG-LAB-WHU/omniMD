@@ -97,13 +97,21 @@ sides:
   of that). So DeePMD was timed again with a time step of 1e-6 fs
   (`bench_deepmd.py --held`), in which nothing moves: every step evaluates
   the frame omniMD evaluates. LAMMPS then never rebuilds its neighbor list;
-  omniMD searches the neighbors at every evaluation.
+  omniMD searches the neighbors at every evaluation. The logs of the held
+  runs were read: 300 K throughout, no neighbor list rebuilt, and an energy
+  that stays at the value of the uncompressed model's first step, for the
+  compressed model as well (the Python reference, -9975.2494 eV at 192
+  atoms).
 - The tables of the other descriptors (below) have DeePMD's NVE times. The
   same check for them (`deepmd-3.1.3-lammps-se-e2-a-held-2026-11-16.csv`,
   `-compressed-held`, `-se-e2-r-held`, `-se-e3-held` at 192 atoms): with the
   atoms held DeePMD takes 0.83 to 1.28 times what those tables record, 1.1
   times in the median of twenty rows. Those runs were not slowed by their
   dynamics, and the tables stand.
+- At 192 atoms most of DeePMD's step in LAMMPS is a cost that does not grow
+  with the atoms (float32: 12.3 ms at 192 atoms, 15.9 ms at 1,536), which
+  the in-process evaluator does not have. The multiples of 24 to 33 there
+  say that; those at 12,288 atoms (4 to 8) say more about the arithmetic.
 - DeePMD-kit's compressed model of the first hybrid is its uncompressed
   model (the same energy, forces within 9e-16 eV/Å on the 192-atom frame, on
   the GPU and on the CPU), so its tables are a baseline. Its compressed

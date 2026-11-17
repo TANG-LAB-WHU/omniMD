@@ -18,7 +18,7 @@ This is a progressively implemented subset, not all DeepMD functionality:
 | sigmoid/softplus inference | Implemented | Rejected |
 | Final-readout E/F fitting | Implemented, bounded | Implemented: GPU features, CPU QR/assessment |
 | Full supported tanh-network E/F + optional virial training and Adam restart | Implemented, bounded | [Bounded GPU gradients/Adam; optional GPU loss](DEVICE_LOSS_TRAINING.md) |
-| Arbitrary DeepMD models, attention/spin/hybrid/compression | Not implemented | Not implemented |
+| Arbitrary DeepMD models, attention/spin/type embedding, compression | Not implemented | Not implemented (the GPU runtime has embedding tables) |
 
 Conversion supports a pinned DeepMD 3.1.3 interchange subset and two audited
 frozen graph profiles. Unsupported formats/architectures fail explicitly.
@@ -191,7 +191,7 @@ case is faster, with its timing scope documented separately.
 
 The complete executable example is `fixtures/synthetic-v1.json`; public Rust
 schema types are in `src/model.rs`. This is a custom intermediate format, **not
-DeepMD's serialization format**, and is not a direct Rust loader for `.pb`, `.pth`, `.dp`, HAP, or hybrid models.
+DeepMD's serialization format**, and is not a direct Rust loader for `.pb`, `.pth`, `.dp` or HAP models.
 `tools/convert_deepmd.py` now converts a strict DeepMD-kit 3.1.3 `.dp` / safe YAML
 subset into this representation. See [CONVERSION.md](CONVERSION.md) for the
 explicit geometry mode, units, supported schema, and complete replay command.

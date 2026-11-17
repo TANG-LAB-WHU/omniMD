@@ -85,7 +85,8 @@ with executable commands; pending branch work is not counted as integrated.
   CPU/GPU comparison with exact checkpoint continuation. Broader GPU simulation
   validation remains future work. Optional CUDA readout feature generation is now
   integrated; QR and assessment remain CPU and the microcase was slower on CUDA.
-- Broader descriptors, including hybrids, only with implementation and validation.
+- Broader descriptors (beyond se_e2_a, se_e2_r, se_e3 and hybrids of them), only with
+  implementation and validation.
 
 ## Current local integration after 9eaf284
 

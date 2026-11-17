@@ -1,5 +1,5 @@
 engine,route,device,precision,natoms,ms_per_eval,us_per_atom_step,ns_per_day,peak_mem_mb,status,note
-omnimd,gpu-hybrid-cli,gpu,float64,192,3.316785,17.274921875,,,ok,"100 in-process evaluations after 1 warmup; network float64, geometry and forces float64; 1 chunk(s)"
+omnimd,gpu-hybrid-cli,gpu,float64,192,3.316785,17.274921875,,,ok,"100 in-process evaluations after 1 warmup; network float64, geometry and forces float64; 1 chunk(s); not a valid time: a container of the DeePMD run before was being stopped during it (1.735 ms in the second run); note extended by hand"
 omnimd,gpu-hybrid-cli,gpu,float32,192,0.384,2.0,,,ok,"100 in-process evaluations after 1 warmup; network float32, geometry and forces float64; 1 chunk(s)"
 omnimd,gpu-hybrid-cli-compressed,gpu,float64,192,0.88847,4.627447916666667,,,ok,"100 in-process evaluations after 1 warmup; network float64, geometry and forces float64; 1 chunk(s); embedding tables down to 0.5 A"
 omnimd,gpu-hybrid-cli-compressed,gpu,float32,192,0.32283300000000004,1.681421875,,,ok,"100 in-process evaluations after 1 warmup; network float32, geometry and forces float64; 1 chunk(s); embedding tables down to 0.5 A"

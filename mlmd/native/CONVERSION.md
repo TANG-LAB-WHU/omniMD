@@ -50,7 +50,7 @@ are printed by the converter. Native JSON remains schema v1.
   appears in training metadata.
 - `fitting.bias_atom_e` and `model.out_bias` are added exactly once. `out_std`
   must be all ones because v3.1.3 dpmodel and TensorFlow interpret it differently.
-- No nonempty exclusions, spin, type embedding, hybrid/attention/compression,
+- No nonempty exclusions, spin, type embedding, attention, compression,
   frame/atomic/case parameters, mixed/shared fitting, total-energy-zero
   transform, or meaningful `atom_ener` vacuum subtraction. Unknown fields,
   classes, schema versions, malformed shapes, unsupported activations, and

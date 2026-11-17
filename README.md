@@ -135,6 +135,12 @@ Milliseconds per energy/force/virial evaluation; DeepMD-kit 3.1.3 is LAMMPS
   At 98,304 atoms omniMD takes 85 ms (55 ms with tables) where LAMMPS stops
   with an error. omniMD's float64 energy equals DeepMD-kit's at 192 and 1,536
   atoms to the last digit, and its forces within 1e-16 eV/angstrom.
+  This hybrid is no cheaper than the plain se_e2_a model: that evening the
+  plain model took 0.31 and 8.7 ms in omniMD (the table above is older than
+  later work on the kernels; the summary has the dates) and 10.3 and 69.9 ms
+  in DeepMD-kit with the atoms held. At 192 atoms most of a LAMMPS step is
+  a cost that does not grow with the atoms (12.3 ms at 192 atoms, 15.9 ms at
+  1,536), so the ratio there says little about the arithmetic.
   A hybrid of se_e2_a with an se_e3 descriptor to 4.0 angstrom costs 0.59 ms
   at 192 atoms and 3.36 ms at 1,536 in float32 (DeepMD-kit: 14.1 and 42.5
   ms); from 12,288 atoms on DeepMD-kit no longer fits the card, omniMD takes
