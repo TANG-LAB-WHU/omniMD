@@ -54,7 +54,7 @@ fn energy_forces_and_virial_match_deepmd_kit() {
     let reference = reference();
     assert_eq!(reference.deepmd_version, "3.1.3");
     let model = model();
-    assert_eq!(model.descriptor_kind(), DescriptorKind::SeE3);
+    assert_eq!(model.descriptor_kind(), Some(DescriptorKind::SeE3));
     assert_eq!(model.type_map.len(), 3);
     // DeePMD-kit's model has a radial mean and width that its descriptor
     // never reads; the native model has neither.
@@ -297,6 +297,7 @@ fn plain_model() -> Model {
             embedding: (0..2)
                 .map(|t| (0..2).map(|u| net(t, u)).collect())
                 .collect(),
+            list: Vec::new(),
         },
         fitting: vec![
             linear(vec![vec![1.0]], vec![0.0]),

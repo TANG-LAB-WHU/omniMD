@@ -53,7 +53,7 @@ fn energy_forces_and_virial_match_deepmd_kit() {
     let reference = reference();
     assert_eq!(reference.deepmd_version, "3.1.3");
     let model = model();
-    assert_eq!(model.descriptor_kind(), DescriptorKind::SeE2R);
+    assert_eq!(model.descriptor_kind(), Some(DescriptorKind::SeE2R));
     let mut potential = NativePotential::new(model).unwrap();
     assert_eq!(potential.metadata().backend, "native-se-e2-r-v1");
     let mut compared = 0;
@@ -269,6 +269,7 @@ fn identity_model() -> Model {
             }],
             type_one_side: false,
             embedding: vec![vec![linear(vec![vec![1.0]], vec![0.0])]],
+            list: Vec::new(),
         },
         fitting: vec![linear(vec![vec![1.0]], vec![0.0])],
         atom_energy_bias: vec![0.0],
@@ -425,7 +426,7 @@ fn a_format_names_its_descriptor_and_other_models_are_refused() {
     );
     // An se_e2_a model says what it is, as before.
     let se_a: Model = serde_json::from_str(include_str!("../fixtures/synthetic-v1.json")).unwrap();
-    assert_eq!(se_a.descriptor_kind(), DescriptorKind::SeE2A);
+    assert_eq!(se_a.descriptor_kind(), Some(DescriptorKind::SeE2A));
     assert_eq!(
         NativePotential::new(se_a).unwrap().metadata().backend,
         "native-se-e2-a-v1"

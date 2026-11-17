@@ -18,8 +18,12 @@ pub struct Model {
 #[serde(deny_unknown_fields)]
 pub struct Descriptor {
     /// `se_e2_a`, `se_e2_r` or `se_e3`, with the `format` of the model that
-    /// goes with it (see [`DescriptorKind`]).
+    /// goes with it (see [`DescriptorKind`]), or `hybrid` ([`HYBRID_KIND`]):
+    /// the descriptors of `list` one after the other.
     pub kind: String,
+    /// hybrid: the neighbor list that every descriptor of `list` reads has
+    /// the largest cutoff of them and, of every type, the most slots
+    /// (`rcut_smth` is the smallest of theirs; nothing reads it).
     pub rcut: f64,
     pub rcut_smth: f64,
     pub sel: Vec<usize>,
@@ -30,7 +34,8 @@ pub struct Descriptor {
     /// Per-center-type, uniform across neighbor slots. se_e2_r has the
     /// radial entry only: its other means are zero and its other widths one.
     /// se_e3 has the direction entries only: its radial mean is zero and its
-    /// radial width one.
+    /// radial width one. A hybrid has none of its own.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub normalization: Vec<Normalization>,
     /// The embedding nets depend on the neighbor type only (DeePMD's
     /// `type_one_side`): every row of `embedding` is then the same, and the
@@ -42,9 +47,28 @@ pub struct Descriptor {
     pub type_one_side: bool,
     /// Ordered [central type][neighbor type]. One-side models repeat rows.
     /// se_e3: [neighbor type][neighbor type], the net of a pair of neighbor
-    /// types, the same in either order.
+    /// types, the same in either order. A hybrid has none of its own.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub embedding: Vec<Vec<Network>>,
+    /// hybrid: the descriptors whose components, in this order, are the
+    /// components of this one. Each is an se_e2_a, se_e2_r or se_e3
+    /// descriptor with cutoffs, slots, normalization and nets of its own.
+    /// Empty, or left out, for the others.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub list: Vec<Descriptor>,
 }
+
+/// `descriptor.kind` of a hybrid (DeePMD-kit's `hybrid`): the components of
+/// several descriptors, one after the other, are the input of the fitting
+/// nets. All of them read one neighbor list, made with the largest of their
+/// cutoffs and, of every type, the most slots any of them has: a descriptor
+/// takes the nearest `sel[t]` of the list's neighbors of type `t` (its own
+/// `sel`), and those at or beyond its own cutoff are empty slots to it.
+pub const HYBRID_KIND: &str = "hybrid";
+/// The `format` of a native model with a hybrid descriptor.
+pub const HYBRID_FORMAT: &str = "omnimd-native-hybrid";
+/// The most descriptors a hybrid can have.
+pub const MAX_HYBRID_PARTS: usize = 16;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -99,24 +123,42 @@ impl DescriptorKind {
 }
 
 impl Descriptor {
-    /// The descriptor `kind` names, if the format has it.
+    /// The descriptor `kind` names, if the format has it. A hybrid is none
+    /// of them: see [`Self::parts`].
     pub fn descriptor_kind(&self) -> Option<DescriptorKind> {
         DescriptorKind::ALL
             .into_iter()
             .find(|kind| kind.name() == self.kind)
     }
 
-    /// Outputs of an embedding net (of a validated model: all alike).
+    /// Whether this is a hybrid: the descriptors of `list` together.
+    pub fn is_hybrid(&self) -> bool {
+        self.kind == HYBRID_KIND
+    }
+
+    /// The descriptors whose components make up this one, in their order:
+    /// those of the list of a hybrid, or this descriptor alone. Of a
+    /// validated model each has a [`DescriptorKind`].
+    pub fn parts(&self) -> &[Descriptor] {
+        match self.is_hybrid() {
+            true => &self.list,
+            false => std::slice::from_ref(self),
+        }
+    }
+
+    /// Outputs of an embedding net (of a validated model: all alike). Not
+    /// for a hybrid, whose descriptors each have their own.
     pub fn width(&self) -> usize {
         self.embedding[0][0].output_size()
     }
 
     /// Components of the descriptor, the input of a fitting net (of a
-    /// validated model).
+    /// validated model): those of all its descriptors for a hybrid.
     pub fn features(&self) -> usize {
         match self.descriptor_kind() {
+            Some(DescriptorKind::SeE2A) => self.width() * self.axis_neuron,
             Some(DescriptorKind::SeE2R | DescriptorKind::SeE3) => self.width(),
-            _ => self.width() * self.axis_neuron,
+            None => self.list.iter().map(Descriptor::features).sum(),
         }
     }
 }
@@ -168,11 +210,10 @@ fn finite(mut values: impl Iterator<Item = f64>) -> bool {
 }
 
 impl Model {
-    /// The descriptor of a validated model.
-    pub fn descriptor_kind(&self) -> DescriptorKind {
-        self.descriptor
-            .descriptor_kind()
-            .unwrap_or(DescriptorKind::SeE2A)
+    /// The descriptor of a validated model that has one; none for a hybrid,
+    /// which has several ([`Descriptor::parts`]).
+    pub fn descriptor_kind(&self) -> Option<DescriptorKind> {
+        self.descriptor.descriptor_kind()
     }
 
     /// Fails for a model with another descriptor than se_e2_a. `what` names
@@ -190,8 +231,9 @@ impl Model {
     pub fn validate(&self) -> Result<ModelMetadata> {
         let formats = DescriptorKind::ALL.map(DescriptorKind::format);
         require(
-            formats.contains(&self.format.as_str()) && self.version == 1,
-            "unsupported native format/version (expected omnimd-native-se-e2-a, omnimd-native-se-e2-r or omnimd-native-se-e3, v1)",
+            (formats.contains(&self.format.as_str()) || self.format == HYBRID_FORMAT)
+                && self.version == 1,
+            "unsupported native format/version (expected omnimd-native-se-e2-a, omnimd-native-se-e2-r, omnimd-native-se-e3 or omnimd-native-hybrid, v1)",
         )?;
         require(
             self.precision == "float64",
@@ -201,20 +243,21 @@ impl Model {
         // A format names its descriptor: the two must agree.
         let kind = d
             .descriptor_kind()
-            .filter(|kind| kind.format() == self.format)
-            .ok_or_else(|| {
-                Error(format!(
-                    "unsupported descriptor {:?} for native format {}: omnimd-native-se-e2-a has se_e2_a, omnimd-native-se-e2-r has se_e2_r, omnimd-native-se-e3 has se_e3",
-                    d.kind, self.format
-                ))
-            })?;
+            .filter(|kind| kind.format() == self.format);
+        if kind.is_none() && !(d.is_hybrid() && self.format == HYBRID_FORMAT) {
+            return Err(Error(format!(
+                "unsupported descriptor {:?} for native format {}: omnimd-native-se-e2-a has se_e2_a, omnimd-native-se-e2-r has se_e2_r, omnimd-native-se-e3 has se_e3, omnimd-native-hybrid has hybrid",
+                d.kind, self.format
+            )));
+        }
         let metadata = ModelMetadata {
             type_map: self.type_map.clone(),
             cutoff: d.rcut,
             backend: match kind {
-                DescriptorKind::SeE2A => "native-se-e2-a-v1".into(),
-                DescriptorKind::SeE2R => "native-se-e2-r-v1".into(),
-                DescriptorKind::SeE3 => "native-se-e3-v1".into(),
+                Some(DescriptorKind::SeE2A) => "native-se-e2-a-v1".into(),
+                Some(DescriptorKind::SeE2R) => "native-se-e2-r-v1".into(),
+                Some(DescriptorKind::SeE3) => "native-se-e3-v1".into(),
+                None => "native-hybrid-v1".into(),
             },
             precision: self.precision.clone(),
             units: self.units,
@@ -222,103 +265,15 @@ impl Model {
         metadata.validate()?;
         let n = self.type_map.len();
         require(n <= 256, "native v1 supports at most 256 types")?;
-        require(
-            d.rcut_smth.is_finite()
-                && d.rcut_smth >= 0.0
-                && d.rcut_smth < d.rcut
-                && (d.rcut * d.rcut).is_finite(),
-            "invalid smoothing/cutoff radii",
-        )?;
-        require(d.sel.len() == n, "sel must have one entry per ordered type")?;
-        let slots = d
-            .sel
-            .iter()
-            .try_fold(0usize, |a, b| a.checked_add(*b))
-            .ok_or_else(|| Error("sel sum overflow".into()))?;
-        require(slots > 0 && slots <= 65536, "sum(sel) must be in 1..=65536")?;
-        require(
-            d.normalization.len() == n,
-            "normalization must have one entry per central type",
-        )?;
-        for (i, norm) in d.normalization.iter().enumerate() {
-            require(
-                finite(norm.mean.into_iter()) && norm.std.iter().all(|s| s.is_finite() && *s > 0.0),
-                format!("normalization[{i}] must be finite with positive std"),
-            )?;
-            require(
-                norm.mean[1..] == [0.0; 3]
-                    && norm.std[1] == norm.std[2]
-                    && norm.std[2] == norm.std[3],
-                format!("normalization[{i}]: angular mean must be zero and angular std isotropic"),
-            )?;
-            require(
-                kind != DescriptorKind::SeE2R || norm.std[1] == 1.0,
-                format!("normalization[{i}]: se_e2_r has a radial entry only; the other widths must be one"),
-            )?;
-            require(
-                kind != DescriptorKind::SeE3 || (norm.mean[0] == 0.0 && norm.std[0] == 1.0),
-                format!("normalization[{i}]: se_e3 has direction entries only; the radial mean must be zero and the radial width one"),
-            )?;
-        }
-        require(
-            d.embedding.len() == n,
-            "embedding must have one row per type",
-        )?;
-        let mut width = None;
-        for (i, row) in d.embedding.iter().enumerate() {
-            require(
-                row.len() == n,
-                format!("embedding[{i}] must have one network per neighbor type"),
-            )?;
-            for (j, net) in row.iter().enumerate() {
-                let out = net.validate(1, &format!("embedding[{i}][{j}]"))?;
-                if let Some(expected) = width {
-                    require(
-                        out == expected,
-                        "all embedding networks must have the same output width",
-                    )?;
-                } else {
-                    width = Some(out);
-                }
-            }
-        }
-        let width = width.unwrap();
-        require(
-            !d.type_one_side || d.embedding.iter().all(|row| *row == d.embedding[0]),
-            "type_one_side: the embedding nets of a neighbor type must be the same for every central type",
-        )?;
-        if kind == DescriptorKind::SeE3 {
-            require(
-                !d.type_one_side,
-                "se_e3 has one embedding net per pair of neighbor types: type_one_side does not apply",
-            )?;
-            // The net of a pair of neighbor types, whichever comes first.
-            let symmetric = (0..n).all(|i| (0..i).all(|j| d.embedding[i][j] == d.embedding[j][i]));
-            require(
-                symmetric,
-                "se_e3: the embedding net of a pair of neighbor types must be the same in either order",
-            )?;
-        }
         let input = match kind {
-            DescriptorKind::SeE2A => {
+            Some(kind) => {
                 require(
-                    d.axis_neuron > 0 && d.axis_neuron <= width,
-                    "axis_neuron must be in 1..=embedding width",
+                    d.list.is_empty(),
+                    "only a hybrid descriptor has a list of descriptors",
                 )?;
-                width
-                    .checked_mul(d.axis_neuron)
-                    .ok_or_else(|| Error("descriptor width overflow".into()))?
+                d.validate_part(kind, n, "")?
             }
-            DescriptorKind::SeE2R | DescriptorKind::SeE3 => {
-                require(
-                    d.axis_neuron == 0,
-                    format!(
-                        "{} has no axis neurons: axis_neuron must be zero or left out",
-                        kind.name()
-                    ),
-                )?;
-                width
-            }
+            None => d.validate_hybrid(n)?,
         };
         require(
             self.fitting.len() == n && self.atom_energy_bias.len() == n,
@@ -342,6 +297,175 @@ impl Model {
             )?;
         }
         Ok(metadata)
+    }
+}
+
+impl Descriptor {
+    /// Checks an se_e2_a, se_e2_r or se_e3 descriptor for `n` types and
+    /// returns the number of its components. `context` goes before every
+    /// message: nothing for the descriptor of a model, the place in the list
+    /// for a descriptor of a hybrid.
+    fn validate_part(&self, kind: DescriptorKind, n: usize, context: &str) -> Result<usize> {
+        let d = self;
+        require(
+            d.rcut_smth.is_finite()
+                && d.rcut_smth >= 0.0
+                && d.rcut_smth < d.rcut
+                && (d.rcut * d.rcut).is_finite(),
+            format!("{context}invalid smoothing/cutoff radii"),
+        )?;
+        require(
+            d.sel.len() == n,
+            format!("{context}sel must have one entry per ordered type"),
+        )?;
+        let slots = d
+            .sel
+            .iter()
+            .try_fold(0usize, |a, b| a.checked_add(*b))
+            .ok_or_else(|| Error(format!("{context}sel sum overflow")))?;
+        require(
+            slots > 0 && slots <= 65536,
+            format!("{context}sum(sel) must be in 1..=65536"),
+        )?;
+        require(
+            d.normalization.len() == n,
+            format!("{context}normalization must have one entry per central type"),
+        )?;
+        for (i, norm) in d.normalization.iter().enumerate() {
+            require(
+                finite(norm.mean.into_iter()) && norm.std.iter().all(|s| s.is_finite() && *s > 0.0),
+                format!("{context}normalization[{i}] must be finite with positive std"),
+            )?;
+            require(
+                norm.mean[1..] == [0.0; 3]
+                    && norm.std[1] == norm.std[2]
+                    && norm.std[2] == norm.std[3],
+                format!("{context}normalization[{i}]: angular mean must be zero and angular std isotropic"),
+            )?;
+            require(
+                kind != DescriptorKind::SeE2R || norm.std[1] == 1.0,
+                format!("{context}normalization[{i}]: se_e2_r has a radial entry only; the other widths must be one"),
+            )?;
+            require(
+                kind != DescriptorKind::SeE3 || (norm.mean[0] == 0.0 && norm.std[0] == 1.0),
+                format!("{context}normalization[{i}]: se_e3 has direction entries only; the radial mean must be zero and the radial width one"),
+            )?;
+        }
+        require(
+            d.embedding.len() == n,
+            format!("{context}embedding must have one row per type"),
+        )?;
+        let mut width = None;
+        for (i, row) in d.embedding.iter().enumerate() {
+            require(
+                row.len() == n,
+                format!("{context}embedding[{i}] must have one network per neighbor type"),
+            )?;
+            for (j, net) in row.iter().enumerate() {
+                let out = net.validate(1, &format!("{context}embedding[{i}][{j}]"))?;
+                if let Some(expected) = width {
+                    require(
+                        out == expected,
+                        format!("{context}all embedding networks must have the same output width"),
+                    )?;
+                } else {
+                    width = Some(out);
+                }
+            }
+        }
+        let width = width.ok_or_else(|| Error(format!("{context}no embedding networks")))?;
+        require(
+            !d.type_one_side || d.embedding.iter().all(|row| *row == d.embedding[0]),
+            format!("{context}type_one_side: the embedding nets of a neighbor type must be the same for every central type"),
+        )?;
+        if kind == DescriptorKind::SeE3 {
+            require(
+                !d.type_one_side,
+                format!("{context}se_e3 has one embedding net per pair of neighbor types: type_one_side does not apply"),
+            )?;
+            // The net of a pair of neighbor types, whichever comes first.
+            let symmetric = (0..n).all(|i| (0..i).all(|j| d.embedding[i][j] == d.embedding[j][i]));
+            require(
+                symmetric,
+                format!("{context}se_e3: the embedding net of a pair of neighbor types must be the same in either order"),
+            )?;
+        }
+        match kind {
+            DescriptorKind::SeE2A => {
+                require(
+                    d.axis_neuron > 0 && d.axis_neuron <= width,
+                    format!("{context}axis_neuron must be in 1..=embedding width"),
+                )?;
+                width
+                    .checked_mul(d.axis_neuron)
+                    .ok_or_else(|| Error(format!("{context}descriptor width overflow")))
+            }
+            DescriptorKind::SeE2R | DescriptorKind::SeE3 => {
+                require(
+                    d.axis_neuron == 0,
+                    format!(
+                        "{context}{} has no axis neurons: axis_neuron must be zero or left out",
+                        kind.name()
+                    ),
+                )?;
+                Ok(width)
+            }
+        }
+    }
+
+    /// Checks a hybrid descriptor for `n` types and returns the number of
+    /// its components, those of the descriptors in its list together.
+    fn validate_hybrid(&self, n: usize) -> Result<usize> {
+        require(
+            !self.list.is_empty() && self.list.len() <= MAX_HYBRID_PARTS,
+            format!("a hybrid descriptor has 1..={MAX_HYBRID_PARTS} descriptors in its list"),
+        )?;
+        require(
+            self.axis_neuron == 0
+                && !self.type_one_side
+                && self.normalization.is_empty()
+                && self.embedding.is_empty(),
+            "a hybrid descriptor has no axis neurons, normalization or embedding nets of its own: those are in its list",
+        )?;
+        let mut features = 0usize;
+        for (index, part) in self.list.iter().enumerate() {
+            let context = format!("descriptor.list[{index}]: ");
+            let kind = part.descriptor_kind().ok_or_else(|| {
+                Error(format!(
+                    "{context}unsupported descriptor {:?}: a hybrid is made of se_e2_a, se_e2_r and se_e3 descriptors",
+                    part.kind
+                ))
+            })?;
+            require(
+                part.list.is_empty(),
+                format!("{context}only a hybrid descriptor has a list of descriptors"),
+            )?;
+            features = features
+                .checked_add(part.validate_part(kind, n, &context)?)
+                .ok_or_else(|| Error("descriptor width overflow".into()))?;
+        }
+        // The neighbor list that all of them read.
+        let rcut = self.list.iter().map(|part| part.rcut).fold(0.0, f64::max);
+        let smooth = self
+            .list
+            .iter()
+            .map(|part| part.rcut_smth)
+            .fold(f64::INFINITY, f64::min);
+        let sel: Vec<usize> = (0..n)
+            .map(|t| self.list.iter().map(|part| part.sel[t]).max().unwrap_or(0))
+            .collect();
+        require(
+            self.rcut == rcut && self.rcut_smth == smooth && self.sel == sel,
+            format!(
+                "a hybrid descriptor has the largest rcut ({rcut}), the smallest rcut_smth ({smooth}) and of every type the largest sel ({sel:?}) of the descriptors in its list"
+            ),
+        )?;
+        let slots = sel
+            .iter()
+            .try_fold(0usize, |a, b| a.checked_add(*b))
+            .ok_or_else(|| Error("sel sum overflow".into()))?;
+        require(slots <= 65536, "sum(sel) must be in 1..=65536")?;
+        Ok(features)
     }
 }
 

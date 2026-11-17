@@ -153,6 +153,7 @@ pub fn model_of_width(
                 .collect(),
             type_one_side: false,
             embedding,
+            list: Vec::new(),
         },
         fitting,
         atom_energy_bias: (0..ntypes).map(|i| -3.0 - i as f64).collect(),
@@ -245,5 +246,52 @@ pub fn frame(
         positions,
         cell: periodic.then_some(lattice),
         units: Units::EvAngstrom,
+    }
+}
+
+/// A hybrid of the descriptors of `parts` (models of one descriptor each,
+/// of the same types) in their order: the neighbor list they need together,
+/// and fitting nets for the components of all of them.
+#[allow(dead_code)]
+pub fn hybrid_model(parts: &[Model], seed: u64) -> Model {
+    let ntypes = parts[0].type_map.len();
+    let list: Vec<Descriptor> = parts.iter().map(|part| part.descriptor.clone()).collect();
+    let features: usize = list.iter().map(Descriptor::features).sum();
+    let fitting = (0..ntypes)
+        .map(|i| {
+            let s = seed + 5000 + 100 * i as u64;
+            Network {
+                layers: vec![
+                    layer(features, 20, Activation::Tanh, Residual::None, false, s),
+                    layer(20, 20, Activation::Tanh, Residual::Identity, true, s + 10),
+                    layer(20, 1, Activation::Linear, Residual::None, false, s + 20),
+                ],
+            }
+        })
+        .collect();
+    Model {
+        format: "omnimd-native-hybrid".into(),
+        version: 1,
+        precision: "float64".into(),
+        units: Units::EvAngstrom,
+        type_map: parts[0].type_map.clone(),
+        descriptor: Descriptor {
+            kind: "hybrid".into(),
+            rcut: list.iter().map(|d| d.rcut).fold(0.0, f64::max),
+            rcut_smth: list
+                .iter()
+                .map(|d| d.rcut_smth)
+                .fold(f64::INFINITY, f64::min),
+            sel: (0..ntypes)
+                .map(|t| list.iter().map(|d| d.sel[t]).max().unwrap())
+                .collect(),
+            axis_neuron: 0,
+            normalization: Vec::new(),
+            type_one_side: false,
+            embedding: Vec::new(),
+            list,
+        },
+        fitting,
+        atom_energy_bias: parts[0].atom_energy_bias.clone(),
     }
 }

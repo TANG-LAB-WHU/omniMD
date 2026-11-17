@@ -710,7 +710,15 @@ impl<P: Scalar> GpuTrainer<P> {
     pub fn new(model: &Model, device: Arc<Device>) -> Result<Self> {
         let metadata = model.validate()?;
         let d = &model.descriptor;
-        let kind = model.descriptor_kind();
+        // Before anything reads the nets of the descriptor: a hybrid has
+        // none of its own.
+        let Some(kind @ (DescriptorKind::SeE2A | DescriptorKind::SeE2R)) = model.descriptor_kind()
+        else {
+            return Err(Error(format!(
+                "the GPU trainer supports the se_e2_a and se_e2_r descriptors, not {}",
+                d.kind
+            )));
+        };
         let ntypes = model.type_map.len();
         let width = d.embedding[0][0].output_size();
         let slots: usize = d.sel.iter().sum();
@@ -718,13 +726,7 @@ impl<P: Scalar> GpuTrainer<P> {
         let real = std::mem::size_of::<P>();
         let shared = match kind {
             DescriptorKind::SeE2A => (16 * width + 12 + 4 * slots) * 8 + 4 * width * real,
-            DescriptorKind::SeE2R => radial_force_shared::<P>(slots, width),
-            DescriptorKind::SeE3 => {
-                return Err(Error(
-                    "the GPU trainer supports the se_e2_a and se_e2_r descriptors, not se_e3"
-                        .into(),
-                ))
-            }
+            _ => radial_force_shared::<P>(slots, width),
         };
         if shared > SHARED_LIMIT {
             return Err(Error(format!(

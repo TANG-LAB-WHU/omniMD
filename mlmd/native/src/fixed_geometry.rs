@@ -101,6 +101,8 @@ impl PreparedFrame {
     fn new(m: &Model, f: &Frame) -> Result<Self> {
         f.validate()?;
         let metadata = m.validate()?;
+        // The rows kept here are those of an se_e2_a environment.
+        m.require_se_e2_a("the fixed-geometry cache")?;
         let types = f.type_ids(&metadata)?;
         let d = &m.descriptor;
         let count = d.sel.iter().sum::<usize>();

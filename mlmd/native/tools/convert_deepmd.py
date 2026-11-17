@@ -1,6 +1,7 @@
 """Strict DeepMD-kit 3.1.3 .dp/.yaml -> omnimd-native-se-e2-a v1 or, for an
 se_e2_r (se_r) descriptor, omnimd-native-se-e2-r v1, or, for an se_e3
-descriptor, omnimd-native-se-e3 v1.
+descriptor, omnimd-native-se-e3 v1, or, for a hybrid of such descriptors,
+omnimd-native-hybrid v1.
 
 Reads data only. Does not import DeepMD/TensorFlow, load pickle/checkpoints,
 execute model graphs, infer missing architecture, or install dependencies.
@@ -189,6 +190,108 @@ def widths(value, where):
     return value
 
 
+def descriptor(d, types, geometry, where):
+    """One se_e2_a, se_e2_r (se_r) or se_e3 descriptor, alone or in the list of a
+    hybrid: the native descriptor and the number of its components."""
+    nt = len(types)
+    need(isinstance(d, dict) and d.get('type') in ('se_e2_a', 'se_r', 'se_e2_r', 'se_e3'),
+         f'{where}: only se_e2_a, se_e2_r (se_r), se_e3 and hybrids of them are supported (no hybrid in a hybrid/type embedding/spin)')
+    # se_e2_r: the radial entry of the environment only, and no axis neurons.
+    radial = d['type'] in ('se_r', 'se_e2_r')
+    # se_e3: the direction entries only, one net per pair of neighbor types
+    # (DeePMD-kit stores neither `type_one_side` nor `spin` for it).
+    three_body = d['type'] == 'se_e3'
+    common = 'type rcut rcut_smth sel neuron resnet_dt trainable exclude_types env_protection set_davg_zero activation_function precision env_mat embeddings @variables type_map'
+    schema(d,'Descriptor',2,common + ('' if three_body else ' type_one_side spin') + ('' if radial or three_body else ' axis_neuron'),where)
+    need(not (radial or three_body) or geometry == 'dpmodel',
+         f"{d['type']} is converted with --geometry dpmodel only: its radii in a frozen TensorFlow graph have not been checked")
+    precision(d,where)
+    need(d['type_map'] is None or d['type_map'] == types, f'{where}: type_map mismatch')
+    need(d['exclude_types'] == [] and d.get('spin') is None and d['env_protection'] == 0,
+         f'{where}: exclusions, spin, and environment protection are unsupported')
+    for k in ('resnet_dt','trainable','set_davg_zero') + (() if three_body else ('type_one_side',)): boolean(d[k], f'{where}.{k}')
+    rc, rs = number(d['rcut'],f'{where}.rcut'), number(d['rcut_smth'],f'{where}.rcut_smth')
+    need(0 <= rs < rc and math.isfinite(rc*rc), f'{where}: invalid cutoff/smoothing radii')
+    env = fields(d['env_mat'],'rcut rcut_smth protection use_exp_switch',f'{where}.env_mat')
+    need(env == {'rcut':rc,'rcut_smth':rs,'protection':0.0,'use_exp_switch':False},
+         f'{where}: unsupported or inconsistent environment matrix (including exponential switch)')
+    sel = d['sel']
+    need(isinstance(sel,list) and len(sel) == nt,f'{where}: sel/type_map size mismatch')
+    for x in sel: integer(x,f'{where}.sel')
+    slots = sum(sel)
+    need(0 < slots <= 65536,f'{where}: sum(sel) outside native capacity range')
+    neurons = widths(d['neuron'],f'{where}: embedding neurons')
+    if radial or three_body:
+        axis, features = 0, neurons[-1]
+    else:
+        axis = integer(d['axis_neuron'],f'{where}.axis_neuron',1)
+        need(axis <= neurons[-1], f'{where}: axis_neuron exceeds embedding width')
+        features = neurons[-1]*axis
+    components = 1 if radial else 4
+    dv = fields(d['@variables'],'davg dstd',f'{where}.variables')
+    avg = array(dv['davg'],[nt,slots,components],f'{where}.davg')
+    std = array(dv['dstd'],[nt,slots,components],f'{where}.dstd')
+    normalization = []
+    for i in range(nt):
+        mean, scale = avg[i][0], std[i][0]
+        need(all(row == mean for row in avg[i]) and all(row == scale for row in std[i]),
+             f'{where}: type {i}: nonuniform per-slot normalization is unsupported')
+        if radial:
+            # The native layout keeps four entries: the others are a zero mean and a unit width.
+            need(scale[0] > 0, f'{where}: type {i}: the normalization width must be positive')
+            mean, scale = mean + [0.0]*3, scale + [1.0]*3
+        need(mean[1:] == [0.0]*3 and all(s>0 for s in scale) and scale[1] == scale[2] == scale[3],
+             f'{where}: type {i}: angular normalization must be isotropic with zero mean')
+        if three_body:
+            # The descriptor reads the direction entries only: DeePMD-kit keeps a radial
+            # mean and width that it never uses, the native layout a zero and a one.
+            mean, scale = [0.0]*4, [1.0] + scale[1:]
+        normalization.append({'mean':mean,'std':scale})
+    ndim = 2 if three_body else 1 if d['type_one_side'] else 2
+    embeddings = collection(d['embeddings'],ndim,nt,'embedding',1,neurons,d['activation_function'],f'{where}.embedding')
+    # DeepMD NetworkCollection uses the FIRST tuple component as least significant.
+    if three_body:
+        # The net of the neighbor types (t, u), t <= u, is at t + nt*u; the nets at the
+        # other places are never evaluated (the reference backend writes them as zeros).
+        # The native table has the net of a pair in either order.
+        embedding = [[embeddings[min(i,j)+nt*max(i,j)] for j in range(nt)] for i in range(nt)]
+    else:
+        embedding = [[embeddings[j if ndim == 1 else i+nt*j] for j in range(nt)] for i in range(nt)]
+    if geometry == 'tensorflow':
+        # TensorFlow AttrValue.float stores environment-op radii as IEEE f32,
+        # even when model weights, coordinates and environment math are f64.
+        rc, rs = (struct.unpack('<f', struct.pack('<f', value))[0] for value in (rc,rs))
+        need(0 <= rs < rc and math.isfinite(rc), 'TensorFlow cutoff rounding collapses/overflows radii')
+    # One net per neighbor type: the native table repeats it for every central
+    # type and says so, for a trainer to keep the rows alike.
+    one_side = {'type_one_side':True} if ndim == 1 else {}
+    kind = 'se_e3' if three_body else 'se_e2_r' if radial else 'se_e2_a'
+    return ({'kind':kind,'rcut':rc,'rcut_smth':rs,'sel':sel,'axis_neuron':axis,
+             'normalization':normalization,**one_side,'embedding':embedding}, features)
+
+
+def hybrid(d, types, geometry):
+    """A hybrid: the descriptors of its list, each with cutoffs, slots, normalization
+    and nets of its own. DeePMD-kit makes one neighbor list for all of them, with the
+    largest cutoff and of every type the most slots, and gives each descriptor the
+    nearest `sel[t]` of the list's neighbors of type t; the native model says what
+    that list is. Returns the native descriptor and the number of its components."""
+    schema(d,'Descriptor',1,'type list','descriptor')
+    need(geometry == 'dpmodel',
+         'a hybrid is converted with --geometry dpmodel only: how a frozen TensorFlow graph selects the neighbors of its descriptors has not been checked')
+    members = d['list']
+    need(isinstance(members,list) and 0 < len(members) <= 16, 'descriptor.list: expected 1 to 16 descriptors')
+    parts, features = [], 0
+    for i, member in enumerate(members):
+        native, count = descriptor(member, types, geometry, f'descriptor.list[{i}]')
+        parts.append(native)
+        features += count
+    sel = [max(part['sel'][t] for part in parts) for t in range(len(types))]
+    need(sum(sel) <= 65536, 'descriptor: sum(sel) of the shared neighbor list outside native capacity range')
+    return ({'kind':'hybrid','rcut':max(part['rcut'] for part in parts),
+             'rcut_smth':min(part['rcut_smth'] for part in parts),'sel':sel,'list':parts}, features)
+
+
 def convert(data, geometry):
     need(geometry in ("dpmodel", "tensorflow"), "geometry must explicitly select dpmodel or tensorflow")
     fields(data, 'software version time model', 'envelope',
@@ -213,69 +316,11 @@ def convert(data, geometry):
     need(array(mv['out_std'],[1,nt,1],'out_std') == [[[1.0] for _ in types]],
          'non-unit out_std is unsupported (DeepMD backends differ in its semantics)')
     d = m['descriptor']
-    need(isinstance(d, dict) and d.get('type') in ('se_e2_a', 'se_r', 'se_e2_r', 'se_e3'),
-         'only se_e2_a, se_e2_r (se_r) and se_e3 are supported (no hybrid/type embedding/spin)')
-    # se_e2_r: the radial entry of the environment only, and no axis neurons.
-    radial = d['type'] in ('se_r', 'se_e2_r')
-    # se_e3: the direction entries only, one net per pair of neighbor types
-    # (DeePMD-kit stores neither `type_one_side` nor `spin` for it).
-    three_body = d['type'] == 'se_e3'
-    common = 'type rcut rcut_smth sel neuron resnet_dt trainable exclude_types env_protection set_davg_zero activation_function precision env_mat embeddings @variables type_map'
-    schema(d,'Descriptor',2,common + ('' if three_body else ' type_one_side spin') + ('' if radial or three_body else ' axis_neuron'),'descriptor')
-    need(not (radial or three_body) or geometry == 'dpmodel',
-         f"{d['type']} is converted with --geometry dpmodel only: its radii in a frozen TensorFlow graph have not been checked")
-    precision(d,'descriptor')
-    need(d['type_map'] is None or d['type_map'] == types, 'descriptor type_map mismatch')
-    need(d['exclude_types'] == [] and d.get('spin') is None and d['env_protection'] == 0,
-         'descriptor exclusions, spin, and environment protection are unsupported')
-    for k in ('resnet_dt','trainable','set_davg_zero') + (() if three_body else ('type_one_side',)): boolean(d[k], f'descriptor.{k}')
-    rc, rs = number(d['rcut'],'rcut'), number(d['rcut_smth'],'rcut_smth')
-    need(0 <= rs < rc and math.isfinite(rc*rc), 'invalid cutoff/smoothing radii')
-    env = fields(d['env_mat'],'rcut rcut_smth protection use_exp_switch','env_mat')
-    need(env == {'rcut':rc,'rcut_smth':rs,'protection':0.0,'use_exp_switch':False},
-         'unsupported or inconsistent environment matrix (including exponential switch)')
-    sel = d['sel']
-    need(isinstance(sel,list) and len(sel) == nt,'sel/type_map size mismatch')
-    for x in sel: integer(x,'sel')
-    slots = sum(sel)
-    need(0 < slots <= 65536,'sum(sel) outside native capacity range')
-    neurons = widths(d['neuron'],'embedding neurons')
-    if radial or three_body:
-        axis, features = 0, neurons[-1]
+    need(isinstance(d, dict), 'descriptor: expected object')
+    if d.get('type') == 'hybrid':
+        native, features = hybrid(d, types, geometry)
     else:
-        axis = integer(d['axis_neuron'],'axis_neuron',1)
-        need(axis <= neurons[-1], 'axis_neuron exceeds embedding width')
-        features = neurons[-1]*axis
-    components = 1 if radial else 4
-    dv = fields(d['@variables'],'davg dstd','descriptor.variables')
-    avg = array(dv['davg'],[nt,slots,components],'davg')
-    std = array(dv['dstd'],[nt,slots,components],'dstd')
-    normalization = []
-    for i in range(nt):
-        mean, scale = avg[i][0], std[i][0]
-        need(all(row == mean for row in avg[i]) and all(row == scale for row in std[i]),
-             f'type {i}: nonuniform per-slot normalization is unsupported')
-        if radial:
-            # The native layout keeps four entries: the others are a zero mean and a unit width.
-            need(scale[0] > 0, f'type {i}: the normalization width must be positive')
-            mean, scale = mean + [0.0]*3, scale + [1.0]*3
-        need(mean[1:] == [0.0]*3 and all(s>0 for s in scale) and scale[1] == scale[2] == scale[3],
-             f'type {i}: angular normalization must be isotropic with zero mean')
-        if three_body:
-            # The descriptor reads the direction entries only: DeePMD-kit keeps a radial
-            # mean and width that it never uses, the native layout a zero and a one.
-            mean, scale = [0.0]*4, [1.0] + scale[1:]
-        normalization.append({'mean':mean,'std':scale})
-    ndim = 2 if three_body else 1 if d['type_one_side'] else 2
-    embeddings = collection(d['embeddings'],ndim,nt,'embedding',1,neurons,d['activation_function'],'embedding')
-    # DeepMD NetworkCollection uses the FIRST tuple component as least significant.
-    if three_body:
-        # The net of the neighbor types (t, u), t <= u, is at t + nt*u; the nets at the
-        # other places are never evaluated (the reference backend writes them as zeros).
-        # The native table has the net of a pair in either order.
-        embedding = [[embeddings[min(i,j)+nt*max(i,j)] for j in range(nt)] for i in range(nt)]
-    else:
-        embedding = [[embeddings[j if ndim == 1 else i+nt*j] for j in range(nt)] for i in range(nt)]
+        native, features = descriptor(d, types, geometry, 'descriptor')
     f = m['fitting']
     schema(f,'Fitting',4,'type var_name ntypes dim_descrpt neuron resnet_dt numb_fparam numb_aparam dim_case_embd default_fparam rcond activation_function precision mixed_types exclude_types @variables type_map tot_ener_zero trainable layer_name use_aparam_as_mask spin dim_out atom_ener nets','fitting')
     precision(f,'fitting')
@@ -295,19 +340,9 @@ def convert(data, geometry):
         if k != 'bias_atom_e': need(v is None, f'{k} must be null')
     bias = array(fv['bias_atom_e'],[nt,1],'bias_atom_e')
     fitting = collection(f['nets'],1,nt,'fitting',features,widths(f['neuron'],'fitting neurons'),f['activation_function'],'fitting networks')
-    if geometry == 'tensorflow':
-        # TensorFlow AttrValue.float stores environment-op radii as IEEE f32,
-        # even when model weights, coordinates and environment math are f64.
-        rc, rs = (struct.unpack('<f', struct.pack('<f', value))[0] for value in (rc,rs))
-        need(0 <= rs < rc and math.isfinite(rc), 'TensorFlow cutoff rounding collapses/overflows radii')
-    # One net per neighbor type: the native table repeats it for every central
-    # type and says so, for a trainer to keep the rows alike.
-    one_side = {'type_one_side':True} if ndim == 1 else {}
-    kind = 'se_e3' if three_body else 'se_e2_r' if radial else 'se_e2_a'
-    result = {'format':'omnimd-native-' + kind.replace('_','-'),
+    result = {'format':'omnimd-native-' + native['kind'].replace('_','-'),
               'version':1,'precision':'float64','units':'EvAngstrom',
-              'type_map':types,'descriptor':{'kind':kind,'rcut':rc,'rcut_smth':rs,'sel':sel,
-                  'axis_neuron':axis,'normalization':normalization,**one_side,'embedding':embedding},
+              'type_map':types,'descriptor':native,
               'fitting':fitting,'atom_energy_bias':[bias[i][0]+offset[i][0] for i in range(nt)]}
     # Validate the entire result is JSON-finite before exposing any output file.
     json.dumps(result,allow_nan=False)

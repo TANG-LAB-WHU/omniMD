@@ -304,6 +304,7 @@ pub fn initialize(
             normalization,
             type_one_side: d.type_one_side,
             embedding,
+            list: Vec::new(),
         },
         fitting,
         atom_energy_bias,
@@ -468,7 +469,7 @@ mod tests {
             .unwrap();
             assert_eq!(model.format, "omnimd-native-se-e2-r");
             assert_eq!(model.descriptor.kind, "se_e2_r");
-            assert_eq!(model.descriptor_kind(), DescriptorKind::SeE2R);
+            assert_eq!(model.descriptor_kind(), Some(DescriptorKind::SeE2R));
             assert_eq!(model.descriptor.axis_neuron, 0);
             assert_eq!(model.descriptor.type_one_side, shared);
             assert_eq!(
@@ -510,8 +511,16 @@ mod tests {
     #[test]
     fn unsupported_models_are_rejected() {
         let mut bad = spec();
-        bad.descriptor.kind = "se_e3".into();
-        assert!(initialize(&bad, vec![1, 1, 1], unit_normalization(3), vec![0.0; 3]).is_err());
+        for unsupported in ["se_e3", "hybrid"] {
+            bad.descriptor.kind = unsupported.into();
+            let error = initialize(&bad, vec![1, 1, 1], unit_normalization(3), vec![0.0; 3])
+                .unwrap_err()
+                .to_string();
+            assert!(
+                error.contains("only se_e2_a and se_e2_r"),
+                "{unsupported}: {error}"
+            );
+        }
         assert!(initialize(&spec(), vec![1, 1], unit_normalization(3), vec![0.0; 3]).is_err());
         assert!(initialize(&spec(), vec![1, 1, 1], unit_normalization(2), vec![0.0; 3]).is_err());
         for text in ["auto:", "auto:x", "automatic", "auto:-1"] {

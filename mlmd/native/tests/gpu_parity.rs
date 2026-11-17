@@ -1,6 +1,6 @@
-//! GPU se_e2_a, se_e2_r and se_e3 (omnimd-gpu) against the CPU reference
-//! `NativePotential`, which is itself checked against DeePMD. Skips without a
-//! CUDA driver unless OMNIMD_REQUIRE_GPU=1.
+//! GPU se_e2_a, se_e2_r, se_e3 and hybrids of them (omnimd-gpu) against the
+//! CPU reference `NativePotential`, which is itself checked against DeePMD.
+//! Skips without a CUDA driver unless OMNIMD_REQUIRE_GPU=1.
 #![cfg(feature = "gpu")]
 mod common;
 use common::{device, frame, model};
@@ -1337,5 +1337,729 @@ fn se_e3_in_float32_in_batches_and_committees() {
     assert_eq!(
         error.to_string(),
         "the GPU trainer supports the se_e2_a and se_e2_r descriptors, not se_e3"
+    );
+}
+
+/// A descriptor for a hybrid, as a model of its own, with a smoothing radius
+/// and widths that the others of the list do not have.
+fn tuned(mut model: Model, rcut_smth: f64, factor: f64) -> Model {
+    model.descriptor.rcut_smth = rcut_smth;
+    for normalization in &mut model.descriptor.normalization {
+        for width in &mut normalization.std {
+            // A width of one stands for an entry the descriptor does not read.
+            if *width != 1.0 {
+                *width *= factor;
+            }
+        }
+    }
+    model
+}
+
+/// An se_e2_a, an se_e2_r and an se_e3 descriptor of two types. The second
+/// has the cutoff and the slots of the neighbor list and reads it as it is;
+/// the others have their own tables of it.
+fn three_kinds(seed: u64) -> Model {
+    let mut model = common::hybrid_model(
+        &[
+            tuned(
+                common::model_of_width(2, vec![60, 90], 3.8, seed, 16, 4),
+                0.9,
+                1.1,
+            ),
+            tuned(
+                common::radial_model(2, vec![80, 160], 4.5, seed + 1, 24),
+                1.4,
+                0.9,
+            ),
+            tuned(
+                common::three_body_model(2, vec![40, 60], 3.2, seed + 2, 8),
+                0.3,
+                1.2,
+            ),
+        ],
+        seed + 3,
+    );
+    // Larger output weights, for forces of some hundredths of an eV/A.
+    for net in &mut model.fitting {
+        let output = net.layers.last_mut().unwrap();
+        for weight in output.weights.iter_mut().flatten() {
+            *weight *= 4.0;
+        }
+    }
+    model
+}
+
+/// A hybrid on the device against the CPU reference, on the kinds of frames
+/// the descriptors' own checks use.
+#[test]
+fn hybrid_matches_cpu() {
+    let triclinic = [[9.0, 0.0, 0.0], [1.5, 8.5, 0.0], [-1.0, 0.8, 9.2]];
+    let model = three_kinds(201);
+    assert_eq!(model.descriptor.sel, [80, 160]);
+    assert_eq!(
+        (model.descriptor.rcut, model.descriptor.rcut_smth),
+        (4.5, 0.3)
+    );
+    assert_eq!(model.descriptor.features(), 16 * 4 + 24 + 8);
+    check(
+        "hybrid, three kinds",
+        model,
+        &frame(triclinic, 5, 2, true, 202),
+    );
+    // No descriptor reads the list as it is: the first has its cutoff and
+    // fewer slots of the second type, the second all slots of that type and
+    // a shorter cutoff.
+    let model = common::hybrid_model(
+        &[
+            model_of(2, vec![80, 100], 4.5, 203),
+            tuned(
+                common::radial_model(2, vec![50, 160], 3.5, 204, 16),
+                0.7,
+                1.3,
+            ),
+        ],
+        205,
+    );
+    assert_eq!(model.descriptor.sel, [80, 160]);
+    check(
+        "hybrid, two tables",
+        model,
+        &frame(triclinic, 5, 2, true, 206),
+    );
+    // Narrower than the cutoff: neighbors include several images.
+    let small = [[4.2, 0.0, 0.0], [0.0, 4.2, 0.0], [0.0, 0.0, 4.2]];
+    check(
+        "hybrid, several images",
+        common::hybrid_model(
+            &[
+                three_body(2, vec![60, 120], 4.5, 207),
+                tuned(model_of(2, vec![60, 120], 4.0, 208), 1.1, 0.8),
+                tuned(radial(2, vec![30, 60], 3.0, 209), 0.2, 1.1),
+            ],
+            210,
+        ),
+        &frame(small, 2, 2, true, 211),
+    );
+    let cubic = [[8.0, 0.0, 0.0], [0.0, 8.0, 0.0], [0.0, 0.0, 8.0]];
+    let open = |seed: u64| {
+        common::hybrid_model(
+            &[
+                model_of(3, vec![30, 30, 30], 4.0, seed),
+                tuned(three_body(3, vec![20, 20, 20], 3.0, seed + 1), 1.0, 0.9),
+                tuned(radial(3, vec![30, 30, 30], 3.5, seed + 2), 0.2, 1.2),
+            ],
+            seed + 3,
+        )
+    };
+    check("hybrid, open", open(212), &frame(cubic, 4, 3, false, 216));
+    // Embeddings wider than a warp, and one wider than a block of the kernels.
+    let lattice = [[7.0, 0.0, 0.0], [0.5, 7.0, 0.0], [0.0, 0.0, 7.0]];
+    check(
+        "hybrid, wide embeddings",
+        common::hybrid_model(
+            &[
+                common::model_of_width(2, vec![40, 80], 4.0, 217, 40, 6),
+                common::radial_model(2, vec![40, 80], 4.0, 218, 136),
+                common::three_body_model(2, vec![40, 80], 3.5, 219, 40),
+            ],
+            220,
+        ),
+        &frame(lattice, 3, 2, true, 221),
+    );
+    // A type without slots in any descriptor, and without atoms in the frame.
+    check(
+        "hybrid, no slots for the last type",
+        common::hybrid_model(
+            &[
+                model_of(3, vec![30, 30, 0], 4.0, 222),
+                three_body(3, vec![20, 20, 0], 3.0, 223),
+            ],
+            224,
+        ),
+        &frame(cubic, 4, 2, false, 225),
+    );
+    // Two descriptors of one kind, and descriptors that are in the list twice.
+    let first = model_of(3, vec![30, 30, 30], 4.0, 226);
+    let second = tuned(radial(3, vec![30, 30, 30], 3.5, 227), 0.8, 1.1);
+    check(
+        "hybrid, descriptors of one kind",
+        common::hybrid_model(
+            &[
+                first.clone(),
+                tuned(model_of(3, vec![20, 20, 20], 3.0, 228), 1.2, 0.7),
+                second.clone(),
+                first,
+                second,
+            ],
+            229,
+        ),
+        &frame(cubic, 4, 3, false, 230),
+    );
+
+    let Some(device) = device() else { return };
+    // The order of the list is the order of the components: the same
+    // descriptors the other way round are another model, on the device as
+    // on the CPU.
+    let forward = open(231);
+    let mut backward = forward.clone();
+    backward.descriptor.list.reverse();
+    let cluster = frame(cubic, 4, 3, false, 232);
+    let mut energies = Vec::new();
+    for (label, model) in [("forward", &forward), ("backward", &backward)] {
+        let expected = NativePotential::new(model.clone())
+            .unwrap()
+            .eval(&cluster)
+            .unwrap();
+        let mut gpu = GpuPotential::<f64>::new(model, device.clone()).unwrap();
+        assert_eq!(gpu.metadata().backend, "native-gpu-hybrid");
+        let got = gpu.eval(&cluster).unwrap();
+        compare(&format!("hybrid, {label}"), &got, &expected, FLOAT64);
+        energies.push(got.energy);
+    }
+    assert!((energies[0] - energies[1]).abs() > 1e-3, "{energies:?}");
+
+    // Two se_e3 descriptors: chunks end where the rows of either are too
+    // many, down to one atom a chunk, and give what one chunk gives.
+    let model = common::hybrid_model(
+        &[
+            three_body(3, vec![30, 30, 30], 4.0, 233),
+            tuned(radial(3, vec![30, 30, 30], 3.5, 234), 0.6, 1.1),
+            tuned(
+                common::three_body_model(3, vec![20, 20, 20], 3.0, 235, 8),
+                1.1,
+                0.8,
+            ),
+        ],
+        236,
+    );
+    let expected = NativePotential::new(model.clone())
+        .unwrap()
+        .eval(&cluster)
+        .unwrap();
+    let mut gpu = GpuPotential::<f64>::new(&model, device.clone()).unwrap();
+    assert!(gpu.chunk_pairs() > 1_000_000, "{}", gpu.chunk_pairs());
+    for rows in [1, 40, 333, 5000] {
+        gpu.set_chunk_pairs(rows);
+        compare(
+            &format!("hybrid, {rows} rows a chunk"),
+            &gpu.eval(&cluster).unwrap(),
+            &expected,
+            FLOAT64,
+        );
+    }
+    gpu.set_chunk_atoms(3);
+    compare(
+        "hybrid, three atoms a chunk",
+        &gpu.eval(&cluster).unwrap(),
+        &expected,
+        FLOAT64,
+    );
+    // Atoms without neighbors: one pair, and one atom far away, which has
+    // no row in any descriptor.
+    let sparse = Frame {
+        positions: vec![[0.0, 0.0, 0.0], [20.0, 1.0, 3.0], [1.3, 0.4, -0.2]],
+        species: vec!["H".into(), "O".into(), "C".into()],
+        cell: None,
+        units: Units::EvAngstrom,
+    };
+    let expected = NativePotential::new(model.clone())
+        .unwrap()
+        .eval(&sparse)
+        .unwrap();
+    assert!(expected.forces[0].iter().any(|f| f.abs() > 1e-6));
+    assert_eq!(expected.forces[1], [0.0; 3]);
+    let mut gpu = GpuPotential::<f64>::new(&model, device.clone()).unwrap();
+    compare(
+        "hybrid, an atom alone",
+        &gpu.eval(&sparse).unwrap(),
+        &expected,
+        FLOAT64,
+    );
+    gpu.set_chunk_atoms(1);
+    compare(
+        "hybrid, an atom alone in its chunk",
+        &gpu.eval(&sparse).unwrap(),
+        &expected,
+        FLOAT64,
+    );
+
+    // One descriptor in a list is that descriptor: the same launches with
+    // the same numbers. (Not the same bits: the sums of the forces and of
+    // the virial are added to in whatever order the blocks come.)
+    for (label, plain) in [
+        ("se_e2_a", model_of(3, vec![30, 30, 30], 4.0, 237)),
+        ("se_e2_r", radial(3, vec![30, 30, 30], 4.0, 238)),
+        ("se_e3", three_body(3, vec![30, 30, 30], 4.0, 239)),
+    ] {
+        let mut listed = common::hybrid_model(std::slice::from_ref(&plain), 240);
+        listed.fitting = plain.fitting.clone();
+        let alone = GpuPotential::<f64>::new(&plain, device.clone())
+            .unwrap()
+            .eval(&cluster)
+            .unwrap();
+        let in_list = GpuPotential::<f64>::new(&listed, device.clone())
+            .unwrap()
+            .eval(&cluster)
+            .unwrap();
+        assert_eq!(alone.energy, in_list.energy, "{label}");
+        compare(
+            &format!("hybrid of one {label}"),
+            &in_list,
+            &alone,
+            (1e-15, 1e-12),
+        );
+    }
+}
+
+/// The se_e2_a test model under the name the other builders have.
+fn model_of(ntypes: usize, sel: Vec<usize>, rcut: f64, seed: u64) -> Model {
+    model(ntypes, sel, rcut, seed)
+}
+
+/// A hybrid against DeePMD-kit 3.1.3 itself (`tools/make_hybrid_fixture.py`):
+/// the model whose descriptors hold every neighbor within their cutoffs,
+/// with and without a cell, and the one whose slots are far below the
+/// neighbor counts in the list and in every descriptor. There the result
+/// depends on which neighbors are kept, and a descriptor of a hybrid does
+/// not keep those it would keep alone: for 16, 22 and 18 of the 27 atoms the
+/// fixture's three descriptors have other neighbors than their own
+/// selection would give them.
+#[test]
+fn hybrid_matches_deepmd_reference() {
+    let Some(device) = device() else { return };
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("fixtures");
+    let text = std::fs::read_to_string(root.join("hybrid-deepmd-reference.json")).unwrap();
+    let reference: RadialReference = serde_json::from_str(&text).unwrap();
+    assert_eq!(reference.cases.len(), 3);
+    // What the script found: the list of the tight model is cut for every
+    // atom, and each descriptor differs from its own selection for some.
+    let notes: serde_json::Value = serde_json::from_str(&text).unwrap();
+    let tight = &notes["models"]["hybrid-tight-model.native.json"];
+    assert_eq!(tight["atoms_whose_list_is_cut"], 27);
+    for count in tight["atoms_where_a_part_differs_from_its_own_selection"]
+        .as_array()
+        .unwrap()
+    {
+        assert!(count.as_u64().unwrap() > 0, "{count}");
+    }
+    let mut worst = [0.0f64; 3];
+    for (index, case) in reference.cases.into_iter().enumerate() {
+        let model = NativePotential::load(root.join(&case.model)).unwrap();
+        let expected = Evaluation {
+            energy: case.energy,
+            forces: case.forces,
+            virial: case.virial,
+            units: Units::EvAngstrom,
+        };
+        let label = format!("{} (case {index})", case.model);
+        let mut gpu = GpuPotential::<f64>::new(model.model(), device.clone()).unwrap();
+        assert_eq!(gpu.metadata().backend, "native-gpu-hybrid");
+        let got = gpu.eval(&case.frame).unwrap();
+        assert_eq!(
+            gpu.last_truncated(),
+            case.model == "hybrid-tight-model.native.json",
+            "{label}"
+        );
+        compare(&label, &got, &expected, FLOAT64);
+        worst[0] = worst[0].max((got.energy - expected.energy).abs());
+        for (a, b) in got
+            .forces
+            .iter()
+            .flatten()
+            .zip(expected.forces.iter().flatten())
+        {
+            worst[1] = worst[1].max((a - b).abs());
+        }
+        for (a, b) in got
+            .virial
+            .iter()
+            .flatten()
+            .zip(expected.virial.iter().flatten())
+        {
+            worst[2] = worst[2].max((a - b).abs());
+        }
+        gpu.set_chunk_atoms(5);
+        compare(
+            &format!("{label}, chunks"),
+            &gpu.eval(&case.frame).unwrap(),
+            &expected,
+            FLOAT64,
+        );
+        gpu.set_chunk_pairs(30);
+        compare(
+            &format!("{label}, chunks by rows"),
+            &gpu.eval(&case.frame).unwrap(),
+            &expected,
+            FLOAT64,
+        );
+        // In float32 too, within what single precision gives.
+        let mut single = GpuPotential::<f32>::new(model.model(), device.clone()).unwrap();
+        compare(
+            &format!("{label}, float32"),
+            &single.eval(&case.frame).unwrap(),
+            &expected,
+            (1e-6, 1e-4),
+        );
+    }
+    eprintln!(
+        "hybrid on the device against DeePMD-kit: energy within {:.1e} eV, forces {:.1e} eV/A, virial {:.1e} eV",
+        worst[0], worst[1], worst[2]
+    );
+}
+
+/// The neighbor search reports a list that had to drop neighbors. A
+/// descriptor of a hybrid can drop neighbors of a list that holds them all:
+/// that is reported the same way.
+#[test]
+fn a_hybrid_reports_the_neighbors_a_descriptor_drops() {
+    let Some(device) = device() else { return };
+    let cubic = [[8.0, 0.0, 0.0], [0.0, 8.0, 0.0], [0.0, 0.0, 8.0]];
+    let cluster = frame(cubic, 4, 3, false, 241);
+    let hybrid = |sel: Vec<usize>, rcut: f64| {
+        common::hybrid_model(
+            &[
+                model_of(3, vec![30, 30, 30], 4.0, 242),
+                radial(3, sel, rcut, 243),
+            ],
+            244,
+        )
+    };
+    let eval = |model: &Model| {
+        let mut gpu = GpuPotential::<f64>::new(model, device.clone()).unwrap();
+        let result = gpu.eval(&cluster).unwrap();
+        (result, gpu.last_truncated())
+    };
+    // Room for all: nothing is dropped, and the CPU agrees.
+    let roomy = hybrid(vec![30, 30, 30], 3.5);
+    let (result, dropped) = eval(&roomy);
+    assert!(!dropped);
+    let expected = NativePotential::new(roomy).unwrap().eval(&cluster).unwrap();
+    compare("hybrid, room for all", &result, &expected, FLOAT64);
+    // Two slots for the second type, where atoms have more such neighbors
+    // within 3.5: the descriptor keeps the nearest two, the list holds all.
+    let (result, dropped) = eval(&hybrid(vec![30, 2, 30], 3.5));
+    assert!(dropped);
+    assert!(result.energy.is_finite());
+    // No slot at all for a type that has neighbors.
+    assert!(eval(&hybrid(vec![30, 30, 0], 3.5)).1);
+    // The same few slots, and a cutoff so short that they are enough: it is
+    // the neighbors within the descriptor's own cutoff that count.
+    let near = hybrid(vec![30, 2, 30], 1.6);
+    let (result, dropped) = eval(&near);
+    assert!(!dropped);
+    let expected = NativePotential::new(near).unwrap().eval(&cluster).unwrap();
+    compare("hybrid, a short cutoff", &result, &expected, FLOAT64);
+    // The CPU reference refuses what the device reports.
+    let error = NativePotential::new(hybrid(vec![30, 2, 30], 3.5))
+        .unwrap()
+        .eval(&cluster)
+        .unwrap_err()
+        .to_string();
+    assert!(error.contains("of a descriptor of the hybrid"), "{error}");
+}
+
+/// Float32, batches, committees and embedding tables take a hybrid through
+/// the same stages as a model of one descriptor: each against the CPU.
+#[test]
+fn hybrid_in_float32_compressed_in_batches_and_committees() {
+    let Some(device) = device() else { return };
+    let triclinic = [[9.0, 0.0, 0.0], [1.5, 8.5, 0.0], [-1.0, 0.8, 9.2]];
+    let cubic = [[8.0, 0.0, 0.0], [0.0, 8.0, 0.0], [0.0, 0.0, 8.0]];
+    let frames = [
+        frame(triclinic, 5, 2, true, 251),
+        frame(cubic, 4, 2, false, 252),
+        frame(triclinic, 4, 2, true, 253),
+    ];
+    let models: Vec<Model> = (0..3)
+        .map(|member| {
+            let mut model = three_kinds(254 + 11 * member as u64);
+            // Each member with statistics of its own in every descriptor.
+            for part in &mut model.descriptor.list {
+                for (t, normalization) in part.normalization.iter_mut().enumerate() {
+                    for width in &mut normalization.std {
+                        if *width != 1.0 {
+                            *width *= 1.0 + 0.05 * member as f64 + 0.02 * t as f64;
+                        }
+                    }
+                }
+            }
+            for bias in &mut model.atom_energy_bias {
+                *bias += 0.37 * member as f64;
+            }
+            model
+        })
+        .collect();
+    let expected: Vec<Vec<Evaluation>> = frames
+        .iter()
+        .map(|frame| {
+            models
+                .iter()
+                .map(|model| {
+                    NativePotential::new(model.clone())
+                        .unwrap()
+                        .eval(frame)
+                        .unwrap()
+                })
+                .collect()
+        })
+        .collect();
+    let batch: Vec<&Frame> = frames.iter().collect();
+    let members: Vec<&Model> = models.iter().collect();
+    // The forces are not small: the comparisons below mean something.
+    let largest = expected
+        .iter()
+        .flatten()
+        .flat_map(|evaluation| evaluation.forces.iter().flatten())
+        .fold(0.0f64, |m, f| m.max(f.abs()));
+    eprintln!("hybrid test models: largest force {largest:.3e} eV/A");
+    assert!(largest > 1e-2, "{largest}");
+
+    // Float64: a batch for one model, then for the committee.
+    let mut one = GpuPotential::<f64>::new(&models[0], device.clone()).unwrap();
+    for (index, got) in one.eval_batch(&batch).unwrap().iter().enumerate() {
+        compare(
+            &format!("hybrid batch, frame {index}"),
+            got,
+            &expected[index][0],
+            FLOAT64,
+        );
+    }
+    let mut committee = GpuPotential::<f64>::committee(&members, device.clone()).unwrap();
+    assert_eq!(committee.members(), 3);
+    for chunked in [false, true] {
+        if chunked {
+            committee.set_chunk_atoms(50);
+            committee.set_chunk_pairs(20_000);
+        }
+        for (index, of_frame) in committee.eval_members(&batch).unwrap().iter().enumerate() {
+            for (member, got) in of_frame.iter().enumerate() {
+                compare(
+                    &format!(
+                        "hybrid committee (chunks: {chunked}), frame {index}, member {member}"
+                    ),
+                    got,
+                    &expected[index][member],
+                    FLOAT64,
+                );
+            }
+        }
+    }
+    // Tables for the se_e2_a and se_e2_r descriptors, each over its own
+    // range; the se_e3 descriptor keeps its networks. Quintic interpolation
+    // at step 0.01 is good to ~1e-12; allow 1e-9.
+    assert!(!committee.is_compressed());
+    committee.compress(0.8, 0.01).unwrap();
+    assert!(committee.is_compressed());
+    for (index, of_frame) in committee.eval_members(&batch).unwrap().iter().enumerate() {
+        for (member, got) in of_frame.iter().enumerate() {
+            compare(
+                &format!("hybrid committee with tables, frame {index}, member {member}"),
+                got,
+                &expected[index][member],
+                (1e-11, 1e-9),
+            );
+        }
+    }
+    assert_eq!(committee.table_fallbacks(), 0);
+    // A coarse table is visibly worse, so the tables are really in use, and
+    // for both descriptors that have them: with the weights of either set
+    // to zero in the fitting nets the other still shows.
+    let silenced = |part: usize| {
+        let mut model = models[0].clone();
+        let list = &model.descriptor.list;
+        let first: usize = list[..part].iter().map(|d| d.features()).sum();
+        let count = list[part].features();
+        for net in &mut model.fitting {
+            for row in &mut net.layers[0].weights[first..first + count] {
+                row.fill(0.0);
+            }
+        }
+        model
+    };
+    for (label, model) in [
+        ("without se_e2_a", silenced(0)),
+        ("without se_e2_r", silenced(1)),
+    ] {
+        let exact = NativePotential::new(model.clone())
+            .unwrap()
+            .eval(&frames[0])
+            .unwrap();
+        let mut coarse = GpuPotential::<f64>::new(&model, device.clone()).unwrap();
+        coarse.compress(0.8, 0.5).unwrap();
+        let rough = coarse.eval(&frames[0]).unwrap();
+        let difference = rough
+            .forces
+            .iter()
+            .flatten()
+            .zip(exact.forces.iter().flatten())
+            .map(|(a, b)| (a - b).abs())
+            .fold(0.0, f64::max);
+        assert!(
+            difference > 1e-9,
+            "{label}: coarse table too accurate: {difference}"
+        );
+        // And with fine tables it is the model again.
+        let mut fine = GpuPotential::<f64>::new(&model, device.clone()).unwrap();
+        fine.compress(0.8, 0.01).unwrap();
+        compare(
+            label,
+            &fine.eval(&frames[0]).unwrap(),
+            &exact,
+            (1e-11, 1e-9),
+        );
+    }
+    // A pair closer than the tables reach: that frame is evaluated with the
+    // exact networks, same answer as without tables.
+    let mut close = frames[0].clone();
+    close.positions[1] = [
+        close.positions[0][0] + 0.3,
+        close.positions[0][1],
+        close.positions[0][2],
+    ];
+    let mut short = GpuPotential::<f64>::new(&models[0], device.clone()).unwrap();
+    short.compress(2.0, 0.01).unwrap();
+    let expected_close = NativePotential::new(models[0].clone())
+        .unwrap()
+        .eval(&close)
+        .unwrap();
+    compare(
+        "hybrid fallback",
+        &short.eval(&close).unwrap(),
+        &expected_close,
+        FLOAT64,
+    );
+    assert_eq!(short.table_fallbacks(), 1);
+    // The tables reach from a distance inside the shortest cutoff of the
+    // descriptors that have them (3.8 here; the se_e3 descriptor's 3.2 does
+    // not count).
+    assert!(short.compress(3.5, 0.01).is_ok());
+    let error = short.compress(3.9, 0.01).unwrap_err().to_string();
+    assert!(
+        error.contains("compression needs 0 < min_distance < rcut"),
+        "{error}"
+    );
+    // Nothing but se_e3 descriptors: nothing to tabulate.
+    let pairs_only = common::hybrid_model(
+        &[
+            three_body(2, vec![80, 160], 4.5, 291),
+            common::three_body_model(2, vec![40, 60], 3.2, 292, 8),
+        ],
+        293,
+    );
+    let mut gpu = GpuPotential::<f64>::new(&pairs_only, device.clone()).unwrap();
+    let error = gpu.compress(0.8, 0.01).unwrap_err().to_string();
+    assert!(error.contains("se_e3 are not tabulated"), "{error}");
+    assert!(!gpu.is_compressed());
+
+    // Float32 networks and sums: about single precision, nothing worse;
+    // with tables as well.
+    let mut single = GpuPotential::<f32>::committee(&members, device.clone()).unwrap();
+    let mut worst = (0.0f64, 0.0f64);
+    for tables in [false, true] {
+        if tables {
+            single.compress(0.8, 0.01).unwrap();
+        }
+        for (index, of_frame) in single.eval_members(&batch).unwrap().iter().enumerate() {
+            for (member, got) in of_frame.iter().enumerate() {
+                let reference = &expected[index][member];
+                compare(
+                    &format!("hybrid float32 (tables: {tables}), frame {index}, member {member}"),
+                    got,
+                    reference,
+                    (1e-6, 1e-4),
+                );
+                worst.0 = worst.0.max(
+                    (got.energy - reference.energy).abs() / frames[index].positions.len() as f64,
+                );
+                for (a, b) in got
+                    .forces
+                    .iter()
+                    .flatten()
+                    .zip(reference.forces.iter().flatten())
+                {
+                    worst.1 = worst.1.max((a - b).abs());
+                }
+            }
+        }
+    }
+    eprintln!(
+        "hybrid in float32 against the CPU: energy within {:.1e} eV per atom, forces {:.1e} eV/A",
+        worst.0, worst.1
+    );
+    // The forces are the gradient of the energy the device gives.
+    let h = 1e-5;
+    let base = &frames[0];
+    let forces = one.eval(base).unwrap().forces;
+    for atom in [0, 7, 19] {
+        for axis in 0..3 {
+            let mut shifted = |s: f64| {
+                let mut f = base.clone();
+                f.positions[atom][axis] += s;
+                one.eval(&f).unwrap().energy
+            };
+            let fd = -(shifted(h) - shifted(-h)) / (2.0 * h);
+            let error = (fd - forces[atom][axis]).abs();
+            assert!(
+                error < 1e-6 * forces[atom][axis].abs().max(1.0),
+                "atom {atom} axis {axis}: {fd} vs {}",
+                forces[atom][axis]
+            );
+        }
+    }
+
+    // What makes hybrids one committee: the same descriptors in the same
+    // order, laid out alike.
+    let mismatch = |change: &dyn Fn(&mut Model)| {
+        let mut other = models[1].clone();
+        change(&mut other);
+        assert!(
+            NativePotential::new(other.clone()).is_ok(),
+            "the changed model must be a model"
+        );
+        let pair = [&models[0], &other];
+        let error = GpuPotential::<f64>::committee(&pair, device.clone())
+            .err()
+            .map(|e| e.to_string());
+        (omnimd_native::gpu_model::committee_mismatch(&pair), error)
+    };
+    assert_eq!(mismatch(&|_| ()), (None, None));
+    // The list in another order (the fitting nets take the same number of
+    // components either way).
+    let (reason, error) = mismatch(&|m| m.descriptor.list.swap(0, 2));
+    assert_eq!(
+        reason.unwrap(),
+        "model 1 differs from the first in its descriptor"
+    );
+    assert!(error.unwrap().contains("differs from the first"));
+    // Another smoothing radius in one descriptor.
+    let (reason, error) = mismatch(&|m| {
+        m.descriptor.list[1].rcut_smth = 1.5;
+    });
+    assert_eq!(
+        reason.unwrap(),
+        "model 1 differs from the first in its cutoffs"
+    );
+    assert!(error.unwrap().contains("differs from the first"));
+    // Fewer slots in the descriptor that does not set the list's.
+    let (reason, error) = mismatch(&|m| m.descriptor.list[2].sel[0] -= 1);
+    assert_eq!(reason.unwrap(), "model 1 differs from the first in its sel");
+    assert!(error.unwrap().contains("differs from the first"));
+    // A model of one descriptor and a hybrid of that descriptor.
+    let plain = model_of(2, vec![60, 90], 3.8, 295);
+    let mut listed = common::hybrid_model(std::slice::from_ref(&plain), 296);
+    listed.fitting = plain.fitting.clone();
+    let pair = [&plain, &listed];
+    assert_eq!(
+        omnimd_native::gpu_model::committee_mismatch(&pair).unwrap(),
+        "model 1 differs from the first in its descriptor"
+    );
+    assert!(GpuPotential::<f64>::committee(&pair, device.clone()).is_err());
+    // The GPU trainer has the arithmetic of one descriptor only.
+    let error = omnimd_native::gpu_train::GpuTrainer::<f64>::new(&models[0], device)
+        .err()
+        .unwrap();
+    assert_eq!(
+        error.to_string(),
+        "the GPU trainer supports the se_e2_a and se_e2_r descriptors, not hybrid"
     );
 }

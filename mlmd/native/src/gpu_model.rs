@@ -1,4 +1,5 @@
-//! se_e2_a, se_e2_r and se_e3 inference on the omnimd-gpu runtime (plan W6–W7).
+//! se_e2_a, se_e2_r, se_e3 and hybrid inference on the omnimd-gpu runtime
+//! (plan W6–W7).
 //!
 //! Pipeline per frame, all on the device after one upload:
 //! cell-list neighbors (DeePMD truncation to `sel`) → environment matrix →
@@ -19,6 +20,16 @@
 //! of atoms ends where its rows would be too many; the embedding nets
 //! themselves are the same kernel.
 //!
+//! A hybrid model has several of these descriptors, whose components one
+//! after the other are the input of the fitting nets. They read one neighbor
+//! list, made with the largest of their cutoffs and the most slots of every
+//! type: a descriptor with fewer slots or a shorter cutoff has a table of
+//! the list in its own layout (the nearest of each type, none at or beyond
+//! its cutoff), and its kernels run on that as they run on the list of a
+//! model of one descriptor. Every chunk of atoms goes through the rows, the
+//! embedding nets and the components of each descriptor, then through the
+//! fitting nets once, then back through each descriptor to the forces.
+//!
 //! `P` is the network precision (ADR-3). Geometry is always float64: the
 //! neighbor vectors, the environment rows as they are worked out, and their
 //! Jacobian with the sums that give forces and virial. What lies between is
@@ -31,7 +42,7 @@
 //! neighbors than `sel`, this path selects neighbors like DeePMD-kit 3 (the
 //! nearest `sum(sel)` of any type, then at most `sel[t]` per type);
 //! [`GpuPotential::last_truncated`] reports when that dropped neighbors.
-use crate::{Activation, DescriptorKind, Model, Network, Residual, RADIAL_RESCALE};
+use crate::{Activation, Descriptor, DescriptorKind, Model, Network, Residual, RADIAL_RESCALE};
 use omnimd_gpu::{
     Activation as DeviceActivation, Cell, CudaFunction, CudaSlice, CudaViewMut, DenseLayer,
     DenseNetwork, Device, GradientNetwork, LaunchConfig, LayerParameters, NeighborList,
@@ -163,11 +174,17 @@ __device__ void count_neighbors(const int* mine, const int* slot_type, const int
 // to shared memory first: every thread needs them for every neighbor, and
 // from global memory those loads were what bound the sums in single
 // precision.
+//
+// The components of a center go to `d_out` every `stride` values: its own
+// number for a model of this descriptor, and for a hybrid the number of all
+// its descriptors, with `d_out` at the first component of this one. The
+// force kernels read dE/dD the same way.
 template <typename P, typename E>
 __device__ void descriptor_impl(const E* env, const P* g, const int* slot_type,
         const int* slot_local, const int* sel, const int* offset, int count, int slots,
         int width, int axis, E* b_out, P* d_out, const int* rows, int ntypes,
-        const int* index, const int* atype, const P* g_empty, const E* empty_row, int first) {
+        const int* index, const int* atype, const P* g_empty, const E* empty_row, int first,
+        int stride) {
     extern __shared__ double b_shared[];
     E* b = (E*)b_shared;                    // [width][4]
     E* near = b + 4 * width;                // without `rows`: this atom's rows, [slots][4]
@@ -223,7 +240,7 @@ __device__ void descriptor_impl(const E* env, const P* g, const int* slot_type,
         int m = e / axis, k = e % axis;
         E v = 0;
         for (int a = 0; a < 4; ++a) v += b[4 * m + a] * b[4 * k + a];
-        d_out[center * width * axis + e] = (P)v;
+        d_out[center * stride + e] = (P)v;
     }
 }
 
@@ -237,9 +254,11 @@ __device__ T warp_sum(T v) {
 // force on the center `i` (`fi`) and to the virial of the block (`vir`);
 // they are summed over the block in `red` ([12], cleared before) and only
 // then go to global memory: the force with an atomic, since other blocks add
-// to it for their neighbors, the virial as the block's own.
+// to it for their neighbors, the virial as the block's own. With `add` the
+// virial is added to what is there: the kernels of the descriptors of a
+// hybrid run one after the other, and all but the first add.
 __device__ void block_sums(double* fi, double* vir, double* red, double* force, double* virial,
-        int i) {
+        int i, int add) {
     for (int c = 0; c < 3; ++c) fi[c] = warp_sum(fi[c]);
     for (int e = 0; e < 9; ++e) vir[e] = warp_sum(vir[e]);
     if ((threadIdx.x & 31) == 0) {
@@ -248,7 +267,10 @@ __device__ void block_sums(double* fi, double* vir, double* red, double* force, 
     }
     __syncthreads();
     for (int c = threadIdx.x; c < 3; c += blockDim.x) atomicAdd(&force[3 * i + c], red[c]);
-    for (int e = threadIdx.x; e < 9; e += blockDim.x) virial[(long long)i * 9 + e] = red[3 + e];
+    for (int e = threadIdx.x; e < 9; e += blockDim.x) {
+        double* out = virial + (long long)i * 9 + e;
+        *out = add ? *out + red[3 + e] : red[3 + e];
+    }
 }
 
 // One block per atom, three phases:
@@ -267,7 +289,7 @@ __device__ void backward_impl(const E* env, const P* g, const P* dg, const E* b_
         const int* atype, const double* dstd_inv, const int* slot_type, const int* slot_local,
         const int* sel, const int* offset, int first, int count, int slots, int width, int axis,
         double rmin, double inv_range, double* force, double* virial, const int* rows,
-        int ntypes, int natoms) {
+        int ntypes, int natoms, int stride, int add) {
     extern __shared__ double shared[];
     double* dr_all = shared;             // [slots][4]
     double* red = dr_all + 4 * slots;    // [12]: center force, virial
@@ -286,7 +308,7 @@ __device__ void backward_impl(const E* env, const P* g, const P* dg, const E* b_
     for (int e = threadIdx.x; e < 4 * width; e += blockDim.x) b[e] = b_in[center * width * 4 + e];
     for (int e = threadIdx.x; e < 12; e += blockDim.x) red[e] = 0.0;
     __syncthreads();
-    const P* dd = dd_in + center * width * axis;
+    const P* dd = dd_in + center * stride;
     for (int m = threadIdx.x; m < width; m += blockDim.x) {
         E acc[4] = {0, 0, 0, 0};
         for (int k = 0; k < axis; ++k) {
@@ -356,7 +378,7 @@ __device__ void backward_impl(const E* env, const P* g, const P* dg, const E* b_
             for (int a = 0; a < 3; ++a) vir[3 * a + c] -= d[a] * grad;
         }
     }
-    block_sums(fi, vir, red, force, virial, i);
+    block_sums(fi, vir, red, force, virial, i, add);
 }
 
 // se_e2_r: the descriptor is a mean of embedding rows, D[m] = scale · sum
@@ -373,7 +395,7 @@ template <typename P, typename E>
 __device__ void radial_descriptor_impl(const P* g, const int* slot_type, const int* slot_local,
         const int* sel, const int* offset, int count, int slots, int width, double scale,
         P* d_out, int ntypes, const int* index, const int* atype, const P* g_empty, int first,
-        const int* rows) {
+        const int* rows, int stride) {
     extern __shared__ int radial_filled[];  // this atom's neighbors of each type, [ntypes]
     int i = blockIdx.x, model = blockIdx.y;
     g += (long long)model * count * slots * width;
@@ -400,7 +422,7 @@ __device__ void radial_descriptor_impl(const P* g, const int* slot_type, const i
                 acc += part;
             }
         }
-        d_out[center * width + m] = (P)(acc * (E)scale);
+        d_out[center * stride + m] = (P)(acc * (E)scale);
     }
 }
 
@@ -417,7 +439,8 @@ __device__ void radial_backward_impl(const P* dg, const P* dd_in, const int* ind
         const double* delta, const double* dist, const int* atype, const double* dstd_inv,
         const int* slot_type, const int* slot_local, const int* sel, const int* offset,
         int first, int count, int slots, int width, double scale, double rmin, double inv_range,
-        double* force, double* virial, int ntypes, int natoms, const int* rows) {
+        double* force, double* virial, int ntypes, int natoms, const int* rows, int stride,
+        int add) {
     extern __shared__ double radial_shared[];
     double* ds_all = radial_shared;      // [slots]: dE/d(radial entry)
     double* red = ds_all + slots;        // [12]: center force, virial
@@ -427,7 +450,7 @@ __device__ void radial_backward_impl(const P* dg, const P* dd_in, const int* ind
     long long center = (long long)model * count + li;
     force += 3 * (long long)model * natoms;
     virial += 9 * (long long)model * natoms;
-    for (int m = threadIdx.x; m < width; m += blockDim.x) dd[m] = dd_in[center * width + m];
+    for (int m = threadIdx.x; m < width; m += blockDim.x) dd[m] = dd_in[center * stride + m];
     for (int e = threadIdx.x; e < 12; e += blockDim.x) red[e] = 0.0;
     __syncthreads();
     int lane = threadIdx.x & 31, warp = threadIdx.x >> 5, warps = blockDim.x >> 5;
@@ -459,7 +482,7 @@ __device__ void radial_backward_impl(const P* dg, const P* dd_in, const int* ind
             for (int a = 0; a < 3; ++a) vir[3 * a + c] -= d[a] * grad;
         }
     }
-    block_sums(fi, vir, red, force, virial, i);
+    block_sums(fi, vir, red, force, virial, i, add);
 }
 
 // se_e3, DeePMD-kit's three-body descriptor. With a = sw·d / (r·std) the
@@ -571,7 +594,7 @@ __device__ void three_body_pairs_impl(const int* index, const double* delta, con
 template <typename P, int C>
 __device__ void three_body_descriptor_impl(const P* g, const P* theta, const P* weight,
         const long long* row_start, long long chunk_rows, int first, int count, int width,
-        P* d_out) {
+        P* d_out, int stride) {
     extern __shared__ double descriptor_shared[];
     P* sums = (P*)descriptor_shared;     // [warps][width]
     int li = blockIdx.x, model = blockIdx.y;
@@ -603,7 +626,7 @@ __device__ void three_body_descriptor_impl(const P* g, const P* theta, const P* 
     for (int m = threadIdx.x; m < width; m += blockDim.x) {
         P total = 0;
         for (int w = 0; w < warps; ++w) total += sums[w * width + m];
-        d_out[center * width + m] = total;
+        d_out[center * stride + m] = total;
     }
 }
 
@@ -627,7 +650,7 @@ __device__ void three_body_backward_impl(const P* g, const P* dg, const P* theta
         const double* dist, const int* atype, const double* dstd_inv, const int* slot_type,
         const int* slot_local, const int* sel, const long long* row_start, long long chunk_rows,
         int first, int count, int slots, int width, int ntypes, double rmin, double inv_range,
-        double* force, double* virial, int natoms) {
+        double* force, double* virial, int natoms, int stride, int add) {
     extern __shared__ double back_shared[];
     double* a = back_shared;             // [slots][3]: directions of the neighbors
     double* red = a + 3 * slots;         // [12]: center force, virial
@@ -640,7 +663,7 @@ __device__ void three_body_backward_impl(const P* g, const P* dg, const P* theta
     const double inv_std = dstd_inv[4 * (model * ntypes + atype[i]) + 1];
     force += 3 * (long long)model * natoms;
     virial += 9 * (long long)model * natoms;
-    for (int m = threadIdx.x; m < width; m += blockDim.x) dd[m] = dd_in[center * width + m];
+    for (int m = threadIdx.x; m < width; m += blockDim.x) dd[m] = dd_in[center * stride + m];
     for (int e = threadIdx.x; e < 12; e += blockDim.x) red[e] = 0.0;
     three_body_neighbors(index + at, delta + 3 * at, dist + at, inv_std, slot_type, slot_local,
                          sel, slots, ntypes, rmin, inv_range, a, list, first_of);
@@ -690,14 +713,54 @@ __device__ void three_body_backward_impl(const P* g, const P* dg, const P* theta
             for (int e = 0; e < 3; ++e) vir[3 * e + c] -= d[e] * grad;
         }
     }
-    block_sums(fi, vir, red, force, virial, i);
+    block_sums(fi, vir, red, force, virial, i, add);
+}
+
+// The descriptors of a hybrid read one neighbor list, made with the largest
+// of their cutoffs and for every type the most slots any of them has. A
+// descriptor whose own slots or cutoff are smaller has a table of the list
+// in its own layout: of every type the first `sel[t]` slots of the list (the
+// neighbors of a type are nearest first there), and no neighbor at or
+// beyond its own cutoff, which is an empty slot to it (DeePMD-kit's switch
+// is zero from the cutoff on). So the kernels of the descriptor read the
+// table as those of a model read their list, and the neighbors of a type
+// still fill its first slots. One thread per slot of the table. The thread
+// of an atom's first slot also looks whether the descriptor leaves out a
+// neighbor within its cutoff, for lack of slots: the first slot of the list
+// past its own of a type tells, and the atom's status gets the bit that the
+// search sets for a list that had to drop neighbors.
+extern "C" __global__ void hybrid_slots(const int* index, const double* delta,
+        const double* dist, const int* slot_type, const int* slot_local, const int* sel,
+        const int* list_sel, const int* list_offset, int natoms, int slots, int list_slots,
+        int ntypes, double rcut, int* index_out, double* delta_out, double* dist_out,
+        int* status) {
+    long long idx = (long long)blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx >= (long long)natoms * slots) return;
+    long long i = idx / slots;
+    int s = (int)(idx % slots);
+    long long from = i * list_slots + list_offset[slot_type[s]] + slot_local[s];
+    bool here = index[from] >= 0 && dist[from] < rcut;
+    index_out[idx] = here ? index[from] : -1;
+    dist_out[idx] = here ? dist[from] : __longlong_as_double(0x7ff0000000000000LL);
+    for (int a = 0; a < 3; ++a) delta_out[3 * idx + a] = here ? delta[3 * from + a] : 0.0;
+    if (s != 0) return;
+    for (int t = 0; t < ntypes; ++t) {
+        if (sel[t] >= list_sel[t]) continue;
+        long long next = i * list_slots + list_offset[t] + sel[t];
+        if (index[next] >= 0 && dist[next] < rcut) {
+            status[i] |= 2;  // the search's TRUNCATED
+            return;
+        }
+    }
 }
 
 // The `_rows` kernels take the row table of `slot_row` (and the number of
 // types it is laid out by), are launched one model deep and keep the
 // environment and B in double precision (the trainer's); the others skip
 // empty slots, take the number of atoms a model's forces span and keep
-// them in the precision of the networks.
+// them in the precision of the networks, and take the stride of the
+// descriptor in the buffers of all descriptors of the model and whether
+// their virial is added to the one that is there.
 #define INSTANTIATE(P, S)                                                                         \
 extern "C" __global__ void se_e2_a_env_##S(const int* index, const double* delta,                 \
         const double* dist, const int* atype, const double* davg, const double* dstd_inv,         \
@@ -720,10 +783,11 @@ extern "C" __global__ void se_e2_a_env_rows_##S(const int* index, const double* 
 extern "C" __global__ void se_e2_a_descriptor_##S(const P* env, const P* g,                       \
         const int* slot_type, const int* slot_local, const int* sel, const int* offset,           \
         int count, int slots, int width, int axis, P* b_out, P* d_out, int ntypes,                \
-        const int* index, const int* atype, const P* g_empty, const P* empty_row, int first) {    \
+        const int* index, const int* atype, const P* g_empty, const P* empty_row, int first,      \
+        int stride) {                                                                             \
     descriptor_impl<P, P>(env, g, slot_type, slot_local, sel, offset, count, slots, width, axis,  \
                           b_out, d_out, nullptr, ntypes, index, atype, g_empty, empty_row,        \
-                          first);                                                                 \
+                          first, stride);                                                         \
 }                                                                                                 \
 extern "C" __global__ void se_e2_a_descriptor_rows_##S(const double* env, const P* g,             \
         const int* slot_type, const int* slot_local, const int* sel, const int* offset,           \
@@ -731,17 +795,17 @@ extern "C" __global__ void se_e2_a_descriptor_rows_##S(const double* env, const 
         int ntypes) {                                                                             \
     descriptor_impl<P, double>(env, g, slot_type, slot_local, sel, offset, count, slots, width,   \
                                axis, b_out, d_out, rows, ntypes, nullptr, nullptr, nullptr,       \
-                               nullptr, 0);                                                       \
+                               nullptr, 0, width * axis);                                         \
 }                                                                                                 \
 extern "C" __global__ void se_e2_a_backward_##S(const P* env, const P* g, const P* dg,            \
         const P* b_in, const P* dd_in, const int* index, const double* delta,                     \
         const double* dist, const int* atype, const double* dstd_inv, const int* slot_type,       \
         const int* slot_local, const int* sel, const int* offset, int first, int count,           \
         int slots, int width, int axis, double rmin, double inv_range, double* force,             \
-        double* virial, int ntypes, int natoms) {                                                 \
+        double* virial, int ntypes, int natoms, int stride, int add) {                            \
     backward_impl<P, P>(env, g, dg, b_in, dd_in, index, delta, dist, atype, dstd_inv, slot_type,  \
                         slot_local, sel, offset, first, count, slots, width, axis, rmin,          \
-                        inv_range, force, virial, nullptr, ntypes, natoms);                       \
+                        inv_range, force, virial, nullptr, ntypes, natoms, stride, add);          \
 }                                                                                                 \
 extern "C" __global__ void se_e2_a_backward_rows_##S(const double* env, const P* g,               \
         const P* dg, const double* b_in, const P* dd_in, const int* index, const double* delta,   \
@@ -751,30 +815,33 @@ extern "C" __global__ void se_e2_a_backward_rows_##S(const double* env, const P*
         double* virial, const int* rows, int ntypes) {                                            \
     backward_impl<P, double>(env, g, dg, b_in, dd_in, index, delta, dist, atype, dstd_inv,        \
                              slot_type, slot_local, sel, offset, first, count, slots, width,      \
-                             axis, rmin, inv_range, force, virial, rows, ntypes, 0);              \
+                             axis, rmin, inv_range, force, virial, rows, ntypes, 0,               \
+                             width * axis, 0);                                                    \
 }                                                                                                 \
 extern "C" __global__ void se_e2_r_descriptor_##S(const P* g, const int* slot_type,               \
         const int* slot_local, const int* sel, const int* offset, int count, int slots,           \
         int width, double scale, P* d_out, int ntypes, const int* index, const int* atype,        \
-        const P* g_empty, int first) {                                                            \
+        const P* g_empty, int first, int stride) {                                                \
     radial_descriptor_impl<P, P>(g, slot_type, slot_local, sel, offset, count, slots, width,      \
-                                 scale, d_out, ntypes, index, atype, g_empty, first, nullptr);    \
+                                 scale, d_out, ntypes, index, atype, g_empty, first, nullptr,     \
+                                 stride);                                                         \
 }                                                                                                 \
 extern "C" __global__ void se_e2_r_descriptor_rows_##S(const P* g, const int* slot_type,          \
         const int* slot_local, const int* sel, const int* offset, int count, int slots,           \
         int width, double scale, P* d_out, const int* rows, int ntypes) {                         \
     radial_descriptor_impl<P, double>(g, slot_type, slot_local, sel, offset, count, slots,        \
                                       width, scale, d_out, ntypes, nullptr, nullptr, nullptr, 0,  \
-                                      rows);                                                      \
+                                      rows, width);                                               \
 }                                                                                                 \
 extern "C" __global__ void se_e2_r_backward_##S(const P* dg, const P* dd_in, const int* index,    \
         const double* delta, const double* dist, const int* atype, const double* dstd_inv,        \
         const int* slot_type, const int* slot_local, const int* sel, const int* offset,           \
         int first, int count, int slots, int width, double scale, double rmin,                    \
-        double inv_range, double* force, double* virial, int ntypes, int natoms) {                \
+        double inv_range, double* force, double* virial, int ntypes, int natoms, int stride,      \
+        int add) {                                                                                \
     radial_backward_impl<P>(dg, dd_in, index, delta, dist, atype, dstd_inv, slot_type,            \
                             slot_local, sel, offset, first, count, slots, width, scale, rmin,     \
-                            inv_range, force, virial, ntypes, natoms, nullptr);                   \
+                            inv_range, force, virial, ntypes, natoms, nullptr, stride, add);      \
 }                                                                                                 \
 extern "C" __global__ void se_e2_r_backward_rows_##S(const P* dg, const P* dd_in,                 \
         const int* index, const double* delta, const double* dist, const int* atype,              \
@@ -784,7 +851,7 @@ extern "C" __global__ void se_e2_r_backward_rows_##S(const P* dg, const P* dd_in
         int ntypes) {                                                                             \
     radial_backward_impl<P>(dg, dd_in, index, delta, dist, atype, dstd_inv, slot_type,            \
                             slot_local, sel, offset, first, count, slots, width, scale, rmin,     \
-                            inv_range, force, virial, ntypes, 0, rows);                           \
+                            inv_range, force, virial, ntypes, 0, rows, width, 0);                 \
 }                                                                                                 \
 extern "C" __global__ void se_e3_pairs_##S(const int* index, const double* delta,                 \
         const double* dist, const int* atype, const double* dstd_inv, const int* slot_type,       \
@@ -797,20 +864,21 @@ extern "C" __global__ void se_e3_pairs_##S(const int* index, const double* delta
 }                                                                                                 \
 extern "C" __global__ void se_e3_descriptor_##S(const P* g, const P* theta, const P* weight,      \
         const long long* row_start, long long chunk_rows, int first, int count, int width,        \
-        P* d_out) {                                                                               \
+        P* d_out, int stride) {                                                                   \
     three_body_descriptor_impl<P, 4>(g, theta, weight, row_start, chunk_rows, first, count,       \
-                                     width, d_out);                                               \
+                                     width, d_out, stride);                                       \
 }                                                                                                 \
 extern "C" __global__ void se_e3_backward_##S(const P* g, const P* dg, const P* theta,            \
         const P* weight, P* dtheta, const P* dd_in, const int* index, const double* delta,        \
         const double* dist, const int* atype, const double* dstd_inv, const int* slot_type,       \
         const int* slot_local, const int* sel, const long long* row_start,                        \
         long long chunk_rows, int first, int count, int slots, int width, int ntypes,             \
-        double rmin, double inv_range, double* force, double* virial, int natoms) {               \
+        double rmin, double inv_range, double* force, double* virial, int natoms, int stride,     \
+        int add) {                                                                                \
     three_body_backward_impl<P>(g, dg, theta, weight, dtheta, dd_in, index, delta, dist, atype,   \
                                 dstd_inv, slot_type, slot_local, sel, row_start, chunk_rows,      \
                                 first, count, slots, width, ntypes, rmin, inv_range, force,       \
-                                virial, natoms);                                                  \
+                                virial, natoms, stride, add);                                     \
 }
 INSTANTIATE(float, f32)
 INSTANTIATE(double, f64)
@@ -849,17 +917,14 @@ struct Kernels {
     pairs: Option<CudaFunction>,
 }
 
-/// The rows of the embedding nets of an se_e3 frame: the pairs of the
-/// neighbors of each atom, n(n + 1)/2 for an atom with n neighbors.
+/// The rows of the embedding nets of an se_e3 descriptor for a frame: the
+/// pairs of the neighbors of each atom, n(n + 1)/2 for an atom with n
+/// neighbors.
 struct PairRows {
     /// The first row of every atom, as if all atoms were laid out one after
     /// the other, and the number of all rows after the last.
     start: CudaSlice<i64>,
     host: Vec<i64>,
-    /// Chunks of atoms (first, end) within the limits of atoms and of rows.
-    chunks: Vec<(usize, usize)>,
-    /// Rows of the chunk that has most.
-    most: usize,
 }
 
 impl PairRows {
@@ -869,11 +934,9 @@ impl PairRows {
     }
 }
 
-/// The first row of every atom that holds `held[atom]` neighbors (and the
-/// number of all rows), and the atoms in chunks of at most `atoms` atoms and
-/// `rows` rows. An atom is never split: one with more rows than that is a
-/// chunk of its own.
-fn pair_layout(held: &[i32], atoms: usize, rows: usize) -> (Vec<i64>, Vec<(usize, usize)>) {
+/// The first row of every atom that holds `held[atom]` neighbors, and after
+/// the last the number of all rows.
+fn pair_starts(held: &[i32]) -> Vec<i64> {
     let mut start = Vec::with_capacity(held.len() + 1);
     let mut next = 0i64;
     for &n in held {
@@ -881,20 +944,30 @@ fn pair_layout(held: &[i32], atoms: usize, rows: usize) -> (Vec<i64>, Vec<(usize
         next += i64::from(n) * (i64::from(n) + 1) / 2;
     }
     start.push(next);
+    start
+}
+
+/// `atoms` atoms in chunks of at most `limit` atoms that have at most `rows`
+/// rows in each of the layouts `starts` (one of [`pair_starts`] for every
+/// se_e3 descriptor of the model; none for a model without). An atom is
+/// never split: one with more rows than that is a chunk of its own.
+fn pair_chunks(starts: &[&[i64]], atoms: usize, limit: usize, rows: usize) -> Vec<(usize, usize)> {
+    let fits = |first: usize, end: usize| {
+        starts
+            .iter()
+            .all(|start| (start[end + 1] - start[first]) as u64 <= rows as u64)
+    };
     let mut chunks = Vec::new();
     let mut first = 0;
-    while first < held.len() {
+    while first < atoms {
         let mut end = first + 1;
-        while end < held.len()
-            && end - first < atoms.max(1)
-            && (start[end + 1] - start[first]) as u64 <= rows as u64
-        {
+        while end < atoms && end - first < limit.max(1) && fits(first, end) {
             end += 1;
         }
         chunks.push((first, end));
         first = end;
     }
-    (start, chunks)
+    chunks
 }
 
 /// Device bytes of one row of an se_e3 chunk: the embedding values and
@@ -975,31 +1048,20 @@ pub struct GpuPotential<P: Scalar> {
     device: Arc<Device>,
     metadata: ModelMetadata,
     /// Models evaluated together (a committee); one as a rule. The tables
-    /// below that go by center type hold model `m` at center type `m *
-    /// ntypes + type`.
+    /// of a descriptor that go by center type hold model `m` at center type
+    /// `m * ntypes + type`.
     models: usize,
-    rcut: f64,
-    rcut_smth: f64,
+    /// The slots of the neighbor list by type: those of the model's
+    /// descriptor, which for a hybrid are the most of any of its
+    /// descriptors.
     sel: Vec<usize>,
-    slots: usize,
-    width: usize,
-    /// The descriptor of the models: which kernels the embedding rows go to.
-    kind: DescriptorKind,
-    /// se_e2_a: the axis neurons. None for the others.
-    axis: usize,
+    /// The descriptors of the models on the device: one, or those of a
+    /// hybrid in the order of their components.
+    parts: Vec<Part<P>>,
     /// Components of the descriptor: the input of a fitting net.
     features: usize,
     /// Energy bias per center type.
     bias: Vec<f64>,
-    /// Every embedding net in one set; net `center type · ntypes + neighbor
-    /// type` (the ids the environment kernel writes).
-    embedding: ScalarNetwork<P>,
-    /// Host copies of the embedding nets and the radial (mean, std) per
-    /// center type, for building tables.
-    embedding_host: Vec<Vec<Network>>,
-    radial_normalization: Vec<(f64, f64)>,
-    /// Tabulated embedding nets in the same order, when compressed.
-    tables: Option<ScalarTable<P>>,
     table_fallbacks: usize,
     /// Layer-by-layer fitting nets per center type (cuBLAS): best for many
     /// atoms.
@@ -1009,11 +1071,48 @@ pub struct GpuPotential<P: Scalar> {
     fused_fitting: Option<GradientNetwork<P>>,
     /// Chunks of at most this many atoms use `fused_fitting`.
     fused_fitting_max_atoms: usize,
+    /// hybrid: writes the table of slots of a descriptor that does not read
+    /// the neighbor list as it is.
+    narrow: Option<CudaFunction>,
+    chunk_atoms: usize,
+    /// se_e3: rows of the embedding nets (pairs of neighbors) per chunk.
+    chunk_pairs: usize,
+    /// Neighbor search with its device buffers, kept between evaluations.
+    search: NeighborSearch,
+    last_truncated: bool,
+    profile: Option<StageTimes>,
+}
+
+/// One descriptor of the models on the device: its embedding nets and what
+/// its kernels read. A model has one; a hybrid has one for every descriptor
+/// of its list, each with cutoffs, slots, statistics and nets of its own.
+struct Part<P: Scalar> {
+    /// Which kernels the embedding rows go to.
+    kind: DescriptorKind,
+    rcut: f64,
+    rcut_smth: f64,
+    /// 1 / (rcut - rcut_smth), for the switching function.
+    inv_range: f64,
+    slots: usize,
+    width: usize,
+    /// se_e2_a: the axis neurons. None for the others.
+    axis: usize,
+    /// Components of this descriptor, and the first of them among the
+    /// components of all descriptors of the model.
+    features: usize,
+    first_feature: usize,
+    /// Every embedding net in one set; net `center type · ntypes + neighbor
+    /// type` (the ids the environment kernel writes).
+    embedding: ScalarNetwork<P>,
+    /// Host copies of the embedding nets and the radial (mean, std) per
+    /// center type, for building tables.
+    embedding_host: Vec<Vec<Network>>,
+    radial_normalization: Vec<(f64, f64)>,
+    /// Tabulated embedding nets in the same order, when compressed.
+    tables: Option<ScalarTable<P>>,
     davg: CudaSlice<f64>,
     /// Reciprocals of the normalization widths: the kernels multiply.
     dstd_inv: CudaSlice<f64>,
-    /// 1 / (rcut - rcut_smth), for the switching function.
-    inv_range: f64,
     /// The environment row of an empty slot, the normalized zero, per center
     /// type: `[center types][4]`.
     empty_row: CudaSlice<P>,
@@ -1033,13 +1132,51 @@ pub struct GpuPotential<P: Scalar> {
     kernels: Kernels,
     /// Dynamic shared memory of the force kernel, bytes.
     backward_shared: usize,
-    chunk_atoms: usize,
-    /// se_e3: rows of the embedding nets (pairs of neighbors) per chunk.
-    chunk_pairs: usize,
-    /// Neighbor search with its device buffers, kept between evaluations.
-    search: NeighborSearch,
-    last_truncated: bool,
-    profile: Option<StageTimes>,
+    /// hybrid: this descriptor's own table of the neighbor list, when its
+    /// slots or its cutoff are not those of the list.
+    view: Option<View>,
+}
+
+/// How a descriptor of a hybrid reads the neighbor list of all of them: of
+/// every type the first of the list's slots, as many as it has itself, and
+/// no neighbor at or beyond its own cutoff (the `hybrid_slots` kernel).
+struct View {
+    /// The slots of the list by type, and the first slot of each type.
+    list_sel: CudaSlice<i32>,
+    list_offset: CudaSlice<i32>,
+    list_slots: usize,
+    /// The table of the last search, kept between evaluations.
+    table: Option<SlotTable>,
+}
+
+/// The slots of a descriptor for every atom of a search, like those of a
+/// neighbor list: `[atoms][slots]` neighbors (-1 for an empty slot), their
+/// vectors and distances.
+struct SlotTable {
+    /// Atoms the buffers hold.
+    atoms: usize,
+    index: CudaSlice<i32>,
+    delta: CudaSlice<f64>,
+    dist: CudaSlice<f64>,
+}
+
+/// The work buffers of a descriptor for the chunks of an evaluation. Each
+/// element a chunk reads was written earlier in the same chunk.
+struct Work<P: Scalar> {
+    /// se_e2_a: the environment rows and B. The others have neither.
+    env: Option<CudaSlice<P>>,
+    b: Option<CudaSlice<P>>,
+    /// The input of the embedding nets (the radial entry of a slot, or θ of
+    /// a pair of neighbors), the net of each row, and the values and
+    /// tangents of the nets.
+    input: CudaSlice<P>,
+    network: CudaSlice<i32>,
+    g: CudaSlice<P>,
+    dg: CudaSlice<P>,
+    /// se_e3: what each pair counts in the descriptor and dE/dθ of it, and
+    /// where the rows of each atom are.
+    of_pairs: Option<(CudaSlice<P>, CudaSlice<P>)>,
+    pairs: Option<PairRows>,
 }
 
 /// Part of a buffer of 64-bit words seen as `len` values of `S`.
@@ -1166,81 +1303,45 @@ fn in_parallel<T: Sync, R: Send>(items: &[T], f: impl Fn(&T) -> R + Sync) -> Vec
     })
 }
 
-/// Device bytes per center atom in one chunk: radial input, embedding values
-/// and tangents, descriptor and its adjoint, fitting tapes, and for se_e2_a
-/// the environment rows and B. The embedding rows of se_e3 do not go by
-/// atom: see [`bytes_per_pair`].
-fn bytes_per_atom<P>(
-    kind: DescriptorKind,
-    slots: usize,
-    width: usize,
-    features: usize,
-    fitting_width: usize,
-) -> usize {
-    let p = std::mem::size_of::<P>();
-    let rows = slots * (p + 4 + 2 * width * p);
-    let by_slot = match kind {
-        DescriptorKind::SeE2A => rows + slots * 4 * p + width * 4 * p,
-        DescriptorKind::SeE2R => rows,
-        DescriptorKind::SeE3 => 0,
+/// Whether two descriptors (not hybrids) are laid out alike on the device:
+/// the kind, the cutoffs, the slots, the axis neurons and the width of the
+/// embedding.
+fn same_layout(a: &Descriptor, b: &Descriptor) -> bool {
+    let width = |d: &Descriptor| {
+        d.embedding
+            .first()
+            .and_then(|row| row.first())
+            .map(Network::output_size)
     };
-    by_slot + 2 * features * p + 4 * fitting_width * p
+    a.kind == b.kind
+        && a.rcut == b.rcut
+        && a.rcut_smth == b.rcut_smth
+        && a.sel == b.sel
+        && a.axis_neuron == b.axis_neuron
+        && width(a) == width(b)
 }
 
-impl<P: Scalar> GpuPotential<P> {
-    pub fn new(model: &Model, device: Arc<Device>) -> Result<Self> {
-        Self::committee(&[model], device)
-    }
-
-    /// Several models as one potential that evaluates them together (see
-    /// [`Self::evaluate_frames`]): a committee, for model deviation. The
-    /// models must share the type map, the descriptor's cutoffs, `sel` and
-    /// `axis_neuron` and the shapes of their networks; weights, statistics
-    /// and energy biases are each model's own. As a [`Potential`] the
-    /// committee is its first model.
-    pub fn committee(models: &[&Model], device: Arc<Device>) -> Result<Self> {
-        let Some(&first) = models.first() else {
-            return Err(Error("a committee needs at least one model".into()));
-        };
-        let mut metadata = first.validate()?;
-        let kind = first.descriptor_kind();
-        metadata.backend = match kind {
-            DescriptorKind::SeE2A => "native-gpu-se-e2-a".into(),
-            DescriptorKind::SeE2R => "native-gpu-se-e2-r".into(),
-            DescriptorKind::SeE3 => "native-gpu-se-e3".into(),
-        };
-        // Network precision; geometry, forces and virial are float64 either way.
-        metadata.precision = if std::mem::size_of::<P>() == 4 {
-            "float32".into()
-        } else {
-            "float64".into()
-        };
-        let d = &first.descriptor;
-        let ntypes = first.type_map.len();
-        let width = d.embedding[0][0].output_size();
+impl<P: Scalar> Part<P> {
+    /// The descriptor `descriptors[m]` of model `m` on the device (all laid
+    /// out like the first). `list_sel` and `list_rcut` are the slots and the
+    /// cutoff of the neighbor list it reads, `first_feature` is the place of
+    /// its components among those of the model, and `same_shape` words the
+    /// error of nets that cannot be one set.
+    fn new(
+        device: &Device,
+        descriptors: &[&Descriptor],
+        ntypes: usize,
+        list_sel: &[usize],
+        list_rcut: f64,
+        first_feature: usize,
+        same_shape: &dyn Fn(Error) -> Error,
+    ) -> Result<Self> {
+        let d = descriptors[0];
+        let kind = d
+            .descriptor_kind()
+            .ok_or_else(|| Error(format!("no kernels for the descriptor {:?}", d.kind)))?;
+        let width = d.width();
         let slots: usize = d.sel.iter().sum();
-        for (index, model) in models.iter().enumerate().skip(1) {
-            model.validate()?;
-            let other = &model.descriptor;
-            if other.kind != d.kind
-                || model.type_map != first.type_map
-                || other.rcut != d.rcut
-                || other.rcut_smth != d.rcut_smth
-                || other.sel != d.sel
-                || other.axis_neuron != d.axis_neuron
-                || other.embedding[0][0].output_size() != width
-            {
-                return Err(Error(format!(
-                    "committee member {index} differs from the first in its descriptor, type map, cutoffs, sel, axis_neuron or embedding width; such models are evaluated one by one"
-                )));
-            }
-        }
-        let same_shape = |e: Error| match models.len() {
-            1 => e,
-            _ => Error(format!(
-                "the members of a committee need networks of one shape: {e}"
-            )),
-        };
         // Of the force kernel: dE/d(env row) and the block's sums in double,
         // B and its adjoint in the precision of the networks; for se_e2_r
         // dE/d(radial entry) and the sums in double, dE/dD in that precision.
@@ -1266,55 +1367,24 @@ impl<P: Scalar> GpuPotential<P> {
         }
         // Model `m` has its nets and statistics at center type `m * ntypes +
         // type`, as the kernels look them up.
-        let embedding_host: Vec<Vec<Network>> = models
+        let embedding_host: Vec<Vec<Network>> = descriptors
             .iter()
-            .flat_map(|model| model.descriptor.embedding.iter().cloned())
+            .flat_map(|d| d.embedding.iter().cloned())
             .collect();
         let embedding_layers: Vec<_> = embedding_host
             .iter()
             .flatten()
             .map(|n| layer_parameters::<P>(n, 1))
             .collect();
-        let embedding = ScalarNetwork::new_set(&device, &embedding_layers).map_err(same_shape)?;
-        let features = d.features();
-        let fitting_host: Vec<&Network> = models.iter().flat_map(|model| &model.fitting).collect();
-        let fitting_layers: Vec<_> = fitting_host
-            .iter()
-            .map(|n| layer_parameters::<P>(n, features))
-            .collect();
-        if models.len() > 1 {
-            // One shape for all, whether or not the fused kernel takes it.
-            let shape = |layers: &[LayerParameters<P>]| {
-                let of = |l: &LayerParameters<P>| (l.input, l.output, l.activation, l.residual);
-                layers.iter().map(of).collect::<Vec<_>>()
-            };
-            // Each model's net of a type against the first model's.
-            let differ = fitting_layers
-                .iter()
-                .enumerate()
-                .any(|(net, layers)| shape(layers) != shape(&fitting_layers[net % ntypes]));
-            if differ {
-                return Err(same_shape(Error("the fitting nets differ".into())));
-            }
-        }
-        // Not every fitting net fits in shared memory; those keep cuBLAS only.
-        let fused_fitting = GradientNetwork::new_set(&device, &fitting_layers).ok();
-        let fitting = fitting_host
-            .iter()
-            .map(|n| dense_network(&device, n, features))
-            .collect::<Result<Vec<_>>>()?;
-        let normalization = || {
-            models
-                .iter()
-                .flat_map(|model| &model.descriptor.normalization)
-        };
+        let embedding = ScalarNetwork::new_set(device, &embedding_layers).map_err(same_shape)?;
+        let normalization = || descriptors.iter().flat_map(|d| &d.normalization);
         let davg: Vec<f64> = normalization().flat_map(|n| n.mean).collect();
         let dstd_inv: Vec<f64> = normalization()
             .flat_map(|n| n.std.map(|std| 1.0 / std))
             .collect();
         // As the environment kernel normalizes an empty slot: its whole row
         // for the descriptor, the radial entry for the embedding nets.
-        let centers = models.len() * ntypes;
+        let centers = descriptors.len() * ntypes;
         let empty_row: Vec<P> = davg
             .iter()
             .zip(&dstd_inv)
@@ -1333,7 +1403,7 @@ impl<P: Scalar> GpuPotential<P> {
         {
             let mut tangent = device.zeros::<P>(centers * ntypes * width)?;
             embedding.forward_tangent_by_id(
-                &device,
+                device,
                 &empty_input,
                 &empty_ids,
                 centers * ntypes,
@@ -1376,51 +1446,45 @@ impl<P: Scalar> GpuPotential<P> {
                 false => None,
             },
         };
-        let fitting_width = first
-            .fitting
-            .iter()
-            .flat_map(|n| n.layers.iter().map(|l| l.bias.len()))
-            .sum::<usize>();
-        let (free, _) = device.memory_info()?;
-        let per_atom = bytes_per_atom::<P>(kind, slot_type.len(), width, features, fitting_width);
-        let budget = (free as f64 * MEMORY_FRACTION) as usize;
-        // se_e3: half for what goes by atom, half for the rows of the pairs.
-        let (by_atom, by_pair) = match three_body {
-            true => (budget / 2, budget / 2),
-            false => (budget, 0),
+        // A descriptor with the slots and the cutoff of the list reads the
+        // list as it is; any other, its own table of it.
+        let view = match d.sel == list_sel && d.rcut == list_rcut {
+            true => None,
+            false => {
+                let mut first = 0i32;
+                let list_offset: Vec<i32> = list_sel
+                    .iter()
+                    .map(|&count| {
+                        let offset = first;
+                        first += count as i32;
+                        offset
+                    })
+                    .collect();
+                let list_sel_i: Vec<i32> = list_sel.iter().map(|&s| s as i32).collect();
+                Some(View {
+                    list_sel: device.upload(&list_sel_i)?,
+                    list_offset: device.upload(&list_offset)?,
+                    list_slots: list_sel.iter().sum(),
+                    table: None,
+                })
+            }
         };
-        let chunk_atoms = (by_atom / per_atom.max(1)).max(1);
-        let chunk_pairs = (by_pair / bytes_per_pair::<P>(width)).max(1);
         Ok(Self {
-            metadata,
-            models: models.len(),
+            kind,
             rcut: d.rcut,
             rcut_smth: d.rcut_smth,
-            sel: d.sel.clone(),
-            slots: slot_type.len(),
+            inv_range: 1.0 / (d.rcut - d.rcut_smth),
+            slots,
             width,
-            kind,
             axis: d.axis_neuron,
-            features,
-            bias: models
-                .iter()
-                .flat_map(|model| model.atom_energy_bias.iter().copied())
-                .collect(),
+            features: d.features(),
+            first_feature,
             embedding,
             embedding_host,
             radial_normalization: normalization().map(|n| (n.mean[0], n.std[0])).collect(),
             tables: None,
-            table_fallbacks: 0,
-            fitting,
-            fused_fitting,
-            fused_fitting_max_atoms: if std::mem::size_of::<P>() == 4 {
-                FUSED_FITTING_ATOMS_PER_TYPE_F32 * ntypes
-            } else {
-                usize::MAX
-            },
             davg: device.upload(&davg)?,
             dstd_inv: device.upload(&dstd_inv)?,
-            inv_range: 1.0 / (d.rcut - d.rcut_smth),
             empty_row: device.upload(&empty_row)?,
             empty_g,
             slot_type: device.upload(&slot_type)?,
@@ -1430,136 +1494,111 @@ impl<P: Scalar> GpuPotential<P> {
             offset_d: device.upload(&offsets)?,
             kernels,
             backward_shared,
-            chunk_atoms,
-            chunk_pairs,
-            search: NeighborSearch::new(d.rcut, &d.sel)?,
-            last_truncated: false,
-            profile: None,
-            device,
+            view,
         })
     }
 
-    /// Models this potential evaluates together: one unless it was made by
-    /// [`Self::committee`].
-    pub fn models(&self) -> usize {
-        self.models
+    /// Device bytes per center atom in one chunk for what goes by slot: the
+    /// radial input and the net of each row, the embedding values and
+    /// tangents, and for se_e2_a the environment rows and B. The embedding
+    /// rows of se_e3 do not go by atom: see [`bytes_per_pair`].
+    fn bytes_per_atom(&self) -> usize {
+        let p = std::mem::size_of::<P>();
+        let rows = self.slots * (p + 4 + 2 * self.width * p);
+        match self.kind {
+            DescriptorKind::SeE2A => rows + self.slots * 4 * p + self.width * 4 * p,
+            DescriptorKind::SeE2R => rows,
+            DescriptorKind::SeE3 => 0,
+        }
     }
 
-    pub fn device(&self) -> &Device {
-        &self.device
+    /// The neighbor slots the kernels of this descriptor read (neighbors,
+    /// vectors, distances): the list itself, or its own table of it, which
+    /// [`Self::read_list`] wrote for this search.
+    fn slots_of<'a>(
+        &'a self,
+        list: &'a NeighborList,
+    ) -> Result<(&'a CudaSlice<i32>, &'a CudaSlice<f64>, &'a CudaSlice<f64>)> {
+        match &self.view {
+            None => Ok((&list.index, &list.delta, &list.dist)),
+            Some(view) => match &view.table {
+                Some(table) if table.atoms >= list.natoms => {
+                    Ok((&table.index, &table.delta, &table.dist))
+                }
+                _ => Err(Error(
+                    "a descriptor of a hybrid without its table of the neighbor list".into(),
+                )),
+            },
+        }
     }
 
-    /// Whether the last frame had more neighbors than `sel` for some center.
-    pub fn last_truncated(&self) -> bool {
-        self.last_truncated
-    }
-
-    /// Center atoms evaluated per chunk; per-atom device memory (embedding
-    /// values and tangents dominate) scales with this, not with the frame.
-    /// The members of a committee share it: each chunk holds this many
-    /// atoms divided by the members evaluated.
-    pub fn chunk_atoms(&self) -> usize {
-        self.chunk_atoms
-    }
-
-    /// Override the chunk size derived from free device memory at load time.
-    pub fn set_chunk_atoms(&mut self, atoms: usize) {
-        self.chunk_atoms = atoms.max(1);
-    }
-
-    /// se_e3: the rows of the embedding nets (pairs of an atom's neighbors,
-    /// n(n + 1)/2 for n neighbors) evaluated per chunk. Their values and
-    /// tangents are what takes the device memory of such a model, so a
-    /// chunk of atoms ends where its rows would pass this number, before
-    /// [`Self::chunk_atoms`] if need be; an atom is never split. The
-    /// members of a committee share it like the atoms.
-    pub fn chunk_pairs(&self) -> usize {
-        self.chunk_pairs
-    }
-
-    /// Override the number of rows per chunk derived from free device
-    /// memory at load time.
-    pub fn set_chunk_pairs(&mut self, pairs: usize) {
-        self.chunk_pairs = pairs.max(1);
-    }
-
-    /// The rows of this frame's pairs of neighbors (se_e3) and its atoms in
-    /// chunks of at most `atoms` atoms and `rows` rows: one launch counts
-    /// the neighbors every atom holds, and the host lays the rows out.
-    /// (Not a method: the neighbor list is borrowed from the potential.)
-    fn pair_rows(
+    /// hybrid: writes this descriptor's table of the neighbor list, if it
+    /// has one, and adds to `status` (`[atoms]`, the bits of the search)
+    /// that neighbors were dropped where the descriptor has fewer slots
+    /// than neighbors within its cutoff.
+    fn read_list(
+        &mut self,
         device: &Device,
-        kernels: &Kernels,
         list: &NeighborList,
-        atoms: usize,
-        rows: usize,
-    ) -> Result<PairRows> {
-        let function = kernels
-            .count
-            .as_ref()
-            .ok_or_else(|| Error("only an se_e3 potential lays out pairs of neighbors".into()))?;
-        let natoms = list.natoms;
-        let stream = device.stream();
-        // SAFETY: the kernel writes every element before the download.
-        let mut held = unsafe { device.alloc_uninit::<i32>(natoms)? };
-        let (natoms_i, slots_i) = (natoms as i32, list.slots as i32);
-        {
-            let mut launch = stream.launch_builder(function);
-            launch
-                .arg(&list.index)
-                .arg(&natoms_i)
-                .arg(&slots_i)
-                .arg(&mut held);
-            let config = LaunchConfig {
-                grid_dim: (natoms.div_ceil(BLOCK as usize) as u32, 1, 1),
-                block_dim: (BLOCK, 1, 1),
-                shared_mem_bytes: 0,
-            };
-            unsafe { launch.launch(config) }
-                .map(drop)
-                .map_err(launch_error("neighbor count"))?;
+        narrow: Option<&CudaFunction>,
+        status: &mut CudaViewMut<i32>,
+    ) -> Result<()> {
+        let Some(view) = &mut self.view else {
+            return Ok(());
+        };
+        let function = narrow
+            .ok_or_else(|| Error("a hybrid potential without the kernel of its tables".into()))?;
+        let (natoms, slots) = (list.natoms, self.slots);
+        if view.table.as_ref().is_none_or(|table| table.atoms < natoms) {
+            // SAFETY: the kernel below writes every element of these atoms
+            // before anything reads them.
+            view.table = Some(unsafe {
+                SlotTable {
+                    atoms: natoms,
+                    index: device.alloc_uninit::<i32>(natoms * slots)?,
+                    delta: device.alloc_uninit::<f64>(3 * natoms * slots)?,
+                    dist: device.alloc_uninit::<f64>(natoms * slots)?,
+                }
+            });
         }
-        let (host, chunks) = pair_layout(&device.download(&held)?, atoms, rows);
-        let most = chunks
-            .iter()
-            .map(|&(first, end)| (host[end] - host[first]) as usize)
-            .max()
-            .unwrap_or(0);
-        Ok(PairRows {
-            start: device.upload(&host)?,
-            host,
-            chunks,
-            most,
-        })
+        let Some(table) = &mut view.table else {
+            return Err(Error("the table of a descriptor was not made".into()));
+        };
+        let (natoms_i, slots_i) = (natoms as i32, slots as i32);
+        let (list_slots_i, ntypes_i) = (view.list_slots as i32, list.sel.len() as i32);
+        let stream = device.stream();
+        let mut launch = stream.launch_builder(function);
+        launch
+            .arg(&list.index)
+            .arg(&list.delta)
+            .arg(&list.dist)
+            .arg(&self.slot_type)
+            .arg(&self.slot_local)
+            .arg(&self.sel_d)
+            .arg(&view.list_sel)
+            .arg(&view.list_offset)
+            .arg(&natoms_i)
+            .arg(&slots_i)
+            .arg(&list_slots_i)
+            .arg(&ntypes_i)
+            .arg(&self.rcut)
+            .arg(&mut table.index)
+            .arg(&mut table.delta)
+            .arg(&mut table.dist)
+            .arg(status);
+        let config = LaunchConfig {
+            grid_dim: ((natoms * slots).div_ceil(BLOCK as usize) as u32, 1, 1),
+            block_dim: (BLOCK, 1, 1),
+            shared_mem_bytes: 0,
+        };
+        unsafe { launch.launch(config) }
+            .map(drop)
+            .map_err(launch_error("slot table"))
     }
 
-    /// Model compression (DeePMD `dp compress`): replaces every embedding
-    /// net by a piecewise quintic table with knots every `step` in the
-    /// normalized radial input, covering neighbor distances from
-    /// `min_distance` out to the cutoff. With `step = 0.01` the table agrees
-    /// with the network to rounding level. Like DeePMD's extrapolation
-    /// region, the tables continue with ten times the step down to a fifth
-    /// of `min_distance`. A frame with a pair closer than that is evaluated
-    /// with the exact networks instead (see [`Self::table_fallbacks`]), so
-    /// results never depend on the range. Empty neighbor slots do not go
-    /// through the tables: their row is the networks' own.
-    pub fn compress(&mut self, min_distance: f64, step: f64) -> Result<()> {
-        if self.kind == DescriptorKind::SeE3 {
-            return Err(Error(
-                "the embedding nets of se_e3 are not tabulated: evaluate the model without compression"
-                    .into(),
-            ));
-        }
-        if !(min_distance.is_finite() && 0.0 < min_distance && min_distance < self.rcut) {
-            return Err(Error(format!(
-                "compression needs 0 < min_distance < rcut, got {min_distance}"
-            )));
-        }
-        if !(step.is_finite() && 1e-4 <= step && step <= 1.0) {
-            return Err(Error(format!(
-                "table step must be in [1e-4, 1], got {step}"
-            )));
-        }
+    /// The embedding nets of this descriptor as tables: see
+    /// [`GpuPotential::compress`].
+    fn tabulate(&self, device: &Device, min_distance: f64, step: f64) -> Result<ScalarTable<P>> {
         // s(r) = switch(r)/r, the unnormalized radial input at distance r.
         let radial = |r: f64| {
             let t = ((r - self.rcut_smth) / (self.rcut - self.rcut_smth)).max(0.0);
@@ -1608,12 +1647,277 @@ impl<P: Scalar> GpuPotential<P> {
         })
         .into_iter()
         .collect::<Result<Vec<_>>>()?;
-        self.tables = Some(ScalarTable::new_set(&self.device, width, &tables)?);
+        ScalarTable::new_set(device, width, &tables)
+    }
+}
+
+impl<P: Scalar> GpuPotential<P> {
+    pub fn new(model: &Model, device: Arc<Device>) -> Result<Self> {
+        Self::committee(&[model], device)
+    }
+
+    /// Several models as one potential that evaluates them together (see
+    /// [`Self::evaluate_frames`]): a committee, for model deviation. The
+    /// models must share the type map, the descriptor's cutoffs, `sel` and
+    /// `axis_neuron` (of every descriptor of a hybrid) and the shapes of
+    /// their networks; weights, statistics and energy biases are each
+    /// model's own. As a [`Potential`] the committee is its first model.
+    pub fn committee(models: &[&Model], device: Arc<Device>) -> Result<Self> {
+        let Some(&first) = models.first() else {
+            return Err(Error("a committee needs at least one model".into()));
+        };
+        let mut metadata = first.validate()?;
+        let d = &first.descriptor;
+        metadata.backend = match d.descriptor_kind() {
+            Some(DescriptorKind::SeE2A) => "native-gpu-se-e2-a".into(),
+            Some(DescriptorKind::SeE2R) => "native-gpu-se-e2-r".into(),
+            Some(DescriptorKind::SeE3) => "native-gpu-se-e3".into(),
+            None => "native-gpu-hybrid".into(),
+        };
+        // Network precision; geometry, forces and virial are float64 either way.
+        metadata.precision = if std::mem::size_of::<P>() == 4 {
+            "float32".into()
+        } else {
+            "float64".into()
+        };
+        let ntypes = first.type_map.len();
+        for (index, model) in models.iter().enumerate().skip(1) {
+            model.validate()?;
+            let other = &model.descriptor;
+            let alike = other.kind == d.kind
+                && model.type_map == first.type_map
+                && other.parts().len() == d.parts().len()
+                && other
+                    .parts()
+                    .iter()
+                    .zip(d.parts())
+                    .all(|(a, b)| same_layout(a, b));
+            if !alike {
+                return Err(Error(format!(
+                    "committee member {index} differs from the first in its descriptor, type map, cutoffs, sel, axis_neuron or embedding width; such models are evaluated one by one"
+                )));
+            }
+        }
+        let same_shape = |e: Error| match models.len() {
+            1 => e,
+            _ => Error(format!(
+                "the members of a committee need networks of one shape: {e}"
+            )),
+        };
+        // The descriptors of the models, each with the same one of every
+        // member; their components follow each other.
+        let mut parts = Vec::with_capacity(d.parts().len());
+        let mut features = 0;
+        for index in 0..d.parts().len() {
+            let descriptors: Vec<&Descriptor> = models
+                .iter()
+                .map(|model| &model.descriptor.parts()[index])
+                .collect();
+            let part = Part::<P>::new(
+                &device,
+                &descriptors,
+                ntypes,
+                &d.sel,
+                d.rcut,
+                features,
+                &same_shape,
+            )?;
+            features += part.features;
+            parts.push(part);
+        }
+        let fitting_host: Vec<&Network> = models.iter().flat_map(|model| &model.fitting).collect();
+        let fitting_layers: Vec<_> = fitting_host
+            .iter()
+            .map(|n| layer_parameters::<P>(n, features))
+            .collect();
+        if models.len() > 1 {
+            // One shape for all, whether or not the fused kernel takes it.
+            let shape = |layers: &[LayerParameters<P>]| {
+                let of = |l: &LayerParameters<P>| (l.input, l.output, l.activation, l.residual);
+                layers.iter().map(of).collect::<Vec<_>>()
+            };
+            // Each model's net of a type against the first model's.
+            let differ = fitting_layers
+                .iter()
+                .enumerate()
+                .any(|(net, layers)| shape(layers) != shape(&fitting_layers[net % ntypes]));
+            if differ {
+                return Err(same_shape(Error("the fitting nets differ".into())));
+            }
+        }
+        // Not every fitting net fits in shared memory; those keep cuBLAS only.
+        let fused_fitting = GradientNetwork::new_set(&device, &fitting_layers).ok();
+        let fitting = fitting_host
+            .iter()
+            .map(|n| dense_network(&device, n, features))
+            .collect::<Result<Vec<_>>>()?;
+        let narrow = match parts.iter().any(|part| part.view.is_some()) {
+            true => Some(device.kernels().function(SOURCE, "hybrid_slots")?),
+            false => None,
+        };
+        let fitting_width = first
+            .fitting
+            .iter()
+            .flat_map(|n| n.layers.iter().map(|l| l.bias.len()))
+            .sum::<usize>();
+        let (free, _) = device.memory_info()?;
+        // Device bytes per center atom in one chunk: what the descriptors
+        // keep by slot, the descriptor and its adjoint, the fitting tapes.
+        let p = std::mem::size_of::<P>();
+        let per_atom = parts.iter().map(Part::bytes_per_atom).sum::<usize>()
+            + 2 * features * p
+            + 4 * fitting_width * p;
+        let budget = (free as f64 * MEMORY_FRACTION) as usize;
+        // se_e3: half for what goes by atom, half for the rows of the pairs,
+        // shared between the se_e3 descriptors of the model.
+        let three_body = parts
+            .iter()
+            .filter(|part| part.kind == DescriptorKind::SeE3)
+            .count();
+        let (by_atom, by_pair) = match three_body {
+            0 => (budget, 0),
+            _ => (budget / 2, budget / 2),
+        };
+        let chunk_atoms = (by_atom / per_atom.max(1)).max(1);
+        let chunk_pairs = parts
+            .iter()
+            .filter(|part| part.kind == DescriptorKind::SeE3)
+            .map(|part| by_pair / three_body / bytes_per_pair::<P>(part.width))
+            .min()
+            .unwrap_or(1)
+            .max(1);
+        Ok(Self {
+            metadata,
+            models: models.len(),
+            sel: d.sel.clone(),
+            parts,
+            features,
+            bias: models
+                .iter()
+                .flat_map(|model| model.atom_energy_bias.iter().copied())
+                .collect(),
+            table_fallbacks: 0,
+            fitting,
+            fused_fitting,
+            fused_fitting_max_atoms: if std::mem::size_of::<P>() == 4 {
+                FUSED_FITTING_ATOMS_PER_TYPE_F32 * ntypes
+            } else {
+                usize::MAX
+            },
+            narrow,
+            chunk_atoms,
+            chunk_pairs,
+            search: NeighborSearch::new(d.rcut, &d.sel)?,
+            last_truncated: false,
+            profile: None,
+            device,
+        })
+    }
+
+    /// Models this potential evaluates together: one unless it was made by
+    /// [`Self::committee`].
+    pub fn models(&self) -> usize {
+        self.models
+    }
+
+    pub fn device(&self) -> &Device {
+        &self.device
+    }
+
+    /// Whether the last frame had more neighbors than `sel` for some center:
+    /// in the neighbor list, or for a descriptor of a hybrid within its own
+    /// cutoff.
+    pub fn last_truncated(&self) -> bool {
+        self.last_truncated
+    }
+
+    /// Center atoms evaluated per chunk; per-atom device memory (embedding
+    /// values and tangents dominate) scales with this, not with the frame.
+    /// The members of a committee share it: each chunk holds this many
+    /// atoms divided by the members evaluated.
+    pub fn chunk_atoms(&self) -> usize {
+        self.chunk_atoms
+    }
+
+    /// Override the chunk size derived from free device memory at load time.
+    pub fn set_chunk_atoms(&mut self, atoms: usize) {
+        self.chunk_atoms = atoms.max(1);
+    }
+
+    /// se_e3: the rows of the embedding nets (pairs of an atom's neighbors,
+    /// n(n + 1)/2 for n neighbors) evaluated per chunk. Their values and
+    /// tangents are what takes the device memory of such a model, so a
+    /// chunk of atoms ends where its rows would pass this number, before
+    /// [`Self::chunk_atoms`] if need be; an atom is never split. The
+    /// members of a committee share it like the atoms. A hybrid with
+    /// several se_e3 descriptors has this many rows of each.
+    pub fn chunk_pairs(&self) -> usize {
+        self.chunk_pairs
+    }
+
+    /// Override the number of rows per chunk derived from free device
+    /// memory at load time.
+    pub fn set_chunk_pairs(&mut self, pairs: usize) {
+        self.chunk_pairs = pairs.max(1);
+    }
+
+    /// Model compression (DeePMD `dp compress`): replaces every embedding
+    /// net by a piecewise quintic table with knots every `step` in the
+    /// normalized radial input, covering neighbor distances from
+    /// `min_distance` out to the cutoff. With `step = 0.01` the table agrees
+    /// with the network to rounding level. Like DeePMD's extrapolation
+    /// region, the tables continue with ten times the step down to a fifth
+    /// of `min_distance`. A frame with a pair closer than that is evaluated
+    /// with the exact networks instead (see [`Self::table_fallbacks`]), so
+    /// results never depend on the range. Empty neighbor slots do not go
+    /// through the tables: their row is the networks' own.
+    ///
+    /// The nets of se_e3 are not tabulated. A hybrid gets tables for its
+    /// se_e2_a and se_e2_r descriptors, each over the range of its own
+    /// cutoff and statistics, and keeps the networks of its se_e3
+    /// descriptors; a model with nothing to tabulate is refused.
+    pub fn compress(&mut self, min_distance: f64, step: f64) -> Result<()> {
+        let tabulated = |part: &Part<P>| part.kind != DescriptorKind::SeE3;
+        if !self.parts.iter().any(tabulated) {
+            return Err(Error(
+                "the embedding nets of se_e3 are not tabulated: evaluate the model without compression"
+                    .into(),
+            ));
+        }
+        // The shortest cutoff of the descriptors that get tables.
+        let rcut = self
+            .parts
+            .iter()
+            .filter(|part| tabulated(part))
+            .map(|part| part.rcut)
+            .fold(f64::INFINITY, f64::min);
+        if !(min_distance.is_finite() && 0.0 < min_distance && min_distance < rcut) {
+            return Err(Error(format!(
+                "compression needs 0 < min_distance < rcut, got {min_distance}"
+            )));
+        }
+        if !(step.is_finite() && 1e-4 <= step && step <= 1.0) {
+            return Err(Error(format!(
+                "table step must be in [1e-4, 1], got {step}"
+            )));
+        }
+        // All tables first: an error leaves the potential as it was.
+        let mut tables = Vec::with_capacity(self.parts.len());
+        for part in &self.parts {
+            tables.push(match tabulated(part) {
+                true => Some(part.tabulate(&self.device, min_distance, step)?),
+                false => None,
+            });
+        }
+        for (part, table) in self.parts.iter_mut().zip(tables) {
+            part.tables = table;
+        }
         Ok(())
     }
 
+    /// Whether embedding nets are tabulated (see [`Self::compress`]).
     pub fn is_compressed(&self) -> bool {
-        self.tables.is_some()
+        self.parts.iter().any(|part| part.tables.is_some())
     }
 
     /// Chunks of at most this many atoms evaluate the fitting nets in one
@@ -1687,7 +1991,7 @@ impl<P: Scalar> GpuPotential<P> {
             times: self.profile.take().map(|_| StageTimes::default()),
             last: Instant::now(),
         };
-        let mut result = self.run(&device, frames, members, &mut clock, self.tables.is_some());
+        let mut result = self.run(&device, frames, members, &mut clock, self.is_compressed());
         if matches!(result, Ok(None)) {
             if frames.len() > 1 {
                 self.profile = clock.times;
@@ -1805,89 +2109,136 @@ impl<P: Scalar> GpuPotential<P> {
             &mut status,
         )?;
         let atype = &list.types;
+        // hybrid: the tables of the descriptors that do not read the list
+        // as it is. They add to the status what the search cannot know.
+        for part in &mut self.parts {
+            part.read_list(device, list, self.narrow.as_ref(), &mut status)?;
+        }
         clock.lap(|t| &mut t.neighbors)?;
 
-        let (slots, width, axis) = (self.slots, self.width, self.axis);
-        let (kind, features) = (self.kind, self.features);
-        let radial = kind == DescriptorKind::SeE2R;
-        let angular = kind == DescriptorKind::SeE2A;
-        // se_e2_r: the mean of the embedding rows over the slots, over five.
-        let radial_scale = RADIAL_RESCALE / slots as f64;
+        let features = self.features;
         // What a kernel gets for a buffer it is not to touch.
         let no_buffer = 0u64;
         // Atoms per chunk: every model works on a chunk at once.
         let chunk = (self.chunk_atoms / members).clamp(1, natoms);
         // se_e3: the rows of the embedding nets are the pairs of each atom's
-        // neighbors, and a chunk ends where its atoms or its rows are too
-        // many.
-        let pairs = match kind {
-            DescriptorKind::SeE3 => {
-                let rows = (self.chunk_pairs / members).max(1);
-                Some(Self::pair_rows(device, &self.kernels, list, chunk, rows)?)
+        // neighbors, laid out from the neighbors every atom holds. Those of
+        // all such descriptors come back in one download.
+        let three_body: Vec<usize> = (0..self.parts.len())
+            .filter(|&index| self.parts[index].kind == DescriptorKind::SeE3)
+            .collect();
+        let mut pair_rows: Vec<Option<PairRows>> = self.parts.iter().map(|_| None).collect();
+        if !three_body.is_empty() {
+            // SAFETY: the kernels write every element before the download.
+            let mut held = unsafe { device.alloc_uninit::<i32>(three_body.len() * natoms)? };
+            let natoms_i = natoms as i32;
+            for (k, &index) in three_body.iter().enumerate() {
+                let part = &self.parts[index];
+                let (slots_index, _, _) = part.slots_of(list)?;
+                let function = part.kernels.count.as_ref().ok_or_else(|| {
+                    Error("an se_e3 descriptor without its neighbor count kernel".into())
+                })?;
+                let slots_i = part.slots as i32;
+                let mut mine = held.slice_mut(k * natoms..(k + 1) * natoms);
+                let mut launch = stream.launch_builder(function);
+                launch
+                    .arg(slots_index)
+                    .arg(&natoms_i)
+                    .arg(&slots_i)
+                    .arg(&mut mine);
+                let config = LaunchConfig {
+                    grid_dim: (natoms.div_ceil(BLOCK as usize) as u32, 1, 1),
+                    block_dim: (BLOCK, 1, 1),
+                    shared_mem_bytes: 0,
+                };
+                unsafe { launch.launch(config) }
+                    .map(drop)
+                    .map_err(launch_error("neighbor count"))?;
             }
-            _ => None,
+            let held = device.download(&held)?;
+            for (k, &index) in three_body.iter().enumerate() {
+                let host = pair_starts(&held[k * natoms..(k + 1) * natoms]);
+                pair_rows[index] = Some(PairRows {
+                    start: device.upload(&host)?,
+                    host,
+                });
+            }
+        }
+        // A chunk ends where its atoms are too many, or its rows in one of
+        // the se_e3 descriptors.
+        let chunks = {
+            let starts: Vec<&[i64]> = pair_rows
+                .iter()
+                .flatten()
+                .map(|rows| rows.host.as_slice())
+                .collect();
+            let rows = (self.chunk_pairs / members).max(1);
+            pair_chunks(&starts, natoms, chunk, rows)
         };
-        let chunks: Vec<(usize, usize)> = match &pairs {
-            Some(pairs) => pairs.chunks.clone(),
-            None => (0..natoms)
-                .step_by(chunk)
-                .map(|first| (first, (first + chunk).min(natoms)))
-                .collect(),
-        };
-        // The centers of the largest chunk for all models, and the rows of
-        // the embedding nets of a chunk: a row per slot, or per pair.
-        let most = chunks.iter().map(|&(first, end)| end - first).max();
-        let wide = members * most.unwrap_or(1);
-        let all_rows = members
-            * match &pairs {
-                Some(pairs) => pairs.most.max(1),
-                None => most.unwrap_or(1) * slots,
+        // The centers of the largest chunk for all models.
+        let most = chunks
+            .iter()
+            .map(|&(first, end)| end - first)
+            .max()
+            .unwrap_or(1);
+        let wide = members * most;
+        // Per-chunk work buffers of every descriptor, reused by every chunk.
+        let mut works: Vec<Work<P>> = Vec::with_capacity(self.parts.len());
+        for (part, pairs) in self.parts.iter().zip(pair_rows) {
+            // The rows of the embedding nets of a chunk: a row per slot, or
+            // per pair.
+            let rows = match &pairs {
+                Some(pairs) => chunks
+                    .iter()
+                    .map(|&(first, end)| pairs.rows(first, end))
+                    .max()
+                    .unwrap_or(0)
+                    .max(1),
+                None => most * part.slots,
             };
-        // Per-chunk work buffers, reused by every chunk. Each element a chunk
-        // reads was written earlier in the same chunk.
-        // The environment rows and B are se_e2_a's: the others have neither.
-        let mut env = match angular {
-            true => Some(unsafe { device.alloc_uninit::<P>(wide * slots * 4)? }),
-            false => None,
-        };
-        // The input of the embedding nets: the radial entry of a slot, or θ
-        // of a pair of neighbors.
-        let mut radial_input = unsafe { device.alloc_uninit::<P>(all_rows)? };
-        let mut network = unsafe { device.alloc_uninit::<i32>(all_rows)? };
-        let mut g = unsafe { device.alloc_uninit::<P>(all_rows * width)? };
-        let mut dg = unsafe { device.alloc_uninit::<P>(all_rows * width)? };
-        // se_e3: what each pair counts in the descriptor, and dE/dθ of it.
-        let mut of_pairs = match &pairs {
-            Some(_) => Some(unsafe {
-                (
-                    device.alloc_uninit::<P>(all_rows)?,
-                    device.alloc_uninit::<P>(all_rows)?,
-                )
-            }),
-            None => None,
-        };
-        let mut b = match angular {
-            true => Some(unsafe { device.alloc_uninit::<P>(wide * width * 4)? }),
-            false => None,
-        };
+            let all_rows = members * rows;
+            let angular = part.kind == DescriptorKind::SeE2A;
+            // SAFETY: each element a chunk reads was written earlier in the
+            // same chunk.
+            works.push(unsafe {
+                Work {
+                    env: match angular {
+                        true => Some(device.alloc_uninit::<P>(wide * part.slots * 4)?),
+                        false => None,
+                    },
+                    b: match angular {
+                        true => Some(device.alloc_uninit::<P>(wide * part.width * 4)?),
+                        false => None,
+                    },
+                    input: device.alloc_uninit::<P>(all_rows)?,
+                    network: device.alloc_uninit::<i32>(all_rows)?,
+                    g: device.alloc_uninit::<P>(all_rows * part.width)?,
+                    dg: device.alloc_uninit::<P>(all_rows * part.width)?,
+                    of_pairs: match &pairs {
+                        Some(_) => Some((
+                            device.alloc_uninit::<P>(all_rows)?,
+                            device.alloc_uninit::<P>(all_rows)?,
+                        )),
+                        None => None,
+                    },
+                    pairs,
+                }
+            });
+        }
+        // The components of all descriptors of a center one after the
+        // other, and dE/d(them): each descriptor has its own from
+        // `first_feature` on, every `features` values.
         let mut descriptor = unsafe { device.alloc_uninit::<P>(wide * features)? };
         let mut d_descriptor = unsafe { device.alloc_uninit::<P>(wide * features)? };
         // Adjoint seed of the layer-by-layer fitting path, made on first use.
         let mut ones: Option<CudaSlice<P>> = None;
-        let (slots_i, w_i, axis_i) = (slots as i32, width as i32, axis as i32);
-        let (ntypes_i, natoms_i) = (ntypes as i32, natoms as i32);
+        let (ntypes_i, natoms_i, stride_i) = (ntypes as i32, natoms as i32, features as i32);
         let deep = members as u32;
-        let tables = self.tables.as_ref().filter(|_| compressed);
+        let mut tabulated = false;
 
         for &(first, end) in &chunks {
             let count = end - first;
             let (first_i, count_i) = (first as i32, count as i32);
-            // Rows of the embedding nets of this chunk for one model.
-            let chunk_rows = match &pairs {
-                Some(pairs) => pairs.rows(first, end),
-                None => count * slots,
-            };
-            let chunk_rows_i = chunk_rows as i64;
             // Center-type ranges of this chunk, in chunk-local atoms.
             let ranges: Vec<(usize, usize, usize)> = (0..ntypes)
                 .filter_map(|t| {
@@ -1896,186 +2247,215 @@ impl<P: Scalar> GpuPotential<P> {
                     (hi > lo).then(|| (t, lo - first, hi - first))
                 })
                 .collect();
-            if let (Some(pairs), Some((weight, _))) = (&pairs, &mut of_pairs) {
-                let function =
-                    self.kernels.pairs.as_ref().ok_or_else(|| {
-                        Error("an se_e3 potential without its pair kernel".into())
+
+            // Every descriptor: its rows, the embedding nets of the rows,
+            // and its components of the chunk's centers.
+            for (part, work) in self.parts.iter().zip(&mut works) {
+                let (index, delta, dist) = part.slots_of(list)?;
+                let (slots, width) = (part.slots, part.width);
+                let (slots_i, w_i, axis_i) = (slots as i32, width as i32, part.axis as i32);
+                // se_e2_r: the mean of the embedding rows over the slots, over five.
+                let radial_scale = RADIAL_RESCALE / slots as f64;
+                // Rows of the embedding nets of this chunk for one model.
+                let chunk_rows = match &work.pairs {
+                    Some(pairs) => pairs.rows(first, end),
+                    None => count * slots,
+                };
+                let chunk_rows_i = chunk_rows as i64;
+                if let (Some(pairs), Some((weight, _))) = (&work.pairs, &mut work.of_pairs) {
+                    let function = part.kernels.pairs.as_ref().ok_or_else(|| {
+                        Error("an se_e3 descriptor without its pair kernel".into())
                     })?;
-                let mut launch = stream.launch_builder(function);
-                launch
-                    .arg(&list.index)
-                    .arg(&list.delta)
-                    .arg(&list.dist)
-                    .arg(atype)
-                    .arg(&self.dstd_inv)
-                    .arg(&self.slot_type)
-                    .arg(&self.slot_local)
-                    .arg(&self.sel_d)
-                    .arg(&self.sel_inv)
-                    .arg(&first_i)
-                    .arg(&slots_i)
-                    .arg(&ntypes_i)
-                    .arg(&self.rcut_smth)
-                    .arg(&self.inv_range)
-                    .arg(&pairs.start)
-                    .arg(&chunk_rows_i)
-                    .arg(&mut radial_input)
-                    .arg(weight)
-                    .arg(&mut network);
-                let config = LaunchConfig {
-                    grid_dim: (count as u32, deep, 1),
-                    block_dim: (BLOCK, 1, 1),
-                    shared_mem_bytes: pair_shared(slots, ntypes) as u32,
-                };
-                unsafe { launch.launch(config) }
-                    .map(drop)
-                    .map_err(launch_error("pairs"))?;
-            } else {
-                let mut launch = stream.launch_builder(&self.kernels.env);
-                launch
-                    .arg(&list.index)
-                    .arg(&list.delta)
-                    .arg(&list.dist)
-                    .arg(atype)
-                    .arg(&self.davg)
-                    .arg(&self.dstd_inv)
-                    .arg(&self.slot_type)
-                    .arg(&self.slot_local)
-                    .arg(&self.sel_d)
-                    .arg(&self.offset_d)
-                    .arg(&first_i)
-                    .arg(&count_i)
-                    .arg(&slots_i)
-                    .arg(&ntypes_i)
-                    .arg(&self.rcut_smth)
-                    .arg(&self.inv_range);
-                match env.as_mut() {
-                    Some(env) => launch.arg(env),
-                    None => launch.arg(&no_buffer),
-                };
-                launch.arg(&mut radial_input).arg(&mut network);
-                let total = count * slots;
-                let config = LaunchConfig {
-                    grid_dim: (total.div_ceil(BLOCK as usize) as u32, deep, 1),
-                    block_dim: (BLOCK, 1, 1),
-                    shared_mem_bytes: 0,
-                };
-                unsafe { launch.launch(config) }
-                    .map(drop)
-                    .map_err(launch_error("environment"))?;
-            }
-            clock.lap(|t| &mut t.environment)?;
-
-            // Embedding values and d/d(radial) tangents for every row of the
-            // chunk in one launch, [model][neighbor type][local atom][slot][width]
-            // (se_e3: [model][local atom][pair][width], and atoms without
-            // neighbors have no row).
-            if chunk_rows > 0 {
-                let rows = members * chunk_rows;
-                let x = radial_input.slice(0..rows);
-                let ids = network.slice(0..rows);
-                let mut out = g.slice_mut(0..rows * width);
-                let mut dout = dg.slice_mut(0..rows * width);
-                match tables {
-                    Some(tables) => tables.forward_tangent_by_id(
-                        device,
-                        &x,
-                        &ids,
-                        rows,
-                        &mut out,
-                        &mut dout,
-                        &mut outside_table,
-                    )?,
-                    None => self
-                        .embedding
-                        .forward_tangent_by_id(device, &x, &ids, rows, &mut out, &mut dout)?,
+                    let mut launch = stream.launch_builder(function);
+                    launch
+                        .arg(index)
+                        .arg(delta)
+                        .arg(dist)
+                        .arg(atype)
+                        .arg(&part.dstd_inv)
+                        .arg(&part.slot_type)
+                        .arg(&part.slot_local)
+                        .arg(&part.sel_d)
+                        .arg(&part.sel_inv)
+                        .arg(&first_i)
+                        .arg(&slots_i)
+                        .arg(&ntypes_i)
+                        .arg(&part.rcut_smth)
+                        .arg(&part.inv_range)
+                        .arg(&pairs.start)
+                        .arg(&chunk_rows_i)
+                        .arg(&mut work.input)
+                        .arg(weight)
+                        .arg(&mut work.network);
+                    let config = LaunchConfig {
+                        grid_dim: (count as u32, deep, 1),
+                        block_dim: (BLOCK, 1, 1),
+                        shared_mem_bytes: pair_shared(slots, ntypes) as u32,
+                    };
+                    unsafe { launch.launch(config) }
+                        .map(drop)
+                        .map_err(launch_error("pairs"))?;
+                } else {
+                    let mut launch = stream.launch_builder(&part.kernels.env);
+                    launch
+                        .arg(index)
+                        .arg(delta)
+                        .arg(dist)
+                        .arg(atype)
+                        .arg(&part.davg)
+                        .arg(&part.dstd_inv)
+                        .arg(&part.slot_type)
+                        .arg(&part.slot_local)
+                        .arg(&part.sel_d)
+                        .arg(&part.offset_d)
+                        .arg(&first_i)
+                        .arg(&count_i)
+                        .arg(&slots_i)
+                        .arg(&ntypes_i)
+                        .arg(&part.rcut_smth)
+                        .arg(&part.inv_range);
+                    match work.env.as_mut() {
+                        Some(env) => launch.arg(env),
+                        None => launch.arg(&no_buffer),
+                    };
+                    launch.arg(&mut work.input).arg(&mut work.network);
+                    let total = count * slots;
+                    let config = LaunchConfig {
+                        grid_dim: (total.div_ceil(BLOCK as usize) as u32, deep, 1),
+                        block_dim: (BLOCK, 1, 1),
+                        shared_mem_bytes: 0,
+                    };
+                    unsafe { launch.launch(config) }
+                        .map(drop)
+                        .map_err(launch_error("environment"))?;
                 }
-            }
-            clock.lap(|t| &mut t.embedding)?;
+                clock.lap(|t| &mut t.environment)?;
 
-            if let (Some(pairs), Some((weight, _))) = (&pairs, &of_pairs) {
-                let mut launch = stream.launch_builder(&self.kernels.descriptor);
-                launch
-                    .arg(&g)
-                    .arg(&radial_input)
-                    .arg(weight)
-                    .arg(&pairs.start)
-                    .arg(&chunk_rows_i)
-                    .arg(&first_i)
-                    .arg(&count_i)
-                    .arg(&w_i)
-                    .arg(&mut descriptor);
-                let warps = descriptor_warps::<P>(width);
-                let config = LaunchConfig {
-                    grid_dim: (count as u32, deep, 1),
-                    block_dim: (32 * warps as u32, 1, 1),
-                    // The sums of every warp.
-                    shared_mem_bytes: (warps * width * std::mem::size_of::<P>()).next_multiple_of(8)
-                        as u32,
+                // Embedding values and d/d(radial) tangents for every row of
+                // the chunk in one launch, [model][neighbor type][local
+                // atom][slot][width] (se_e3: [model][local atom][pair][width],
+                // and atoms without neighbors have no row).
+                if chunk_rows > 0 {
+                    let rows = members * chunk_rows;
+                    let x = work.input.slice(0..rows);
+                    let ids = work.network.slice(0..rows);
+                    let mut out = work.g.slice_mut(0..rows * width);
+                    let mut dout = work.dg.slice_mut(0..rows * width);
+                    match part.tables.as_ref().filter(|_| compressed) {
+                        Some(tables) => {
+                            tabulated = true;
+                            tables.forward_tangent_by_id(
+                                device,
+                                &x,
+                                &ids,
+                                rows,
+                                &mut out,
+                                &mut dout,
+                                &mut outside_table,
+                            )?
+                        }
+                        None => part
+                            .embedding
+                            .forward_tangent_by_id(device, &x, &ids, rows, &mut out, &mut dout)?,
+                    }
+                }
+                clock.lap(|t| &mut t.embedding)?;
+
+                // The components of this descriptor, at their place among
+                // those of all.
+                let mut d_out = descriptor.slice_mut(part.first_feature..);
+                let mut launch = stream.launch_builder(&part.kernels.descriptor);
+                let config = match part.kind {
+                    DescriptorKind::SeE3 => {
+                        let (Some(pairs), Some((weight, _))) = (&work.pairs, &work.of_pairs) else {
+                            return Err(Error("an se_e3 descriptor without its rows".into()));
+                        };
+                        launch
+                            .arg(&work.g)
+                            .arg(&work.input)
+                            .arg(weight)
+                            .arg(&pairs.start)
+                            .arg(&chunk_rows_i)
+                            .arg(&first_i)
+                            .arg(&count_i)
+                            .arg(&w_i)
+                            .arg(&mut d_out)
+                            .arg(&stride_i);
+                        let warps = descriptor_warps::<P>(width);
+                        LaunchConfig {
+                            grid_dim: (count as u32, deep, 1),
+                            block_dim: (32 * warps as u32, 1, 1),
+                            // The sums of every warp.
+                            shared_mem_bytes: (warps * width * std::mem::size_of::<P>())
+                                .next_multiple_of(8)
+                                as u32,
+                        }
+                    }
+                    DescriptorKind::SeE2A => {
+                        let (Some(env), Some(b)) = (&work.env, &mut work.b) else {
+                            return Err(Error("an se_e2_a descriptor without its rows".into()));
+                        };
+                        launch
+                            .arg(env)
+                            .arg(&work.g)
+                            .arg(&part.slot_type)
+                            .arg(&part.slot_local)
+                            .arg(&part.sel_d)
+                            .arg(&part.offset_d)
+                            .arg(&count_i)
+                            .arg(&slots_i)
+                            .arg(&w_i)
+                            .arg(&axis_i)
+                            .arg(b)
+                            .arg(&mut d_out)
+                            .arg(&ntypes_i)
+                            .arg(index)
+                            .arg(atype)
+                            .arg(&part.empty_g)
+                            .arg(&part.empty_row)
+                            .arg(&first_i)
+                            .arg(&stride_i);
+                        LaunchConfig {
+                            grid_dim: (count as u32, deep, 1),
+                            block_dim: (BLOCK, 1, 1),
+                            // B, the atom's environment rows, its neighbors per type.
+                            shared_mem_bytes: (4 * (width + slots) * std::mem::size_of::<P>()
+                                + 4 * ntypes)
+                                .next_multiple_of(8)
+                                as u32,
+                        }
+                    }
+                    DescriptorKind::SeE2R => {
+                        launch
+                            .arg(&work.g)
+                            .arg(&part.slot_type)
+                            .arg(&part.slot_local)
+                            .arg(&part.sel_d)
+                            .arg(&part.offset_d)
+                            .arg(&count_i)
+                            .arg(&slots_i)
+                            .arg(&w_i)
+                            .arg(&radial_scale)
+                            .arg(&mut d_out)
+                            .arg(&ntypes_i)
+                            .arg(index)
+                            .arg(atype)
+                            .arg(&part.empty_g)
+                            .arg(&first_i)
+                            .arg(&stride_i);
+                        LaunchConfig {
+                            grid_dim: (count as u32, deep, 1),
+                            block_dim: (BLOCK, 1, 1),
+                            // The atom's neighbors per type.
+                            shared_mem_bytes: (4 * ntypes).next_multiple_of(8) as u32,
+                        }
+                    }
                 };
                 unsafe { launch.launch(config) }
                     .map(drop)
                     .map_err(launch_error("descriptor"))?;
-            } else if let (Some(env), Some(b)) = (&env, &mut b) {
-                let mut launch = stream.launch_builder(&self.kernels.descriptor);
-                launch
-                    .arg(env)
-                    .arg(&g)
-                    .arg(&self.slot_type)
-                    .arg(&self.slot_local)
-                    .arg(&self.sel_d)
-                    .arg(&self.offset_d)
-                    .arg(&count_i)
-                    .arg(&slots_i)
-                    .arg(&w_i)
-                    .arg(&axis_i)
-                    .arg(b)
-                    .arg(&mut descriptor)
-                    .arg(&ntypes_i)
-                    .arg(&list.index)
-                    .arg(atype)
-                    .arg(&self.empty_g)
-                    .arg(&self.empty_row)
-                    .arg(&first_i);
-                let config = LaunchConfig {
-                    grid_dim: (count as u32, deep, 1),
-                    block_dim: (BLOCK, 1, 1),
-                    // B, the atom's environment rows, its neighbors per type.
-                    shared_mem_bytes: (4 * (width + slots) * std::mem::size_of::<P>() + 4 * ntypes)
-                        .next_multiple_of(8) as u32,
-                };
-                unsafe { launch.launch(config) }
-                    .map(drop)
-                    .map_err(launch_error("descriptor"))?;
-            } else {
-                let mut launch = stream.launch_builder(&self.kernels.descriptor);
-                launch
-                    .arg(&g)
-                    .arg(&self.slot_type)
-                    .arg(&self.slot_local)
-                    .arg(&self.sel_d)
-                    .arg(&self.offset_d)
-                    .arg(&count_i)
-                    .arg(&slots_i)
-                    .arg(&w_i)
-                    .arg(&radial_scale)
-                    .arg(&mut descriptor)
-                    .arg(&ntypes_i)
-                    .arg(&list.index)
-                    .arg(atype)
-                    .arg(&self.empty_g)
-                    .arg(&first_i);
-                let config = LaunchConfig {
-                    grid_dim: (count as u32, deep, 1),
-                    block_dim: (BLOCK, 1, 1),
-                    // The atom's neighbors per type.
-                    shared_mem_bytes: (4 * ntypes).next_multiple_of(8) as u32,
-                };
-                unsafe { launch.launch(config) }
-                    .map(drop)
-                    .map_err(launch_error("descriptor"))?;
+                clock.lap(|t| &mut t.descriptor)?;
             }
-            clock.lap(|t| &mut t.descriptor)?;
 
             // Fitting: atomic energies and dE/dD, the centers of a chunk as
             // [model][local atom]. Few atoms: every model and center type
@@ -2120,81 +2500,102 @@ impl<P: Scalar> GpuPotential<P> {
             }
             clock.lap(|t| &mut t.fitting)?;
 
-            if let (Some(pairs), Some((weight, dtheta))) = (&pairs, &mut of_pairs) {
-                let mut launch = stream.launch_builder(&self.kernels.backward);
-                launch
-                    .arg(&g)
-                    .arg(&dg)
-                    .arg(&radial_input)
-                    .arg(&*weight)
-                    .arg(dtheta)
-                    .arg(&d_descriptor)
-                    .arg(&list.index)
-                    .arg(&list.delta)
-                    .arg(&list.dist)
-                    .arg(atype)
-                    .arg(&self.dstd_inv)
-                    .arg(&self.slot_type)
-                    .arg(&self.slot_local)
-                    .arg(&self.sel_d)
-                    .arg(&pairs.start)
-                    .arg(&chunk_rows_i)
-                    .arg(&first_i)
-                    .arg(&count_i)
-                    .arg(&slots_i)
-                    .arg(&w_i)
-                    .arg(&ntypes_i)
-                    .arg(&self.rcut_smth)
-                    .arg(&self.inv_range)
-                    .arg(&mut force)
-                    .arg(&mut virial)
-                    .arg(&natoms_i);
+            // Forces and virial: every descriptor from its own part of
+            // dE/dD. The first writes the virial of the chunk's centers,
+            // the others add to it.
+            for (number, (part, work)) in self.parts.iter().zip(&mut works).enumerate() {
+                let (index, delta, dist) = part.slots_of(list)?;
+                let (slots, width) = (part.slots, part.width);
+                let (slots_i, w_i, axis_i) = (slots as i32, width as i32, part.axis as i32);
+                let radial_scale = RADIAL_RESCALE / slots as f64;
+                let add_i = i32::from(number > 0);
+                let chunk_rows = match &work.pairs {
+                    Some(pairs) => pairs.rows(first, end),
+                    None => count * slots,
+                };
+                let chunk_rows_i = chunk_rows as i64;
+                let dd = d_descriptor.slice(part.first_feature..);
+                let mut launch = stream.launch_builder(&part.kernels.backward);
+                let block_dim = match part.kind {
+                    DescriptorKind::SeE3 => {
+                        let (Some(pairs), Some((weight, dtheta))) =
+                            (&work.pairs, &mut work.of_pairs)
+                        else {
+                            return Err(Error("an se_e3 descriptor without its rows".into()));
+                        };
+                        launch
+                            .arg(&work.g)
+                            .arg(&work.dg)
+                            .arg(&work.input)
+                            .arg(&*weight)
+                            .arg(dtheta)
+                            .arg(&dd)
+                            .arg(index)
+                            .arg(delta)
+                            .arg(dist)
+                            .arg(atype)
+                            .arg(&part.dstd_inv)
+                            .arg(&part.slot_type)
+                            .arg(&part.slot_local)
+                            .arg(&part.sel_d)
+                            .arg(&pairs.start)
+                            .arg(&chunk_rows_i)
+                            .arg(&first_i)
+                            .arg(&count_i)
+                            .arg(&slots_i)
+                            .arg(&w_i)
+                            .arg(&ntypes_i)
+                            .arg(&part.rcut_smth)
+                            .arg(&part.inv_range)
+                            .arg(&mut force)
+                            .arg(&mut virial)
+                            .arg(&natoms_i)
+                            .arg(&stride_i)
+                            .arg(&add_i);
+                        PAIR_BLOCK
+                    }
+                    DescriptorKind::SeE2A | DescriptorKind::SeE2R => {
+                        if let (Some(env), Some(b)) = (&work.env, &work.b) {
+                            launch.arg(env).arg(&work.g).arg(&work.dg).arg(b);
+                        } else {
+                            launch.arg(&work.dg);
+                        }
+                        launch
+                            .arg(&dd)
+                            .arg(index)
+                            .arg(delta)
+                            .arg(dist)
+                            .arg(atype)
+                            .arg(&part.dstd_inv)
+                            .arg(&part.slot_type)
+                            .arg(&part.slot_local)
+                            .arg(&part.sel_d)
+                            .arg(&part.offset_d)
+                            .arg(&first_i)
+                            .arg(&count_i)
+                            .arg(&slots_i)
+                            .arg(&w_i);
+                        // The axis neurons of se_e2_a, the scale of se_e2_r.
+                        match part.kind == DescriptorKind::SeE2R {
+                            false => launch.arg(&axis_i),
+                            true => launch.arg(&radial_scale),
+                        };
+                        launch
+                            .arg(&part.rcut_smth)
+                            .arg(&part.inv_range)
+                            .arg(&mut force)
+                            .arg(&mut virial)
+                            .arg(&ntypes_i)
+                            .arg(&natoms_i)
+                            .arg(&stride_i)
+                            .arg(&add_i);
+                        BLOCK
+                    }
+                };
                 let config = LaunchConfig {
                     grid_dim: (count as u32, deep, 1),
-                    block_dim: (PAIR_BLOCK, 1, 1),
-                    shared_mem_bytes: self.backward_shared as u32,
-                };
-                unsafe { launch.launch(config) }
-                    .map(drop)
-                    .map_err(launch_error("force"))?;
-            } else {
-                let mut launch = stream.launch_builder(&self.kernels.backward);
-                if let (Some(env), Some(b)) = (&env, &b) {
-                    launch.arg(env).arg(&g).arg(&dg).arg(b);
-                } else {
-                    launch.arg(&dg);
-                }
-                launch
-                    .arg(&d_descriptor)
-                    .arg(&list.index)
-                    .arg(&list.delta)
-                    .arg(&list.dist)
-                    .arg(atype)
-                    .arg(&self.dstd_inv)
-                    .arg(&self.slot_type)
-                    .arg(&self.slot_local)
-                    .arg(&self.sel_d)
-                    .arg(&self.offset_d)
-                    .arg(&first_i)
-                    .arg(&count_i)
-                    .arg(&slots_i)
-                    .arg(&w_i);
-                // The axis neurons of se_e2_a, the scale of se_e2_r.
-                match radial {
-                    false => launch.arg(&axis_i),
-                    true => launch.arg(&radial_scale),
-                };
-                launch
-                    .arg(&self.rcut_smth)
-                    .arg(&self.inv_range)
-                    .arg(&mut force)
-                    .arg(&mut virial)
-                    .arg(&ntypes_i)
-                    .arg(&natoms_i);
-                let config = LaunchConfig {
-                    grid_dim: (count as u32, deep, 1),
-                    block_dim: (BLOCK, 1, 1),
-                    shared_mem_bytes: self.backward_shared as u32,
+                    block_dim: (block_dim, 1, 1),
+                    shared_mem_bytes: part.backward_shared as u32,
                 };
                 unsafe { launch.launch(config) }
                     .map(drop)
@@ -2220,7 +2621,7 @@ impl<P: Scalar> GpuPotential<P> {
         for (index, &bits) in status.iter().enumerate() {
             self.last_truncated |= NeighborList::status(bits).map_err(|e| in_batch(index, e))?;
         }
-        if tables.is_some() && int_at(&cleared[3 * centers..], 0) != 0 {
+        if tabulated && int_at(&cleared[3 * centers..], 0) != 0 {
             return Ok(None);
         }
         let atomic = P::from_words(energy_part, centers);
@@ -2342,23 +2743,29 @@ pub fn committee_mismatch(models: &[&Model]) -> Option<String> {
     let d = &first.descriptor;
     for (index, model) in models.iter().enumerate().skip(1) {
         let other = &model.descriptor;
-        let what = if other.kind != d.kind {
+        // The descriptors of a hybrid one by one, or the one of the model.
+        let parts = || other.parts().iter().zip(d.parts());
+        let what = if other.kind != d.kind
+            || other.parts().len() != d.parts().len()
+            || parts().any(|(a, b)| a.kind != b.kind)
+        {
             "descriptor"
         } else if model.type_map != first.type_map {
             "type map"
-        } else if other.rcut != d.rcut || other.rcut_smth != d.rcut_smth {
+        } else if parts().any(|(a, b)| a.rcut != b.rcut || a.rcut_smth != b.rcut_smth) {
             "cutoffs"
-        } else if other.sel != d.sel {
+        } else if parts().any(|(a, b)| a.sel != b.sel) {
             "sel"
-        } else if other.axis_neuron != d.axis_neuron {
+        } else if parts().any(|(a, b)| a.axis_neuron != b.axis_neuron) {
             "axis_neuron"
-        } else if other.embedding.len() != d.embedding.len()
-            || other.embedding.iter().flatten().map(shape).ne(d
-                .embedding
-                .iter()
-                .flatten()
-                .map(shape))
-        {
+        } else if parts().any(|(a, b)| {
+            a.embedding.len() != b.embedding.len()
+                || a.embedding.iter().flatten().map(shape).ne(b
+                    .embedding
+                    .iter()
+                    .flatten()
+                    .map(shape))
+        }) {
             "embedding nets"
         } else if model.fitting.len() != first.fitting.len()
             || model
@@ -2431,7 +2838,14 @@ impl<P: Scalar> Committee for GpuPotential<P> {
 
 #[cfg(test)]
 mod tests {
-    use super::{in_parallel, pair_layout};
+    use super::{in_parallel, pair_chunks, pair_starts};
+
+    /// The rows of one se_e3 descriptor and the chunks they allow.
+    fn pair_layout(held: &[i32], atoms: usize, rows: usize) -> (Vec<i64>, Vec<(usize, usize)>) {
+        let start = pair_starts(held);
+        let chunks = pair_chunks(&[&start], held.len(), atoms, rows);
+        (start, chunks)
+    }
 
     #[test]
     fn pairs_of_neighbors_are_laid_out_atom_by_atom_in_chunks() {
@@ -2459,6 +2873,26 @@ mod tests {
         // Many neighbors: the rows do not fit thirty-two bits.
         let (start, _) = pair_layout(&[65535, 65535], 2, 1);
         assert_eq!(start[2], 2 * 65535 * 65536 / 2);
+    }
+
+    #[test]
+    fn chunks_hold_the_rows_of_every_descriptor_and_plain_ones_only_atoms() {
+        // No se_e3 descriptor: the atoms in chunks of the limit.
+        assert_eq!(pair_chunks(&[], 5, 2, 1), [(0, 2), (2, 4), (4, 5)]);
+        assert_eq!(pair_chunks(&[], 0, 2, 1), []);
+        // A limit of no atoms is one atom.
+        assert_eq!(pair_chunks(&[], 2, 0, 1), [(0, 1), (1, 2)]);
+        // Two se_e3 descriptors of a hybrid: a chunk ends where the rows of
+        // either would be too many. The first has 3, 0, 6, 1 rows, the
+        // second 1, 10, 1, 1.
+        let (a, b) = (pair_starts(&[2, 0, 3, 1]), pair_starts(&[1, 4, 1, 1]));
+        assert_eq!(pair_chunks(&[&a], 4, 4, 9), [(0, 3), (3, 4)]);
+        assert_eq!(pair_chunks(&[&b], 4, 4, 9), [(0, 1), (1, 2), (2, 4)]);
+        assert_eq!(pair_chunks(&[&a, &b], 4, 4, 9), [(0, 1), (1, 2), (2, 4)]);
+        assert_eq!(pair_chunks(&[&a, &b], 4, 4, 12), [(0, 3), (3, 4)]);
+        assert_eq!(pair_chunks(&[&b, &a], 4, 4, 12), [(0, 3), (3, 4)]);
+        assert_eq!(pair_chunks(&[&a, &b], 4, 4, 13), [(0, 4)]);
+        assert_eq!(pair_chunks(&[&a, &b], 4, 2, 13), [(0, 2), (2, 4)]);
     }
 
     #[test]

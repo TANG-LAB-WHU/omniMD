@@ -93,11 +93,12 @@ def write_lammps_data(path, case_npz):
     path.write_text('\n'.join(lines) + '\n')
 
 
-def run_lammps(case_dir, work_dir, model, case, natoms, precision):
+def run_lammps(case_dir, work_dir, model, case, natoms, precision, tag=''):
     steps = max(50, min(1000, 200000 // natoms))
     data = work_dir / f'{case}.data'
     write_lammps_data(data, case_dir / f'{case}.npz')
-    script = work_dir / f'{case}-{precision}.in'
+    # `tag` keeps the input and the log of a compressed model beside those of the model itself.
+    script = work_dir / f'{case}-{precision}{tag}.in'
     # LAMMPS runs with cwd=work_dir, so every path it reads must be absolute.
     script.write_text(LAMMPS_INPUT.format(data=data.resolve(), model=(case_dir / model).resolve(),
                                           seed=12345, steps=steps))
@@ -165,7 +166,8 @@ def main():
                     row['note'] = f"{row.get('note', '')}; {args.cpu_threads} threads".strip('; ')
                     record(row)
                 if not args.skip_lammps:
-                    record(run_lammps(args.case_dir, work_dir, model, name, natoms, precision))
+                    record(run_lammps(args.case_dir, work_dir, model, name, natoms, precision,
+                                      '-compressed' if args.compressed else ''))
 
 
 if __name__ == '__main__':

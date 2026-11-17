@@ -13,6 +13,15 @@ embedding outputs); the boxes are the same for the same seed.
 and `sel` and the embedding sizes DeePMD-kit's input has by default for it,
 [10, 20, 40]: its embedding nets are evaluated for every pair of an atom's
 neighbor slots, some fifteen thousand here, against 138 slots for the others.
+
+`--descriptor hybrid` builds a hybrid of two descriptors, angular near the
+atom and radial further out: an se_e2_a descriptor with a cutoff of 4.0 and
+`sel` [16, 32], and an se_e2_r descriptor with the cutoff and `sel` of the
+other models, both with the embedding sizes [25, 50, 100]. `--descriptor
+hybrid_e3` builds the se_e2_a descriptor of the first model with an se_e3
+descriptor of cutoff 4.0, `sel` [16, 32] and embedding sizes [10, 20, 40].
+The fitting nets take the components of both descriptors. (These two are
+this recipe's own choice of sizes, not an example of DeePMD-kit's.)
 """
 import argparse
 from copy import deepcopy
@@ -25,7 +34,64 @@ TYPES = ['O', 'H']
 REPLICAS = [1, 2, 4, 8]
 
 
+# The descriptors of a hybrid: (kind, cutoff, sel).
+HYBRIDS = {'hybrid': [('se_e2_a', 4.0, [16, 32]), ('se_e2_r', 6.0, [46, 92])],
+           'hybrid_e3': [('se_e2_a', 6.0, [46, 92]), ('se_e3', 4.0, [16, 32])]}
+
+
+def build_descriptor(kind, rcut, sel, precision, seed):
+    """One descriptor with the benchmark's sizes and normalization, and its input for `dp`."""
+    from deepmd.dpmodel.descriptor.se_e2_a import DescrptSeA
+    from deepmd.dpmodel.descriptor.se_r import DescrptSeR
+    from deepmd.dpmodel.descriptor.se_t import DescrptSeT
+
+    radial, three_body = kind == 'se_e2_r', kind == 'se_e3'
+    neuron = [10, 20, 40] if three_body else [25, 50, 100]
+    config = dict(rcut=rcut, rcut_smth=0.5, sel=sel, neuron=neuron,
+                  resnet_dt=False, precision=precision, type_map=TYPES, seed=seed,
+                  **({} if three_body else dict(type_one_side=True) if radial
+                     else dict(axis_neuron=16, type_one_side=False)))
+    descriptor = (DescrptSeT if three_body else DescrptSeR if radial else DescrptSeA)(**config)
+    # Plausible normalization for liquid water; angular mean zero and isotropic std
+    # as required by the native converter.
+    descriptor.davg[...] = 0.0
+    descriptor.davg[:, :, 0] = 0.25
+    descriptor.dstd[...] = 0.2
+    descriptor.dstd[:, :, 0] = 0.3
+    return descriptor, {'type': kind, **{k: v for k, v in config.items() if k != 'type_map'}}
+
+
+def build_hybrid(output, precision, seed, kind):
+    from deepmd.dpmodel.descriptor.hybrid import DescrptHybrid
+    from deepmd.dpmodel.fitting.ener_fitting import EnergyFittingNet
+    from deepmd.dpmodel.model.ener_model import EnergyModel
+    from deepmd.dpmodel.utils.serialization import save_dp_model
+    from deepmd.pt.utils.serialization import deserialize_to_file
+
+    parts = [build_descriptor(name, rcut, sel, precision, seed + 10 * index)
+             for index, (name, rcut, sel) in enumerate(HYBRIDS[kind])]
+    descriptor = DescrptHybrid(list=[part for part, _ in parts])
+    fitting_config = dict(ntypes=2, dim_descrpt=descriptor.get_dim_out(), neuron=[240, 240, 240],
+                          resnet_dt=True, precision=precision, type_map=TYPES, seed=seed + 1)
+    fitting = EnergyFittingNet(**fitting_config)
+    fitting.bias_atom_e[:] = np.array([[-93.5], [-187.0]]) / 3.0
+    model = EnergyModel(descriptor=descriptor, fitting=fitting, type_map=TYPES)
+    definition = {'type': 'standard', 'type_map': TYPES,
+                  'descriptor': {'type': 'hybrid', 'list': [config for _, config in parts]},
+                  'fitting_net': {'type': 'ener',
+                                  **{k: v for k, v in fitting_config.items()
+                                     if k not in ('ntypes', 'dim_descrpt', 'type_map')}}}
+    data = {'model': model.serialize(), 'model_def_script': definition}
+    stem = output / f'water-{kind}-{precision}'
+    # Both writers mutate their input, so each gets its own copy.
+    save_dp_model(str(stem.with_suffix('.dp')), deepcopy(data))
+    deserialize_to_file(str(stem.with_suffix('.pth')), deepcopy(data))
+    return stem
+
+
 def build_model(output, precision, seed, kind='se_e2_a'):
+    if kind in HYBRIDS:
+        return build_hybrid(output, precision, seed, kind)
     from deepmd.dpmodel.descriptor.se_e2_a import DescrptSeA
     from deepmd.dpmodel.descriptor.se_r import DescrptSeR
     from deepmd.dpmodel.descriptor.se_t import DescrptSeT
@@ -90,16 +156,28 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('output_dir', type=Path)
     parser.add_argument('--seed', type=int, default=20261029)
-    parser.add_argument('--descriptor', choices=['se_e2_a', 'se_e2_r', 'se_e3'], default='se_e2_a')
+    parser.add_argument('--descriptor', choices=['se_e2_a', 'se_e2_r', 'se_e3', *HYBRIDS],
+                        default='se_e2_a')
     args = parser.parse_args()
     import deepmd
     if deepmd.__version__ != '3.1.3':
         raise RuntimeError('benchmark recipe requires DeepMD-kit 3.1.3')
+    base_coords, base_types, length = water_box(np.random.default_rng(args.seed))
+    # The slots of every descriptor hold the neighbors within its cutoff: the
+    # most of each type any atom of the box has.
+    for _, rcut, sel in HYBRIDS.get(args.descriptor, []):
+        shifts = np.array(list(np.ndindex(3, 3, 3)), dtype=float) * length - length
+        images = (base_coords[None, :, :] + shifts[:, None, :]).reshape(-1, 3)
+        dist = np.linalg.norm(images[None, :, :] - base_coords[:, None, :], axis=-1)
+        near = (dist < rcut) & (dist > 1e-9)
+        most = [int(near[:, np.tile(base_types, 27) == t].sum(axis=1).max()) for t in range(len(TYPES))]
+        print('neighbors within', rcut, ':', most, 'slots', sel, flush=True)
+        if any(count > slots for count, slots in zip(most, sel)):
+            raise RuntimeError(f'more neighbors within {rcut} than slots: {most} against {sel}')
     args.output_dir.mkdir(parents=True, exist_ok=False)
     models = {p: build_model(args.output_dir, p, args.seed, args.descriptor).name
               for p in ('float64', 'float32')}
 
-    base_coords, base_types, length = water_box(np.random.default_rng(args.seed))
     cases = []
     for n in REPLICAS:
         shifts = np.array(list(np.ndindex(n, n, n)), dtype=float) * length
