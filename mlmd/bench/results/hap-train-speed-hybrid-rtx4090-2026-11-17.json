@@ -1,0 +1,225 @@
+{
+ "date": "2026-11-17",
+ "device": "NVIDIA GeForce RTX 4090",
+ "frames": "171 frames of the HAP iteration-0 training, 54 to 224 atoms, one frame per step",
+ "settings": "embedding [25, 50, 100], axis 16 (se_e2_a), fitting [240, 240, 240], learning rate 1e-3 to 3e-8, energy and force terms; se_e2_a and se_e2_r alone: rcut 6.0, sel [44, 16, 60, 72, 20]; the hybrid: se_e2_a with rcut 4.0 and sel [16, 8, 20, 24, 8], se_e2_r with rcut 6.0 and sel [44, 16, 60, 72, 20]",
+ "omnimd_runs": "20,000 steps in float32 and 6,000 in float64 per run; variants alternated, three rounds; nothing else computing on the machine (a desktop wallpaper animation takes part of the card)",
+ "parameters": {
+  "se_e2_a, a net per pair of types": 2664455,
+  "se_e2_a, a net per neighbor type": 2535455,
+  "se_e2_r, a net per neighbor type": 735455,
+  "hybrid, se_e2_a with a net per pair of types and se_e2_r with a net per neighbor type": 2816705,
+  "hybrid, a net per neighbor type in both descriptors": 2687705
+ },
+ "omnimd_one_request_steps_per_second": {
+  "float32": {
+   "se_e2_a, a net per pair of types": [
+    535.9,
+    534.8,
+    535.1
+   ],
+   "se_e2_a, a net per neighbor type": [
+    549.2,
+    546.1,
+    549.2
+   ],
+   "se_e2_r, a net per neighbor type": [
+    1232.0,
+    1231.2,
+    1236.2
+   ],
+   "hybrid, se_e2_a with a net per pair of types and se_e2_r with a net per neighbor type": [
+    468.0,
+    467.8,
+    469.3
+   ],
+   "hybrid, a net per neighbor type in both descriptors": [
+    471.4,
+    470.7,
+    470.5
+   ]
+  },
+  "float64": {
+   "se_e2_a, a net per pair of types": [
+    249.1,
+    247.1,
+    248.0
+   ],
+   "se_e2_a, a net per neighbor type": [
+    250.1,
+    249.7,
+    248.5
+   ],
+   "se_e2_r, a net per neighbor type": [
+    433.8,
+    432.2,
+    432.1
+   ],
+   "hybrid, se_e2_a with a net per pair of types and se_e2_r with a net per neighbor type": [
+    215.8,
+    216.2,
+    214.9
+   ],
+   "hybrid, a net per neighbor type in both descriptors": [
+    219.5,
+    219.4,
+    217.6
+   ]
+  }
+ },
+ "omnimd_four_requests_at_once_steps_per_second_each": {
+  "float32": {
+   "hybrid, a net per neighbor type in both descriptors": [
+    [
+     148.9,
+     149.0,
+     149.0,
+     148.9
+    ],
+    [
+     148.4,
+     147.5,
+     147.6,
+     147.4
+    ]
+   ],
+   "hybrid, se_e2_a with a net per pair of types and se_e2_r with a net per neighbor type": [
+    [
+     148.3,
+     148.1,
+     147.9,
+     147.8
+    ],
+    [
+     146.9,
+     146.9,
+     146.8,
+     146.6
+    ]
+   ]
+  }
+ },
+ "omnimd_stage_ms_per_step_float32_every_stage_synchronized": {
+  "hybrid, a net per neighbor type in both descriptors": {
+   "descriptor": 0.08929875000000063,
+   "descriptor_reverse": 0.17655967000000122,
+   "embedding": 0.15851384000000068,
+   "embedding_gradient": 0.35566826499999504,
+   "environment": 0.038808140000000366,
+   "fitting": 0.5602133499999995,
+   "fitting_gradient": 0.4555314250000035,
+   "forces": 0.11632058499999878,
+   "host_prepare": 0.00021842999999999998,
+   "loss": 0.06851407499999991,
+   "neighbors": 0.0013678000000000008,
+   "optimizer": 0.21589491499999944,
+   "tangent": 0.08159601000000073
+  },
+  "hybrid, se_e2_a with a net per pair of types and se_e2_r with a net per neighbor type": {
+   "descriptor": 0.09085668499999998,
+   "descriptor_reverse": 0.17463235500000143,
+   "embedding": 0.16131548000000223,
+   "embedding_gradient": 0.3570633099999956,
+   "environment": 0.03922215000000037,
+   "fitting": 0.5594962950000008,
+   "fitting_gradient": 0.45770525999999934,
+   "forces": 0.11816904499999785,
+   "host_prepare": 0.0002709849999999999,
+   "loss": 0.06790070000000015,
+   "neighbors": 0.0016655299999999993,
+   "optimizer": 0.22513258499999278,
+   "tangent": 0.07971826500000061
+  },
+  "se_e2_a, a net per pair of types": {
+   "descriptor": 0.08885079999999815,
+   "descriptor_reverse": 0.17677747499999977,
+   "embedding": 0.11779926500000024,
+   "embedding_gradient": 0.2241411149999985,
+   "environment": 0.0329662699999997,
+   "fitting": 0.4981729200000024,
+   "fitting_gradient": 0.4374109699999976,
+   "forces": 0.11861024500000014,
+   "host_prepare": 0.00021543999999999998,
+   "loss": 0.06697836499999986,
+   "neighbors": 0.0011164300000000007,
+   "optimizer": 0.19776364999999427,
+   "tangent": 0.07915228999999997
+  }
+ },
+ "one_request_two_builds": {
+  "build of 2026-11-16 (0b71629)": {
+   "float32": {
+    "se_e2_a, a net per pair of types": [
+     527.7,
+     525.3,
+     534.4
+    ],
+    "se_e2_r, a net per neighbor type": [
+     1215.1,
+     1209.0,
+     1237.4
+    ]
+   },
+   "float64": {
+    "se_e2_a, a net per pair of types": [
+     244.3,
+     244.3,
+     246.4
+    ],
+    "se_e2_r, a net per neighbor type": [
+     427.0,
+     426.2,
+     435.5
+    ]
+   }
+  },
+  "this build": {
+   "float32": {
+    "se_e2_a, a net per pair of types": [
+     528.2,
+     527.0,
+     536.9
+    ],
+    "se_e2_r, a net per neighbor type": [
+     1215.9,
+     1221.3,
+     1238.7
+    ]
+   },
+   "float64": {
+    "se_e2_a, a net per pair of types": [
+     244.7,
+     244.7,
+     248.8
+    ],
+    "se_e2_r, a net per neighbor type": [
+     425.1,
+     427.6,
+     431.9
+    ]
+   }
+  }
+ },
+ "one_request_two_builds_note": "the trainer before and after it was laid out by descriptors, alternated, three rounds, earlier the same morning",
+ "deepmd_kit_float64": {
+  "hybrid, a net per neighbor type in both descriptors": {
+   "deepmd_version": "3.1.3",
+   "steps": 2000,
+   "systems": 8,
+   "precision": "float64",
+   "average_training_time_s_per_batch": 0.036,
+   "batches_excluded_from_that_average": 0,
+   "steps_per_second": 27.77777777777778,
+   "train_wall_seconds": 81.11302757263184,
+   "steps_per_wall_second": 24.656951661792185,
+   "last_curve_line": [
+    "2000",
+    "8.84e-01",
+    "4.69e-02",
+    "5.25e-01",
+    "5.0e-08"
+   ]
+  }
+ },
+ "deepmd_kit_runs": "DeePMD-kit 3.1.3, PyTorch backend, image ghcr.io/deepmodeling/deepmd-kit:3.1.3_cuda129, 2,000 steps of the same request (bench/deepmd_train.py); OMP_NUM_THREADS=2 and expandable allocator segments as in the pipeline"
+}

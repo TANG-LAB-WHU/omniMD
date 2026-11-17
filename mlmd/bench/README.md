@@ -109,6 +109,9 @@ docker run --rm -v $PWD/mlmd:/m -w /m <image> python bench/dataset_to_deepmd.py 
 docker run --rm --gpus all -v $PWD/mlmd:/m -w /m <image> python bench/deepmd_train.py request.json bench/cases/hap-train/systems <new output directory>
 # Host: groups of models scored side by side by the one test command (omniMD's seeds, DeePMD-kit's converted models, ...)
 python mlmd/bench/score_groups.py mlmd/bench/cases/hap/dataset.jsonl <target>/release mlmd/bench/results/<name>.json omniMD=a.native.json,b.native.json DeePMD-kit=<output directory>/model.native.json
+# DeePMD image, then host: replay that DeePMD-kit run in omniMD, frame for frame (the run with SAMPLER_RECORD=1, and its initial model from one step at a learning rate of 1e-12)
+docker run --rm --gpus all -e SAMPLER_RECORD=1 -v $PWD/mlmd:/m -w /m <image> python bench/deepmd_train.py request.json bench/cases/hap-train/systems <run directory>
+python mlmd/bench/deepmd_replay.py <run directory> mlmd/bench/cases/hap-train/dataset.jsonl <initial run directory>/model.native.json <target>/release <new output directory> --test mlmd/bench/cases/hap/dataset.jsonl
 # Host: repeat finished exploration runs of the pipeline with an ensemble of native models (manifest.json and model-K.native.json in a case directory)
 python mlmd/bench/hap_explore.py <pipeline>/iter-000/explore <case directory> <target>/release mlmd/bench/results/hap-explore-<tag>.json <run> ...
 # Host: an exploration of every system of the case at 300 and 500 K as one replica run, then its candidates (new output directory)
@@ -124,7 +127,20 @@ copies the request's `model`, `learning_rate` and `loss` sections and its
 steps, batch size, seed and display interval into a DeePMD input script, runs
 `dp --pt train` and `freeze`, and writes the trainer's own time per batch and
 the model converted for omniMD; the request's `dataset` and `output` paths
-are the host's and are not read there.
+are the host's and are not read there. The request may ask for a hybrid:
+its `precision` then goes into every descriptor of the list.
+
+`deepmd_replay.py` takes the random numbers out of a comparison of the two
+trainers. DeePMD-kit writes the system and the frame of every step when it
+runs with `SAMPLER_RECORD=1`; omniMD then starts from DeePMD-kit's initial
+model and is given those frames in that order, with the run's schedule and
+loss, and the script reports how far its parameters end from DeePMD-kit's
+and the errors of both models on a test set. A run of more than 10,000
+steps goes in parts, each continued from the snapshot of the one before
+(the trainer loads at most 10,000 frames). Run it with nothing else on the
+card: the trainer of a part is stopped by force once its snapshot is
+written, and a DeePMD-kit training in Docker that was running beside one
+such stop ended with a device error.
 
 Run steps 3 and 4 one after the other, never at the same time, so they don't
 compete for the GPU. `cases/` is generated and git-ignored. Step 3 accepts

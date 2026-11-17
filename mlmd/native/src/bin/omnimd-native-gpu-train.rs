@@ -863,5 +863,14 @@ mod tests {
         let mut sorted = order;
         sorted.sort_unstable();
         assert_eq!(sorted, (0..97).collect::<Vec<_>>());
+        // The order itself is pinned: `bench/deepmd_replay.py` lays a
+        // dataset out by it, so that the frames are visited in the order of
+        // a DeePMD-kit run.
+        let mut order: Vec<usize> = (0..12).collect();
+        Rng(5).shuffle(&mut order);
+        assert_eq!(order, [7, 1, 8, 10, 6, 9, 0, 5, 11, 3, 4, 2]);
+        let mut order: Vec<usize> = (0..12).collect();
+        Rng(11).shuffle(&mut order);
+        assert_eq!(order, [7, 5, 1, 6, 3, 0, 2, 4, 8, 10, 11, 9]);
     }
 }

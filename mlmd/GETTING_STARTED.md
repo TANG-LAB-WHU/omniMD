@@ -1464,7 +1464,8 @@ and no trainer yet. A hybrid model, with several of these descriptors
 side by side (DeePMD-kit's `hybrid`; [format](native/README.md#model-format-v1)),
 is evaluated by the same commands as well: `--compress` gives its se_e2_a
 and se_e2_r descriptors tables and leaves the nets of an se_e3 descriptor
-as they are, and it has no trainer yet.
+as they are. The trainer trains a hybrid of se_e2_a and se_e2_r
+descriptors; one with an se_e3 descriptor has no trainer yet.
 
 Requirements: an NVIDIA GPU with a current driver, and the CUDA 12 runtime
 libraries for NVRTC and cuBLAS on the library path (`%CUDA_PATH%\bin` on Windows,
@@ -1573,6 +1574,10 @@ omnimd-native-gpu-train REQUEST.json
 The descriptor of the `model` section is `se_e2_a`, or `se_e2_r` (also
 written `se_r`) without `axis_neuron`; with `"type_one_side": true` either
 has one embedding net per neighbor type instead of one per pair of types.
+`{"type": "hybrid", "list": [...]}` puts several such descriptors side by
+side, each with its own cutoffs, `sel`, nets and seed, as in a DeePMD input
+script; every descriptor of the list then gets its own `sel` and
+normalization from the data.
 
 [`native/GPU_TRAINING.md`](native/GPU_TRAINING.md) gives the request format, the
 loss and schedule definitions, what is computed from the data, the limits and

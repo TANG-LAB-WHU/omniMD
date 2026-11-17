@@ -1,3 +1,122 @@
+# Training hybrids, 2026-11-17
+
+`omnimd-native-gpu-train` trains a hybrid of se_e2_a and se_e2_r
+descriptors: each descriptor of the list with its own cutoffs, `sel`, nets
+and statistics, the fitting nets on the components of all of them, one
+neighbor list for all as in the inference path. A request writes it as a
+DeePMD input script does (`{"type": "hybrid", "list": [...]}`). A model
+with an se_e3 descriptor, alone or in a hybrid, still has no trainer.
+Contract, checks and the full tables are in
+[`native/GPU_TRAINING.md`](../../native/GPU_TRAINING.md).
+
+All runs below: the 171 frames of the HAP pipeline's iteration-0 training
+(54 to 224 atoms, five types), one frame per step, the pipeline's networks
+(embedding [25, 50, 100], 16 axis neurons, fitting [240, 240, 240]) and
+schedule (learning rate 1e-3 to 3e-8, energy and force terms), scored on
+its 83 sealed-test frames. The hybrid is se_e2_a of the neighbors within
+4 Å (`sel` [16, 8, 20, 24, 8]) with se_e2_r of those within 6 Å
+([44, 16, 60, 72, 20]): this comparison's own choice, not an example of
+DeePMD-kit's. The pipeline marks its models as not production-qualified.
+
+**The same step as DeePMD-kit.** omniMD was given DeePMD-kit's initial
+hybrid model and the frames in the order DeePMD-kit took them in a run of
+4,000 steps (its sampler's record), with that run's schedule
+([`bench/deepmd_replay.py`](../deepmd_replay.py)). It arrives at
+DeePMD-kit's model: the embedding nets 1.6e-10 and 4.3e-10 away on average
+and the fitting nets 3.2e-10, where DeePMD-kit had moved them by 1.3e-2 to
+1.8e-2; the same errors at every step DeePMD-kit displayed, in the three
+digits it prints; 0.391268 eV/Å and 45.5012 meV/atom on the sealed test for
+both. Runs of the two trainers therefore differ by their random numbers
+only: the initial networks and the order of the frames.
+
+**Speed.** One request, steps per second, the best of three alternated
+rounds (20,000 steps in float32, 6,000 in float64); DeePMD-kit 3.1.3
+(PyTorch backend, float64, 2,000 steps) on the same request:
+
+| descriptor, embedding nets | parameters | omniMD float32 | omniMD float64 | DeePMD-kit float64 |
+|---|---:|---:|---:|---:|
+| se_e2_a to 6 Å, a net per pair of types | 2,664,455 | 536 | 249 | 10.4 (2026-11-13) |
+| se_e2_a to 6 Å, a net per neighbor type | 2,535,455 | 549 | 250 | 38.8 (2026-11-13) |
+| se_e2_r to 6 Å, a net per neighbor type | 735,455 | 1,236 | 434 | 41.3 (2026-11-13) |
+| hybrid, the angular descriptor with a net per pair | 2,816,705 | 469 | 216 | |
+| hybrid, a net per neighbor type in both | 2,687,705 | 471 | 220 | 27.8 |
+
+- The hybrid trains 17 times faster than DeePMD-kit with float32 networks
+  and 7.9 times with float64 ones. Four requests at once run at 149 steps/s
+  each.
+- It trains 12 to 14 percent slower than se_e2_a to 6 Å, not faster: the
+  radial descriptor has that model's slots and nets of the same size, the
+  angular one comes on top. A float32 step takes 2.32 ms against 2.04 with
+  every stage timed.
+- The trainer was laid out by descriptors for this (a model of one
+  descriptor is a list of one). Before and after, alternated: se_e2_a 534
+  and 537 steps/s in float32 and 246 and 249 in float64, se_e2_r 1,237 and
+  1,239 and 436 and 432.
+
+**Against DeePMD-kit, 20,000 steps of the same request.** A net per
+neighbor type in both descriptors, four seeds (11 to 14) each, fresh
+networks, each trainer's own statistics. Smallest and largest of the four
+models over all 83 frames:
+
+| | omniMD float64 | omniMD float32 | DeePMD-kit float64 |
+|---|---:|---:|---:|
+| force RMSE (eV/Å) | 0.1520 to 0.1714 | 0.1531 to 0.1720 | 0.1401 to 0.1725 |
+| energy RMSE (meV/atom) | 8.48 to 16.99 | 10.34 to 15.34 | 7.28 to 11.27 |
+
+- The ranges overlap, in every system as well. DeePMD-kit's four are
+  0.140, 0.145, 0.149 and 0.173; eight more omniMD seeds give 0.148 to
+  0.166.
+- The spread is the schedule's: 20,000 steps stop far from converged, 5,000
+  of them at the first learning rate. From one initial model (DeePMD-kit's
+  of seed 11), in float32, omniMD's shuffled epochs give 0.155 to 0.166
+  (nine training seeds), eight frame sequences drawn by DeePMD-kit's rule
+  0.152 to 0.162 and four of independent draws 0.153 to 0.158. DeePMD-kit
+  draws a system for every step and is close to independent draws (a frame
+  comes again within 20 steps in 9 percent of the cases; 116 different
+  frames in 171 steps), where omniMD goes through all frames before one
+  comes again; for the result it made no difference here.
+- The same frames in the same order do not give the same model twice
+  either: DeePMD-kit reached 0.1401 from that initial model with its
+  sequence of seed 11, and three replays of that run in omniMD end at
+  0.1405, 0.1444 and 0.1478. They follow DeePMD-kit's errors to three
+  digits for a thousand steps and then drift: the long stretch at 1e-3
+  amplifies the last digits.
+- So this comparison cannot tell a difference of a few percent between the
+  trainers from none; the replay above can, and finds none. The full
+  schedule was not run with DeePMD-kit (three hours a model).
+- `omnimd-native-gpu-test` gives `dp test`'s errors of DeePMD-kit's four
+  models in all eight systems to the seven digits `dp test` prints.
+
+**The full schedule: is the hybrid worth it on this data?** 300,000 steps,
+float32 networks, four seeds at once. Smallest and largest of the four
+models over all 83 frames:
+
+| model | force RMSE (eV/Å) | energy RMSE (meV/atom) |
+|---|---:|---:|
+| se_e2_a to 6 Å (the pipeline's model) | 0.0698 to 0.0723 | 1.64 to 1.78 |
+| hybrid, the angular descriptor with a net per pair | 0.0720 to 0.0745 | 1.39 to 1.63 |
+| hybrid, a net per neighbor type in both | 0.0737 to 0.0746 | 1.40 to 1.62 |
+| se_e2_a to 4 Å alone | 0.0947 to 0.0961 | 1.88 to 2.11 |
+| se_e2_r to 6 Å alone | 0.1527 to 0.1574 | 2.72 to 3.75 |
+
+- The radial descriptor to 6 Å takes about a quarter off the force error of
+  the angular one to 4 Å and brings it to 3 percent above the angular
+  descriptor to 6 Å, which has the lower force error in every system but
+  the wet interface. In the energies the hybrid is lower overall, by
+  portlandite and lime, and higher in five of the other six systems.
+- It buys nothing over se_e2_a to 6 Å here: about its accuracy, for 12 to
+  14 percent more time to train and no less to evaluate (see the hybrid
+  section below).
+
+Files: `hap-train-speed-hybrid-rtx4090-2026-11-17.json`,
+`hap-train-hybrid-against-deepmd-...`, `hap-train-hybrid-replay-deepmd-...`
+(the replays, the runs on other frame orders, statistics of the frame
+sequences), `hap-train-ensemble-hybrid-float32-omnimd-...`,
+`hap-test-deepmd-hybrid-by-omnimd-...`. DeePMD-kit's 20,000-step runs
+shared the card with omniMD's, so their own times are not rates; one of
+them ended with a device error at step 16,000 when a process beside it was
+stopped, and was run again.
+
 # Hybrid descriptors, 2026-11-16
 
 A native model can have DeePMD-kit's `hybrid` descriptor: the components of
@@ -11,7 +130,9 @@ cutoff is an empty slot to it. It is evaluated on the CPU and on the GPU
 runtime (float64 or float32, batches of frames and committees of models,
 with embedding tables for its se_e2_a and se_e2_r descriptors if asked) and
 converted from DeePMD-kit 3.1.3 `.dp`/YAML by `convert_deepmd.py`. Inference
-only: every trainer refuses it. Format and formulas are in
+only on this day: every trainer refused it (the GPU trainer has trained
+hybrids of se_e2_a and se_e2_r descriptors since 2026-11-17, above). Format
+and formulas are in
 [`native/README.md`](../../native/README.md#model-format-v1).
 
 **Agreement with DeePMD-kit 3.1.3** (PyTorch backend, CPU, float64):

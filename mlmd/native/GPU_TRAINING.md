@@ -1,10 +1,10 @@
 # Training se_e2_a and se_e2_r on the GPU runtime
 
-`omnimd-native-gpu-train` trains a native se_e2_a or se_e2_r model of any
-network size on one NVIDIA GPU, with DeePMD-kit's `ener` loss, learning-rate
-schedule and Adam settings. It is separate from the bounded CPU/CUDA trainers
-behind `omnimd-mlmd train-native`, which are limited to small se_e2_a
-networks.
+`omnimd-native-gpu-train` trains a native se_e2_a or se_e2_r model, or a
+hybrid of such descriptors, of any network size on one NVIDIA GPU, with
+DeePMD-kit's `ener` loss, learning-rate schedule and Adam settings. It is
+separate from the bounded CPU/CUDA trainers behind `omnimd-mlmd
+train-native`, which are limited to small se_e2_a networks.
 
 Build (same runtime requirements as [guide step 28](../GETTING_STARTED.md#28-run-se_e2_a-on-the-gpu-runtime-and-compute-dataset-statistics)):
 
@@ -54,6 +54,18 @@ omnimd-native-gpu-train REQUEST.json [REQUEST.json ...]
   PyTorch backend gives se_e2_r one net per neighbor type whatever the key
   says, so set it to true for the model that backend trains; the trainer
   says so when a request asks for se_e2_r with a net per pair.
+- A hybrid has several descriptors side by side, written as in a DeePMD
+  input script:
+  `{"type": "hybrid", "list": [{"type": "se_e2_a", "sel": "auto", "rcut": 4.0,
+  "rcut_smth": 0.5, "neuron": [25, 50, 100], "axis_neuron": 16, "seed": 11},
+  {"type": "se_e2_r", "sel": "auto", "rcut": 6.0, "rcut_smth": 0.5,
+  "neuron": [25, 50, 100], "type_one_side": true, "seed": 11}]}`.
+  Every descriptor of the list has the keys it has alone, with its own
+  cutoffs, `sel`, nets, `type_one_side` and seed, and the fitting nets take
+  the components of all of them, in the order of the list. The list has 1
+  to 16 descriptors of the two kinds above; se_e3 has no trainer, and a
+  hybrid in a hybrid is refused. What is wrong with a `model` section is
+  said with its place: `model: descriptor.list[1]: unknown field ...`.
 - `dataset` is an omnimd-dataset-jsonl-v1 file (`omnimd-mlmd import-deepmd`, or
   `bench/hap_prepare.py` for DeePMD npy systems). Every frame needs energy and
   force labels; virial labels are used where present.
@@ -112,6 +124,20 @@ the trainer computes, with DeePMD's definitions ([`stats`](src/stats.rs)):
 
 DeePMD samples a few batches per system for these statistics; using every frame
 gives slightly different numbers.
+
+Every descriptor of a hybrid gets its own `sel` (when `"auto"`) and its own
+normalization, with its own cutoff, as if it were the descriptor of a model.
+That is how DeePMD-kit does it (`DescrptHybrid.compute_input_stats` hands
+the frames to each descriptor of the list), although in the forward pass of
+a hybrid a descriptor short of slots reads other neighbors than it would
+select alone (see Hybrids below): the statistics over those are other
+numbers, and [`tests/stats.rs`](tests/stats.rs) has both from DeePMD-kit.
+The descriptors of a list may carry the same seed: the place in the list
+enters the random stream, so their nets still differ, and the first draws
+the nets the same descriptor draws as the descriptor of a model. DeePMD-kit
+does not do that: there two descriptors with one seed and nets of one shape
+start from the same nets. Starting the comparison below from such nets made
+no difference to the result (four seeds).
 
 **Loss.** For a frame of `N` atoms, with prefactors `p_e`, `p_f`, `p_v`:
 
@@ -198,16 +224,51 @@ trained model repeats the net in every row of its table and carries
 model without that mark is trained with a net per pair of types, even where
 its rows are equal: add the mark to such a model to tie them.
 
+**Hybrids.** The descriptors of a hybrid share one neighbor list, made
+with the largest of their cutoffs and for every type the most slots any of
+them has, as in DeePMD-kit. A descriptor with that cutoff and those slots
+reads the list as it is. Any other reads a table of its own, written once
+per frame: of every type the first of the list's slots, as many as it has
+itself, and no neighbor at or beyond its own cutoff, which is an empty slot
+to it. (So a descriptor short of slots has, in a hybrid, the nearest
+neighbors of each type that the list holds, which are not always the ones
+its own selection would keep; the
+[inference path](README.md#mathematics-and-derivatives) does the same and
+is checked against DeePMD-kit for it.) Every stage of a step then runs once
+for every descriptor, with the kernels of its kind: environment, embedding
+nets, descriptor and forces, and in the gradient pass the tangent, the
+reverse pass through the descriptor and that through its embedding nets.
+The components of all descriptors of an atom lie one after the other in one
+row, which is what the fitting nets read and return adjoints for, so the
+fitting nets run once whatever the number of descriptors; the forces of the
+descriptors add up, and so do their virials. The embedding nets of each
+descriptor are a set of their own, since their shapes may differ. Among the
+parameters they come first, in the order of the list, then the fitting
+nets. A list of one descriptor trains exactly as that descriptor alone.
+
 **Frames seen before.** A training set is visited many times, and a frame's
 sorted atoms, neighbor list and embedding rows do not depend on the
 parameters. The trainer keeps them on the device for every frame it has
 seen, up to 1 GiB (about 1.4 MB for a frame of 224 atoms with 212 slots per
 atom), and recognizes a frame by comparing all its numbers. Frames beyond
-that are prepared again at every visit.
+that are prepared again at every visit. For a hybrid the tables of its
+descriptors are kept with the frame and count toward that memory.
 
-**Frame order.** Frames are visited in shuffled epochs from `training.seed`.
-With `batch_size` 1 this samples systems in proportion to their frame counts,
-like DeePMD's default `prob_sys_size`.
+**Frame order.** Frames are visited in shuffled epochs from `training.seed`:
+every frame once before any comes again. With `batch_size` 1 a system is
+then visited in proportion to its frames, as with DeePMD's default
+`prob_sys_size`, but the order is not DeePMD-kit's. Its PyTorch backend
+draws a system for every step, with the probability of its share of the
+frames and whatever came before, and takes the next frame of that system
+from one of several loaders (four here), each with a shuffled pass of its
+own that starts anew every few hundred steps. In its record of a run on the
+171 frames below a frame comes again after 134 steps in the middle (170
+here), and after fewer than 20 steps in 9 percent of the cases (0.6 percent
+here), and 171 consecutive steps hold 116 different frames (171 here within
+an epoch; 108 for independent draws). Another order of the same frames is another run, but
+neither rule made the better models in the
+[comparison below](#a-hybrid-on-the-same-frames), which tried both from one
+initial model.
 
 ## Output
 
@@ -226,18 +287,30 @@ like DeePMD's default `prob_sys_size`.
 
 ## Limits
 
+- A training set of at most 10,000 frames and 128 MiB: the dataset is read
+  into memory by the loader the bounded trainers use (whose message names
+  the readout trainer). Validation frames likewise.
 - One GPU, one frame at a time: a frame and its recorded intermediates must fit
   in device memory. A float32 request took about 0.6 GB for the model and the
   171 frames of the full run below, their cache included; the intermediates
   grow with the number of atoms times their neighbors.
-- se_e2_a or se_e2_r, tanh activations and an energy fitting net. No hybrid
-  descriptors, se_e3, type embedding, excluded type pairs, fparam/aparam,
-  atomic energies or force-only prefactors (`pref_pf`, `pref_gf`).
+- se_e2_a, se_e2_r or a hybrid of such descriptors, tanh activations and an
+  energy fitting net. No se_e3, alone or in a hybrid (so a model with a
+  three-body descriptor still cannot be trained here), type embedding,
+  excluded type pairs, fparam/aparam, atomic energies or force-only
+  prefactors (`pref_pf`, `pref_gf`).
+- A descriptor of a hybrid that has fewer slots than neighbors within its
+  cutoff trains with the nearest ones, without a word: the trainer does not
+  report truncation, of the list or of a descriptor
+  (`omnimd-native-gpu-eval` does, and `omnimd-native-gpu-test` counts the
+  frames as `frames_exceeding_sel`). An `"auto"` selection leaves room for
+  every neighbor of the training frames.
 - Without `save_freq` a run that stops leaves no model.
 - No fine-tuning controls (frozen layers, bias adjustment).
-- Each step still issues about thirty device calls and returns to the host
-  for the loss (and, at a frame's first visit, for its neighbor counts), so
-  small frames are bound by that overhead in float32.
+- Each step still issues about thirty device calls (about twenty more for
+  every further descriptor of a hybrid) and returns to the host for the
+  loss (and, at a frame's first visit, for its neighbor counts), so small
+  frames are bound by that overhead in float32.
 - Two runs of the same request agree to rounding, not bit for bit: sums on
   the device are formed in an order that varies.
 
@@ -310,6 +383,49 @@ nothing else on the card):
   per neighbor type, and 41.3 with se_e2_r, which that backend builds with a
   net per neighbor type only. Its time follows the number of nets, 25 or 5
   here.
+- A hybrid on the same 171 frames, one request (20,000 steps in float32 and
+  6,000 in float64, three alternated rounds that agree within one percent,
+  2026-11-17; the other descriptors measured in the same rounds). The
+  hybrid: se_e2_a of the neighbors within 4 Å (`sel` [16, 8, 20, 24, 8],
+  which leaves room for every neighbor of these frames) and se_e2_r of
+  those within 6 Å (`sel` [44, 16, 60, 72, 20]), both with nets
+  [25, 50, 100], 16 axis neurons, the fitting nets as above on the 1,700
+  components of the two. The sizes are this comparison's own choice, not an
+  example of DeePMD-kit's.
+
+  | descriptor, embedding nets | parameters | float32 | float64 |
+  |---|---:|---:|---:|
+  | se_e2_a to 6 Å, a net per pair of types | 2,664,455 | 536 | 249 |
+  | se_e2_a to 6 Å, a net per neighbor type | 2,535,455 | 549 | 250 |
+  | se_e2_r to 6 Å, a net per neighbor type | 735,455 | 1,236 | 434 |
+  | hybrid, the angular descriptor with a net per pair of types | 2,816,705 | 469 | 216 |
+  | hybrid, a net per neighbor type in both descriptors | 2,687,705 | 471 | 220 |
+
+  The hybrid trains 12 to 14 percent slower than se_e2_a to 6 Å with the
+  same nets, not faster: its
+  radial descriptor has the slots of that model and nets of the same size,
+  so the embedding nets evaluate more rows, not fewer (the 76 slots of the
+  angular descriptor come on top of the 212), and the fitting nets take
+  1,700 inputs instead of 1,600. With every stage timed a float32 step takes
+  2.32 ms against 2.04: the embedding nets 0.16 and their reverse pass with
+  the gradients 0.36 (se_e2_a 0.12 and 0.22), the two fitting passes 0.56
+  and 0.46 (0.50 and 0.44), the optimizer 0.22 (0.20); descriptor, forces,
+  tangent and the reverse pass through the descriptor take the same time
+  for the two descriptors of the hybrid together as for se_e2_a to 6 Å
+  alone (0.09, 0.12, 0.08 and 0.18). Four requests at once in float32 run
+  at 149 steps/s each (596 in total), with a net per pair of types in the
+  angular descriptor at 148.
+
+  DeePMD-kit 3.1.3 (PyTorch backend, float64, as above) made 27.8 steps/s
+  on the request with a net per neighbor type in both descriptors (0.0360 s
+  per batch over 2,000 steps): omniMD trains the same request 7.9 times
+  faster with float64 networks and 17 times with float32 ones.
+
+  The trainer was laid out by descriptors for this, so that a model of one
+  descriptor is a list of one. Before and after, alternated in three rounds
+  on these frames: se_e2_a 534 and 537 steps/s in float32 (246 and 249 in
+  float64), se_e2_r with a net per neighbor type 1,237 and 1,239 (436 and
+  432); no difference beyond the scatter of the rounds.
 - How it got here, for one request on the same model and frames (float32 and
   float64): 118 and 58 with one matrix product per network and layer, about
   eleven hundred device calls per step; 284 and 92 with the networks
@@ -384,6 +500,68 @@ nothing else on the card):
   inference kernels in the trainer's layout of rows (5), the initialization
   (6), the mark of a model (3), the bounded trainers (1) and the note (2),
   each fails a test.
+- A hybrid gives the prediction of the inference path, virial included,
+  and a gradient that matches finite differences for each loss term alone
+  and for all together, in forty parameters of the embedding nets of every
+  descriptor and forty of the fitting nets, each of these judged against
+  its own gradients (those of the embedding nets of a descriptor go down to
+  four thousandths of the largest of the model): for an angular descriptor
+  of the near neighbors with a radial one of all, for three descriptors (so
+  that one has components before and after its own), for descriptors short
+  of slots, where the list and both descriptors drop neighbors, and for a
+  descriptor with the slots of the list and a shorter cutoff. Among them
+  are embeddings narrower and wider than a warp, nets per pair and per
+  neighbor type in one model, descriptors that read the list and
+  descriptors with tables of their own (`tests/gpu_train.rs`).
+- A list of one descriptor has the parameters, the loss, the gradient and,
+  after an update, the nets of that descriptor alone; from a request it
+  trains to the nets of the descriptor's own request (to 1e-8).
+- Every descriptor of a fresh hybrid has the `sel` and the normalization
+  the same request gives it alone (`tests/gpu_train_cli.rs`), and those are
+  DeePMD-kit's for the descriptors of a hybrid, to 1e-8, on a fixture with
+  slots so short that the statistics over what a descriptor reads in the
+  forward pass are other numbers (`tests/stats.rs`,
+  [`tools/make_hybrid_stats_fixture.py`](tools/make_hybrid_stats_fixture.py)).
+- A frame seen before gives the loss and the gradient of the frame prepared
+  afresh, with the tables of its descriptors, and those tables count toward
+  the memory of the kept frames to the byte; a frame with two atoms in one
+  place is refused and not kept.
+- Float32 networks give the loss and the gradient of float64 ones for a
+  hybrid (the gradient within 2e-6 of its largest entry); a hybrid with
+  other random nets learns the labels of a hybrid in both precisions; the
+  trained model keeps every descriptor, the nets of one with a net per
+  neighbor type still alike, and predicts what its trainer does; and a run
+  continues from its exported model and optimizer state as if it had gone
+  on (to 1e-11).
+- From requests: a hybrid with `"auto"` selections trains from fresh
+  networks and continues from its trained model; an se_e3 descriptor, a
+  hybrid in a hybrid, an empty list and a key that a descriptor does not
+  have are refused with the place in the list, and the trainer refuses a
+  model with an se_e3 descriptor by that place.
+- Step for step against DeePMD-kit: from DeePMD-kit's initial model of a
+  hybrid (five types, the request of the comparison below) and with the
+  frames in the order DeePMD-kit took them in a run of 4,000 steps on the
+  171 frames, omniMD arrives at DeePMD-kit's model. Its embedding nets end
+  1.6e-10 and 4.3e-10 from DeePMD-kit's on average and its fitting nets
+  3.2e-10, where DeePMD-kit had moved them by 1.3e-2 to 1.8e-2; the errors
+  of the steps DeePMD-kit displayed are the same in the three digits it
+  prints; and both models score 0.391268 eV/Å and 45.5012 meV/atom on the
+  sealed test. Loss, prefactors, gradient, Adam and schedule are therefore
+  DeePMD-kit's, for a hybrid and with it for everything a model of one
+  descriptor goes through; what differs between runs of the two trainers
+  is their random numbers, the initial networks and the order of the frames
+  ([`bench/deepmd_replay.py`](../bench/deepmd_replay.py), which also
+  continued the run from a snapshot twice on the way).
+- Of 54 single-line errors introduced into the places of a descriptor in the
+  buffers of D, in the trainer kernels (6) and on the host (6), the table a
+  descriptor has of the list (11), the export of the nets, the memory of the
+  kept frames and the refusals (7), the inference kernels in the trainer's
+  layout of rows (6), the initialization of a hybrid (14) and the request
+  (4), each fails a test. Three of them would have passed the tests as first
+  written, by reading those tests: a descriptor with the slots of the list
+  and a shorter cutoff that reads the list as it is, a frame with coincident
+  atoms that is not refused by name, and a line of the log; the checks for
+  them were added before the round.
 
 ## A full run on real data
 
@@ -592,3 +770,130 @@ Numbers:
 (the full schedule, both layouts of nets and se_e2_a) and
 [`hap-train-speed-descriptors-...json`](../bench/results/hap-train-speed-descriptors-rtx4090-2026-11-13.json)
 (rates, stage times and DeePMD-kit's own timings).
+
+## A hybrid on the same frames
+
+The hybrid of the Speed section on the 171 frames of the run above: se_e2_a
+of the neighbors within 4 Å (`sel` [16, 8, 20, 24, 8]) and se_e2_r of those
+within 6 Å (`sel` [44, 16, 60, 72, 20]), embedding [25, 50, 100], 16 axis
+neurons, fitting [240, 240, 240] with timesteps on the 1,700 components of
+both, learning rate 1e-3 to 3e-8, energy and force terms, scored on the 83
+sealed-test frames with `omnimd-native-gpu-test`. The composition is this
+comparison's own choice.
+
+**Against DeePMD-kit on the same request.** A net per neighbor type in both
+descriptors (what DeePMD-kit's PyTorch backend builds for se_e2_r in any
+case), 20,000 steps of one frame, four seeds (11 to 14) for each trainer,
+each from fresh networks and its own statistics; DeePMD-kit 3.1.3 in
+float64 on the request files omniMD ran, its models converted and scored
+by the same command. Force RMSE in eV/Å, energy RMSE in meV/atom; smallest
+and largest of the four models:
+
+| system (frames, atoms) | force, omniMD float64 | force, omniMD float32 | force, DeePMD-kit | energy, omniMD float64 | energy, omniMD float32 | energy, DeePMD-kit |
+|---|---:|---:|---:|---:|---:|---:|
+| CaCO3_20 (9, 160) | 0.1108 to 0.1298 | 0.1135 to 0.1293 | 0.1076 to 0.1268 | 1.96 to 3.70 | 1.07 to 3.85 | 1.39 to 2.85 |
+| calcite (12, 80) | 0.0958 to 0.1138 | 0.0986 to 0.1146 | 0.0937 to 0.1105 | 1.88 to 3.58 | 1.11 to 3.86 | 1.10 to 2.93 |
+| HAP(001) + CO2 (9, 91) | 0.1810 to 0.1911 | 0.1823 to 0.1937 | 0.1678 to 0.2000 | 17.62 to 21.61 | 17.74 to 19.71 | 12.08 to 19.63 |
+| HAP(001) + water + CO2 (9, 169) | 0.2122 to 0.2389 | 0.2135 to 0.2382 | 0.1925 to 0.2375 | 4.41 to 10.11 | 4.77 to 9.00 | 3.06 to 9.56 |
+| HAP bulk (12, 88) | 0.1111 to 0.1268 | 0.1118 to 0.1284 | 0.0996 to 0.1267 | 9.39 to 12.90 | 8.39 to 12.24 | 8.36 to 14.79 |
+| lime (12, 54) | 0.0675 to 0.1084 | 0.0890 to 0.1059 | 0.0694 to 0.0819 | 5.55 to 37.80 | 18.54 to 34.26 | 11.90 to 16.31 |
+| monetite (9, 224) | 0.1815 to 0.2027 | 0.1810 to 0.2052 | 0.1688 to 0.2152 | 2.42 to 3.66 | 2.57 to 4.06 | 2.02 to 2.51 |
+| portlandite (11, 90) | 0.1041 to 0.1301 | 0.1061 to 0.1287 | 0.0984 to 0.1183 | 4.24 to 6.28 | 3.82 to 5.72 | 3.33 to 5.42 |
+| **all** (83, 113 on average) | 0.1520 to 0.1714 | 0.1531 to 0.1720 | 0.1401 to 0.1725 | 8.48 to 16.99 | 10.34 to 15.34 | 7.28 to 11.27 |
+
+- The ranges of the two trainers overlap in every system and overall, for
+  forces and for energies. DeePMD-kit's four spread wider in the overall
+  force error (0.140, 0.145, 0.149 and 0.173) than omniMD's (0.152 to 0.171
+  in float64, 0.153 to 0.172 in float32; eight more seeds in float32 give
+  0.148 to 0.166).
+- That spread belongs to the schedule, not to a trainer. 20,000 steps stop
+  this model far from converged, a quarter of them at the first learning
+  rate, and the result moves with the random numbers of a run. From one
+  initial model (DeePMD-kit's of seed 11), in float32: omniMD's shuffled
+  epochs give 0.155 to 0.166 with nine training seeds, eight frame
+  sequences that DeePMD-kit drew by its own rule (see Frame order) 0.152 to
+  0.162, and four sequences of independent draws 0.153 to 0.158. The rule
+  by which the frames are ordered makes no difference that these runs show.
+- Even the same frames in the same order do not give the same model twice.
+  DeePMD-kit reached 0.1401 from that initial model with its sequence of
+  seed 11; three replays of that run in omniMD, the same model and the same
+  frames in the same order, end at 0.1405, 0.1444 and 0.1478. They keep
+  DeePMD-kit's errors to the three digits it prints for the first thousand
+  steps and then drift away from it and from each other: 5,000 steps at a
+  learning rate of 1e-3 amplify the last digits of the arithmetic, which
+  differ between any two runs on the device.
+- So the two sets of four are draws from one wide distribution as far as
+  this comparison can tell, and it cannot tell a difference of a few
+  percent between the trainers from none. What can is under How it was
+  checked: the replay of 4,000 steps, in which the learning rate falls
+  after a hundred steps and nothing is amplified, ends on DeePMD-kit's
+  parameters.
+- The full schedule was not run with DeePMD-kit: at its 27.8 steps/s it is
+  three hours a model.
+- The second descriptor of a hybrid starts from other nets than the first
+  here, and from the same ones in DeePMD-kit when both carry one seed (see
+  A fresh model). Four omniMD runs that start as DeePMD-kit's do end at
+  0.154 to 0.172.
+- The instrument is the same for both: `omnimd-native-gpu-test` gives
+  `dp test`'s energy and force RMSE of DeePMD-kit's four models, converted,
+  in all eight systems to the seven digits `dp test` prints
+  ([`hap-test-deepmd-hybrid-by-omnimd-...json`](../bench/results/hap-test-deepmd-hybrid-by-omnimd-rtx4090-2026-11-17.json)).
+- The runs of both trainers shared the card, so their times in these runs
+  say nothing; the rates of each alone are in the Speed section (DeePMD-kit
+  27.8 steps/s, omniMD 220 in float64 and 471 in float32).
+
+**The full schedule, against se_e2_a.** 300,000 steps, float32 networks,
+four seeds (11 to 14) at once, fresh networks. The hybrid twice: with a net
+per pair of types in its angular descriptor, and with a net per neighbor
+type in both descriptors. se_e2_a to 6 Å is the omniMD ensemble of the full
+run above and se_e2_r to 6 Å the one of the section before (a net per
+neighbor type), scored again; se_e2_a to 4 Å is the angular descriptor of
+the hybrid alone, with a net per pair of types, trained for this. Force
+RMSE in eV/Å, energy RMSE in meV/atom; smallest and largest of the four
+models:
+
+| system (frames, atoms) | force, hybrid, a net per pair | force, hybrid, a net per neighbor type | force, se_e2_a to 6 Å | force, se_e2_a to 4 Å | force, se_e2_r to 6 Å | energy, hybrid, a net per pair | energy, hybrid, a net per neighbor type | energy, se_e2_a to 6 Å | energy, se_e2_a to 4 Å | energy, se_e2_r to 6 Å |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| CaCO3_20 (9, 160) | 0.0539 to 0.0586 | 0.0575 to 0.0582 | 0.0518 to 0.0533 | 0.0818 to 0.0837 | 0.1005 to 0.1070 | 0.48 to 0.83 | 0.92 to 1.21 | 0.36 to 0.51 | 0.35 to 0.56 | 0.63 to 1.55 |
+| calcite (12, 80) | 0.0423 to 0.0445 | 0.0435 to 0.0450 | 0.0393 to 0.0411 | 0.0663 to 0.0675 | 0.0903 to 0.0958 | 0.71 to 0.77 | 0.74 to 0.89 | 0.39 to 0.55 | 0.79 to 0.88 | 0.95 to 1.75 |
+| HAP(001) + CO2 (9, 91) | 0.0860 to 0.0892 | 0.0902 to 0.0922 | 0.0849 to 0.0854 | 0.1233 to 0.1243 | 0.1741 to 0.1794 | 1.26 to 2.05 | 1.24 to 1.80 | 0.69 to 1.23 | 2.68 to 2.85 | 1.46 to 2.31 |
+| HAP(001) + water + CO2 (9, 169) | 0.1056 to 0.1090 | 0.1084 to 0.1120 | 0.1063 to 0.1118 | 0.1276 to 0.1298 | 0.2169 to 0.2212 | 1.27 to 1.68 | 1.38 to 1.82 | 1.36 to 1.95 | 1.87 to 2.52 | 1.83 to 3.94 |
+| HAP bulk (12, 88) | 0.0466 to 0.0491 | 0.0474 to 0.0498 | 0.0434 to 0.0444 | 0.0704 to 0.0716 | 0.0948 to 0.0986 | 0.71 to 1.05 | 0.46 to 0.81 | 0.36 to 0.62 | 1.23 to 1.63 | 1.59 to 2.24 |
+| lime (12, 54) | 0.0237 to 0.0254 | 0.0235 to 0.0259 | 0.0183 to 0.0252 | 0.0348 to 0.0374 | 0.0522 to 0.0581 | 0.47 to 1.06 | 0.56 to 1.00 | 1.09 to 1.86 | 1.67 to 2.24 | 4.38 to 7.50 |
+| monetite (9, 224) | 0.0866 to 0.0904 | 0.0879 to 0.0896 | 0.0831 to 0.0864 | 0.1078 to 0.1120 | 0.2002 to 0.2133 | 0.57 to 1.00 | 0.56 to 0.85 | 0.42 to 0.61 | 0.64 to 0.85 | 2.44 to 3.76 |
+| portlandite (11, 90) | 0.0382 to 0.0411 | 0.0400 to 0.0418 | 0.0367 to 0.0386 | 0.0589 to 0.0608 | 0.0761 to 0.0963 | 3.07 to 3.40 | 3.10 to 3.35 | 3.83 to 4.14 | 3.15 to 3.55 | 2.97 to 4.19 |
+| **all** (83, 113 on average) | 0.0720 to 0.0745 | 0.0737 to 0.0746 | 0.0698 to 0.0723 | 0.0947 to 0.0961 | 0.1527 to 0.1574 | 1.39 to 1.63 | 1.40 to 1.62 | 1.64 to 1.78 | 1.88 to 2.11 | 2.72 to 3.75 |
+
+- The radial descriptor to 6 Å brings the angular one to 4 Å from 0.095 to
+  0.072 to 0.075 in the overall force error, about a quarter less, and to
+  3 percent above the angular descriptor to 6 Å (0.070 to 0.072). That one
+  has the lower force error in every system but the wet interface
+  (HAP(001) + water + CO2), where the two overlap.
+- In the energies the hybrid is lower overall (1.39 to 1.63 against 1.64 to
+  1.78 meV/atom), which it owes to portlandite and lime; se_e2_a to 6 Å has
+  the lower energy error in five of the other six systems.
+- A net per pair of types or per neighbor type in the angular descriptor
+  makes little difference to the hybrid: 0.072 to 0.075 against 0.074 to
+  0.075 in the forces, and the same energies.
+- On this data the hybrid buys nothing over se_e2_a to 6 Å: about its
+  accuracy, for 12 to 14 percent more time to train (Speed) and no less
+  time to evaluate (a hybrid of this kind is no cheaper than se_e2_a in
+  the water benchmark of the [summary](../bench/results/SUMMARY.md)). What
+  it shows is that most of what the angular descriptor gains between 4 and
+  6 Å is there for a radial one as well.
+- These runs shared the card with the comparison above. Alone, four
+  requests run at 149 steps/s each (Speed), which is 34 minutes for this
+  schedule.
+- The pipeline marks its models as not production-qualified: the numbers
+  compare descriptors on its data, nothing more.
+
+Numbers:
+[`hap-train-hybrid-against-deepmd-...json`](../bench/results/hap-train-hybrid-against-deepmd-rtx4090-2026-11-17.json)
+(the 20,000-step models of both trainers),
+[`hap-train-hybrid-replay-deepmd-...json`](../bench/results/hap-train-hybrid-replay-deepmd-rtx4090-2026-11-17.json)
+(the replays of DeePMD-kit's runs, the runs on other frame orders and what
+the frame sequences look like),
+[`hap-train-ensemble-hybrid-float32-omnimd-...json`](../bench/results/hap-train-ensemble-hybrid-float32-omnimd-rtx4090-2026-11-17.json)
+(the full schedule) and
+[`hap-train-speed-hybrid-...json`](../bench/results/hap-train-speed-hybrid-rtx4090-2026-11-17.json)
+(rates, stage times and DeePMD-kit's own timing).
