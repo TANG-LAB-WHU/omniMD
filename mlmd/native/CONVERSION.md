@@ -34,8 +34,9 @@ are printed by the converter. Native JSON remains schema v1.
 - Serialized classes/versions: Model 2, Descriptor 2, Fitting 4,
   NetworkCollection 1, EmbeddingNetwork 2, FittingNetwork 1, Layer 2, ndarray 1.
 - A standard energy model with a single `se_e2_a` descriptor, with a single
-  `se_e2_r` descriptor (serialized as `se_r`; see below) or with a single
-  `se_e3` descriptor (see below); explicit float64 arrays; scalar,
+  `se_e2_r` descriptor (serialized as `se_r`; see below), with a single
+  `se_e3` descriptor (see below) or with a `hybrid` of such descriptors
+  (Descriptor version 1; see below); explicit float64 arrays; scalar,
   species-specific energy fitting; ordered chemical type maps.
 - One-sided or two-sided embeddings. For two-sided collections, DeepMD's flat
   index is `central + ntypes*neighbor`; the importer reorders this into native
@@ -88,6 +89,27 @@ converted with `--geometry dpmodel` only, like `se_r`.
 DeePMD-kit image, converts them and records DeePMD's energy, forces and
 virial, against which `tests/se_e3.rs` (CPU) and `tests/gpu_parity.rs` (GPU
 runtime) compare.
+
+A `hybrid` descriptor becomes a native `omnimd-native-hybrid` model. Every
+descriptor of its `list` is converted as it would be alone, by the rules
+above, and keeps its own radii, `sel`, normalization and nets; a hybrid in a
+hybrid is refused. The fitting nets take the components of all descriptors
+(`dim_descrpt` is checked against their sum). DeePMD-kit does not store the
+neighbor list the descriptors share, it works it out from them; the native
+model states it: `rcut` the largest cutoff, `rcut_smth` the smallest
+smoothing radius, `sel` for every type the largest of the list. It is
+converted with `--geometry dpmodel` only: how a frozen TensorFlow graph
+selects the neighbors of the descriptors of a hybrid has not been checked.
+`tools/make_hybrid_fixture.py` builds two models of three types in the
+DeePMD-kit image, each a hybrid of an se_e2_a, an se_e2_r and an se_e3
+descriptor with radii, slots, widths and statistics of their own, converts
+them and records DeePMD's energy, forces and virial, against which
+`tests/hybrid.rs` (CPU) and `tests/gpu_parity.rs` (GPU runtime) compare. In
+the first model every descriptor has room for the neighbors within its
+cutoff; in the second the slots are far below the neighbor counts, in the
+list and in every descriptor, and the script checks that this is a case
+where the descriptors of a hybrid do not have the neighbors they would
+select alone (for 16, 22 and 18 of the 27 atoms).
 
 This interchange converter does **not** consume `.pb`, `.pth`, checkpoint
 folders, or pickle. A separate [frozen-graph exporter](FROZEN.md) now supports

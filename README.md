@@ -126,8 +126,22 @@ Milliseconds per energy/force/virial evaluation; DeepMD-kit 3.1.3 is LAMMPS
   omniMD has no tables for this descriptor, and the compressed model that
   DeepMD-kit 3.1.3 makes of this one did not reproduce the uncompressed model
   (see the summary), so it gave no baseline.
+- A hybrid of two descriptors, se_e2_a to 4.0 angstrom (`sel` [16, 32]) and
+  se_e2_r to 6.0 angstrom ([46, 92]), costs 0.38 ms at 192 atoms and 10.6 ms
+  at 12,288 in float32, and 0.31 and 6.85 ms with embedding tables. DeepMD-kit
+  in LAMMPS takes 12.3 and 83.0 ms, with tables 10.1 and 36.4 ms, with the
+  atoms held in place: the untrained benchmark model has no repulsion and
+  heats in dynamics, so DeepMD-kit was timed on the frames themselves here.
+  At 98,304 atoms omniMD takes 85 ms (55 ms with tables) where LAMMPS stops
+  with an error. omniMD's float64 energy equals DeepMD-kit's at 192 and 1,536
+  atoms to the last digit, and its forces within 1e-16 eV/angstrom.
+  A hybrid of se_e2_a with an se_e3 descriptor to 4.0 angstrom costs 0.59 ms
+  at 192 atoms and 3.36 ms at 1,536 in float32 (DeepMD-kit: 14.1 and 42.5
+  ms); from 12,288 atoms on DeepMD-kit no longer fits the card, omniMD takes
+  23 ms there.
 - Scope: one GPU, se_e2_a or se_e2_r with one embedding net per type pair or
-  per neighbor type, or se_e3 (inference). The engine can
+  per neighbor type, se_e3 (inference), or a hybrid of these descriptors
+  (inference). The engine can
   select it for dynamics, minimization, batch evaluation and model deviation
   (`gpu_runtime` in the model options). It has a trainer of its own (below); the
   bounded `train-native` trainers do not use it.
@@ -299,8 +313,9 @@ see [DeepMD setup and limits](mlmd/deepmd/README.md).
 - The GPU trainer (se_e2_a and se_e2_r) takes one frame per step on one GPU
   and has no fine-tuning controls; the bounded `train-native` trainers do not
   use the GPU runtime, and the engine passes each frame through the host.
-- Arbitrary DeepMD architectures, hybrid descriptors or generic .pb/.pth/pickle import;
-  se_e3 has inference only, without embedding tables.
+- Arbitrary DeepMD architectures (attention, type embedding) or generic
+  .pb/.pth/pickle import; se_e3 and hybrid descriptors have inference only,
+  se_e3 without embedding tables.
 - Partial PBC, mixed-type/virtual atoms or automatic unit/type-map guessing.
 - Classical-potential mixing and the full legacy Simulation/Propagator pipeline.
 - Sharded/distributed or end-to-end GPU training, learned normalization or generic

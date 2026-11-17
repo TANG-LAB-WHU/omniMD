@@ -1,3 +1,201 @@
+# Hybrid descriptors, 2026-11-16
+
+A native model can have DeePMD-kit's `hybrid` descriptor: the components of
+several se_e2_a, se_e2_r and se_e3 descriptors, one after the other, are the
+input of the fitting nets. Each descriptor of the list has cutoffs, slots,
+statistics and nets of its own. As in DeePMD-kit they read one neighbor
+list, made with the largest of their cutoffs and for every type the most
+slots any of them has: a descriptor has the nearest `sel[t]` of the list's
+neighbors of type t in its own slots, and a neighbor at or beyond its own
+cutoff is an empty slot to it. It is evaluated on the CPU and on the GPU
+runtime (float64 or float32, batches of frames and committees of models,
+with embedding tables for its se_e2_a and se_e2_r descriptors if asked) and
+converted from DeePMD-kit 3.1.3 `.dp`/YAML by `convert_deepmd.py`. Inference
+only: every trainer refuses it. Format and formulas are in
+[`native/README.md`](../../native/README.md#model-format-v1).
+
+**Agreement with DeePMD-kit 3.1.3** (PyTorch backend, CPU, float64):
+
+- A fixture of 27 atoms of three types under a hybrid of an se_e2_a, an
+  se_e2_r and an se_e3 descriptor, no two with the same cutoff, smoothing
+  radius, width, slots or statistics (`native/tools/make_hybrid_fixture.py`),
+  periodic and without a cell. The CPU evaluation gives DeePMD's energy
+  within 1.4e-14 eV, its forces within 4.1e-17 eV/Å (the largest force is
+  0.016 eV/Å) and its virial within 2.2e-16 eV. The GPU runtime in float64
+  gives the three within 7.1e-15 eV, 2.7e-15 eV/Å and 8.0e-15 eV, a second
+  model included (largest force 1.2 eV/Å) whose slots are far below the
+  neighbor counts, in the list and in every descriptor. There the result
+  depends on which neighbors are kept, and the descriptors of a hybrid do not
+  keep the ones each would select alone: the script counts 16, 22 and 18 of
+  the 27 atoms for which the three descriptors have other neighbors than
+  their own selection would give them.
+- The water cases below at 192 and 1,536 atoms (largest force 0.037 and
+  0.12 eV/Å: the models are untrained). The se_e2_a + se_e2_r model in
+  float64: the same energy to the last digit and forces within 1e-16 eV/Å,
+  5e-16 with tables; in float32 within 8.1e-9 eV per atom and 3.6e-8 eV/Å.
+  The se_e2_a + se_e3 model: float64 within 9.5e-15 eV per atom and
+  2.4e-16 eV/Å, float32 within 5.2e-9 eV per atom and 3.9e-8 eV/Å.
+
+**Water benchmark with two hybrid models.** The sizes are this recipe's own
+choice, not an example of DeePMD-kit's (`make_water_case.py --descriptor
+hybrid` and `hybrid_e3`): fitting [240, 240, 240] on the components of both
+descriptors, untrained, seeded weights, the boxes of the other water cases.
+ms per energy, force and virial evaluation. DeePMD: LAMMPS `pair_style
+deepmd`, loop time per step, once in NVE dynamics as in the tables of the
+other descriptors and once with the atoms held in place (see below). omniMD:
+`omnimd-native-gpu-eval` in process, the faster of two runs
+(`omnimd-gpu-hybrid-rtx4090-2026-11-16.csv` and `-r2`, `...-hybrid-e3-...`;
+the two differ by at most 6%, but for the first row of the first run, which
+ran while a container of the run before was being stopped). The speed-up is
+against DeePMD with the atoms held.
+
+*Angular near the atom, radial further out*: se_e2_a to 4.0 Å with `sel`
+[16, 32] and se_e2_r to 6.0 Å with [46, 92], both with embedding
+[25, 50, 100] (1,700 components):
+
+| atoms | precision | DeePMD NVE | DeePMD held | omniMD | speed-up | DeePMD held, tables | omniMD, tables | speed-up |
+|---:|---|---:|---:|---:|---:|---:|---:|---:|
+| 192 | fp64 | 14.5 | 14.3 | 1.74 | 8.2× | 11.5 | 0.89 | 13× |
+| 1,536 | fp64 | 52.2 | 53.0 | 11.5 | 4.6× | 27.6 | 5.51 | 5.0× |
+| 12,288 | fp64 | 370 | 359 | 90.1 | 4.0× | 156 | 41.8 | 3.7× |
+| 98,304 | fp64 | error | error | 717 | | error | 333 | |
+| 192 | fp32 | 11.4 | 12.3 | 0.38 | 32× | 10.1 | 0.31 | 33× |
+| 1,536 | fp32 | 15.8 | 15.9 | 1.67 | 9.5× | 12.2 | 1.11 | 11× |
+| 12,288 | fp32 | 89.9 | 83.0 | 10.6 | 7.8× | 36.4 | 6.85 | 5.3× |
+| 98,304 | fp32 | error | error | 85.2 | | error | 55.0 | |
+
+*Two-body with three-body*: the se_e2_a descriptor of the plain water model
+(6.0 Å, [46, 92], embedding [25, 50, 100]) and se_e3 to 4.0 Å with [16, 32]
+and embedding [10, 20, 40] (1,640 components), exact embedding nets on both
+sides:
+
+| atoms | precision | DeePMD NVE | DeePMD held | omniMD | speed-up |
+|---:|---|---:|---:|---:|---:|
+| 192 | fp64 | 25.4 | 25.2 | 2.66 | 9.5× |
+| 1,536 | fp64 | 142 | 142 | 18.4 | 7.7× |
+| 12,288 | fp64 | no result | no result | 143 | |
+| 98,304 | fp64 | error | error | 1,137 | |
+| 192 | fp32 | 13.9 | 14.1 | 0.59 | 24× |
+| 1,536 | fp32 | 42.1 | 42.5 | 3.36 | 13× |
+| 12,288 | fp32 | no result | no result | 23.4 | |
+| 98,304 | fp32 | error | error | 186 | |
+
+- **Why the atoms are held.** The benchmark models are untrained and have no
+  repulsion. In NVE dynamics the atoms fall into each other after some tens
+  to hundreds of femtoseconds, and the steps after that are not steps of the
+  benchmark's water. The uncompressed hybrid heats from 300 K to 2,800 K in
+  the 0.5 ps of the 192-atom run, with a total energy that is kept for the
+  first twenty steps and rises afterwards; its loop time is still that of
+  the frames held in place within 9%. omniMD's own NVE run of the same
+  model heats the same way (2,682 K after the 1,000 steps, LAMMPS 2,694 K):
+  it is the model, and the step is too long for atoms that close. The
+  compressed hybrid does not survive it: 81,500 K at 1,536 atoms, and at
+  12,288 atoms in float64 2,597 ms a step at 2,850 K, against 195 ms a step
+  in the first twenty steps of the same run; the float32 run that followed
+  had the card's 24 GB full and was stopped by hand after eight minutes
+  (`deepmd-3.1.3-lammps-hybrid-compressed-2026-11-16.csv`, kept as a record
+  of that). So DeePMD was timed again with a time step of 1e-6 fs
+  (`bench_deepmd.py --held`), in which nothing moves: every step evaluates
+  the frame omniMD evaluates. LAMMPS then never rebuilds its neighbor list;
+  omniMD searches the neighbors at every evaluation.
+- The tables of the other descriptors (below) have DeePMD's NVE times. The
+  same check for them (`deepmd-3.1.3-lammps-se-e2-a-held-2026-11-16.csv`,
+  `-compressed-held`, `-se-e2-r-held`, `-se-e3-held` at 192 atoms): with the
+  atoms held DeePMD takes 0.83 to 1.28 times what those tables record, 1.1
+  times in the median of twenty rows. Those runs were not slowed by their
+  dynamics, and the tables stand.
+- DeePMD-kit's compressed model of the first hybrid is its uncompressed
+  model (the same energy, forces within 9e-16 eV/Å on the 192-atom frame, on
+  the GPU and on the CPU), so its tables are a baseline. Its compressed
+  model of the second hybrid is not: 0.028 eV per atom and 0.23 eV/Å off on
+  the GPU in float64, not a number in float32, 0.023 eV per atom off on the
+  CPU. That is the se_e3 part again (see the section below), so the second
+  table has the exact nets on both sides. omniMD could give the se_e2_a
+  descriptor of that model tables and leave the se_e3 nets; that was not
+  timed.
+- "No result": at 12,288 atoms DeePMD's second hybrid fills the card's
+  memory (24.0 of 24.6 GB in use) and gives no result within the 300 s the
+  script now allows a run; a first attempt had not finished its first step
+  after ten minutes. On Windows such a run is not refused: the driver gives
+  it system memory. At 98,304 atoms LAMMPS stops
+  with a TorchScript error for both models, as for the other descriptors.
+  omniMD takes the atoms in chunks sized from the free memory (two to five
+  chunks at 98,304 atoms).
+- Where omniMD's time goes, first hybrid in float32: at 192 atoms (0.38 ms)
+  the embedding nets 0.12 ms, the fitting nets 0.10, the neighbors 0.08, the
+  forces 0.07; at 12,288 atoms (10.6 ms) the embedding nets 5.7 ms, which
+  tables bring to 1.6. The table of the list that the se_e2_a descriptor
+  reads (its 48 slots of the list's 138) is in the time of the neighbors and
+  does not show there: 0.745 ms at 12,288 atoms against 0.743 for the plain
+  se_e2_a model.
+- This hybrid is no cheaper than the plain se_e2_a model with all 138 slots
+  in omniMD (float32, both timed by one script that evening: 0.38 against
+  0.31 ms at 192 atoms, 10.6 against 8.7 ms at 12,288; with tables 0.30
+  against 0.26 and 6.9 against 6.3): the radial descriptor has embedding
+  nets of the same size on the same 138 slots, which is most of the cost of
+  either, and the second descriptor adds its launches. In DeePMD-kit it is
+  no cheaper either (float32, 12,288 atoms, atoms held: 83.0 against
+  69.9 ms).
+
+**How it is built.** The CPU reference computes every descriptor in two
+steps, its components and the forces that dE/dD gives, so that a model of
+one descriptor and a hybrid go the same way. On the device the potential is
+a list of descriptors, each with its nets, statistics, slot tables and
+kernels. The neighbors are searched once, with the cutoff and the slots of
+the list. A descriptor whose slots or cutoff are not those of the list gets
+a table of the list in its own layout from one small kernel (the first
+`sel[t]` slots of every type, and no neighbor at or beyond its cutoff),
+kept between evaluations; its kernels then run on that table as they run on
+the list of a plain model. The descriptor kernels write their components
+into one buffer at the descriptor's place among the components of all, the
+fitting nets run once on that buffer, and the force kernels read their part
+of dE/dD from it; all but the first add to the virial. Chunks of atoms are
+common to all descriptors: one ends where its atoms are too many, or its
+rows in one of the se_e3 descriptors. A model of one descriptor goes through
+the same code as a list of one: for the three plain descriptors the new
+build takes what the build before took, within 2.5% in every case of an
+alternating comparison (192 to 12,288 atoms, float64, float32 and tables),
+and within 0.3% in the two cases furthest apart when they were repeated
+eight times.
+
+**Tests.** `native/tests/hybrid.rs` (CPU, runs in CI): DeePMD-kit parity;
+forces and all nine strain derivatives against finite differences; with
+fitting nets of one linear layer, a hybrid against the sum of models that
+have one of its descriptors each (the three kinds in two orders, two of one
+kind, one descriptor twice, six descriptors), which sets what a descriptor
+reads of the shared list against that descriptor's own search; one
+descriptor in a list against that descriptor, bit for bit; the order of the
+list; the cutoff of a descriptor against that of the list; a descriptor
+with one neighbor more than slots; what the format refuses; the trainers'
+refusals. `native/tests/gpu_parity.rs`: hybrids against the CPU reference
+(the three kinds; a table of the list for one descriptor and for all; the
+slots of the list with a shorter cutoff; a box narrower than the cutoff;
+open with three types; embeddings wider than a warp and than a block; a
+type without slots; descriptors of one kind and one twice; two se_e3
+descriptors in chunks of 1 to 5,000 rows; an atom alone; frames of
+different sizes in turn), against DeePMD-kit including the selection when
+slots are short, the report of dropped neighbors (one too many, a type
+without a slot, a short cutoff, together with atoms in one place), and
+float32, batches, committees and tables. `engine/tests/hybrid.rs`: NVE
+through the CLI on the CPU (the error of the total energy falls fourfold
+when the step is halved) and on the GPU runtime (the CPU trajectory within
+1e-10 Å; float32; with tables). A mutation round on the format, the CPU
+reference, the kernel of the slot tables, the stride and the virial of
+several descriptors, the host side and the committee checks had 70 mutants:
+63 were caught by the tests as first written, five showed gaps that now
+have checks (a descriptor with exactly one neighbor too many on the CPU;
+atoms in one place where a descriptor drops neighbors, which the kernel
+must add to the status of the search and not replace; three that only
+changed which message a refused committee gets), and two did not compile
+and were rewritten. All 70 are caught now. Locally: workspace 219, engine
+with `native-gpu` 93, GPU crates 151, each in release and debug; `cargo
+fmt --check` clean; the legacy `cuda` features compile. The GPU suites do
+not run in CI.
+
+**Not built.** Training of hybrids. Tables for an se_e3 descriptor, alone or
+in a hybrid. The embedding nets of all descriptors of a hybrid in one
+launch: each descriptor has its own launches.
+
 # The se_e3 descriptor, 2026-11-16
 
 A native model can have DeePMD-kit's three-body descriptor (`se_e3`, also

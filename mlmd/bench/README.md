@@ -45,10 +45,36 @@ without the compressed mode; DeePMD's reference for it is taken at 192 atoms
 only, and DeePMD-kit 3.1.3's compressed model of it was not usable as a
 baseline (it does not reproduce the uncompressed model: see the summary).
 
+`--descriptor hybrid` with `cases/hybrid` and `water-hybrid-float64` times a
+hybrid of two descriptors, angular near the atom and radial further out: an
+se_e2_a descriptor with a cutoff of 4.0 Å and `sel` [16, 32] and an se_e2_r
+descriptor with the cutoff and `sel` of the other models, both with the
+embedding sizes [25, 50, 100]. `--descriptor hybrid_e3` with
+`cases/hybrid_e3` and `water-hybrid_e3-float64` times the se_e2_a descriptor
+of the first model together with an se_e3 descriptor of cutoff 4.0 Å, `sel`
+[16, 32] and embedding sizes [10, 20, 40], without the compressed mode. The
+sizes of these two models are this recipe's own choice, not an example of
+DeePMD-kit's; the script stops if a descriptor has fewer slots than an atom
+of the box has neighbors within its cutoff.
+
 For a compressed DeePMD baseline, run `compress_deepmd.py cases` in the image
 (the `dp --pt compress` steps with the minimum neighbor distance set to 0.5 Å,
 because the untrained models do not store one), then step 3 with
-`--skip-deeppot --compressed`.
+`--skip-deeppot --compressed`. Before it is timed, compare the compressed
+model with the uncompressed one on a frame (`deepmd.infer.DeepPot` on both):
+DeePMD-kit 3.1.3's tables for se_e2_a and se_e2_r reproduce the nets, alone
+and in a hybrid, its tables for se_e3 do not (see the summary).
+
+The models are untrained and have no repulsion, so the LAMMPS run of step 3
+is dynamics in which the atoms fall into each other sooner or later; its log
+in `cases/.../lammps` shows the temperature. `bench_deepmd.py --held` takes a
+time step of 1e-6 fs, so that every step evaluates the frame of the case
+(LAMMPS then never rebuilds its neighbor list), `--max-atoms N` leaves the
+larger cases out, and a run without a result after `--timeout` seconds (600)
+is stopped and recorded: a run that needs more memory than the card has is
+not refused on Windows, it takes minutes a step. The hybrid tables of the
+summary use the held times; the tables of the other descriptors have the
+NVE times, which a held run of 2026-11-16 confirmed.
 
 ## A real ensemble: the HAP pipeline models
 

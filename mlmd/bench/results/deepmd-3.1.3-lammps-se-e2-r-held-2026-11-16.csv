@@ -1,0 +1,7 @@
+engine,route,device,precision,natoms,ms_per_eval,us_per_atom_step,ns_per_day,peak_mem_mb,status,note
+deepmd-3.1.3,lammps-pair-deepmd-held,gpu,float64,192,6.4284,33.481249999999996,0.0,,ok,"atoms held (NVE with a step of 1e-6 fs), 1000 timed steps after 20 warmup steps"
+deepmd-3.1.3,lammps-pair-deepmd-held,gpu,float64,1536,28.957615384615384,18.852614182692307,0.0,,ok,"atoms held (NVE with a step of 1e-6 fs), 130 timed steps after 20 warmup steps"
+deepmd-3.1.3,lammps-pair-deepmd-held,gpu,float64,12288,208.326,16.953613281249996,0.0,,ok,"atoms held (NVE with a step of 1e-6 fs), 50 timed steps after 20 warmup steps"
+deepmd-3.1.3,lammps-pair-deepmd-held,gpu,float32,192,4.88849,25.460885416666667,0.0,,ok,"atoms held (NVE with a step of 1e-6 fs), 1000 timed steps after 20 warmup steps"
+deepmd-3.1.3,lammps-pair-deepmd-held,gpu,float32,1536,8.218153846153845,5.350360576923077,0.0,,ok,"atoms held (NVE with a step of 1e-6 fs), 130 timed steps after 20 warmup steps"
+deepmd-3.1.3,lammps-pair-deepmd-held,gpu,float32,12288,57.967000000000006,4.717366536458334,0.0,,ok,"atoms held (NVE with a step of 1e-6 fs), 50 timed steps after 20 warmup steps"

@@ -1,0 +1,9 @@
+engine,route,device,precision,natoms,ms_per_eval,us_per_atom_step,ns_per_day,peak_mem_mb,status,note
+omnimd,gpu-hybrid_e3-cli,gpu,float64,192,2.672124,13.917312500000001,,,ok,"100 in-process evaluations after 1 warmup; network float64, geometry and forces float64; 1 chunk(s)"
+omnimd,gpu-hybrid_e3-cli,gpu,float32,192,0.590131,3.073598958333333,,,ok,"100 in-process evaluations after 1 warmup; network float32, geometry and forces float64; 1 chunk(s)"
+omnimd,gpu-hybrid_e3-cli,gpu,float64,1536,18.404241,11.981927734374999,,,ok,"100 in-process evaluations after 1 warmup; network float64, geometry and forces float64; 1 chunk(s)"
+omnimd,gpu-hybrid_e3-cli,gpu,float32,1536,3.365668,2.1911901041666666,,,ok,"100 in-process evaluations after 1 warmup; network float32, geometry and forces float64; 1 chunk(s)"
+omnimd,gpu-hybrid_e3-cli,gpu,float64,12288,143.23201999999998,11.656251627604165,,,ok,"20 in-process evaluations after 1 warmup; network float64, geometry and forces float64; 1 chunk(s)"
+omnimd,gpu-hybrid_e3-cli,gpu,float32,12288,23.3645,1.9014078776041667,,,ok,"20 in-process evaluations after 1 warmup; network float32, geometry and forces float64; 1 chunk(s)"
+omnimd,gpu-hybrid_e3-cli,gpu,float64,98304,1140.38465,11.600592549641926,,,ok,"10 in-process evaluations after 1 warmup; network float64, geometry and forces float64; 5 chunk(s)"
+omnimd,gpu-hybrid_e3-cli,gpu,float32,98304,188.5827,1.9183624267578123,,,ok,"10 in-process evaluations after 1 warmup; network float32, geometry and forces float64; 3 chunk(s)"

@@ -13,6 +13,7 @@ This is a progressively implemented subset, not all DeepMD functionality:
 | Native-v1 se_e2_a scalar-energy inference, E/F/virial | Implemented | Implemented within [CUDA bounds](CUDA.md) |
 | Native-v1 se_e2_r (radial descriptor) inference, E/F/virial | Implemented | On the [GPU runtime](../gpu/README.md) (`gpu` feature), whose [trainer](GPU_TRAINING.md) also trains it; the CUDA subset and the bounded trainers refuse it |
 | Native-v1 se_e3 (three-body descriptor) inference, E/F/virial | Implemented | On the [GPU runtime](../gpu/README.md) (`gpu` feature), with the exact embedding nets (no tables); the CUDA subset and every trainer refuse it |
+| Native-v1 hybrid (several of these descriptors in one model) inference, E/F/virial | Implemented | On the [GPU runtime](../gpu/README.md) (`gpu` feature), with tables for its se_e2_a and se_e2_r descriptors if asked; the CUDA subset and every trainer refuse it |
 | tanh/linear, explicit residuals and timesteps | Implemented | Implemented |
 | sigmoid/softplus inference | Implemented | Rejected |
 | Final-readout E/F fitting | Implemented, bounded | Implemented: GPU features, CPU QR/assessment |
@@ -200,12 +201,13 @@ Every native model object rejects unknown fields.
 
 | Field | Required meaning |
 | --- | --- |
-| `format`, `version` | `"omnimd-native-se-e2-a"`, `"omnimd-native-se-e2-r"` or `"omnimd-native-se-e3"`, integer `1` |
+| `format`, `version` | `"omnimd-native-se-e2-a"`, `"omnimd-native-se-e2-r"`, `"omnimd-native-se-e3"` or `"omnimd-native-hybrid"`, integer `1` |
 | `precision`, `units` | `"float64"`, `"EvAngstrom"` |
 | `type_map` | Ordered unique chemical symbols; no inferred atomic-number mapping |
-| `descriptor.kind` | `"se_e2_a"` in the first format, `"se_e2_r"` in the second, `"se_e3"` in the third; any other pairing is refused |
-| `rcut_smth`, `rcut` | Finite radii with `0 <= rcut_smth < rcut` |
-| `sel` | Fixed per-neighbor-species capacities in `type_map` order |
+| `descriptor.kind` | `"se_e2_a"` in the first format, `"se_e2_r"` in the second, `"se_e3"` in the third, `"hybrid"` in the fourth; any other pairing is refused |
+| `rcut_smth`, `rcut` | Finite radii with `0 <= rcut_smth < rcut`. hybrid: the largest `rcut` and the smallest `rcut_smth` of the descriptors in `list` |
+| `sel` | Fixed per-neighbor-species capacities in `type_map` order. hybrid: for every type the largest of the descriptors in `list` |
+| `list` | hybrid only: 1 to 16 descriptors, each an se_e2_a, se_e2_r or se_e3 descriptor with all the fields of this table that describe one (`kind`, radii, `sel`, `axis_neuron`, `normalization`, `type_one_side`, `embedding`). The hybrid itself has no `normalization`, no `embedding` and no axis neurons |
 | `axis_neuron` | se_e2_a: positive, no larger than embedding output width. se_e2_r and se_e3: zero, or left out |
 | `normalization` | One `{mean: [4], std: [4]}` per central type, repeated across slots. se_e2_r uses the first entry of each; the others are a zero mean and a unit width. se_e3 uses the width of the other three; its first entry is a zero mean and a unit width |
 | `type_one_side` | Optional, false when left out. True says that the embedding nets depend on the neighbor type only (DeePMD's key of that name): every row of `embedding` must then hold the same nets, and the [GPU trainer](GPU_TRAINING.md) trains one net per neighbor type. False leaves the nets of every pair of types their own, alike or not. Not for se_e3 |
@@ -217,7 +219,8 @@ Normalization requires zero angular means, equal positive angular standard
 deviations, and a positive radial standard deviation. All embedding networks
 start with a scalar input and share one output width. Fitting input width is
 `embedding_width * axis_neuron` for se_e2_a and `embedding_width` for
-se_e2_r and se_e3. No units or precision conversion is implicit.
+se_e2_r and se_e3, and for a hybrid the sum over the descriptors of its
+list. No units or precision conversion is implicit.
 
 Each network has a nonempty `layers` array. Each layer has `weights[input][output]`,
 `bias[output]`, `activation`, `residual`, and optional `timestep[output]` (or null).
@@ -287,6 +290,30 @@ enters through the width of its direction entries. The number of pairs grows
 with the square of the neighbors: n(n + 1)/2 evaluations of an embedding net
 for an atom with n neighbors, where the other two descriptors have n.
 
+A hybrid model (DeePMD-kit's `hybrid`) has several of these descriptors.
+Their components, in the order of `list`, are the input of the fitting nets:
+
+```text
+D = [D_1, D_2, ..., D_n]        D_k: the descriptor of list[k]
+E = sum_i (fitting[type_i](D_i) + atom_energy_bias[type_i])
+```
+
+All descriptors of a hybrid read one neighbor list, as in DeePMD-kit: it is
+made with the largest of their cutoffs and, for every type, the most slots
+any of them has (the `rcut` and `sel` of the hybrid). A descriptor has the
+nearest `sel[t]` of the list's neighbors of type `t` in its own slots (its
+own `sel`), and a neighbor at or beyond its own cutoff is an empty slot to
+it: its switch is zero from there on. Each descriptor then is what it would
+be alone, with its own radii, slots, normalization and nets. The one
+difference is which neighbors it has when slots are short. Alone, a
+descriptor keeps the nearest `sum(sel)` neighbors of any type and of those
+at most `sel[t]` of each type; in a hybrid that selection is made once, with
+the slots of the list, and the descriptor takes the first of its own slots
+from the result. The CPU reference does not select at all: it refuses a
+frame in which the list, or a descriptor within its own cutoff, has more
+neighbors of a type than slots. The GPU runtime selects as described and
+reports it.
+
 Forces use the analytic chain rule through the quintic switch, environment
 normalization, embeddings, descriptor contraction, and fitting networks.
 Embedding derivatives propagate forward from the scalar input; fitting
@@ -327,8 +354,8 @@ outputs using `tools/compare_evaluations.py`. A fixed-seed, untrained DeepMD
 E/F/virial errors of 4.44e-16 / 5.03e-17 / 3.47e-17. This establishes numerical
 compatibility for that fixture, not pretrained-model physical accuracy.
 Native training modes are documented below. This crate has no MD integrator;
-MD is provided by the shared engine. Compression tables, attention, spin,
-type embedding, `se_e3`, hybrid descriptors, exclusions,
+MD is provided by the shared engine. Compression tables on the CPU (the GPU
+runtime has them), attention, spin, type embedding, exclusions,
 frame/atomic parameters, environment protection and vacuum subtraction are not
 implemented. Such architectures
 must not be relabeled as this format; unknown fields and unsupported enums fail.
