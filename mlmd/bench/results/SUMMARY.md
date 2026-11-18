@@ -31,7 +31,11 @@ fewer); one chunk by atoms; and for every se_e3 descriptor atoms ×
 slots(slots + 1)/2 rows within what a chunk may hold. Any other pass goes
 as before, and `GpuPotential::count_downloads` counts those: a model
 without tables, a frame that left its tables and is evaluated again with
-the nets, a large frame, a large batch.
+the nets, a large frame, a large batch. New in the interface of
+`native::gpu_model`: `LAYOUT_ATOMS`, `layout_atoms`, `set_layout_atoms`,
+`count_downloads`, and `device_row_starts`, which brings the layout of a
+table of slots back for the tests of the kernel; the evaluator's `--bench`
+lines have `count_downloads`.
 
 **Measured.** The build before (ab943ea) and this one with `--compress
 0.5`, alternated in six rounds in one session, the least of each kept,
@@ -87,6 +91,16 @@ microseconds a pass; six frames are past the limit:
   to 960 atoms the numbers say 12 to 36 µs, which is within that scatter
   for passes of 0.6 to 4 ms: such a pass waits for the device, not for the
   host, and the layout kernel runs on one multiprocessor.
+- What it costs is device memory. The buffers of the rows are made for
+  full slots, and the pool keeps them between evaluations: for the HAP
+  se_e3 descriptor (76 slots, 2,926 rows an atom at most, 240 to 280 in
+  these frames) 4.1 MB for 88 atoms where the rows take 0.34 and 10.5 MB
+  for 224 where they take 1.0, in float32; for 960 water atoms (138 slots,
+  9,591 rows an atom at most, 3,559 held) 147 MB where they take 55, and
+  258 MB in float64. A pass whose full slots would not fit a chunk is laid
+  out on the host as before.
+- The batches are one frame of 192 atoms repeated, and all times are of
+  the evaluator's `--bench`: no run of the engine was timed.
 - A first run of four rounds (`...-r1.json`) was made on a machine less
   quiet: its control cases are up to 2.1% apart, and its gains on the HAP
   frames 15 to 35 µs. The tables are from the second run, of six rounds.

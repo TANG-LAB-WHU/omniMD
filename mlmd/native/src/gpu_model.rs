@@ -559,11 +559,11 @@ extern "C" __global__ void se_e3_count(const int* index, int natoms, int slots, 
 // atom the rows of those before it and its own. `sums`: a number per atom.
 // The neighbors of a type fill its first slots (as for `count_neighbors`),
 // so their number is the place of the first empty slot of the type, which
-// halving finds in a few loads where counting takes one for every slot. A
-// block has one multiprocessor: with a load for every slot a pass of 960
-// atoms with 138 slots each took 19 µs longer (of 1.6 ms, in float32; with
-// fewer atoms the two were within what the timings scatter). Every thread
-// goes through every barrier, with an atom or without.
+// halving finds in a few loads where counting takes one for every slot
+// (thirteen against 138 for the slots of the water model). A block has one
+// multiprocessor, so what its threads load is kept small; the timings did
+// not tell the two apart. Every thread goes through every barrier, with an
+// atom or without.
 extern "C" __global__ void se_e3_layout(const int* index, const int* sel, int natoms, int slots,
         int ntypes, long long* row_start) {
     extern __shared__ long long sums[];
@@ -2589,17 +2589,18 @@ impl<P: Scalar> GpuPotential<P> {
     /// se_e3: the most atoms of a pass whose rows are laid out on the
     /// device. The host lays the rows out from the neighbors every atom
     /// holds, which it has to bring back from the device in the middle of
-    /// an evaluation: twenty to twenty-five microseconds, for the wait and
-    /// the calls, which a frame of a hundred atoms feels. It needs the
-    /// rows for three things: to launch the embedding nets over them, to
-    /// end a chunk where they would be too many, and to size the buffers
-    /// that hold them. With tables nothing is launched over the rows. So a
-    /// pass that reads the tables of every se_e3 descriptor, has no more
-    /// atoms than this and is one chunk even if every neighbor slot of
-    /// every atom is full gets its layout from a kernel instead, with
-    /// buffers for that many rows, and nothing comes back from the device
-    /// before the results. [`Self::count_downloads`] counts the other
-    /// passes.
+    /// an evaluation: 17 to 30 microseconds where it was measured, for the
+    /// wait and the calls, which a frame of a hundred atoms feels. It
+    /// needs the rows for three things: to launch the embedding nets over
+    /// them, to end a chunk where they would be too many, and to size the
+    /// buffers that hold them. With tables nothing is launched over the
+    /// rows. So a pass that reads the tables of every se_e3 descriptor, has
+    /// no more atoms than this and is one chunk even if every neighbor slot
+    /// of every atom is full gets its layout from a kernel instead, and
+    /// nothing comes back from the device before the results. Its buffers
+    /// are made for the rows of full slots, which is some ten times the
+    /// rows a frame of the HAP systems has. [`Self::count_downloads`]
+    /// counts the other passes.
     pub fn layout_atoms(&self) -> usize {
         self.layout_atoms
     }
