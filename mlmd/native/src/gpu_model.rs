@@ -18,7 +18,9 @@
 //! the square of the neighbors an atom has. They are laid out from the
 //! numbers of neighbors (one small download per evaluation), and a chunk
 //! of atoms ends where its rows would be too many; the embedding nets
-//! themselves are the same kernel.
+//! themselves are the same kernel. With tables for these nets (in pieces of
+//! uneven length: see [`GpuPotential::compress`]) no rows of them are kept:
+//! the descriptor and force kernels read the tables themselves.
 //!
 //! A hybrid model has several of these descriptors, whose components one
 //! after the other are the input of the fitting nets. They read one neighbor
@@ -1251,7 +1253,7 @@ const PAIR_TABLE_FLOOR_F64: f64 = 1e-14;
 /// The first bits of θ after its exponent that tell a cell of such a table,
 /// and the bits of θ that are left for the place within a piece: a piece is
 /// no narrower than its far end over two to that power.
-const PAIR_TABLE_KEY_BITS: u32 = 4;
+const PAIR_TABLE_KEY_BITS: u32 = 6;
 const PAIR_TABLE_RESOLUTION_F32: u32 = 20;
 const PAIR_TABLE_RESOLUTION_F64: u32 = 28;
 /// Float32 chunks of at most this many atoms per center type and model run
@@ -1360,7 +1362,9 @@ fn bytes_per_pair<P>(width: usize) -> usize {
 pub(crate) const PAIR_BLOCK: u32 = 1024;
 
 /// The most warps of a block of the se_e3 descriptor kernel that reads the
-/// tables, with a warp per row and with a thread per row.
+/// tables, with a warp per row and with a thread per row. (A block of
+/// thirty-two warps leaves a thread 64 registers: the kernel with a warp per
+/// row takes 38, in float64 39.)
 const TABLE_DESCRIPTOR_WARPS: usize = 32;
 const TABLE_ROW_WARPS: usize = 8;
 
@@ -2382,15 +2386,21 @@ impl<P: Scalar> GpuPotential<P> {
     }
 
     /// Model compression (DeePMD `dp compress`): replaces every embedding
-    /// net by a piecewise quintic table with knots every `step` in the
+    /// net by a piecewise quintic table.
+    ///
+    /// The nets of se_e2_a and se_e2_r get knots every `step` in the
     /// normalized radial input, covering neighbor distances from
-    /// `min_distance` out to the cutoff. With `step = 0.01` the table agrees
-    /// with the network to rounding level. Like DeePMD's extrapolation
-    /// region, the tables continue with ten times the step down to a fifth
-    /// of `min_distance`. A frame with a pair closer than that is evaluated
-    /// with the exact networks instead (see [`Self::table_fallbacks`]), so
-    /// results never depend on the range. Empty neighbor slots do not go
-    /// through the tables: their row is the networks' own.
+    /// `min_distance` out to the cutoff. With `step = 0.01` such a table
+    /// follows a smooth net to rounding level, and a trained one whose
+    /// weights have grown less closely: for the models of iteration 4 of the
+    /// HAP pipeline the forces of its sealed test frames are within 2.4e-6
+    /// eV/Å of those of the nets, 1.4e-7 at half the step and 2.8e-9 at a
+    /// quarter. Like DeePMD's extrapolation region, the tables continue with
+    /// ten times the step down to a fifth of `min_distance`. A frame with a
+    /// pair closer than that is evaluated with the exact networks instead
+    /// (see [`Self::table_fallbacks`]), so results never depend on the
+    /// range. Empty neighbor slots do not go through the tables: their row
+    /// is the networks' own.
     ///
     /// The nets of se_e3 take θ, the product of the normalized directions
     /// of two neighbors, which spans thousands of units where the radial
@@ -2407,6 +2417,9 @@ impl<P: Scalar> GpuPotential<P> {
     /// frame with a θ beyond is evaluated with the exact networks like one
     /// that leaves the tables of the other descriptors. A net that turns
     /// faster than the precision of θ can follow is refused, with the place.
+    /// With these tables the descriptor keeps no embedding rows: its
+    /// kernels read the tables where they would read the rows, and a chunk
+    /// holds as many times more pairs as a pair takes less memory.
     ///
     /// Every descriptor of a hybrid gets tables, each over the range of its
     /// own cutoff and statistics.

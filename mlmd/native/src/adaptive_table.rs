@@ -21,6 +21,13 @@
 //!   largest value the net was seen to take, and the slope within
 //!   [`SLOPE_TOLERANCE`] times that fraction of its largest slope.
 //!
+//! A net is not computed more exactly than its sums allow: a unit with a
+//! large weight and a large bias, which cancel where it turns, is exact to
+//! some 2e-16 of the bias. So a piece may also be off by the bound on that
+//! rounding at the places it is checked at and at its ends
+//! ([`Network::scalar_rounding`]); no halving brings a quintic closer to
+//! the net than the net is to itself.
+//!
 //! All ends of pieces are whole multiples of powers of two, which a float
 //! holds exactly, and the piece of an input is found from the input itself:
 //! its sign, its exponent and the first [`TableOptions::key_bits`] bits after
@@ -30,8 +37,9 @@
 //! float32 or in float64, whatever the size of the input; a table that counts
 //! steps from the lower end of a range of thousands rounds a float32 input
 //! to a thousandth of a unit. For this a cell that holds pieces of several
-//! lengths has them all cut to its shortest, which adds less than a percent
-//! of pieces for the nets this was measured on.
+//! lengths has them all cut to its shortest, which adds 0.2 percent of pieces
+//! for the nets of the HAP models this was measured on; a net with a feature
+//! far narrower than a cell, far from zero, pays for the whole cell.
 use crate::Network;
 use omnimd_ml_contract::{Error, Result};
 
@@ -40,8 +48,10 @@ const MOVE: f64 = 2.0;
 /// The slope of a piece may be off by this many times the tolerance, as a
 /// fraction of the largest slope of the net.
 pub(crate) const SLOPE_TOLERANCE: f64 = 100.0;
-/// A table has no more pieces than this.
+/// A table has no more pieces than this, and no more than have their
+/// coefficients in this many bytes of float64.
 const MOST_PIECES: usize = 1 << 20;
+const MOST_BYTES: usize = 256 << 20;
 /// The piece at zero is no narrower than two to this power.
 const NARROWEST: i32 = -100;
 
@@ -89,11 +99,13 @@ fn pow2(exponent: i32) -> f64 {
 }
 
 /// Value, slope and curvature of every output along `|x|` on one side of
-/// zero.
+/// zero, and the bounds on the rounding of value and slope there.
 struct Jet {
     value: Vec<f64>,
     slope: Vec<f64>,
     curvature: Vec<f64>,
+    value_rounding: f64,
+    slope_rounding: f64,
 }
 
 /// A piece the halving kept: `index` widths of `2^level` from zero.
@@ -177,6 +189,8 @@ struct Builder<'a> {
     value_scale: f64,
     slope_scale: f64,
     leaves: Vec<Leaf>,
+    /// The most pieces the table may have.
+    most: usize,
 }
 
 impl Builder<'_> {
@@ -186,19 +200,33 @@ impl Builder<'_> {
             self.value_scale = self.value_scale.max(v.abs());
             self.slope_scale = self.slope_scale.max(d.abs());
         }
+        let (value_rounding, slope_rounding) = self.network.scalar_rounding(self.sign * a)?;
         let sign = self.sign;
         Ok(Jet {
             value,
             slope: slope.into_iter().map(|d| sign * d).collect(),
             curvature,
+            value_rounding,
+            slope_rounding,
         })
     }
 
     /// Whether the quintic of a piece of width `h` is close enough to the
-    /// net at the place `u`, where the net has the jet `exact`.
-    fn close(&self, coefficients: &[f64], h: f64, u: f64, exact: &Jet) -> bool {
-        let value_limit = self.options.tolerance * self.value_scale;
-        let slope_limit = SLOPE_TOLERANCE * self.options.tolerance * self.slope_scale;
+    /// net at the place `u`, where the net has the jet `exact`: within the
+    /// tolerance, or within the rounding of the net there and at the ends
+    /// of the piece (`rounding`: of value and slope).
+    fn close(
+        &self,
+        coefficients: &[f64],
+        h: f64,
+        u: f64,
+        exact: &Jet,
+        rounding: (f64, f64),
+    ) -> bool {
+        let value_limit =
+            self.options.tolerance * self.value_scale + rounding.0.max(exact.value_rounding);
+        let slope_limit = SLOPE_TOLERANCE * self.options.tolerance * self.slope_scale
+            + rounding.1.max(exact.slope_rounding);
         coefficients.chunks_exact(6).enumerate().all(|(m, c)| {
             let (value, slope) = at(c, u);
             (value - exact.value[m]).abs() <= value_limit
@@ -208,7 +236,8 @@ impl Builder<'_> {
 
     /// The pieces of `[index, index + 1]·2^level`, whose ends and middle
     /// have the jets given, in the order of `|x|`.
-    fn refine(&mut self, level: i32, index: u64, from: &Jet, middle: &Jet, to: &Jet) -> Result<()> {
+    fn refine(&mut self, level: i32, index: u64, jets: [&Jet; 3]) -> Result<()> {
+        let [from, middle, to] = jets;
         let h = pow2(level);
         let start = index as f64 * h;
         let first = self.jet(start + 0.25 * h)?;
@@ -218,10 +247,16 @@ impl Builder<'_> {
             true => (start, start + h),
             false => (-(start + h), -start),
         };
+        // What the ends of the piece, which the quintic goes through, are
+        // themselves off by.
+        let ends = (
+            from.value_rounding.max(to.value_rounding),
+            from.slope_rounding.max(to.slope_rounding),
+        );
         if self.network.bent_movement(lo, hi) <= MOVE
-            && self.close(&coefficients, h, 0.25, &first)
-            && self.close(&coefficients, h, 0.5, middle)
-            && self.close(&coefficients, h, 0.75, &third)
+            && self.close(&coefficients, h, 0.25, &first, ends)
+            && self.close(&coefficients, h, 0.5, middle, ends)
+            && self.close(&coefficients, h, 0.75, &third, ends)
         {
             self.leaves.push(Leaf {
                 level,
@@ -237,14 +272,14 @@ impl Builder<'_> {
                 h / 2.0
             )));
         }
-        if self.leaves.len() >= MOST_PIECES {
+        if self.leaves.len() >= self.most {
             return Err(Error(format!(
-                "the net needs more than {MOST_PIECES} pieces for a table within {:e} (reached {near})",
-                self.options.tolerance
+                "the net needs more than {} pieces for a table within {:e} (reached {near})",
+                self.most, self.options.tolerance
             )));
         }
-        self.refine(level - 1, 2 * index, from, &first, middle)?;
-        self.refine(level - 1, 2 * index + 1, middle, &third, to)
+        self.refine(level - 1, 2 * index, [from, &first, middle])?;
+        self.refine(level - 1, 2 * index + 1, [middle, &third, to])
     }
 
     /// The pieces of one side of zero.
@@ -253,7 +288,7 @@ impl Builder<'_> {
         let from = self.jet(0.0)?;
         let middle = self.jet(pow2(top - 1))?;
         let to = self.jet(pow2(top))?;
-        self.refine(top, 0, &from, &middle, &to)?;
+        self.refine(top, 0, [&from, &middle, &to])?;
         Ok(std::mem::take(&mut self.leaves))
     }
 }
@@ -267,6 +302,7 @@ fn directory(
     top: i32,
     key_bits: u32,
     width: usize,
+    most: usize,
     coefficients: &mut Vec<f64>,
 ) -> Result<Vec<(i64, i32)>> {
     let per_exponent = 1usize << key_bits;
@@ -314,9 +350,9 @@ fn directory(
         let inside = &leaves[leaf..=last];
         let finest = inside.iter().map(|l| l.level).min().unwrap_or(level);
         let first = pieces(coefficients);
-        if first + (1usize << (level - finest).min(40)) > MOST_PIECES {
+        if first + (1usize << (level - finest).min(40)) > most {
             return Err(Error(format!(
-                "the net needs more than {MOST_PIECES} pieces for a table: it turns within {:e} near {start}",
+                "the net needs more than {most} pieces for a table: it turns within {:e} near {start}",
                 pow2(finest)
             )));
         }
@@ -353,6 +389,7 @@ impl NetTable {
                 options.tolerance
             )));
         }
+        let most = (MOST_BYTES / (48 * width)).clamp(1, MOST_PIECES);
         let mut builder = Builder {
             network,
             options,
@@ -360,6 +397,7 @@ impl NetTable {
             value_scale: 0.0,
             slope_scale: 0.0,
             leaves: Vec::new(),
+            most,
         };
         let positive = builder.side(1.0, top)?;
         let negative = builder.side(-1.0, top)?;
@@ -371,6 +409,7 @@ impl NetTable {
             top,
             options.key_bits,
             width,
+            most,
             &mut coefficients,
         )?;
         cells.extend(directory(
@@ -379,6 +418,7 @@ impl NetTable {
             top,
             options.key_bits,
             width,
+            most,
             &mut coefficients,
         )?);
         if coefficients.iter().any(|c| !c.is_finite()) {
@@ -520,7 +560,7 @@ mod tests {
 
     const DOUBLE: TableOptions = TableOptions {
         tolerance: 1e-11,
-        key_bits: 4,
+        key_bits: 6,
         resolution: 28,
     };
 
@@ -794,14 +834,29 @@ mod tests {
             .unwrap_err()
             .to_string();
         assert!(error.contains("turns too fast near 999.9"), "{error}");
-        // Float64 has the bits for it.
+        // Float64 has the bits for it. The weight of 200 and the bias of
+        // -200,000 cancel where the unit turns, which leaves the net itself
+        // some 2e-11 of rounding there, above the tolerance (the bound on it
+        // is 9e-11): the pieces are as close as that, and no halving goes
+        // on after what cannot be had. A coarser tolerance is kept. The
+        // unit turns within a fifth of a unit, across the end of a cell of
+        // eight: the two cells there are cut to its narrowest piece all
+        // over, 131,000 pieces where the turn itself has under a thousand.
+        // (A feature that narrow for its place is what these tables are
+        // wasteful for. The nets of the HAP models trained with se_e3 have
+        // none such: cutting their cells alike adds 0.2% of pieces.)
         let table = NetTable::build(&network, 11, DOUBLE).unwrap();
-        let (value, _) = worst(
-            &table,
-            &network,
-            (0..20_000).map(|k| 999.9 + k as f64 * 1e-5),
-        );
-        assert!(value <= 1.5 * DOUBLE.tolerance, "{value:e}");
+        let near = || (0..20_000).map(|k| 999.9 + k as f64 * 1e-5);
+        let (value, _) = worst(&table, &network, near());
+        assert!(value <= 2e-10, "{value:e}");
+        assert!(table.pieces() < 140_000, "{}", table.pieces());
+        let coarser = TableOptions {
+            tolerance: 1e-9,
+            ..DOUBLE
+        };
+        let table = NetTable::build(&network, 11, coarser).unwrap();
+        let (value, _) = worst(&table, &network, near());
+        assert!(value <= 1.5e-9, "{value:e}");
         // What cannot be a table at all.
         let two_inputs = Network {
             layers: vec![Layer {

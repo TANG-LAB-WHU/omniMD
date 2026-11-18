@@ -1,4 +1,4 @@
-//! JSONL evaluator on the omnimd-gpu se_e2_a path (device 0).
+//! JSONL evaluator on the omnimd-gpu runtime (device 0).
 //!
 //! ```text
 //! omnimd-native-gpu-eval MODEL.json [--precision float64|float32] [--bench K]
@@ -12,8 +12,10 @@
 //! frame to stderr; `--profile` adds per-stage times from one extra,
 //! synchronized evaluation. `--chunk` overrides the per-chunk atom count.
 //! `--compress RMIN` tabulates the embedding nets for neighbor distances
-//! down to RMIN Å (table step 0.01 unless given); frames with closer pairs
-//! fall back to the exact networks. `--fused-fitting ATOMS` sets the largest
+//! down to RMIN Å (table step 0.01 unless given; for se_e3 the step sets
+//! the tolerance of tables in pieces of uneven length); frames with pairs
+//! closer than a fifth of RMIN fall back to the exact networks, and the
+//! size of the tables is printed. `--fused-fitting ATOMS` sets the largest
 //! chunk whose fitting nets run in the single fused kernel instead of cuBLAS
 //! (0 disables it); the default suits an RTX 4090.
 //!

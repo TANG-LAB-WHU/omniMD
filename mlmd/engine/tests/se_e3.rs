@@ -222,23 +222,25 @@ fn nve_with_an_se_e3_model_on_the_gpu_runtime_follows_the_cpu() {
     let difference = samples(&fast)[3]["evaluation"]["energy"].as_f64().unwrap()
         - cpu[3]["evaluation"]["energy"].as_f64().unwrap();
     assert!(difference.abs() < 1e-4, "{difference}");
-    // The embedding nets of this descriptor have no tables: a request for
-    // them stops with the reason and writes no trajectory.
-    let (refused, output) = launch(
+    // With tables for the embedding nets the run is the same to the
+    // accuracy of the tables, which is close to that of float64 here.
+    let tables = engine(
         "run",
         &directory,
         "tables",
         &request(json!({"native_model": model, "device": "cuda:0",
             "gpu_runtime": {"compress_min_distance": 0.5}})),
     );
-    assert!(!refused.status.success());
-    let reason = String::from_utf8_lossy(&refused.stderr);
-    assert!(reason.contains("se_e3 are not tabulated"), "{reason}");
-    assert!(
-        !output.exists()
-            || !std::fs::read_to_string(&output)
-                .unwrap()
-                .contains("\"kind\":\"frame\"")
-    );
+    assert_eq!(tables[0]["metadata"]["backend"], "native-gpu-se-e3");
+    for (got, expected) in samples(&tables).iter().zip(&cpu) {
+        let energy = |record: &Value| record["evaluation"]["energy"].as_f64().unwrap();
+        assert!(
+            (energy(got) - energy(expected)).abs() < 1e-9,
+            "step {}: energies {} and {}",
+            expected["step"],
+            energy(got),
+            energy(expected)
+        );
+    }
     std::fs::remove_dir_all(directory).unwrap();
 }

@@ -233,8 +233,7 @@ fn nve_with_a_hybrid_model_on_the_gpu_runtime_follows_the_cpu() {
     };
     let expected = cpu[3]["evaluation"]["energy"].as_f64().unwrap();
     assert!((last(&fast) - expected).abs() < 1e-4, "{}", last(&fast));
-    // Embedding tables: the se_e2_a and se_e2_r descriptors of the model get
-    // them, its se_e3 descriptor keeps its networks, and the run is the
+    // Embedding tables for every descriptor of the model: the run is the
     // same to the accuracy of the tables.
     let tables = engine(
         "run",

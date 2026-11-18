@@ -1201,9 +1201,8 @@ fn se_e3_matches_deepmd_reference() {
     );
 }
 
-/// Float32, batches and committees take an se_e3 model through the same
-/// stages as the other descriptors: each against the CPU. Its embedding
-/// nets are not tabulated, and the trainer does not have it.
+/// Float32, batches, committees and tables take an se_e3 model through the
+/// same stages as the other descriptors: each against the CPU.
 #[test]
 fn se_e3_in_float32_in_batches_and_committees() {
     let Some(device) = device() else { return };
@@ -1285,35 +1284,57 @@ fn se_e3_in_float32_in_batches_and_committees() {
             }
         }
     }
-    // No tables for these nets: asked for, they are refused.
-    let error = committee.compress(0.8, 0.01).unwrap_err().to_string();
-    assert!(error.contains("se_e3 are not tabulated"), "{error}");
+    // Tables for the nets of every member, each over the range of θ that
+    // the widths of its own central types give (the members differ in them,
+    // and so do the types of one member).
     assert!(!committee.is_compressed());
-    // Float32 networks and sums: about single precision, nothing worse.
+    committee.compress(0.8, 0.01).unwrap();
+    assert!(committee.is_compressed());
+    for (index, of_frame) in committee.eval_members(&batch).unwrap().iter().enumerate() {
+        for (member, got) in of_frame.iter().enumerate() {
+            compare(
+                &format!("three-body committee with tables, frame {index}, member {member}"),
+                got,
+                &expected[index][member],
+                (1e-11, 1e-9),
+            );
+        }
+    }
+    assert_eq!(committee.table_fallbacks(), 0);
+    // Float32 networks and sums: about single precision, nothing worse;
+    // with tables as well.
     let mut single = GpuPotential::<f32>::committee(&members, device.clone()).unwrap();
     let mut worst = (0.0f64, 0.0f64);
-    for (index, of_frame) in single.eval_members(&batch).unwrap().iter().enumerate() {
-        for (member, got) in of_frame.iter().enumerate() {
-            let reference = &expected[index][member];
-            compare(
-                &format!("three-body float32, frame {index}, member {member}"),
-                got,
-                reference,
-                (1e-6, 1e-4),
-            );
-            worst.0 = worst
-                .0
-                .max((got.energy - reference.energy).abs() / frames[index].positions.len() as f64);
-            for (a, b) in got
-                .forces
-                .iter()
-                .flatten()
-                .zip(reference.forces.iter().flatten())
-            {
-                worst.1 = worst.1.max((a - b).abs());
+    for tables in [false, true] {
+        if tables {
+            single.compress(0.8, 0.01).unwrap();
+        }
+        for (index, of_frame) in single.eval_members(&batch).unwrap().iter().enumerate() {
+            for (member, got) in of_frame.iter().enumerate() {
+                let reference = &expected[index][member];
+                compare(
+                    &format!(
+                        "three-body float32 (tables: {tables}), frame {index}, member {member}"
+                    ),
+                    got,
+                    reference,
+                    (1e-6, 1e-4),
+                );
+                worst.0 = worst.0.max(
+                    (got.energy - reference.energy).abs() / frames[index].positions.len() as f64,
+                );
+                for (a, b) in got
+                    .forces
+                    .iter()
+                    .flatten()
+                    .zip(reference.forces.iter().flatten())
+                {
+                    worst.1 = worst.1.max((a - b).abs());
+                }
             }
         }
     }
+    assert_eq!(single.table_fallbacks(), 0);
     eprintln!(
         "se_e3 in float32 against the CPU: energy within {:.1e} eV per atom, forces {:.1e} eV/A",
         worst.0, worst.1
@@ -1375,6 +1396,284 @@ fn se_e3_in_float32_in_batches_and_committees() {
         .sum();
     let fitting: usize = models[0].fitting.iter().map(size).sum();
     assert_eq!(trainer.parameter_count(), nets + fitting);
+}
+
+/// The largest difference of a force component.
+fn force_difference(a: &Evaluation, b: &Evaluation) -> f64 {
+    a.forces
+        .iter()
+        .flatten()
+        .zip(b.forces.iter().flatten())
+        .map(|(x, y)| (x - y).abs())
+        .fold(0.0, f64::max)
+}
+
+/// The embedding nets of se_e3 as tables in pieces of uneven length: against
+/// the nets (the CPU reference), in chunks and batches, for atoms without a
+/// pair, in float32, up to the ends of the tables and beyond them, where a
+/// frame goes back to the nets.
+#[test]
+fn se_e3_tables_follow_the_nets_and_give_way_outside_their_range() {
+    let Some(device) = device() else { return };
+    const TABLES: (f64, f64) = (1e-11, 1e-9);
+    let triclinic = [[9.0, 0.0, 0.0], [1.5, 8.5, 0.0], [-1.0, 0.8, 9.2]];
+    let cubic = [[8.0, 0.0, 0.0], [0.0, 8.0, 0.0], [0.0, 0.0, 8.0]];
+    let model = three_body(2, vec![80, 160], 4.5, 301);
+    let frames = [
+        frame(triclinic, 5, 2, true, 302),
+        frame(cubic, 4, 2, false, 303),
+    ];
+    let mut cpu = NativePotential::new(model.clone()).unwrap();
+    let expected: Vec<Evaluation> = frames.iter().map(|f| cpu.eval(f).unwrap()).collect();
+
+    let mut gpu = GpuPotential::<f64>::new(&model, device.clone()).unwrap();
+    assert_eq!(gpu.table_size(), (0, 0));
+    gpu.compress(0.8, 0.01).unwrap();
+    assert!(gpu.is_compressed());
+    // Three nets (two types of neighbors), of sixteen outputs.
+    let (bytes, pieces) = gpu.table_size();
+    assert!((300..100_000).contains(&pieces), "{pieces} pieces");
+    assert!(bytes >= pieces * 16 * 6 * 8, "{bytes} bytes");
+    let mut worst = 0.0f64;
+    for (index, (frame, exact)) in frames.iter().zip(&expected).enumerate() {
+        let got = gpu.eval(frame).unwrap();
+        compare(
+            &format!("three-body tables, frame {index}"),
+            &got,
+            exact,
+            TABLES,
+        );
+        worst = worst.max(force_difference(&got, exact));
+    }
+    eprintln!(
+        "se_e3 tables in float64 against the nets: forces within {worst:.1e} eV/A; {pieces} pieces, {bytes} bytes"
+    );
+    // Both frames in one pass.
+    let batch: Vec<&Frame> = frames.iter().collect();
+    for (index, got) in gpu.eval_batch(&batch).unwrap().iter().enumerate() {
+        compare(
+            &format!("three-body tables in a batch, frame {index}"),
+            got,
+            &expected[index],
+            TABLES,
+        );
+    }
+    // Chunks that end by their atoms or by their rows, down to an atom a
+    // chunk (a row of a table takes a tenth of the memory of a stored row
+    // here, and a chunk holds as many times more of them).
+    for (atoms, rows) in [(7, 1_000_000), (1000, 1), (1000, 40), (13, 333)] {
+        gpu.set_chunk_atoms(atoms);
+        gpu.set_chunk_pairs(rows);
+        compare(
+            &format!("three-body tables, chunks of {atoms} atoms and {rows} rows"),
+            &gpu.eval(&frames[0]).unwrap(),
+            &expected[0],
+            TABLES,
+        );
+    }
+    assert_eq!(gpu.table_fallbacks(), 0);
+
+    // A coarse step is a loose tolerance: fewer pieces, visibly worse. So the
+    // tables are what is evaluated.
+    let mut coarse = GpuPotential::<f64>::new(&model, device.clone()).unwrap();
+    coarse.compress(0.8, 0.5).unwrap();
+    assert!(
+        coarse.table_size().1 * 3 < pieces,
+        "{:?}",
+        coarse.table_size()
+    );
+    let rough = force_difference(&coarse.eval(&frames[0]).unwrap(), &expected[0]);
+    assert!(rough > 1e-7, "coarse tables too close: {rough}");
+    assert!(rough < 1.0, "coarse tables too far: {rough}");
+
+    // Float32: the tables are as fine as single precision can use, fewer
+    // pieces than in float64, and the result is within its rounding.
+    let mut single = GpuPotential::<f32>::new(&model, device.clone()).unwrap();
+    single.compress(0.8, 0.01).unwrap();
+    assert!(single.table_size().1 < pieces);
+    for (index, (frame, exact)) in frames.iter().zip(&expected).enumerate() {
+        for atoms in [1000, 7] {
+            single.set_chunk_atoms(atoms);
+            compare(
+                &format!("three-body tables in float32, frame {index}, chunks of {atoms}"),
+                &single.eval(frame).unwrap(),
+                exact,
+                (1e-6, 1e-4),
+            );
+        }
+    }
+    assert_eq!(single.table_fallbacks(), 0);
+
+    // Atoms without a pair have no row, with tables as without: a pair and an
+    // atom far away, each atom in a chunk of its own, and an atom alone.
+    let wide = three_body(3, vec![30, 30, 30], 4.0, 304);
+    let mut wide_cpu = NativePotential::new(wide.clone()).unwrap();
+    let mut wide_gpu = GpuPotential::<f64>::new(&wide, device.clone()).unwrap();
+    wide_gpu.compress(0.8, 0.01).unwrap();
+    let sparse = Frame {
+        positions: vec![[0.0, 0.0, 0.0], [20.0, 1.0, 3.0], [1.3, 0.4, -0.2]],
+        species: vec!["H".into(), "O".into(), "C".into()],
+        cell: None,
+        units: Units::EvAngstrom,
+    };
+    let alone = Frame {
+        positions: vec![[0.3, -0.1, 0.2]],
+        species: vec!["C".into()],
+        cell: None,
+        units: Units::EvAngstrom,
+    };
+    for (label, frame) in [("a pair and an atom", &sparse), ("an atom alone", &alone)] {
+        let exact = wide_cpu.eval(frame).unwrap();
+        for atoms in [1000, 1] {
+            wide_gpu.set_chunk_atoms(atoms);
+            compare(
+                &format!("three-body tables, {label}, chunks of {atoms}"),
+                &wide_gpu.eval(frame).unwrap(),
+                &exact,
+                TABLES,
+            );
+        }
+    }
+    assert_eq!(wide_gpu.table_fallbacks(), 0);
+
+    // Embeddings wider than a warp, and than a block of the kernel that has
+    // a warp for a row (float32: three rounds of its lanes for 136 outputs).
+    // In float64 a thread has a row and sums of its own in shared memory,
+    // for which 136 outputs leave one warp of threads; with 200 not one
+    // warp fits, and float64 goes by warps as well.
+    let lattice = [[7.0, 0.0, 0.0], [0.5, 7.0, 0.0], [0.0, 0.0, 7.0]];
+    let small = frame(lattice, 3, 2, true, 305);
+    for width in [40, 136, 200] {
+        let model = common::three_body_model(2, vec![40, 80], 4.0, 306 + width as u64, width);
+        let exact = NativePotential::new(model.clone())
+            .unwrap()
+            .eval(&small)
+            .unwrap();
+        let mut double = GpuPotential::<f64>::new(&model, device.clone()).unwrap();
+        double.compress(0.8, 0.01).unwrap();
+        compare(
+            &format!("three-body tables, embedding of {width}"),
+            &double.eval(&small).unwrap(),
+            &exact,
+            TABLES,
+        );
+        let mut single = GpuPotential::<f32>::new(&model, device.clone()).unwrap();
+        single.compress(0.8, 0.01).unwrap();
+        compare(
+            &format!("three-body tables in float32, embedding of {width}"),
+            &single.eval(&small).unwrap(),
+            &exact,
+            (1e-6, 1e-4),
+        );
+        assert_eq!(double.table_fallbacks() + single.table_fallbacks(), 0);
+    }
+
+    // The ends of the tables. Tables from 2 Å reach to a fifth of that: the
+    // direction of a neighbor at 0.4 Å (inside the smoothing radius, where
+    // the entry is 1/r) over the narrowest width of a central type gives the
+    // largest θ, and a table ends at the power of two from there on. Two
+    // atoms of the type with that width have one pair each, a neighbor with
+    // itself, whose θ is the square of its direction.
+    let width = model
+        .descriptor
+        .normalization
+        .iter()
+        .map(|n| n.std[1])
+        .fold(f64::INFINITY, f64::min);
+    assert_eq!(width, model.descriptor.normalization[0].std[1]);
+    let end = 2f64.powf((1.0 / (0.4 * width)).powi(2).log2().ceil());
+    // The distance at which θ is the end of the table.
+    let edge = 1.0 / (width * end.sqrt());
+    assert!(edge > 0.2 && edge < 0.4, "{edge}");
+    let pair = |r: f64| Frame {
+        positions: vec![[0.0, 0.0, 0.0], [r, 0.0, 0.0]],
+        species: vec!["O".into(), "O".into()],
+        cell: None,
+        units: Units::EvAngstrom,
+    };
+    let mut short = GpuPotential::<f64>::new(&model, device.clone()).unwrap();
+    short.compress(2.0, 0.01).unwrap();
+    for (factor, fallbacks) in [(1.3, 0), (1.001, 0), (0.999, 1), (0.8, 2)] {
+        let frame = pair(edge * factor);
+        let exact = cpu.eval(&frame).unwrap();
+        assert!(exact.forces[0][0].abs() > 1e-3, "{:?}", exact.forces);
+        compare(
+            &format!("three-body tables, a pair at {factor} of the end"),
+            &short.eval(&frame).unwrap(),
+            &exact,
+            TABLES,
+        );
+        assert_eq!(short.table_fallbacks(), fallbacks, "at {factor} of the end");
+    }
+    // The frames above are within these tables as well, at the tolerance of
+    // any (there is no coarser part).
+    compare(
+        "three-body tables from 2 A",
+        &short.eval(&frames[0]).unwrap(),
+        &expected[0],
+        TABLES,
+    );
+    assert_eq!(short.table_fallbacks(), 2);
+    // One frame of a batch outside the tables: that frame alone goes back to
+    // the nets, in chunks as well.
+    let mut close = frames[0].clone();
+    close.positions[1] = [
+        close.positions[0][0] + 0.25,
+        close.positions[0][1],
+        close.positions[0][2],
+    ];
+    let exact_close = cpu.eval(&close).unwrap();
+    for atoms in [1000, 9] {
+        short.set_chunk_atoms(atoms);
+        let before = short.table_fallbacks();
+        let got = short.eval_batch(&[&frames[0], &close, &frames[1]]).unwrap();
+        compare("a batch, the frame before", &got[0], &expected[0], TABLES);
+        compare("a batch, the frame outside", &got[1], &exact_close, FLOAT64);
+        compare("a batch, the frame after", &got[2], &expected[1], TABLES);
+        assert_eq!(short.table_fallbacks(), before + 1);
+    }
+
+    // What is refused, and leaves the potential as it was.
+    for (min_distance, step) in [(4.5, 0.01), (0.0, 0.01), (0.8, 0.0), (0.8, 2.0)] {
+        let error = short.compress(min_distance, step).unwrap_err().to_string();
+        assert!(
+            error.contains("min_distance < rcut") || error.contains("table step"),
+            "{error}"
+        );
+    }
+    assert!(short.is_compressed());
+    // A net that turns within a thousandth of a unit at θ = 200, where a
+    // float32 has steps of 1.5e-5: too few for a piece. The potential says
+    // which net and where, and goes on with its nets.
+    let mut sharp = model.clone();
+    let first = &mut sharp.descriptor.embedding[0][0].layers[0];
+    first.weights[0][0] = 2000.0;
+    first.bias[0] = -2000.0 * 200.0;
+    let mut single = GpuPotential::<f32>::new(&sharp, device).unwrap();
+    let error = single.compress(0.8, 0.01).unwrap_err().to_string();
+    assert!(
+        error.contains("se_e3 for neighbors of types 0 and 0") && error.contains("turns too fast"),
+        "{error}"
+    );
+    let place: f64 = error
+        .split("near ")
+        .nth(1)
+        .and_then(|rest| rest.split(' ').next())
+        .and_then(|number| number.parse().ok())
+        .unwrap_or_else(|| panic!("no place in {error:?}"));
+    assert!((place - 200.0).abs() < 0.1, "{error}");
+    assert!(!single.is_compressed());
+    assert_eq!(single.table_size(), (0, 0));
+    let exact = NativePotential::new(sharp)
+        .unwrap()
+        .eval(&frames[0])
+        .unwrap();
+    compare(
+        "three-body, a net too fast for float32 tables",
+        &single.eval(&frames[0]).unwrap(),
+        &exact,
+        (1e-6, 1e-4),
+    );
 }
 
 /// A descriptor for a hybrid, as a model of its own, with a smoothing radius
@@ -1950,9 +2249,9 @@ fn hybrid_in_float32_compressed_in_batches_and_committees() {
             }
         }
     }
-    // Tables for the se_e2_a and se_e2_r descriptors, each over its own
-    // range; the se_e3 descriptor keeps its networks. Quintic interpolation
-    // at step 0.01 is good to ~1e-12; allow 1e-9.
+    // Tables for every descriptor, each over its own range: of one step for
+    // se_e2_a and se_e2_r, in pieces of uneven length for se_e3. Quintic
+    // interpolation at step 0.01 is good to ~1e-12 for these nets; allow 1e-9.
     assert!(!committee.is_compressed());
     committee.compress(0.8, 0.01).unwrap();
     assert!(committee.is_compressed());
@@ -1968,23 +2267,26 @@ fn hybrid_in_float32_compressed_in_batches_and_committees() {
     }
     assert_eq!(committee.table_fallbacks(), 0);
     // A coarse table is visibly worse, so the tables are really in use, and
-    // for both descriptors that have them: with the weights of either set
-    // to zero in the fitting nets the other still shows.
-    let silenced = |part: usize| {
+    // for each of the three descriptors: with the weights of the two others
+    // set to zero in the fitting nets it still shows.
+    let silenced = |parts: [usize; 2]| {
         let mut model = models[0].clone();
-        let list = &model.descriptor.list;
-        let first: usize = list[..part].iter().map(|d| d.features()).sum();
-        let count = list[part].features();
-        for net in &mut model.fitting {
-            for row in &mut net.layers[0].weights[first..first + count] {
-                row.fill(0.0);
+        for part in parts {
+            let list = &model.descriptor.list;
+            let first: usize = list[..part].iter().map(|d| d.features()).sum();
+            let count = list[part].features();
+            for net in &mut model.fitting {
+                for row in &mut net.layers[0].weights[first..first + count] {
+                    row.fill(0.0);
+                }
             }
         }
         model
     };
     for (label, model) in [
-        ("without se_e2_a", silenced(0)),
-        ("without se_e2_r", silenced(1)),
+        ("se_e2_a alone", silenced([1, 2])),
+        ("se_e2_r alone", silenced([0, 2])),
+        ("se_e3 alone", silenced([0, 1])),
     ] {
         let exact = NativePotential::new(model.clone())
             .unwrap()
@@ -2036,15 +2338,15 @@ fn hybrid_in_float32_compressed_in_batches_and_committees() {
     );
     assert_eq!(short.table_fallbacks(), 1);
     // The tables reach from a distance inside the shortest cutoff of the
-    // descriptors that have them (3.8 here; the se_e3 descriptor's 3.2 does
-    // not count).
-    assert!(short.compress(3.5, 0.01).is_ok());
-    let error = short.compress(3.9, 0.01).unwrap_err().to_string();
+    // descriptors (the 3.2 of the se_e3 descriptor here).
+    assert!(short.compress(3.1, 0.01).is_ok());
+    let error = short.compress(3.3, 0.01).unwrap_err().to_string();
     assert!(
         error.contains("compression needs 0 < min_distance < rcut"),
         "{error}"
     );
-    // Nothing but se_e3 descriptors: nothing to tabulate.
+    // Nothing but se_e3 descriptors, of two cutoffs and embedding widths:
+    // each has its tables, and the rows of a chunk are those of both.
     let pairs_only = common::hybrid_model(
         &[
             three_body(2, vec![80, 160], 4.5, 291),
@@ -2052,10 +2354,23 @@ fn hybrid_in_float32_compressed_in_batches_and_committees() {
         ],
         293,
     );
+    let exact = NativePotential::new(pairs_only.clone())
+        .unwrap()
+        .eval(&frames[0])
+        .unwrap();
     let mut gpu = GpuPotential::<f64>::new(&pairs_only, device.clone()).unwrap();
-    let error = gpu.compress(0.8, 0.01).unwrap_err().to_string();
-    assert!(error.contains("se_e3 are not tabulated"), "{error}");
-    assert!(!gpu.is_compressed());
+    gpu.compress(0.8, 0.01).unwrap();
+    assert!(gpu.is_compressed());
+    for rows in [1_000_000, 50] {
+        gpu.set_chunk_pairs(rows);
+        compare(
+            &format!("two se_e3 descriptors with tables, {rows} rows a chunk"),
+            &gpu.eval(&frames[0]).unwrap(),
+            &exact,
+            (1e-11, 1e-9),
+        );
+    }
+    assert_eq!(gpu.table_fallbacks(), 0);
 
     // Float32 networks and sums: about single precision, nothing worse;
     // with tables as well.

@@ -61,10 +61,9 @@ def main():
             frame = (args.case_dir / f'{name}.jsonl').read_text()
             bench = max(10, min(100, 250000 // natoms))
             float64 = None
-            # The embedding nets of se_e3 have no tables, alone or in a hybrid
-            # (whose other descriptors could have them: not timed here, since
-            # DeePMD-kit's tables for se_e3 gave no baseline).
-            modes = [(precision, compressed) for compressed in ((False,) if 'e3' in descriptor else (False, True))
+            # With and without embedding tables, for every descriptor (se_e3
+            # has them since 2026-11-18).
+            modes = [(precision, compressed) for compressed in (False, True)
                      for precision in ('float64', 'float32')]
             for precision, compressed in modes:
                 extra = ['--compress', args.compress] if compressed else []
