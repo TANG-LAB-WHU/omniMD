@@ -91,8 +91,9 @@ with a disk cache, cuBLAS). It has no network-size limits, selects neighbors lik
 DeepMD-kit 3, and splits large frames into chunks sized from free device memory.
 Networks run in float64 or float32; geometry, reductions, forces and virial stay
 float64. `--compress` replaces the embedding networks by piecewise quintic tables
-(DeepMD's `dp compress`) and falls back to the exact networks for any frame that
-leaves the table range. The kernels are laid out by what was measured to cost
+(DeepMD's `dp compress`; here in pieces of uneven length, each within a tolerance
+of its network) and falls back to the exact networks for any frame that leaves
+the table range. The kernels are laid out by what was measured to cost
 time on the card (host calls, double precision divisions, loads from global
 memory); the numbers and the rules drawn from them are in
 [`mlmd/gpu/README.md`](mlmd/gpu/README.md).

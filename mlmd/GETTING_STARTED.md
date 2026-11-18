@@ -1459,9 +1459,10 @@ A model with the radial descriptor se_e2_r
 ([format](native/README.md#model-format-v1), converted from DeePMD-kit like
 an se_e2_a one) is evaluated by the same commands and trained by the same
 trainer. A model with the three-body descriptor se_e3 is evaluated by the
-same commands too and trained by the same trainer; with `--compress` its
-embedding nets become tables in pieces of uneven length, each within a
-tolerance of its net ([what they are](native/README.md#embedding-tables)).
+same commands too and trained by the same trainer. With `--compress` the
+embedding nets of any of these descriptors become tables in pieces of
+uneven length, each within a tolerance of its net
+([what they are](native/README.md#embedding-tables)).
 A hybrid model, with several of these descriptors side by side (DeePMD-kit's
 `hybrid`; [format](native/README.md#model-format-v1)), is evaluated by the
 same commands as well, with tables for every descriptor if asked. The
@@ -1487,11 +1488,13 @@ omnimd-native-gpu-eval MODEL.json [--precision float64|float32] [--compress RMIN
 - `--precision float32` runs the embedding and fitting networks in float32.
   Geometry, reductions, forces and virial stay float64. On the benchmark model
   float32 forces stay within 1e-8 eV/angstrom of float64.
-- `--compress RMIN` tabulates the embedding networks for neighbor distances from
-  `RMIN` angstrom to the cutoff (table step 0.01 in the normalized radial input
-  unless `:STEP` is given). Choose `RMIN` below the shortest distance you expect.
-  A frame with a closer pair is evaluated with the exact networks instead, so
-  the value affects speed only.
+- `--compress RMIN` replaces the embedding networks by tables in pieces of
+  uneven length, each within a tolerance of its network (`:STEP` names another
+  tolerance than that of 0.01; see
+  [embedding tables](native/README.md#embedding-tables)). Choose `RMIN` below the
+  shortest distance you expect. The tables reach to a fifth of `RMIN`; a frame
+  with an even closer pair is evaluated with the exact networks instead, so the
+  value affects speed only.
 - `--bench K` prints the mean time of K in-process evaluations per frame to
   standard error; `--profile` adds per-stage times from one extra synchronized
   evaluation. Model loading and JSON parsing are not included in either.

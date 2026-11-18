@@ -54,16 +54,14 @@ to a native model on `cuda:N`:
 - `gpu_runtime: {}` runs the networks in float64. `"precision":"float32"` runs
   them, the stored environment matrix and the descriptor in float32; the
   geometry and the sums that give forces and virial stay float64.
-- `compress_min_distance` (angstrom) tabulates the embedding networks for
-  neighbor distances from that value to the cutoff, with `table_step` (default
-  0.01) in the normalized radial input. The tables continue at ten times the
-  step down to a fifth of that distance; a frame with an even closer pair is
-  evaluated with the exact networks, so the value affects speed only. The
-  nets of an se_e3 descriptor get tables in pieces of uneven length, each
-  within a tolerance of its net that `table_step` sets (1e-13 of the largest
-  value of the net at 0.01 in float64, 1.5e-8 at best in float32), down to
-  the same fifth of the distance
-  ([what they are](../native/README.md#embedding-tables)).
+- `compress_min_distance` (angstrom) replaces the embedding networks of
+  every descriptor by tables in pieces of uneven length, each within a
+  tolerance of its net that `table_step` (default 0.01) names: 1e-13 of the
+  largest value of the net at 0.01 in float64, 1.5e-8 at best in float32
+  ([what they are](../native/README.md#embedding-tables)). Choose the
+  distance below the shortest you expect. The tables reach to a fifth of
+  it at the same tolerance; a frame with an even closer pair is evaluated
+  with the exact networks, so the value affects speed only.
 - Without `gpu_runtime`, `cuda:N` keeps its earlier meaning (the bounded
   `native-cuda` path below). `gpu_runtime` with `device: cpu`, or in a build
   without `native-gpu`, is rejected before any worker starts.
