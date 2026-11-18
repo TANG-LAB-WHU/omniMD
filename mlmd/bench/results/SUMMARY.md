@@ -1,3 +1,252 @@
+# Tables in pieces of uneven length for se_e2_a and se_e2_r, 2026-11-18
+
+`--compress` (`compress_min_distance` in the engine) now gives the nets of
+se_e2_a and se_e2_r the kind of table that the nets of se_e3 got earlier
+the same day (the section below): pieces as long as the net allows, each
+within a tolerance of its net, found from the bits of the input. The tables
+with a knot every `step` that these descriptors had since 2026-11-10 are
+gone, and their code with them (`ScalarTable` of the gpu crate). What the
+tables are and how they are made is in
+[`native/README.md`](../../native/README.md#embedding-tables).
+
+**What changes for whoever asks for tables.**
+
+- `table_step` (`:STEP` of `--compress`) is no distance between knots any
+  more. It names a tolerance by the table of one step it stands for: 1e-13
+  of the largest value of a net at 0.01 and (step/0.01)⁶ times that at
+  another step, with 1e-14 at best in float64 and 1.5e-8 in float32.
+- The tables reach to a fifth of the distance asked for at that tolerance
+  all the way. They had ten times the step below the distance asked for.
+- A request for tables can now be refused for an se_e2_a or se_e2_r model
+  as well, when a net turns faster than the precision of its input can
+  follow; the potential then keeps its nets. None of the models here is.
+- `omnimd-native-gpu-eval` prints the pieces of all tables.
+
+**Against the nets.** The 83 frames of the HAP sealed test (largest force
+component 6.2 eV/Å), `--compress 0.5`, four models of each kind, float64.
+The largest difference from the same model with its exact nets, with the
+tables of one step (the build of 67e730a) → with these; the tables of a
+model, and the time to make them:
+
+| models | energy (eV/atom) | force (eV/Å) | virial (eV) | tables (MiB) | made in (s) |
+|---|---:|---:|---:|---:|---:|
+| se_e2_a to 6 Å, the pipeline's models of iteration 4 (DeePMD-kit) | 8.4e-10 → 1.3e-13 | 3.9e-6 → 7.8e-11 | 2.0e-5 → 3.5e-10 | 392 to 393 → 202 to 216 | 0.28 to 0.31 → 0.49 to 0.56 |
+| se_e2_a to 6 Å, trained by omniMD | 2.3e-11 → 1.3e-13 | 2.1e-7 → 1.4e-10 | 8.1e-7 → 6.8e-10 | 392 → 159 to 182 | 0.28 to 0.31 → 0.41 to 0.48 |
+| se_e2_a to 4 Å, trained by omniMD | 2.1e-6 → 9.1e-14 | 1.1e-3 → 1.1e-10 | 6.4e-3 → 2.7e-10 | 352 → 135 to 148 | 0.25 to 0.26 → 0.37 to 0.42 |
+| se_e2_r to 6 Å, trained by DeePMD-kit for 20,000 steps | 1.3e-13 → 1.8e-13 | 1.1e-10 → 1.1e-10 | 3.0e-10 → 4.4e-10 | 392 to 394 → 121 to 137 | 0.28 to 0.29 → 0.28 to 0.31 |
+| se_e2_r to 6 Å, trained by omniMD | 7.1e-9 → 1.3e-13 | 9.0e-6 → 4.4e-11 | 4.9e-5 → 1.8e-10 | 392 → 165 to 183 | 0.28 to 0.30 → 0.40 to 0.44 |
+| se_e2_a to 4 Å with se_e2_r to 6 Å, trained by omniMD | 2.1e-9 → 8.1e-14 | 5.5e-6 → 1.5e-10 | 1.3e-5 → 2.7e-10 | 744 → 306 to 323 | 0.52 to 0.55 → 0.78 to 0.85 |
+| se_e2_a to 6 Å with se_e3 to 4 Å | 3.2e-12 → 1.3e-13 | 2.1e-8 → 8.6e-11 | 6.3e-8 → 3.6e-10 | 432 to 435 → 168 to 192 | 0.37 to 0.39 → 0.42 to 0.49 |
+| the earlier hybrid, se_e2_a to 5 Å with se_e3 to 3.2 Å | 1.5e-11 → 1.3e-13 | 1.9e-7 → 2.1e-10 | 9.3e-7 → 4.3e-10 | 146 to 148 → 104 to 113 | 0.15 to 0.16 → 0.24 to 0.27 |
+| se_e3 to 4 Å | 1.8e-13 → 1.8e-13 | 1.6e-10 → 1.6e-10 | 6.4e-10 → 6.4e-10 | 48 to 50 → 48 to 50 | 0.11 to 0.12 → 0.11 |
+
+- With these tables the forces of every kind of model are within 2.1e-10
+  eV/Å of those of its nets. The tables of one step were as close for one
+  kind, the se_e2_r models that DeePMD-kit trained for 20,000 steps, whose
+  weights are no larger than 1.1; for the others, whose weights reach 2.1
+  to 6.0 (300,000 steps of omniMD, or the pipeline's own training), they
+  were 2.1e-8 to 1.1e-3 away.
+- The se_e2_a models with a cutoff of 4 Å (omniMD, 300,000 steps, the
+  angular part of the hybrids of 2026-11-16 trained alone) are the kind the
+  tables of one step missed most: 1.1e-3 eV/Å, in float32 as well (below).
+  At the worst place of the worst net of one of them a table with a knot
+  every 0.01 is 7e-4 of the largest value of the net off, and 1e-2 of its
+  largest slope.
+- What it costs in float64: the tables take longer to make for every kind
+  but the one above, 0.24 to 0.85 s for a model where they took 0.15 to
+  0.55 (the pipeline's models 0.5 s from 0.3). They are 1.3 to 3.2 times
+  smaller (the pipeline's 1.8 to 1.9 times), not the factor of float32.
+- se_e3 is as it was: the same pieces, to the same numbers.
+- No frame left the tables, of either kind.
+
+In float32 a table cannot be closer to its net than the net is computed,
+so the differences are those of rounding. The largest difference of a force
+component (eV/Å) from the float32 nets of the same model, and from its
+float64 nets, where the float32 nets themselves are in the third column:
+
+| models | from the float32 nets: tables of one step, these | float32 nets from the float64 nets | tables of one step from the float64 nets | these from the float64 nets | tables (MiB) | pieces |
+|---|---:|---:|---:|---:|---:|---:|
+| se_e2_a to 6 Å, the pipeline's models of iteration 4 (DeePMD-kit) | 6.4e-6, 9.8e-6 | 8.9e-6 | 8.7e-6 | 6.3e-6 | 196 to 197 → 13.3 to 14.3 | 5,659 to 6,103 |
+| se_e2_a to 6 Å, trained by omniMD | 7.6e-6, 9.1e-6 | 7.7e-6 | 8.9e-6 | 7.3e-6 | 196 → 10.4 to 12.0 | 4,427 to 5,103 |
+| se_e2_a to 4 Å, trained by omniMD | 1.1e-3, 5.4e-6 | 7.3e-6 | 1.1e-3 | 5.7e-6 | 176 → 8.9 to 9.6 | 3,785 to 4,060 |
+| se_e2_r to 6 Å, trained by DeePMD-kit for 20,000 steps | 6.2e-6, 7.5e-6 | 5.8e-6 | 6.2e-6 | 4.4e-6 | 196 to 197 → 7.8 to 8.7 | 3,320 to 3,691 |
+| se_e2_r to 6 Å, trained by omniMD | 1.9e-5, 1.8e-5 | 3.3e-5 | 3.1e-5 | 3.1e-5 | 196 → 10.7 to 11.9 | 4,553 to 5,061 |
+| se_e2_a to 4 Å with se_e2_r to 6 Å, trained by omniMD | 6.6e-6, 6.4e-6 | 7.1e-6 | 8.0e-6 | 5.6e-6 | 372 → 20 to 22 | 8,569 to 9,180 |
+| se_e2_a to 6 Å with se_e3 to 4 Å | 5.3e-6, 5.8e-6 | 5.2e-6 | 8.0e-6 | 6.3e-6 | 200 → 11.8 to 13.1 | 6,918 to 7,604 |
+| the earlier hybrid, se_e2_a to 5 Å with se_e3 to 3.2 Å | 8.7e-6, 1.0e-5 | 6.6e-6 | 9.7e-6 | 7.7e-6 | 62 to 63 → 7.3 to 7.8 | 6,126 to 6,358 |
+| se_e3 to 4 Å | 1.3e-5, 1.3e-5 | 8.5e-6 | 9.5e-6 | 9.5e-6 | 4.0 to 4.1 → 4.0 to 4.1 | 3,982 to 4,121 |
+
+- From the float32 nets of their model these tables are further than the
+  tables of one step were in five kinds (the first, the second, the fourth
+  and the two hybrids with se_e3, by 9% to 53%), closer in three (the 4 Å
+  models by a factor of 200, the other two by 1% and 4%), and the same for
+  se_e3.
+- From the float64 nets they are closer than the tables of one step were in
+  all eight kinds with a two-body descriptor (by 2% for the se_e2_r models
+  trained by omniMD). They are closer than the float32 nets themselves in
+  six of them; for the two hybrids with se_e3 they are further (6.3e-6
+  against 5.2e-6, 7.7e-6 against 6.6e-6), as for se_e3 alone.
+- The float32 tables of a model with two-body descriptors are 8 to 25 times
+  smaller than they were (the pipeline's 14 to 15 times: 13 to 14 MiB from
+  196), and are made in 0.04 to 0.11 s where they took 0.07 to 0.38.
+
+**The step.** The pipeline's model 0 on the same frames, by the step asked
+for (float64; the float32 tables are the same 13.3 MiB and 5,659 pieces
+from 0.005 to 0.05, all at the 1.5e-8 that float32 has at best):
+
+| `table_step` | tolerance | force (eV/Å) | tables |
+|---:|---:|---:|---|
+| 0.005 | 1e-14 (the best) | 1.3e-11 | 58,377 pieces, 268 MiB |
+| 0.01 | 1e-13 | 7.8e-11 | 44,096 pieces, 202 MiB |
+| 0.02 | 6.4e-12 | 2.5e-9 | 20,915 pieces, 96 MiB |
+| 0.05 | 1.6e-9 | 2.7e-7 | 8,027 pieces, 37 MiB |
+
+With the step 0.05 the tables are a tenth of what the tables of one step
+took at 0.01 (393 MiB), and nine times closer than those were on this
+model (2.4e-6 eV/Å).
+
+**Every model on disk.** All 150 `*.native.json` under `bench/cases`, one
+frame each (the 88 atoms of bulk HAP for the models trained on the HAP
+data, the 192 atoms of the water benchmark for its five models),
+`--compress 0.5`, both builds, both precisions. Three of the files are
+empty and are no models (`hap-iter0-hybrid/replay-4k/part-0`, `part-1`,
+`hap-iter0-pre/omnimd-float32`); of the 147 models none is refused by
+either build in either precision, and no frame leaves the tables.
+
+| | tables of one step | these |
+|---|---:|---:|
+| float64: force from the nets (eV/Å), median of the models | 6.4e-10 | 1.4e-11 |
+| largest | 8.9e-4 | 7.5e-11 |
+| models further than 1e-10 | 79 | none |
+| further than 1e-7 | 18 | none |
+| further than 1e-6 | 6 | none |
+| float64 tables (MiB), median and most | 392, 748 | 142, 350 |
+| time to make (s), median and most | 0.29, 1.08 | 0.39, 0.86 |
+| float32: force from the float32 nets (eV/Å), median | 2.9e-6 | 3.1e-6 |
+| largest | 8.9e-4 | 1.8e-5 |
+| float32 tables (MiB), median and most | 196, 374 | 9.4, 23 |
+| time to make (s), median and most | 0.20, 0.40 | 0.05, 0.11 |
+
+**Where the tables of one step were closer.** A net as smooth as an
+untrained one is followed to rounding by a table with a knot every 0.01,
+and by these tables to their tolerance. The models of the water benchmark
+(seeded weights, 0.64 at most), 192 atoms, float64, the largest difference
+of a force component from the nets: se_e2_a 8.5e-16 → 1.2e-14 eV/Å, se_e2_r
+2.0e-16 → 9.9e-15, the hybrid of the two 4.7e-16 → 1.9e-13 (its largest
+force is 0.037 eV/Å; with `table_step` 0.005 it is 5.5e-15). Against
+DeePMD-kit's uncompressed model in float64 that is what the tables are off
+by, 1.2e-14, 9.9e-15 and 1.9e-13 eV/Å at 192 and 1,536 atoms, where the
+records of 2026-11-12 and 2026-11-16 have 8.6e-16, 2.0e-16 and 5.0e-16 at
+192.
+
+**Against DeePMD-kit on the HAP frames.** The pipeline's four models and
+DeePMD-kit 3.1.3 (`DeepPot` on the CPU, float64), all 83 frames, the
+largest difference over the four models (`hap_check.py` with both builds
+today; the build before gives the numbers of 2026-11-11):
+
+| omniMD mode | energy per atom (eV) | force (eV/Å) | virial (eV) |
+|---|---:|---:|---:|
+| float64 | 1.8e-13 | 5.6e-13 | 1.1e-12 |
+| float64, tables | 8.4e-10 → 1.8e-13 | 3.9e-6 → 7.8e-11 | 2.0e-5 → 3.5e-10 |
+| float32 | 3.4e-7 | 8.9e-6 | 1.1e-4 |
+| float32, tables | 4.4e-7 → 2.9e-7 | 8.7e-6 → 6.3e-6 | 8.1e-5 → 5.0e-5 |
+
+The errors against the DFT labels move by 6.1e-13 at most with float64
+tables (eV per atom or eV/Å; 1.1e-8 with the tables of one step).
+
+**Speed.** An evaluation costs what it did. Both builds with `--compress
+0.5` on the same cases, alternated in four rounds in one session, the least
+of each kept, before → after. HAP frames of the sealed test, microseconds
+for energy, forces and virial (`--bench 3000`):
+
+| frame | precision | se_e2_a to 6 Å, trained by omniMD | the pipeline's model 0 | se_e2_r to 6 Å | se_e2_a to 6 Å with se_e3 to 4 Å |
+|---|---|---:|---:|---:|---:|
+| 88 atoms | float32 | 181 → 182 | 183 → 181 | 139 → 141 | 280 → 281 |
+| 88 atoms | float64 | 447 → 444 | 446 → 445 | 220 → 216 | 600 → 591 |
+| 169 atoms | float32 | 221 → 220 | 221 → 220 | 171 → 171 | 339 → 338 |
+| 169 atoms | float64 | 764 → 758 | 768 → 762 | 324 → 322 | 969 → 964 |
+| 224 atoms | float32 | 243 → 242 | 242 → 242 | 193 → 191 | 358 → 356 |
+| 224 atoms | float64 | 803 → 798 | 802 → 788 | 356 → 347 | 1,019 → 1,017 |
+
+The water benchmark models, ms:
+
+| atoms | precision | se_e2_a | se_e2_r | hybrid of se_e2_a and se_e2_r |
+|---:|---|---:|---:|---:|
+| 12,288 | float32 | 5.67 → 5.68 | 4.24 → 4.24 | 6.30 → 6.32 |
+| 12,288 | float64 | 37.2 → 36.9 | 15.7 → 15.2 | 38.1 → 37.4 |
+| 98,304 | float32 | 46.1 → 46.1 | 34.9 → 34.9 | 49.8 → 50.1 |
+| 98,304 | float64 | 295 → 292 | 124 → 121 | 302 → 297 |
+
+- After over before is 0.969 to 1.011 over the 36 cases: 0.989 to 1.011 in
+  float32 (0.999 on average) and 0.969 to 0.997 in float64 (0.987). No
+  slower on average in either precision, then; the largest difference of a
+  case is 1.1% up, in float32. (The lookup through the cells of a table
+  takes the place of a subtraction and a multiplication by the reciprocal
+  of the step.)
+- The tables of the water models (untrained, 4 nets, or 8 for the hybrid)
+  are 6.2, 6.4 and 13 MiB in float64 where they were 17, 17 and 34, and
+  0.4, 0.4 and 0.9 MiB in float32 where they were 8.6, 8.6 and 17.
+- `bench_omnimd_gpu.py` on the three water cases (one run each, in the
+  files below) gives the times with nets and with tables at all four
+  sizes: se_e2_a with tables 0.256, 0.959, 5.73 and 46.2 ms in float32 and
+  0.791, 4.79, 36.8 and 295 in float64.
+
+**Tests.** `native/src/adaptive_table.rs` (run in CI): a table that counts
+from elsewhere than zero and has one side, against its net, with the cells
+of the side it lacks naming the pieces of the other; a feature that lies
+between all the points a piece is checked at when the units are followed
+over the places of the piece and not over its inputs; an origin that is no
+number. `gpu/tests/device.rs`: a table that reaches less far than its
+pieces go and not at all below zero, with inputs within, at the reach, past
+it, past the pieces, below zero and not a number, each looked up within the
+table and reported as the reach says, to the bit, in both precisions; what
+is no reach, refused. `native/tests/gpu_parity.rs`: a pair of atoms just
+outside and just inside a fifth of the distance asked for, for centers of
+either type and for se_e3, goes to the tables and to the nets; models whose
+nets do not depend on their input have one piece a table and side, which
+counts the tables of every kind of descriptor and their sides (one side for
+se_e2_a and se_e2_r, two for se_e3, one net for the two orders of a pair
+of neighbor types, the members of a committee each their own), in both
+precisions, with the size that goes with it; a net of an se_e2_a model
+that float32 cannot tabulate, refused with its model, its types and its
+place, while the committee goes on with its nets, and the same for se_e3
+in a committee.
+
+A mutation round on the builder (34 mutants), the lookup and the reach on
+the device (19), and the tables of a descriptor, the environment kernel,
+the kernels that read the tables of se_e3 and the host side (42): all 95
+are caught. Three of the checks above were written with the list and are
+the only ones that catch their mutants: pieces on a side that no input
+reaches (a table left right and only larger), the interval the units are
+followed over for a table with an origin, and the model and types in the
+message of a refusal. One mutant is left out as equivalent: pieces of a
+two-body table to the power of two beyond the next one, where no input is
+looked up. The first 76 ran before the last commit of the code, which
+changed comments and usage texts.
+Locally: workspace SUITE_WORKSPACE, engine with `native-gpu` SUITE_ENGINE,
+GPU crates SUITE_GPU, each in release and debug; `cargo fmt --check` clean;
+the legacy `cuda` features compile. The GPU suites do not run in CI.
+
+**Removed.** `ScalarTable`, `TableSegments`, `quintic_coefficients` and the
+`scalar_table` kernel of the gpu crate, with their tests: nothing used them
+any more, and an evaluation with the tables that replace them is within
+1.1% of what it was in each of the 36 cases above, and below it on average.
+
+**Not built.** Tables for the CPU reference `NativePotential` and for the
+trainer. A tolerance below 1e-14 in float64, which a net as smooth as an
+untrained one would allow. The two things the section below leaves for
+se_e3: the small download of the neighbor counts in every evaluation, and
+going through the pairs of an atom by piece.
+
+Files: `hap-tables-against-nets-rtx4090-2026-11-18.json`,
+`tables-of-every-model-rtx4090-2026-11-18.json`,
+`hap-eval-tables-before-and-after-rtx4090-2026-11-18.json`,
+`hap-check-tables-rtx4090-2026-11-18.json` (and
+`hap-check-tables-of-one-step-rtx4090-2026-11-18.json`, the build before),
+`omnimd-gpu-tables-rtx4090-2026-11-18.csv`,
+`omnimd-gpu-se-r-tables-rtx4090-2026-11-18.csv`,
+`omnimd-gpu-hybrid-tables-rtx4090-2026-11-18.csv`.
+
 # Tables for the embedding nets of se_e3, 2026-11-18
 
 `--compress` (`compress_min_distance` in the engine) now gives the nets of

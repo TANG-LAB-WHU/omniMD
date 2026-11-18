@@ -348,15 +348,16 @@ turns and fine where nothing happens:
   neighbor, some tens of units: in the HAP models up to 18 for a neighbor
   at 0.9 Å and up to 160 at 0.1 Å. Until 2026-11-18 their tables had a
   knot every `step`, 0.01 unless given. On the 83 frames of the HAP sealed
-  test (largest force 6.1 eV/Å, float64, `--compress 0.5`) the forces from
-  such tables were within 2.2e-7 eV/Å of those of the nets for se_e2_a
-  models trained by omniMD, within 3.9e-6 for the pipeline's models of
-  iteration 4, trained by DeePMD-kit, and within 9.0e-6 for se_e2_r models
-  trained by omniMD for 300,000 steps; they were within 1.1e-10 for the
+  test (largest force 6.2 eV/Å, float64, `--compress 0.5`) the forces from
+  such tables were within 2.1e-7 eV/Å of those of the nets for se_e2_a
+  models to 6 Å trained by omniMD, within 3.9e-6 for the pipeline's models
+  of iteration 4, trained by DeePMD-kit, within 9.0e-6 for se_e2_r models
+  trained by omniMD, and within 1.1e-3 for se_e2_a models to 4 Å trained
+  by omniMD, in float32 as in float64. They were within 1.1e-10 for the
   se_e2_r models that DeePMD-kit trained here for 20,000 steps, whose
   weights are no larger than 1.1 where those of the others reach 2.5 to
-  4.1. The tables of a model (25 nets of 100 outputs) took 392 MiB in
-  float64.
+  6.0. The tables of a model (25 nets of 100 outputs) took 392 MiB in
+  float64 and 196 in float32.
 - The nets of se_e3 take θ, the product of the normalized directions of two
   neighbors, and that spans thousands of units: ±1,400 for neighbors from
   0.9 Å in the HAP models, whose directions have a width of 0.03. With the
@@ -439,18 +440,33 @@ the first of the four:
 |---|---:|---|---|
 | se_e2_a to 6 Å, the pipeline's models of iteration 4 (DeePMD-kit) | 7.8e-11 | 44,096 pieces, 202 MiB | 5,659 pieces, 13 MiB |
 | se_e2_a to 6 Å, trained by omniMD | 1.4e-10 | 35,378 pieces, 163 MiB | 4,576 pieces, 11 MiB |
-| se_e2_r to 6 Å, trained by DeePMD-kit | 1.1e-10 | 26,391 pieces, 121 MiB | 3,320 pieces, 7.8 MiB |
+| se_e2_a to 4 Å, trained by omniMD | 1.1e-10 | 29,592 pieces, 136 MiB | 3,827 pieces, 9.0 MiB |
+| se_e2_r to 6 Å, trained by DeePMD-kit for 20,000 steps | 1.1e-10 | 26,391 pieces, 121 MiB | 3,320 pieces, 7.8 MiB |
 | se_e2_r to 6 Å, trained by omniMD | 4.4e-11 | 37,542 pieces, 172 MiB | 4,808 pieces, 11 MiB |
+| se_e2_a to 4 Å with se_e2_r to 6 Å, trained by omniMD | 1.5e-10 | 66,552 pieces, 306 MiB | 8,697 pieces, 21 MiB |
 | se_e3 to 4 Å | 1.6e-10 | 26,966 pieces, 50 MiB | 4,092 pieces, 4.1 MiB |
 | se_e2_a to 6 Å with se_e3 to 4 Å | 8.6e-11 | 53,518 pieces, 186 MiB | 7,426 pieces, 13 MiB |
 | the earlier hybrid, se_e2_a to 5 Å with se_e3 to 3.2 Å | 2.1e-10 | 46,973 pieces, 113 MiB | 6,358 pieces, 7.8 MiB |
 
-The tables of a model are made in 0.1 to 0.6 s in float64 and in less than
-0.1 s in float32. In float32 the tables are 4.4e-6 to 3.1e-5 eV/Å from the
+The tables of a model are made in 0.1 to 0.9 s in float64 and in 0.02 to
+0.11 s in float32. In float32 the tables are 4.4e-6 to 3.1e-5 eV/Å from the
 float64 nets of their model, where its float32 nets are 5.2e-6 to 3.3e-5
 from them; by kind of model, and beside the tables of one step, in the
 [summary](../bench/results/SUMMARY.md), with the timings (an evaluation
-costs what it did with the tables of one step). Records:
+costs what it did with the tables of one step).
+
+In float64 the step trades size for closeness. For the pipeline's model 0
+on the same frames: 268 MiB and 1.3e-11 eV/Å at 0.005 (the tolerance is
+then 1e-14, the best there is), 202 MiB and 7.8e-11 at 0.01, 96 MiB and
+2.5e-9 at 0.02, 37 MiB and 2.7e-7 at 0.05. In float32 these are all the
+same tables, at the 1.5e-8 that float32 has at best.
+
+A net as smooth as an untrained one was followed to rounding by a table
+with a knot every 0.01, and is followed to the tolerance by these: for the
+models of the water benchmark the float64 forces are 1e-14 to 2e-13 eV/Å
+from those of the nets, where they were within 1e-15.
+
+Records:
 [`hap-tables-against-nets-...json`](../bench/results/hap-tables-against-nets-rtx4090-2026-11-18.json),
 [`tables-of-every-model-...json`](../bench/results/tables-of-every-model-rtx4090-2026-11-18.json).
 

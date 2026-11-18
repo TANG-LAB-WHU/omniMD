@@ -1,0 +1,434 @@
+{
+ "date": "2026-11-18",
+ "device": "NVIDIA GeForce RTX 4090",
+ "what": "omnimd-native-gpu-eval --bench on one frame with --compress 0.5 (step 0.01), before (tables of one step for se_e2_a and se_e2_r) and after (tables in pieces of uneven length for every descriptor); the two builds alternated in 4 rounds in one session, the least of each kept",
+ "builds": {
+  "before": "omnimd-native-gpu-eval of commit 67e730a (tables of one step for se_e2_a and se_e2_r, in pieces of uneven length for se_e3)",
+  "after": "omnimd-native-gpu-eval of commit 6defd0d (tables in pieces of uneven length for every descriptor)"
+ },
+ "frames_outside_the_tables": 0,
+ "ms_per_evaluation": [
+  {
+   "frame": "hap_bulk__H4Ca20O52P12 (88 atoms)",
+   "model": "se_e2_a to 6 A, trained by omniMD (hap-iter0-pre/ens4-f32-0)",
+   "mode": "float32 with embedding tables",
+   "before": 0.18121790000000002,
+   "after": 0.18189033333333335
+  },
+  {
+   "frame": "hap_bulk__H4Ca20O52P12 (88 atoms)",
+   "model": "se_e2_a to 6 A, trained by omniMD (hap-iter0-pre/ens4-f32-0)",
+   "mode": "float64 with embedding tables",
+   "before": 0.44692160000000003,
+   "after": 0.4437503333333333
+  },
+  {
+   "frame": "hap_bulk__H4Ca20O52P12 (88 atoms)",
+   "model": "se_e2_a to 6 A, iteration 4 of the pipeline, trained by DeePMD-kit (hap/model-0)",
+   "mode": "float32 with embedding tables",
+   "before": 0.18254453333333334,
+   "after": 0.18055143333333334
+  },
+  {
+   "frame": "hap_bulk__H4Ca20O52P12 (88 atoms)",
+   "model": "se_e2_a to 6 A, iteration 4 of the pipeline, trained by DeePMD-kit (hap/model-0)",
+   "mode": "float64 with embedding tables",
+   "before": 0.4457818333333334,
+   "after": 0.44465853333333333
+  },
+  {
+   "frame": "hap_bulk__H4Ca20O52P12 (88 atoms)",
+   "model": "se_e2_r to 6 A (hap-iter0-ser/ser1-f32-0)",
+   "mode": "float32 with embedding tables",
+   "before": 0.13912200000000002,
+   "after": 0.14069896666666667
+  },
+  {
+   "frame": "hap_bulk__H4Ca20O52P12 (88 atoms)",
+   "model": "se_e2_r to 6 A (hap-iter0-ser/ser1-f32-0)",
+   "mode": "float64 with embedding tables",
+   "before": 0.21993169999999998,
+   "after": 0.21597460000000002
+  },
+  {
+   "frame": "hap_bulk__H4Ca20O52P12 (88 atoms)",
+   "model": "se_e2_a to 6 A with se_e3 to 4 A (full-hp-f32-0)",
+   "mode": "float32 with embedding tables",
+   "before": 0.27980093333333333,
+   "after": 0.28095983333333335
+  },
+  {
+   "frame": "hap_bulk__H4Ca20O52P12 (88 atoms)",
+   "model": "se_e2_a to 6 A with se_e3 to 4 A (full-hp-f32-0)",
+   "mode": "float64 with embedding tables",
+   "before": 0.5997206,
+   "after": 0.5910605333333334
+  },
+  {
+   "frame": "hap001_water_co2__C2H54Ca20O81P12 (169 atoms)",
+   "model": "se_e2_a to 6 A, trained by omniMD (hap-iter0-pre/ens4-f32-0)",
+   "mode": "float32 with embedding tables",
+   "before": 0.22094650000000002,
+   "after": 0.2196176333333333
+  },
+  {
+   "frame": "hap001_water_co2__C2H54Ca20O81P12 (169 atoms)",
+   "model": "se_e2_a to 6 A, trained by omniMD (hap-iter0-pre/ens4-f32-0)",
+   "mode": "float64 with embedding tables",
+   "before": 0.7642412666666667,
+   "after": 0.7582893666666667
+  },
+  {
+   "frame": "hap001_water_co2__C2H54Ca20O81P12 (169 atoms)",
+   "model": "se_e2_a to 6 A, iteration 4 of the pipeline, trained by DeePMD-kit (hap/model-0)",
+   "mode": "float32 with embedding tables",
+   "before": 0.22060473333333333,
+   "after": 0.21952336666666666
+  },
+  {
+   "frame": "hap001_water_co2__C2H54Ca20O81P12 (169 atoms)",
+   "model": "se_e2_a to 6 A, iteration 4 of the pipeline, trained by DeePMD-kit (hap/model-0)",
+   "mode": "float64 with embedding tables",
+   "before": 0.7676459000000001,
+   "after": 0.7615150666666667
+  },
+  {
+   "frame": "hap001_water_co2__C2H54Ca20O81P12 (169 atoms)",
+   "model": "se_e2_r to 6 A (hap-iter0-ser/ser1-f32-0)",
+   "mode": "float32 with embedding tables",
+   "before": 0.17105323333333336,
+   "after": 0.1710229
+  },
+  {
+   "frame": "hap001_water_co2__C2H54Ca20O81P12 (169 atoms)",
+   "model": "se_e2_r to 6 A (hap-iter0-ser/ser1-f32-0)",
+   "mode": "float64 with embedding tables",
+   "before": 0.3240801,
+   "after": 0.32247466666666663
+  },
+  {
+   "frame": "hap001_water_co2__C2H54Ca20O81P12 (169 atoms)",
+   "model": "se_e2_a to 6 A with se_e3 to 4 A (full-hp-f32-0)",
+   "mode": "float32 with embedding tables",
+   "before": 0.33902186666666667,
+   "after": 0.33762726666666665
+  },
+  {
+   "frame": "hap001_water_co2__C2H54Ca20O81P12 (169 atoms)",
+   "model": "se_e2_a to 6 A with se_e3 to 4 A (full-hp-f32-0)",
+   "mode": "float64 with embedding tables",
+   "before": 0.9692156333333334,
+   "after": 0.9640482333333334
+  },
+  {
+   "frame": "monetite_CaHPO4__H32Ca32O128P32 (224 atoms)",
+   "model": "se_e2_a to 6 A, trained by omniMD (hap-iter0-pre/ens4-f32-0)",
+   "mode": "float32 with embedding tables",
+   "before": 0.24333610000000003,
+   "after": 0.24219713333333334
+  },
+  {
+   "frame": "monetite_CaHPO4__H32Ca32O128P32 (224 atoms)",
+   "model": "se_e2_a to 6 A, trained by omniMD (hap-iter0-pre/ens4-f32-0)",
+   "mode": "float64 with embedding tables",
+   "before": 0.8034459666666667,
+   "after": 0.7978618666666666
+  },
+  {
+   "frame": "monetite_CaHPO4__H32Ca32O128P32 (224 atoms)",
+   "model": "se_e2_a to 6 A, iteration 4 of the pipeline, trained by DeePMD-kit (hap/model-0)",
+   "mode": "float32 with embedding tables",
+   "before": 0.24214053333333332,
+   "after": 0.24164529999999998
+  },
+  {
+   "frame": "monetite_CaHPO4__H32Ca32O128P32 (224 atoms)",
+   "model": "se_e2_a to 6 A, iteration 4 of the pipeline, trained by DeePMD-kit (hap/model-0)",
+   "mode": "float64 with embedding tables",
+   "before": 0.8016075666666668,
+   "after": 0.7875482666666667
+  },
+  {
+   "frame": "monetite_CaHPO4__H32Ca32O128P32 (224 atoms)",
+   "model": "se_e2_r to 6 A (hap-iter0-ser/ser1-f32-0)",
+   "mode": "float32 with embedding tables",
+   "before": 0.19305319999999998,
+   "after": 0.1914825
+  },
+  {
+   "frame": "monetite_CaHPO4__H32Ca32O128P32 (224 atoms)",
+   "model": "se_e2_r to 6 A (hap-iter0-ser/ser1-f32-0)",
+   "mode": "float64 with embedding tables",
+   "before": 0.35579136666666666,
+   "after": 0.34738610000000003
+  },
+  {
+   "frame": "monetite_CaHPO4__H32Ca32O128P32 (224 atoms)",
+   "model": "se_e2_a to 6 A with se_e3 to 4 A (full-hp-f32-0)",
+   "mode": "float32 with embedding tables",
+   "before": 0.3582868,
+   "after": 0.3557776666666667
+  },
+  {
+   "frame": "monetite_CaHPO4__H32Ca32O128P32 (224 atoms)",
+   "model": "se_e2_a to 6 A with se_e3 to 4 A (full-hp-f32-0)",
+   "mode": "float64 with embedding tables",
+   "before": 1.0193334666666667,
+   "after": 1.0165318333333333
+  },
+  {
+   "frame": "12,288 atoms",
+   "model": "water se_e2_a",
+   "mode": "float32 with embedding tables",
+   "before": 5.6717284999999995,
+   "after": 5.680708500000001
+  },
+  {
+   "frame": "12,288 atoms",
+   "model": "water se_e2_a",
+   "mode": "float64 with embedding tables",
+   "before": 37.2478275,
+   "after": 36.8749805
+  },
+  {
+   "frame": "12,288 atoms",
+   "model": "water se_e2_r",
+   "mode": "float32 with embedding tables",
+   "before": 4.2449675,
+   "after": 4.2361379999999995
+  },
+  {
+   "frame": "12,288 atoms",
+   "model": "water se_e2_r",
+   "mode": "float64 with embedding tables",
+   "before": 15.685604000000001,
+   "after": 15.198219
+  },
+  {
+   "frame": "12,288 atoms",
+   "model": "water hybrid of se_e2_a and se_e2_r",
+   "mode": "float32 with embedding tables",
+   "before": 6.303745,
+   "after": 6.31701
+  },
+  {
+   "frame": "12,288 atoms",
+   "model": "water hybrid of se_e2_a and se_e2_r",
+   "mode": "float64 with embedding tables",
+   "before": 38.096436000000004,
+   "after": 37.402398
+  },
+  {
+   "frame": "98,304 atoms",
+   "model": "water se_e2_a",
+   "mode": "float32 with embedding tables",
+   "before": 46.05041333333334,
+   "after": 46.09652666666667
+  },
+  {
+   "frame": "98,304 atoms",
+   "model": "water se_e2_a",
+   "mode": "float64 with embedding tables",
+   "before": 295.24687,
+   "after": 292.39587333333327
+  },
+  {
+   "frame": "98,304 atoms",
+   "model": "water se_e2_r",
+   "mode": "float32 with embedding tables",
+   "before": 34.939853333333325,
+   "after": 34.88202333333333
+  },
+  {
+   "frame": "98,304 atoms",
+   "model": "water se_e2_r",
+   "mode": "float64 with embedding tables",
+   "before": 124.32205333333333,
+   "after": 120.67363666666667
+  },
+  {
+   "frame": "98,304 atoms",
+   "model": "water hybrid of se_e2_a and se_e2_r",
+   "mode": "float32 with embedding tables",
+   "before": 49.80881,
+   "after": 50.103116666666665
+  },
+  {
+   "frame": "98,304 atoms",
+   "model": "water hybrid of se_e2_a and se_e2_r",
+   "mode": "float64 with embedding tables",
+   "before": 301.50874666666664,
+   "after": 296.63972333333334
+  }
+ ],
+ "tables": [
+  {
+   "model": "se_e2_a to 6 A with se_e3 to 4 A (full-hp-f32-0)",
+   "mode": "float32 with embedding tables",
+   "build": "after",
+   "tables": "tables: 12.9 MiB on the device, 7426 pieces, made in 0.07 s"
+  },
+  {
+   "model": "se_e2_a to 6 A with se_e3 to 4 A (full-hp-f32-0)",
+   "mode": "float32 with embedding tables",
+   "build": "before",
+   "tables": "tables: 199.6 MiB on the device, 3393 pieces for the nets of se_e3, made in 0.21 s"
+  },
+  {
+   "model": "se_e2_a to 6 A with se_e3 to 4 A (full-hp-f32-0)",
+   "mode": "float64 with embedding tables",
+   "build": "after",
+   "tables": "tables: 186.4 MiB on the device, 53518 pieces, made in 0.46 s"
+  },
+  {
+   "model": "se_e2_a to 6 A with se_e3 to 4 A (full-hp-f32-0)",
+   "mode": "float64 with embedding tables",
+   "build": "before",
+   "tables": "tables: 432.7 MiB on the device, 21700 pieces for the nets of se_e3, made in 0.38 s"
+  },
+  {
+   "model": "se_e2_a to 6 A, iteration 4 of the pipeline, trained by DeePMD-kit (hap/model-0)",
+   "mode": "float32 with embedding tables",
+   "build": "after",
+   "tables": "tables: 13.3 MiB on the device, 5659 pieces, made in 0.07 s"
+  },
+  {
+   "model": "se_e2_a to 6 A, iteration 4 of the pipeline, trained by DeePMD-kit (hap/model-0)",
+   "mode": "float32 with embedding tables",
+   "build": "before",
+   "tables": "tables: 196.7 MiB on the device, made in 0.19 s"
+  },
+  {
+   "model": "se_e2_a to 6 A, iteration 4 of the pipeline, trained by DeePMD-kit (hap/model-0)",
+   "mode": "float64 with embedding tables",
+   "build": "after",
+   "tables": "tables: 202.4 MiB on the device, 44096 pieces, made in 0.51 s"
+  },
+  {
+   "model": "se_e2_a to 6 A, iteration 4 of the pipeline, trained by DeePMD-kit (hap/model-0)",
+   "mode": "float64 with embedding tables",
+   "build": "before",
+   "tables": "tables: 393.4 MiB on the device, made in 0.29 s"
+  },
+  {
+   "model": "se_e2_a to 6 A, trained by omniMD (hap-iter0-pre/ens4-f32-0)",
+   "mode": "float32 with embedding tables",
+   "build": "after",
+   "tables": "tables: 10.8 MiB on the device, 4576 pieces, made in 0.06 s"
+  },
+  {
+   "model": "se_e2_a to 6 A, trained by omniMD (hap-iter0-pre/ens4-f32-0)",
+   "mode": "float32 with embedding tables",
+   "build": "before",
+   "tables": "tables: 196.2 MiB on the device, made in 0.19 s"
+  },
+  {
+   "model": "se_e2_a to 6 A, trained by omniMD (hap-iter0-pre/ens4-f32-0)",
+   "mode": "float64 with embedding tables",
+   "build": "after",
+   "tables": "tables: 162.5 MiB on the device, 35378 pieces, made in 0.45 s"
+  },
+  {
+   "model": "se_e2_a to 6 A, trained by omniMD (hap-iter0-pre/ens4-f32-0)",
+   "mode": "float64 with embedding tables",
+   "build": "before",
+   "tables": "tables: 392.4 MiB on the device, made in 0.28 s"
+  },
+  {
+   "model": "se_e2_r to 6 A (hap-iter0-ser/ser1-f32-0)",
+   "mode": "float32 with embedding tables",
+   "build": "after",
+   "tables": "tables: 13.0 MiB on the device, 5559 pieces, made in 0.06 s"
+  },
+  {
+   "model": "se_e2_r to 6 A (hap-iter0-ser/ser1-f32-0)",
+   "mode": "float32 with embedding tables",
+   "build": "before",
+   "tables": "tables: 196.2 MiB on the device, made in 0.19 s"
+  },
+  {
+   "model": "se_e2_r to 6 A (hap-iter0-ser/ser1-f32-0)",
+   "mode": "float64 with embedding tables",
+   "build": "after",
+   "tables": "tables: 207.4 MiB on the device, 45199 pieces, made in 0.46 s"
+  },
+  {
+   "model": "se_e2_r to 6 A (hap-iter0-ser/ser1-f32-0)",
+   "mode": "float64 with embedding tables",
+   "build": "before",
+   "tables": "tables: 392.4 MiB on the device, made in 0.28 s"
+  },
+  {
+   "model": "water hybrid of se_e2_a and se_e2_r",
+   "mode": "float32 with embedding tables",
+   "build": "after",
+   "tables": "tables: 0.9 MiB on the device, 366 pieces, made in 0.01 s"
+  },
+  {
+   "model": "water hybrid of se_e2_a and se_e2_r",
+   "mode": "float32 with embedding tables",
+   "build": "before",
+   "tables": "tables: 17.1 MiB on the device, made in 0.03 s"
+  },
+  {
+   "model": "water hybrid of se_e2_a and se_e2_r",
+   "mode": "float64 with embedding tables",
+   "build": "after",
+   "tables": "tables: 13.0 MiB on the device, 2806 pieces, made in 0.08 s"
+  },
+  {
+   "model": "water hybrid of se_e2_a and se_e2_r",
+   "mode": "float64 with embedding tables",
+   "build": "before",
+   "tables": "tables: 34.2 MiB on the device, made in 0.03 s"
+  },
+  {
+   "model": "water se_e2_a",
+   "mode": "float32 with embedding tables",
+   "build": "after",
+   "tables": "tables: 0.4 MiB on the device, 178 pieces, made in 0.01 s"
+  },
+  {
+   "model": "water se_e2_a",
+   "mode": "float32 with embedding tables",
+   "build": "before",
+   "tables": "tables: 8.6 MiB on the device, made in 0.01 s"
+  },
+  {
+   "model": "water se_e2_a",
+   "mode": "float64 with embedding tables",
+   "build": "after",
+   "tables": "tables: 6.2 MiB on the device, 1350 pieces, made in 0.04 s"
+  },
+  {
+   "model": "water se_e2_a",
+   "mode": "float64 with embedding tables",
+   "build": "before",
+   "tables": "tables: 17.1 MiB on the device, made in 0.02 s"
+  },
+  {
+   "model": "water se_e2_r",
+   "mode": "float32 with embedding tables",
+   "build": "after",
+   "tables": "tables: 0.4 MiB on the device, 182 pieces, made in 0.01 s"
+  },
+  {
+   "model": "water se_e2_r",
+   "mode": "float32 with embedding tables",
+   "build": "before",
+   "tables": "tables: 8.6 MiB on the device, made in 0.01 s"
+  },
+  {
+   "model": "water se_e2_r",
+   "mode": "float64 with embedding tables",
+   "build": "after",
+   "tables": "tables: 6.4 MiB on the device, 1384 pieces, made in 0.04 s"
+  },
+  {
+   "model": "water se_e2_r",
+   "mode": "float64 with embedding tables",
+   "build": "before",
+   "tables": "tables: 17.1 MiB on the device, made in 0.02 s"
+  }
+ ]
+}
