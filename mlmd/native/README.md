@@ -373,14 +373,16 @@ on either side of zero, is halved again and again, and a piece is kept when
   the points a piece is checked at, and
 - the quintic through value, slope and curvature of the net at the ends of
   the piece is within the tolerance of the net at a quarter, the middle and
-  three quarters of it: the value within 1e-13 of the largest value of the
-  net at the step 0.01, and (step/0.01)⁶ times that at another step (how
-  the error of a table of one step goes with its step), the slope within a
-  hundred times that fraction of the largest slope. Float32 has 1.5e-8 at
-  best, below what it rounds at. Where the net itself is not computed that
-  exactly (a unit whose large weight and bias cancel where it turns), the
-  bound on its rounding is allowed on top, and for the slope what the
-  rounding of the values at the ends of a piece comes to over its width.
+  three quarters of it (between those places it strays a little further:
+  the tests allow half as much again): the value within 1e-13 of the
+  largest value of the net at the step 0.01, and (step/0.01)⁶ times that at
+  another step (how the error of a table of one step goes with its step),
+  the slope within a hundred times that fraction of the largest slope.
+  Float32 has 1.5e-8 at best, below what it rounds at. Where the net itself
+  is not computed that exactly (a unit whose large weight and bias cancel
+  where it turns), the bound on its rounding is allowed on top, and for the
+  slope what the rounding of the values at the ends of a piece comes to
+  over its width.
 
 The ends of all pieces are whole multiples of powers of two, and the piece
 of a θ is found from θ itself: its sign, its exponent and its first six
@@ -390,10 +392,13 @@ that is left is the place in the piece. Nothing is rounded on the way in
 float32 or float64, whatever the size of θ (a table that counts steps from
 the lower end of its range rounds a float32 θ to a thousandth of a unit
 here). For this a cell that holds pieces of several lengths has them all
-cut to its shortest, 0.2% more pieces for the HAP nets. A net that turns
-faster than the precision of θ has room for is refused, with the place;
-none of the models here does. The tables reach to θ of neighbors at a fifth
-of `min_distance`, at the same tolerance all the way.
+cut to its shortest (0.2% more pieces for the nets of a HAP model in a
+prototype of the builder). A net that turns faster than the precision of θ
+has room for is refused, with the place, and the potential then keeps the
+nets of all its descriptors: a hybrid has tables for every descriptor or
+for none. None of the twelve trained models here was refused, in either
+precision. The tables reach to θ of neighbors at a fifth of
+`min_distance`, at the same tolerance all the way.
 
 With such tables the descriptor keeps no rows of embedding values: the
 kernels of its components and of its forces read the pieces where they

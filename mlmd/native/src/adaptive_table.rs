@@ -38,9 +38,10 @@
 //! float32 or in float64, whatever the size of the input; a table that counts
 //! steps from the lower end of a range of thousands rounds a float32 input
 //! to a thousandth of a unit. For this a cell that holds pieces of several
-//! lengths has them all cut to its shortest, which adds 0.2 percent of pieces
-//! for the nets of the HAP models this was measured on; a net with a feature
-//! far narrower than a cell, far from zero, pays for the whole cell.
+//! lengths has them all cut to its shortest. In a prototype of this builder
+//! that added 0.2 percent of pieces for the nets of a trained HAP model; a
+//! net with a feature far narrower than a cell, far from zero, pays for the
+//! whole cell.
 use crate::Network;
 use omnimd_ml_contract::{Error, Result};
 
@@ -855,8 +856,9 @@ mod tests {
         // eight: the two cells there are cut to its narrowest piece all
         // over, 131,000 pieces where the turn itself has under a thousand.
         // (A feature that narrow for its place is what these tables are
-        // wasteful for. The nets of the HAP models trained with se_e3 have
-        // none such: cutting their cells alike adds 0.2% of pieces.)
+        // wasteful for. The nets of a HAP model trained with se_e3 have
+        // none such: in a prototype of the builder, cutting their cells
+        // alike added 0.2% of pieces.)
         let table = NetTable::build(&network, 11, DOUBLE).unwrap();
         let near = || (0..20_000).map(|k| 999.9 + k as f64 * 1e-5);
         let (value, _) = worst(&table, &network, near());

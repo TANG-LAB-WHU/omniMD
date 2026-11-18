@@ -2422,7 +2422,9 @@ impl<P: Scalar> GpuPotential<P> {
     /// holds as many times more pairs as a pair takes less memory.
     ///
     /// Every descriptor of a hybrid gets tables, each over the range of its
-    /// own cutoff and statistics.
+    /// own cutoff and statistics. When the nets of one cannot be tabulated
+    /// the potential is left as it was, with the nets of all of them: a
+    /// hybrid has tables for every descriptor or for none.
     pub fn compress(&mut self, min_distance: f64, step: f64) -> Result<()> {
         let ntypes = self.sel.len();
         // The shortest cutoff of the descriptors.
