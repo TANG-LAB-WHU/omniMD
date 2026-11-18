@@ -1472,6 +1472,29 @@ fn se_e3_tables_follow_the_nets_and_give_way_outside_their_range() {
         );
     }
     assert_eq!(gpu.table_fallbacks(), 0);
+    // That factor shows in the chunks. With so few rows a chunk that the
+    // nets take the frame in six chunks or more, the tables take it in a
+    // sixth of them at most.
+    let mut nets = GpuPotential::<f64>::new(&model, device.clone()).unwrap();
+    let chunks_of = |potential: &mut GpuPotential<f64>, rows: usize| {
+        potential.set_chunk_atoms(1000);
+        potential.set_chunk_pairs(rows);
+        potential.set_profiling(true);
+        potential.eval(&frames[0]).unwrap();
+        let chunks = potential.stage_times().unwrap().chunks;
+        potential.set_profiling(false);
+        chunks
+    };
+    let mut rows = 1 << 22;
+    while chunks_of(&mut nets, rows) < 6 {
+        rows /= 2;
+        assert!(rows > 16, "the frame has too few pairs for six chunks");
+    }
+    let (with_nets, with_tables) = (chunks_of(&mut nets, rows), chunks_of(&mut gpu, rows));
+    assert!(
+        with_nets >= 6 && with_tables * 6 <= with_nets,
+        "{with_nets} chunks with nets, {with_tables} with tables"
+    );
 
     // A coarse step is a loose tolerance: fewer pieces, visibly worse. So the
     // tables are what is evaluated.

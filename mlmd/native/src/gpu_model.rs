@@ -759,7 +759,7 @@ __device__ void three_body_dtheta_impl(const P* g, const P* dg, const P* theta,
 // hundreds of megabytes that are written once and read twice.
 //
 // Who goes through the outputs of a row was measured both ways (192 atoms of
-// water with 4,100 rows an atom; 224 atoms of a HAP frame with 310):
+// water with 3,600 rows an atom; 224 atoms of a HAP frame with 310):
 // - A warp per row, its lanes over the outputs, reads the six numbers of
 //   every output of a piece together. In float32 that is the faster way to
 //   the components for few rows (0.028 against 0.050 ms for the HAP frame)
@@ -1370,7 +1370,7 @@ const TABLE_ROW_WARPS: usize = 8;
 
 /// Threads per block of the se_e3 kernel of dE/dθ that reads the tables, a
 /// thread per row: for 310 rows an atom two percent of an evaluation faster
-/// than a thousand, for 4,100 the same.
+/// than a thousand, for 3,600 the same.
 const PAIR_TABLE_BLOCK: u32 = 256;
 
 /// Threads per block of the se_e3 force kernel, which has a thread for
@@ -1404,7 +1404,7 @@ pub(crate) fn descriptor_warps<P>(width: usize) -> usize {
 ///
 /// Float32 has a warp per row, as many warps as have their sums in shared
 /// memory, thirty-two at most (0.14 against 0.23 ms with eight for 192 atoms
-/// of 4,100 rows each). Float64 has a thread per row, as many warps of them
+/// of 3,600 rows each). Float64 has a thread per row, as many warps of them
 /// as have a sum for every thread in shared memory, eight at most; a net too
 /// wide for one warp of such sums has a warp per row there too. Why the two
 /// differ is with the kernels.

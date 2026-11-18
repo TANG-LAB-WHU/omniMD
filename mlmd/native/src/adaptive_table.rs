@@ -25,8 +25,9 @@
 //! large weight and a large bias, which cancel where it turns, is exact to
 //! some 2e-16 of the bias. So a piece may also be off by the bound on that
 //! rounding at the places it is checked at and at its ends
-//! ([`Network::scalar_rounding`]); no halving brings a quintic closer to
-//! the net than the net is to itself.
+//! ([`Network::scalar_rounding`]), and its slope by what the rounding of
+//! the values at its ends comes to over its width; no halving brings a
+//! quintic closer to the net than the net is to itself.
 //!
 //! All ends of pieces are whole multiples of powers of two, which a float
 //! holds exactly, and the piece of an input is found from the input itself:
@@ -214,7 +215,11 @@ impl Builder<'_> {
     /// Whether the quintic of a piece of width `h` is close enough to the
     /// net at the place `u`, where the net has the jet `exact`: within the
     /// tolerance, or within the rounding of the net there and at the ends
-    /// of the piece (`rounding`: of value and slope).
+    /// of the piece (`rounding`: of value and slope). The quintic goes
+    /// through the values at the ends as they are computed: what those are
+    /// off by shows in its slope over the width of the piece (up to 15/8 of
+    /// the difference of the two), the more the narrower the piece is, so
+    /// that halving a piece cannot bring its slope closer than that.
     fn close(
         &self,
         coefficients: &[f64],
@@ -224,9 +229,11 @@ impl Builder<'_> {
         rounding: (f64, f64),
     ) -> bool {
         let value_limit =
-            self.options.tolerance * self.value_scale + rounding.0.max(exact.value_rounding);
+            self.options.tolerance * self.value_scale + rounding.0 + exact.value_rounding;
         let slope_limit = SLOPE_TOLERANCE * self.options.tolerance * self.slope_scale
-            + rounding.1.max(exact.slope_rounding);
+            + rounding.1
+            + exact.slope_rounding
+            + 4.0 * rounding.0 / h;
         coefficients.chunks_exact(6).enumerate().all(|(m, c)| {
             let (value, slope) = at(c, u);
             (value - exact.value[m]).abs() <= value_limit
@@ -638,52 +645,54 @@ mod tests {
     #[test]
     fn a_feature_between_the_points_of_a_check_is_not_missed() {
         // The first layer rises over hundreds of units; two units of the
-        // second layer with a gain of a thousand switch on at θ = 54.9 and
+        // second layer with a gain of a thousand switch on at |θ| = 54.9 and
         // off at 57.6. At the ends, the middle and the quarters of the range
         // and of its halves the net is flat at zero, value, slope and
         // curvature: a builder that only compared values there would keep
-        // one piece that is zero everywhere.
-        let network = Network {
-            layers: vec![
-                Layer {
-                    weights: vec![vec![0.01]],
-                    bias: vec![0.0],
-                    activation: Activation::Tanh,
-                    residual: Residual::None,
-                    timestep: None,
-                },
-                Layer {
-                    weights: vec![vec![1000.0, -1000.0]],
-                    bias: vec![-500.0, 520.0],
-                    activation: Activation::Tanh,
-                    residual: Residual::None,
-                    timestep: None,
-                },
-                Layer {
-                    weights: vec![vec![1.0], vec![1.0]],
-                    bias: vec![0.0],
-                    activation: Activation::Linear,
-                    residual: Residual::None,
-                    timestep: None,
-                },
-            ],
-        };
-        assert!(network.scalar_jet(256.0).unwrap()[0][0].abs() < 1e-15);
-        assert!((network.scalar_jet(56.0).unwrap()[0][0] - 2.0).abs() < 1e-6);
-        let table = NetTable::build(&network, 10, DOUBLE).unwrap();
-        let (value, slope) = worst(
-            &table,
-            &network,
-            (0..40_000).map(|k| 50.0 + k as f64 * 2.5e-4),
-        );
-        assert!(value <= 1.5 * DOUBLE.tolerance, "{value:e}");
-        assert!(
-            slope <= 1.5 * SLOPE_TOLERANCE * DOUBLE.tolerance,
-            "{slope:e}"
-        );
-        // The other side of zero has no such feature and a few pieces.
-        let (value, _) = worst(&table, &network, (1..4000).map(|k| -(k as f64) * 0.25));
-        assert!(value <= 1.5 * DOUBLE.tolerance, "{value:e}");
+        // one piece that is zero everywhere. On either side of zero in turn.
+        for side in [1.0, -1.0] {
+            let network = Network {
+                layers: vec![
+                    Layer {
+                        weights: vec![vec![side * 0.01]],
+                        bias: vec![0.0],
+                        activation: Activation::Tanh,
+                        residual: Residual::None,
+                        timestep: None,
+                    },
+                    Layer {
+                        weights: vec![vec![1000.0, -1000.0]],
+                        bias: vec![-500.0, 520.0],
+                        activation: Activation::Tanh,
+                        residual: Residual::None,
+                        timestep: None,
+                    },
+                    Layer {
+                        weights: vec![vec![1.0], vec![1.0]],
+                        bias: vec![0.0],
+                        activation: Activation::Linear,
+                        residual: Residual::None,
+                        timestep: None,
+                    },
+                ],
+            };
+            assert!(network.scalar_jet(side * 256.0).unwrap()[0][0].abs() < 1e-15);
+            assert!((network.scalar_jet(side * 56.0).unwrap()[0][0] - 2.0).abs() < 1e-6);
+            let table = NetTable::build(&network, 10, DOUBLE).unwrap();
+            let (value, slope) = worst(
+                &table,
+                &network,
+                (0..40_000).map(|k| side * (50.0 + k as f64 * 2.5e-4)),
+            );
+            assert!(value <= 1.5 * DOUBLE.tolerance, "side {side}: {value:e}");
+            assert!(
+                slope <= 1.5 * SLOPE_TOLERANCE * DOUBLE.tolerance,
+                "side {side}: {slope:e}"
+            );
+            // The other side of zero has no such feature and a few pieces.
+            let (value, _) = worst(&table, &network, (1..4000).map(|k| -side * k as f64 * 0.25));
+            assert!(value <= 1.5 * DOUBLE.tolerance, "side {side}: {value:e}");
+        }
     }
 
     #[test]
@@ -815,11 +824,13 @@ mod tests {
     #[test]
     fn a_net_too_fast_for_the_precision_is_refused() {
         // A unit that switches within a hundredth of a unit at θ = 1000: a
-        // float32 there has steps of 6e-5, too few for a piece.
+        // float32 there has steps of 6e-5, too few for a piece. (The weight
+        // has all its bits, so that its products with the places the
+        // builder looks at round like those with any other.)
         let network = Network {
             layers: vec![Layer {
-                weights: vec![vec![200.0, 0.01]],
-                bias: vec![-200_000.0, 0.0],
+                weights: vec![vec![200.123456789, 0.01]],
+                bias: vec![-200_123.456789, 0.0],
                 activation: Activation::Tanh,
                 residual: Residual::None,
                 timestep: None,
@@ -837,8 +848,9 @@ mod tests {
         // Float64 has the bits for it. The weight of 200 and the bias of
         // -200,000 cancel where the unit turns, which leaves the net itself
         // some 2e-11 of rounding there, above the tolerance (the bound on it
-        // is 9e-11): the pieces are as close as that, and no halving goes
-        // on after what cannot be had. A coarser tolerance is kept. The
+        // is 9e-11): the pieces are as close as that, in value and, over
+        // their width, in slope, and no halving goes on after what cannot
+        // be had. A coarser tolerance is kept. The
         // unit turns within a fifth of a unit, across the end of a cell of
         // eight: the two cells there are cut to its narrowest piece all
         // over, 131,000 pieces where the turn itself has under a thousand.
