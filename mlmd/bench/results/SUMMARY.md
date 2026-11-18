@@ -25,8 +25,9 @@ worst of the fifteen nets
 | 0.01 | 9.8e-6 | 7.3e-5 | 4.0 GB |
 
 The tables in pieces of uneven length for the same nets: 4,092 pieces in
-4.1 MiB in float32 (within 1.5e-8 of the largest value everywhere) and
-26,966 pieces in 50 MiB in float64 (within 1e-13), made in 0.1 s.
+4.1 MiB in float32 (every piece within 1.5e-8 of the largest value of its
+net at the three places it is checked at) and 26,966 pieces in 50 MiB in
+float64 (within 1e-13 there), made in 0.1 s.
 
 **Against the nets.** The 83 frames of the HAP sealed test (largest force
 component 6.1 eV/Å), `--compress 0.5`, four models of each kind, the
@@ -172,7 +173,9 @@ and over hundreds; a net whose feature lies between all points a piece is
 checked at (two units of a second layer with a gain of a thousand: a
 builder that compared values alone keeps one piece that is zero
 everywhere); every activation, residual and time step; that pieces meet in
-value and slope and that the cells name them; the lookup in float32
+value and slope and that the cells name every piece and no other, with
+cells that lie within a piece and cells that hold several; the lookup in
+float32
 throughout; a net too fast for float32; a net whose own rounding is above
 the tolerance; the bound on that rounding against what cancelling terms
 lose. `gpu/tests/device.rs`: the lookup on the device against a table laid
@@ -201,10 +204,25 @@ bits, whose products with the places the builder looks at are exact, so the
 rounding never showed there; with a weight of all its bits the builder
 halved down to the last bit of θ and failed, because what the values at the
 ends of a piece are off by shows in its slope the more, the narrower the
-piece is. The allowance now covers that, with a mutant of its own, and all
-73 are caught. Locally: workspace 233, engine with `native-gpu` 93, GPU
+piece is. The allowance now covers that, with a mutant of its own. After
+that correction the 35 mutants of the builder and of the bounds were run
+again on the final code (the other 38, of the lookup, the kernels and the
+host side, are in files that did not change after their run). One of them
+was no longer caught: it adds pieces that no cell names, which leaves a
+table right and only larger, and it had been caught by a limit on the
+number of pieces that the corrected builder no longer reaches. A check that
+the cells of a table name every one of its pieces catches it now. Four gaps
+in all, then, and all 73 mutants are caught. Locally: workspace 233, engine with `native-gpu` 93, GPU
 crates 182, each in release and debug; `cargo fmt --check` clean; the
 legacy `cuda` features compile. The GPU suites do not run in CI.
+
+**A change for hybrids.** `--compress` gives a hybrid tables for every
+descriptor or for none: when a net of an se_e3 descriptor cannot be
+tabulated (it turns faster than the precision of θ can follow) the request
+is refused and the potential keeps all its networks, where before this
+change the two-body descriptors of such a hybrid would have had their
+tables. None of the twelve trained models here (three kinds with se_e3,
+four seeds) is refused, in float32 or in float64.
 
 **Not built.** Tables in pieces of uneven length for the nets of se_e2_a
 and se_e2_r (see above: theirs are eight times larger and a thousand times

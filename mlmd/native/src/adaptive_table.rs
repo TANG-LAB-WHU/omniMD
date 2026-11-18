@@ -589,6 +589,45 @@ mod tests {
         worst
     }
 
+    /// Checks that the cells of a table name every piece of it and no
+    /// other (a piece that no cell names is one no input can reach), and
+    /// returns the number of cells that hold several pieces.
+    fn cells_of_several_pieces(table: &NetTable) -> usize {
+        let pieces = table.pieces();
+        let per_exponent = 1usize << table.key_bits;
+        let per_side = table.cells.len() / 2;
+        assert_eq!(
+            per_side,
+            1 + (table.top - table.lowest) as usize * per_exponent
+        );
+        let mut named = vec![false; pieces];
+        let mut several = 0;
+        for (index, &(base, width)) in table.cells.iter().enumerate() {
+            // The cell is `number` widths of 2^level from zero.
+            let (level, number) = match index % per_side {
+                0 => (table.lowest, 0i64),
+                cell => (
+                    table.lowest + ((cell - 1) / per_exponent) as i32 - table.key_bits as i32,
+                    (per_exponent + (cell - 1) % per_exponent) as i64,
+                ),
+            };
+            let (first, last) = match level - width {
+                shift if shift >= 0 => (number << shift, ((number + 1) << shift) - 1),
+                shift => (number >> -shift, number >> -shift),
+            };
+            several += usize::from(last > first);
+            for piece in base + first..=base + last {
+                named[usize::try_from(piece).unwrap()] = true;
+            }
+        }
+        assert!(
+            named.iter().all(|&n| n),
+            "{} of {pieces} pieces have no cell",
+            named.iter().filter(|&&n| !n).count()
+        );
+        several
+    }
+
     /// Points all over `|x| < reach`, and as many again packed near zero.
     fn spread(reach: f64, count: usize, seed: u64) -> impl Iterator<Item = f64> {
         let mut seed = seed;
@@ -731,6 +770,17 @@ mod tests {
         let network = embedding(4.5, 3);
         let table = NetTable::build(&network, 13, DOUBLE).unwrap();
         let pieces = table.pieces();
+        // The cells name every piece: here most cells lie within one piece,
+        // and with cells sixteen times as wide many hold several.
+        assert!(cells_of_several_pieces(&table) < table.cells.len() / 4);
+        let wide = TableOptions {
+            key_bits: 2,
+            ..DOUBLE
+        };
+        for (gain, seed) in [(4.5, 3), (60.0, 5)] {
+            let table = NetTable::build(&embedding(gain, seed), 13, wide).unwrap();
+            assert!(cells_of_several_pieces(&table) > 10, "gain {gain}");
+        }
         // Every piece is some input's, on its own side of zero.
         let mut seen = vec![false; pieces];
         let mut previous: Option<(usize, f64)> = None;
