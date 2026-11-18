@@ -21,7 +21,10 @@ pub use dense::{Activation, DenseLayer, DenseNetwork, DenseTape};
 pub use fused::{GradientNetwork, LayerParameters, ScalarNetwork};
 pub use kernels::{CacheStats, KernelCache};
 pub use nlist::{Cell, NeighborList, NeighborSearch, NeighborStats, COINCIDENT, TRUNCATED};
-pub use table::{quintic_coefficients, ScalarTable, TableSegments};
+pub use table::{
+    quintic_coefficients, CellBuffers, CellSegments, CellTable, ScalarTable, TableSegments,
+    CELL_LOOKUP,
+};
 pub use train::{TrainLayer, TrainNetwork, TrainTape};
 pub use train_set::{SetTape, TrainSet};
 

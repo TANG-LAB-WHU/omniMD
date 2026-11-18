@@ -1,0 +1,824 @@
+//! Tables of an embedding net whose input has a wide range (the θ of se_e3).
+//!
+//! The two-body descriptors give their embedding nets a normalized radial
+//! entry of some tens of units at most, and their tables have a knot every
+//! hundredth of a unit. The θ of se_e3, the product of two normalized
+//! directions, spans thousands of units (±1,400 for neighbors from 0.9 Å in
+//! the HAP models, whose directions have a width of 0.03), and a trained net
+//! turns within a hundredth of a unit where its data is and not at all over
+//! most of the rest. A table of one step is then wrong by percent, or has
+//! gigabytes.
+//!
+//! So the pieces here are of uneven length. The range ±2^top is halved again
+//! and again, and a piece is kept when
+//! - no unit of the net that may be in the bent part of its activation moves
+//!   by more than [`MOVE`] in its argument over the piece (bounds by interval
+//!   arithmetic, [`Network::bent_movement`]), so that the net has no feature
+//!   between the points the piece is checked at, and
+//! - the quintic through the value, slope and curvature of the net at the
+//!   ends of the piece is close to the net at a quarter, the middle and three
+//!   quarters of it: the value within the tolerance, as a fraction of the
+//!   largest value the net was seen to take, and the slope within
+//!   [`SLOPE_TOLERANCE`] times that fraction of its largest slope.
+//!
+//! All ends of pieces are whole multiples of powers of two, which a float
+//! holds exactly, and the piece of an input is found from the input itself:
+//! its sign, its exponent and the first [`TableOptions::key_bits`] bits after
+//! that name a cell of a directory, and the cell says how wide its pieces are
+//! and where they start, `piece = base + floor(|x| / width)`. What is left of
+//! `|x| / width` is the place in the piece. Nothing is rounded on the way, in
+//! float32 or in float64, whatever the size of the input; a table that counts
+//! steps from the lower end of a range of thousands rounds a float32 input
+//! to a thousandth of a unit. For this a cell that holds pieces of several
+//! lengths has them all cut to its shortest, which adds less than a percent
+//! of pieces for the nets this was measured on.
+use crate::Network;
+use omnimd_ml_contract::{Error, Result};
+
+/// The most the argument of a bent activation may move over one piece.
+const MOVE: f64 = 2.0;
+/// The slope of a piece may be off by this many times the tolerance, as a
+/// fraction of the largest slope of the net.
+pub(crate) const SLOPE_TOLERANCE: f64 = 100.0;
+/// A table has no more pieces than this.
+const MOST_PIECES: usize = 1 << 20;
+/// The piece at zero is no narrower than two to this power.
+const NARROWEST: i32 = -100;
+
+/// How a table is made.
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct TableOptions {
+    /// The table is within this of the net, as a fraction of the largest
+    /// value the net takes (see the module for the slope).
+    pub tolerance: f64,
+    /// The first bits of an input, after its exponent, that tell its cell.
+    pub key_bits: u32,
+    /// The far end of a piece is at most two to this power times its width:
+    /// what the precision of the input leaves of bits for the place within a
+    /// piece. A net that needs narrower pieces is refused.
+    pub resolution: u32,
+}
+
+/// A net as pieces of quintics over `|x| < 2^top`.
+// (The tests read all of it; the potential takes the cells and the pieces.)
+#[cfg_attr(not(test), allow(dead_code))]
+#[derive(Clone, Debug)]
+pub(crate) struct NetTable {
+    /// Outputs of the net.
+    pub width: usize,
+    pub top: i32,
+    /// Cell 0 of either sign holds the inputs below `2^lowest`; from there
+    /// on every exponent has `2^key_bits` cells.
+    pub lowest: i32,
+    pub key_bits: u32,
+    /// `(base, e)` of every cell, those of `x >= 0` first, then as many of
+    /// `x < 0`: the pieces of the cell are `2^e` wide and an input is in
+    /// piece `base + floor(|x| / 2^e)`.
+    pub cells: Vec<(i64, i32)>,
+    /// `[pieces][width][6]`: the quintic of every output in the place within
+    /// the piece, 0 to 1, which rises with `|x|`.
+    pub coefficients: Vec<f64>,
+    /// The largest value and slope the net was seen to take: what the
+    /// tolerance is a fraction of.
+    pub value_scale: f64,
+    pub slope_scale: f64,
+}
+
+fn pow2(exponent: i32) -> f64 {
+    2f64.powi(exponent)
+}
+
+/// Value, slope and curvature of every output along `|x|` on one side of
+/// zero.
+struct Jet {
+    value: Vec<f64>,
+    slope: Vec<f64>,
+    curvature: Vec<f64>,
+}
+
+/// A piece the halving kept: `index` widths of `2^level` from zero.
+struct Leaf {
+    level: i32,
+    index: u64,
+    coefficients: Vec<f64>,
+}
+
+impl Leaf {
+    fn start(&self) -> f64 {
+        self.index as f64 * pow2(self.level)
+    }
+
+    fn end(&self) -> f64 {
+        (self.index + 1) as f64 * pow2(self.level)
+    }
+}
+
+/// The quintic of every output through the jets at the ends of a piece of
+/// width `h`, in the place within the piece.
+fn quintic(h: f64, from: &Jet, to: &Jet) -> Vec<f64> {
+    let mut coefficients = Vec::with_capacity(6 * from.value.len());
+    for m in 0..from.value.len() {
+        let c0 = from.value[m];
+        let c1 = from.slope[m] * h;
+        let c2 = from.curvature[m] * h * h / 2.0;
+        // What the quadratic start still misses at the far end.
+        let d0 = to.value[m] - c0 - c1 - c2;
+        let d1 = to.slope[m] * h - c1 - 2.0 * c2;
+        let d2 = to.curvature[m] * h * h - 2.0 * c2;
+        coefficients.extend([
+            c0,
+            c1,
+            c2,
+            10.0 * d0 - 4.0 * d1 + d2 / 2.0,
+            -15.0 * d0 + 7.0 * d1 - d2,
+            6.0 * d0 - 3.0 * d1 + d2 / 2.0,
+        ]);
+    }
+    coefficients
+}
+
+/// A quintic and its derivative at `u`.
+fn at(c: &[f64], u: f64) -> (f64, f64) {
+    let value = c[0] + u * (c[1] + u * (c[2] + u * (c[3] + u * (c[4] + u * c[5]))));
+    let slope = c[1] + u * (2.0 * c[2] + u * (3.0 * c[3] + u * (4.0 * c[4] + u * 5.0 * c[5])));
+    (value, slope)
+}
+
+/// The quintic `c` on the part of its piece from `from` on that is `part`
+/// of the piece long, in the place within that part.
+fn restricted(c: &[f64], from: f64, part: f64) -> [f64; 6] {
+    const CHOOSE: [[f64; 6]; 6] = [
+        [1.0, 1.0, 1.0, 1.0, 1.0, 1.0],
+        [0.0, 1.0, 2.0, 3.0, 4.0, 5.0],
+        [0.0, 0.0, 1.0, 3.0, 6.0, 10.0],
+        [0.0, 0.0, 0.0, 1.0, 4.0, 10.0],
+        [0.0, 0.0, 0.0, 0.0, 1.0, 5.0],
+        [0.0, 0.0, 0.0, 0.0, 0.0, 1.0],
+    ];
+    let mut out = [0.0; 6];
+    let mut scale = 1.0;
+    for (n, value) in out.iter_mut().enumerate() {
+        // The n-th derivative at `from` over n!, by Horner from the top.
+        let mut sum = 0.0;
+        for k in (n..6).rev() {
+            sum = sum * from + CHOOSE[n][k] * c[k];
+        }
+        *value = sum * scale;
+        scale *= part;
+    }
+    out
+}
+
+struct Builder<'a> {
+    network: &'a Network,
+    options: TableOptions,
+    /// Which side of zero the pieces are on.
+    sign: f64,
+    value_scale: f64,
+    slope_scale: f64,
+    leaves: Vec<Leaf>,
+}
+
+impl Builder<'_> {
+    fn jet(&mut self, a: f64) -> Result<Jet> {
+        let [value, slope, curvature] = self.network.scalar_jet(self.sign * a)?;
+        for (v, d) in value.iter().zip(&slope) {
+            self.value_scale = self.value_scale.max(v.abs());
+            self.slope_scale = self.slope_scale.max(d.abs());
+        }
+        let sign = self.sign;
+        Ok(Jet {
+            value,
+            slope: slope.into_iter().map(|d| sign * d).collect(),
+            curvature,
+        })
+    }
+
+    /// Whether the quintic of a piece of width `h` is close enough to the
+    /// net at the place `u`, where the net has the jet `exact`.
+    fn close(&self, coefficients: &[f64], h: f64, u: f64, exact: &Jet) -> bool {
+        let value_limit = self.options.tolerance * self.value_scale;
+        let slope_limit = SLOPE_TOLERANCE * self.options.tolerance * self.slope_scale;
+        coefficients.chunks_exact(6).enumerate().all(|(m, c)| {
+            let (value, slope) = at(c, u);
+            (value - exact.value[m]).abs() <= value_limit
+                && (slope / h - exact.slope[m]).abs() <= slope_limit
+        })
+    }
+
+    /// The pieces of `[index, index + 1]·2^level`, whose ends and middle
+    /// have the jets given, in the order of `|x|`.
+    fn refine(&mut self, level: i32, index: u64, from: &Jet, middle: &Jet, to: &Jet) -> Result<()> {
+        let h = pow2(level);
+        let start = index as f64 * h;
+        let first = self.jet(start + 0.25 * h)?;
+        let third = self.jet(start + 0.75 * h)?;
+        let coefficients = quintic(h, from, to);
+        let (lo, hi) = match self.sign > 0.0 {
+            true => (start, start + h),
+            false => (-(start + h), -start),
+        };
+        if self.network.bent_movement(lo, hi) <= MOVE
+            && self.close(&coefficients, h, 0.25, &first)
+            && self.close(&coefficients, h, 0.5, middle)
+            && self.close(&coefficients, h, 0.75, &third)
+        {
+            self.leaves.push(Leaf {
+                level,
+                index,
+                coefficients,
+            });
+            return Ok(());
+        }
+        let near = self.sign * (start + 0.5 * h);
+        if 2 * index + 2 > 1u64 << self.options.resolution || level <= NARROWEST {
+            return Err(Error(format!(
+                "the net turns too fast near {near} for a table in this precision: its pieces there would be narrower than {:e}",
+                h / 2.0
+            )));
+        }
+        if self.leaves.len() >= MOST_PIECES {
+            return Err(Error(format!(
+                "the net needs more than {MOST_PIECES} pieces for a table within {:e} (reached {near})",
+                self.options.tolerance
+            )));
+        }
+        self.refine(level - 1, 2 * index, from, &first, middle)?;
+        self.refine(level - 1, 2 * index + 1, middle, &third, to)
+    }
+
+    /// The pieces of one side of zero.
+    fn side(&mut self, sign: f64, top: i32) -> Result<Vec<Leaf>> {
+        self.sign = sign;
+        let from = self.jet(0.0)?;
+        let middle = self.jet(pow2(top - 1))?;
+        let to = self.jet(pow2(top))?;
+        self.refine(top, 0, &from, &middle, &to)?;
+        Ok(std::mem::take(&mut self.leaves))
+    }
+}
+
+/// The cells of one side of zero and their pieces, which are added to
+/// `coefficients`: the leaves as they are, or cut to the shortest of their
+/// cell.
+fn directory(
+    leaves: &[Leaf],
+    lowest: i32,
+    top: i32,
+    key_bits: u32,
+    width: usize,
+    coefficients: &mut Vec<f64>,
+) -> Result<Vec<(i64, i32)>> {
+    let per_exponent = 1usize << key_bits;
+    let cells = 1 + (top - lowest) as usize * per_exponent;
+    let mut records = Vec::with_capacity(cells);
+    let pieces = |coefficients: &Vec<f64>| coefficients.len() / (6 * width);
+    // The leaf that holds the start of the cell, and where the last leaf
+    // written whole is.
+    let mut leaf = 0;
+    let mut whole: Option<(usize, usize)> = None;
+    for cell in 0..cells {
+        // The cell is `number` widths of 2^level from zero.
+        let (level, number) = match cell {
+            0 => (lowest, 0u64),
+            _ => (
+                lowest + ((cell - 1) / per_exponent) as i32 - key_bits as i32,
+                (per_exponent + (cell - 1) % per_exponent) as u64,
+            ),
+        };
+        let start = number as f64 * pow2(level);
+        let end = (number + 1) as f64 * pow2(level);
+        while leaves[leaf].end() <= start {
+            leaf += 1;
+        }
+        let here = &leaves[leaf];
+        if here.level >= level {
+            // The cell lies within one leaf.
+            let piece = match whole {
+                Some((written, piece)) if written == leaf => piece,
+                _ => {
+                    let piece = pieces(coefficients);
+                    coefficients.extend(&here.coefficients);
+                    whole = Some((leaf, piece));
+                    piece
+                }
+            };
+            records.push((piece as i64 - here.index as i64, here.level));
+            continue;
+        }
+        // The cell holds several leaves: all are cut to the shortest.
+        let mut last = leaf;
+        while last + 1 < leaves.len() && leaves[last + 1].start() < end {
+            last += 1;
+        }
+        let inside = &leaves[leaf..=last];
+        let finest = inside.iter().map(|l| l.level).min().unwrap_or(level);
+        let first = pieces(coefficients);
+        if first + (1usize << (level - finest).min(40)) > MOST_PIECES {
+            return Err(Error(format!(
+                "the net needs more than {MOST_PIECES} pieces for a table: it turns within {:e} near {start}",
+                pow2(finest)
+            )));
+        }
+        for l in inside {
+            let parts = 1u64 << (l.level - finest);
+            let part = 1.0 / parts as f64;
+            for k in 0..parts {
+                for c in l.coefficients.chunks_exact(6) {
+                    coefficients.extend(restricted(c, k as f64 * part, part));
+                }
+            }
+        }
+        // floor(|x| / 2^finest) at the start of the cell.
+        let before = number << (level - finest);
+        records.push((first as i64 - before as i64, finest));
+        leaf = last;
+    }
+    Ok(records)
+}
+
+impl NetTable {
+    /// `network` (of one input) as a table over `|x| < 2^top`.
+    pub(crate) fn build(network: &Network, top: i32, options: TableOptions) -> Result<Self> {
+        let inputs = network.layers.first().map(|layer| layer.weights.len());
+        let width = network.layers.last().map_or(0, |layer| layer.bias.len());
+        let usable = options.tolerance.is_finite()
+            && options.tolerance > 0.0
+            && (1..=12).contains(&options.key_bits)
+            && (4..=28).contains(&options.resolution)
+            && (NARROWEST + 1..=120).contains(&top);
+        if !usable || width == 0 || inputs != Some(1) {
+            return Err(Error(format!(
+                "a table needs a net of one input, a tolerance above zero and a range it can hold, got tolerance {:e} and 2^{top}",
+                options.tolerance
+            )));
+        }
+        let mut builder = Builder {
+            network,
+            options,
+            sign: 1.0,
+            value_scale: 0.0,
+            slope_scale: 0.0,
+            leaves: Vec::new(),
+        };
+        let positive = builder.side(1.0, top)?;
+        let negative = builder.side(-1.0, top)?;
+        let lowest = positive[0].level.min(negative[0].level);
+        let mut coefficients = Vec::new();
+        let mut cells = directory(
+            &positive,
+            lowest,
+            top,
+            options.key_bits,
+            width,
+            &mut coefficients,
+        )?;
+        cells.extend(directory(
+            &negative,
+            lowest,
+            top,
+            options.key_bits,
+            width,
+            &mut coefficients,
+        )?);
+        if coefficients.iter().any(|c| !c.is_finite()) {
+            return Err(Error("nonfinite table coefficient".into()));
+        }
+        Ok(Self {
+            width,
+            top,
+            lowest,
+            key_bits: options.key_bits,
+            cells,
+            coefficients,
+            value_scale: builder.value_scale,
+            slope_scale: builder.slope_scale,
+        })
+    }
+
+    #[cfg(test)]
+    pub(crate) fn pieces(&self) -> usize {
+        self.coefficients.len() / (6 * self.width)
+    }
+
+    /// The piece of `x` and the place in it, as the device kernel finds
+    /// them: `None` outside the table.
+    #[cfg(test)]
+    fn piece(&self, x: f64) -> Option<(usize, f64, f64)> {
+        let a = x.abs();
+        if !(a < pow2(self.top)) {
+            return None;
+        }
+        let per_side = self.cells.len() / 2;
+        // Exponent and first bits: cell 0 below 2^lowest, then in order.
+        let key = (a.to_bits() >> (52 - self.key_bits)) as i64;
+        let first_key = ((1023 + self.lowest as i64) << self.key_bits) - 1;
+        let cell = (key - first_key).clamp(0, per_side as i64 - 1) as usize;
+        let (base, level) = self.cells[if x < 0.0 { per_side + cell } else { cell }];
+        let t = a * pow2(-level);
+        let whole = t.floor();
+        Some(((base + whole as i64) as usize, t - whole, pow2(-level)))
+    }
+
+    /// Value and slope of every output at `x` from the table.
+    #[cfg(test)]
+    pub(crate) fn evaluate(&self, x: f64) -> Option<(Vec<f64>, Vec<f64>)> {
+        let (piece, u, inverse) = self.piece(x)?;
+        let sign = if x < 0.0 { -1.0 } else { 1.0 };
+        let block = &self.coefficients[piece * 6 * self.width..][..6 * self.width];
+        Some(
+            block
+                .chunks_exact(6)
+                .map(|c| {
+                    let (value, slope) = at(c, u);
+                    (value, sign * inverse * slope)
+                })
+                .unzip(),
+        )
+    }
+
+    /// The same in float32 throughout, as a float32 potential does it: the
+    /// cell from the bits of the float32 input, float32 coefficients and
+    /// arithmetic.
+    #[cfg(test)]
+    pub(crate) fn evaluate_f32(&self, x: f32) -> Option<(Vec<f32>, Vec<f32>)> {
+        let a = x.abs();
+        if !(a < pow2(self.top) as f32) {
+            return None;
+        }
+        let per_side = self.cells.len() / 2;
+        let key = i64::from(a.to_bits() >> (23 - self.key_bits));
+        let first_key = ((127 + self.lowest as i64) << self.key_bits) - 1;
+        let cell = (key - first_key).clamp(0, per_side as i64 - 1) as usize;
+        let (base, level) = self.cells[if x < 0.0 { per_side + cell } else { cell }];
+        let inverse = pow2(-level) as f32;
+        let t = a * inverse;
+        let whole = t.floor();
+        let u = t - whole;
+        let piece = (base + whole as i64) as usize;
+        let sign = if x < 0.0 { -1.0f32 } else { 1.0 };
+        let block = &self.coefficients[piece * 6 * self.width..][..6 * self.width];
+        Some(
+            block
+                .chunks_exact(6)
+                .map(|c| {
+                    let c: Vec<f32> = c.iter().map(|&v| v as f32).collect();
+                    let value = c[0] + u * (c[1] + u * (c[2] + u * (c[3] + u * (c[4] + u * c[5]))));
+                    let slope = c[1]
+                        + u * (2.0 * c[2] + u * (3.0 * c[3] + u * (4.0 * c[4] + u * 5.0 * c[5])));
+                    (value, sign * inverse * slope)
+                })
+                .unzip(),
+        )
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{NetTable, TableOptions, SLOPE_TOLERANCE};
+    use crate::{Activation, Layer, Network, Residual};
+
+    /// Numbers between -1 and 1 that depend on nothing but `seed`.
+    fn noise(seed: &mut u64) -> f64 {
+        *seed = seed
+            .wrapping_mul(6364136223846793005)
+            .wrapping_add(1442695040888963407);
+        ((*seed >> 11) as f64 / (1u64 << 53) as f64) * 2.0 - 1.0
+    }
+
+    fn layer(
+        input: usize,
+        output: usize,
+        activation: Activation,
+        residual: Residual,
+        gain: f64,
+        seed: &mut u64,
+    ) -> Layer {
+        Layer {
+            weights: (0..input)
+                .map(|_| (0..output).map(|_| gain * noise(seed)).collect())
+                .collect(),
+            bias: (0..output).map(|_| noise(seed)).collect(),
+            activation,
+            residual,
+            timestep: None,
+        }
+    }
+
+    /// An embedding net as the trainer makes them, [4, 8, 16] with tanh and
+    /// the doubled residual, with first-layer weights up to `gain`.
+    fn embedding(gain: f64, seed: u64) -> Network {
+        let mut seed = seed;
+        Network {
+            layers: vec![
+                layer(1, 4, Activation::Tanh, Residual::None, gain, &mut seed),
+                layer(4, 8, Activation::Tanh, Residual::Concat2, 1.0, &mut seed),
+                layer(8, 16, Activation::Tanh, Residual::Concat2, 1.0, &mut seed),
+            ],
+        }
+    }
+
+    const DOUBLE: TableOptions = TableOptions {
+        tolerance: 1e-11,
+        key_bits: 4,
+        resolution: 28,
+    };
+
+    /// The largest difference between table and net over `points`, as
+    /// fractions of the scales of the table: (value, slope).
+    fn worst(table: &NetTable, network: &Network, points: impl Iterator<Item = f64>) -> (f64, f64) {
+        let mut worst = (0.0_f64, 0.0_f64);
+        for x in points {
+            let (value, slope) = table.evaluate(x).unwrap();
+            let [exact, exact_slope, _] = network.scalar_jet(x).unwrap();
+            for m in 0..table.width {
+                worst.0 = worst.0.max((value[m] - exact[m]).abs() / table.value_scale);
+                worst.1 = worst
+                    .1
+                    .max((slope[m] - exact_slope[m]).abs() / table.slope_scale);
+            }
+        }
+        worst
+    }
+
+    /// Points all over `|x| < reach`, and as many again packed near zero.
+    fn spread(reach: f64, count: usize, seed: u64) -> impl Iterator<Item = f64> {
+        let mut seed = seed;
+        (0..2 * count).map(move |k| {
+            let x = noise(&mut seed);
+            if k % 2 == 0 {
+                reach * x
+            } else {
+                // From 2^-30 of the reach on, either sign.
+                reach * x.signum() * 2f64.powf(-30.0 * x.abs())
+            }
+        })
+    }
+
+    #[test]
+    fn a_table_is_within_its_tolerance_of_the_net_everywhere() {
+        // Weights like those of a trained net of se_e3: some units turn
+        // within a fraction of a unit of θ, others over hundreds.
+        for (gain, seed) in [(4.5, 3), (0.02, 4), (60.0, 5)] {
+            let network = embedding(gain, seed);
+            let table = NetTable::build(&network, 13, DOUBLE).unwrap();
+            let (value, slope) = worst(&table, &network, spread(8192.0, 20_000, 17 + seed));
+            // The checks of the builder are at three places of a piece; in
+            // between a quintic strays a little further.
+            assert!(value <= 1.5 * DOUBLE.tolerance, "gain {gain}: {value:e}");
+            assert!(
+                slope <= 1.5 * SLOPE_TOLERANCE * DOUBLE.tolerance,
+                "gain {gain}: {slope:e}"
+            );
+            // Far fewer pieces than a table of one step: at the 1e-3 these
+            // nets ask for near zero it would have sixteen million.
+            assert!(table.pieces() < 30_000, "gain {gain}: {}", table.pieces());
+            assert!(table.pieces() > 100, "gain {gain}: {}", table.pieces());
+        }
+    }
+
+    #[test]
+    fn a_looser_tolerance_takes_fewer_pieces_and_is_looser() {
+        let network = embedding(4.5, 3);
+        let fine = NetTable::build(&network, 13, DOUBLE).unwrap();
+        let coarse = NetTable::build(
+            &network,
+            13,
+            TableOptions {
+                tolerance: 1e-5,
+                ..DOUBLE
+            },
+        )
+        .unwrap();
+        assert!(coarse.pieces() * 3 < fine.pieces());
+        let (value, _) = worst(&coarse, &network, spread(8192.0, 20_000, 1));
+        assert!(value <= 1.5e-5 && value > 1e-8, "{value:e}");
+    }
+
+    #[test]
+    fn a_feature_between_the_points_of_a_check_is_not_missed() {
+        // The first layer rises over hundreds of units; two units of the
+        // second layer with a gain of a thousand switch on at θ = 54.9 and
+        // off at 57.6. At the ends, the middle and the quarters of the range
+        // and of its halves the net is flat at zero, value, slope and
+        // curvature: a builder that only compared values there would keep
+        // one piece that is zero everywhere.
+        let network = Network {
+            layers: vec![
+                Layer {
+                    weights: vec![vec![0.01]],
+                    bias: vec![0.0],
+                    activation: Activation::Tanh,
+                    residual: Residual::None,
+                    timestep: None,
+                },
+                Layer {
+                    weights: vec![vec![1000.0, -1000.0]],
+                    bias: vec![-500.0, 520.0],
+                    activation: Activation::Tanh,
+                    residual: Residual::None,
+                    timestep: None,
+                },
+                Layer {
+                    weights: vec![vec![1.0], vec![1.0]],
+                    bias: vec![0.0],
+                    activation: Activation::Linear,
+                    residual: Residual::None,
+                    timestep: None,
+                },
+            ],
+        };
+        assert!(network.scalar_jet(256.0).unwrap()[0][0].abs() < 1e-15);
+        assert!((network.scalar_jet(56.0).unwrap()[0][0] - 2.0).abs() < 1e-6);
+        let table = NetTable::build(&network, 10, DOUBLE).unwrap();
+        let (value, slope) = worst(
+            &table,
+            &network,
+            (0..40_000).map(|k| 50.0 + k as f64 * 2.5e-4),
+        );
+        assert!(value <= 1.5 * DOUBLE.tolerance, "{value:e}");
+        assert!(
+            slope <= 1.5 * SLOPE_TOLERANCE * DOUBLE.tolerance,
+            "{slope:e}"
+        );
+        // The other side of zero has no such feature and a few pieces.
+        let (value, _) = worst(&table, &network, (1..4000).map(|k| -(k as f64) * 0.25));
+        assert!(value <= 1.5 * DOUBLE.tolerance, "{value:e}");
+    }
+
+    #[test]
+    fn every_activation_residual_and_time_step_is_tabulated() {
+        let mut seed = 9;
+        let mut network = Network {
+            layers: vec![
+                layer(1, 2, Activation::Sigmoid, Residual::Concat2, 0.7, &mut seed),
+                layer(
+                    2,
+                    4,
+                    Activation::Softplus,
+                    Residual::Concat2,
+                    0.5,
+                    &mut seed,
+                ),
+                layer(4, 4, Activation::Tanh, Residual::Identity, 1.0, &mut seed),
+                layer(4, 3, Activation::Linear, Residual::None, 1.0, &mut seed),
+            ],
+        };
+        network.layers[2].timestep = Some(vec![0.5, -0.25, 1.5, 0.1]);
+        // The input goes on through the residuals: the net does not level
+        // off, and the units of the later layers move all over the range.
+        let table = NetTable::build(&network, 6, DOUBLE).unwrap();
+        let (value, slope) = worst(&table, &network, spread(64.0, 20_000, 2));
+        assert!(value <= 1.5 * DOUBLE.tolerance, "{value:e}");
+        assert!(
+            slope <= 1.5 * SLOPE_TOLERANCE * DOUBLE.tolerance,
+            "{slope:e}"
+        );
+    }
+
+    #[test]
+    fn pieces_meet_with_value_and_slope_and_cells_name_them() {
+        let network = embedding(4.5, 3);
+        let table = NetTable::build(&network, 13, DOUBLE).unwrap();
+        let pieces = table.pieces();
+        // Every piece is some input's, on its own side of zero.
+        let mut seen = vec![false; pieces];
+        let mut previous: Option<(usize, f64)> = None;
+        let mut borders = 0;
+        for k in 0..400_000 {
+            // From 2^-20 to the top, geometric, then the same below zero.
+            let a = 2f64.powf(-20.0 + 33.0 * (k % 200_000) as f64 / 200_000.0);
+            let x = if k < 200_000 { a } else { -a };
+            if k == 200_000 {
+                previous = None;
+            }
+            let (piece, u, _) = table.piece(x).unwrap();
+            assert!(
+                piece < pieces && (0.0..1.0).contains(&u),
+                "{x}: {piece} {u}"
+            );
+            seen[piece] = true;
+            if let Some((before, at)) = previous.filter(|&(before, _)| before != piece) {
+                // Two inputs on either side of an end of a piece: the table
+                // changes by no more than the net does between them.
+                let (left, left_slope) = table.evaluate(at).unwrap();
+                let (right, right_slope) = table.evaluate(x).unwrap();
+                let [a_value, a_slope, _] = network.scalar_jet(at).unwrap();
+                let [b_value, b_slope, _] = network.scalar_jet(x).unwrap();
+                for m in 0..table.width {
+                    let jump = (right[m] - left[m]) - (b_value[m] - a_value[m]);
+                    assert!(jump.abs() <= 3e-11 * table.value_scale, "{before}->{piece}");
+                    let turn = (right_slope[m] - left_slope[m]) - (b_slope[m] - a_slope[m]);
+                    assert!(turn.abs() <= 3e-9 * table.slope_scale, "{before}->{piece}");
+                }
+                borders += 1;
+            }
+            previous = Some((piece, x));
+        }
+        assert!(borders > pieces / 2, "{borders} of {pieces}");
+        assert!(seen.iter().filter(|&&s| s).count() > pieces * 9 / 10);
+        // The ends of the range: inside up to the last float, outside from
+        // the end on, and zero of either sign is in the table.
+        let end = 8192.0_f64;
+        assert!(table.evaluate(f64::from_bits(end.to_bits() - 1)).is_some());
+        assert!(table.evaluate(-f64::from_bits(end.to_bits() - 1)).is_some());
+        assert!(table.evaluate(end).is_none() && table.evaluate(-end).is_none());
+        assert!(table.evaluate(f64::NAN).is_none());
+        let (at_zero, _) = table.evaluate(0.0).unwrap();
+        let (below_zero, _) = table.evaluate(-0.0).unwrap();
+        let exact = network.scalar_jet(0.0).unwrap();
+        for m in 0..table.width {
+            assert!((at_zero[m] - exact[0][m]).abs() <= 1e-15);
+            assert!((below_zero[m] - exact[0][m]).abs() <= 1e-15);
+        }
+        // The smallest numbers a float holds are in cell 0.
+        assert!(table.evaluate(5e-324).is_some() && table.evaluate(-1e-300).is_some());
+    }
+
+    #[test]
+    fn a_float32_lookup_finds_the_same_pieces() {
+        // What a float32 potential does: the input, the cell, the place in
+        // the piece and the quintic in float32. The table is as fine as
+        // float32 can use, so the difference from the net (in float64, at
+        // the float32 input) is rounding: a few times 6e-8 of the value.
+        let single = TableOptions {
+            tolerance: 1.5e-8,
+            key_bits: 4,
+            resolution: 20,
+        };
+        for (gain, seed) in [(4.5, 3), (60.0, 5)] {
+            let network = embedding(gain, seed);
+            let table = NetTable::build(&network, 13, single).unwrap();
+            let mut worst = (0.0_f64, 0.0_f64);
+            for x in spread(8192.0, 20_000, 23).chain(spread(1.0, 20_000, 24)) {
+                let x = x as f32;
+                let (value, slope) = table.evaluate_f32(x).unwrap();
+                let [exact, exact_slope, _] = network.scalar_jet(f64::from(x)).unwrap();
+                // The float64 lookup of the same float32 input: the same
+                // piece, so the two differ by rounding alone.
+                let (double, _) = table.evaluate(f64::from(x)).unwrap();
+                for m in 0..table.width {
+                    assert!((f64::from(value[m]) - double[m]).abs() <= 4e-6, "{x}");
+                    worst.0 = worst
+                        .0
+                        .max((f64::from(value[m]) - exact[m]).abs() / table.value_scale);
+                    worst.1 = worst
+                        .1
+                        .max((f64::from(slope[m]) - exact_slope[m]).abs() / table.slope_scale);
+                }
+            }
+            assert!(worst.0 <= 1e-6, "gain {gain}: value {:e}", worst.0);
+            assert!(worst.1 <= 2e-5, "gain {gain}: slope {:e}", worst.1);
+        }
+    }
+
+    #[test]
+    fn a_net_too_fast_for_the_precision_is_refused() {
+        // A unit that switches within a hundredth of a unit at θ = 1000: a
+        // float32 there has steps of 6e-5, too few for a piece.
+        let network = Network {
+            layers: vec![Layer {
+                weights: vec![vec![200.0, 0.01]],
+                bias: vec![-200_000.0, 0.0],
+                activation: Activation::Tanh,
+                residual: Residual::None,
+                timestep: None,
+            }],
+        };
+        let single = TableOptions {
+            tolerance: 1.5e-8,
+            key_bits: 4,
+            resolution: 20,
+        };
+        let error = NetTable::build(&network, 11, single)
+            .unwrap_err()
+            .to_string();
+        assert!(error.contains("turns too fast near 999.9"), "{error}");
+        // Float64 has the bits for it.
+        let table = NetTable::build(&network, 11, DOUBLE).unwrap();
+        let (value, _) = worst(
+            &table,
+            &network,
+            (0..20_000).map(|k| 999.9 + k as f64 * 1e-5),
+        );
+        assert!(value <= 1.5 * DOUBLE.tolerance, "{value:e}");
+        // What cannot be a table at all.
+        let two_inputs = Network {
+            layers: vec![Layer {
+                weights: vec![vec![1.0], vec![1.0]],
+                bias: vec![0.0],
+                activation: Activation::Tanh,
+                residual: Residual::None,
+                timestep: None,
+            }],
+        };
+        assert!(NetTable::build(&two_inputs, 4, DOUBLE).is_err());
+        for bad in [0.0, -1e-9, f64::NAN] {
+            let options = TableOptions {
+                tolerance: bad,
+                ..DOUBLE
+            };
+            assert!(NetTable::build(&network, 4, options).is_err());
+        }
+    }
+}

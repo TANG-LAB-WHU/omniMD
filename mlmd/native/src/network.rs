@@ -53,6 +53,17 @@ impl Activation {
             Self::Softplus => slope * (1.0 - slope),
         }
     }
+
+    /// Whether the activation may bend somewhere between the arguments `lo`
+    /// and `hi`: outside these ranges it is a straight line to the last bit
+    /// of a float64 (1 - tanh² of 19 and exp of -37 are below 1e-16).
+    fn bends_between(self, lo: f64, hi: f64) -> bool {
+        match self {
+            Self::Linear => false,
+            Self::Tanh => hi > -19.0 && lo < 19.0,
+            Self::Sigmoid | Self::Softplus => hi > -37.0 && lo < 37.0,
+        }
+    }
 }
 
 impl Layer {
@@ -140,6 +151,53 @@ impl Network {
             (x, dx, ddx) = (y, dy, ddy);
         }
         Ok([x, dx, ddx])
+    }
+
+    /// The most that the argument of an activation can move while the scalar
+    /// input goes from `lo` to `hi`, among the units of all layers that may
+    /// be in the bent part of their activation somewhere on the way. The
+    /// ranges of the arguments are bounds by interval arithmetic (every
+    /// activation rises with its argument), so a unit moves no more than
+    /// this says and none that bends is left out; a range that is not a
+    /// number counts as unbounded.
+    ///
+    /// A piece of a table is only as good as the points it was checked at.
+    /// Where no unit moves by more than a couple of units of its argument,
+    /// the net has no feature between such points.
+    #[cfg(any(test, feature = "gpu"))]
+    pub(crate) fn bent_movement(&self, lo: f64, hi: f64) -> f64 {
+        let mut x = vec![(lo, hi)];
+        let mut most = 0.0_f64;
+        for layer in &self.layers {
+            let mut y = Vec::with_capacity(layer.bias.len());
+            for (j, &bias) in layer.bias.iter().enumerate() {
+                let (mut z_lo, mut z_hi) = (bias, bias);
+                for (&(x_lo, x_hi), weights) in x.iter().zip(&layer.weights) {
+                    let w = weights[j];
+                    let (a, b) = (w * x_lo, w * x_hi);
+                    z_lo += a.min(b);
+                    z_hi += a.max(b);
+                }
+                if !(z_lo.is_finite() && z_hi.is_finite()) {
+                    return f64::INFINITY;
+                }
+                if layer.activation.bends_between(z_lo, z_hi) {
+                    most = most.max(z_hi - z_lo);
+                }
+                let scale = layer.timestep.as_ref().map_or(1.0, |s| s[j]);
+                let a = layer.activation.value_derivative(z_lo).0 * scale;
+                let b = layer.activation.value_derivative(z_hi).0 * scale;
+                let (mut y_lo, mut y_hi) = (a.min(b), a.max(b));
+                if !matches!(layer.residual, Residual::None) {
+                    let (x_lo, x_hi) = x[j % x.len()];
+                    y_lo += x_lo;
+                    y_hi += x_hi;
+                }
+                y.push((y_lo, y_hi));
+            }
+            x = y;
+        }
+        most
     }
 
     /// Reverse chain rule for the scalar atomic fitting output.

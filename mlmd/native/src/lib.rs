@@ -1,5 +1,7 @@
 //! CPU float64 inference for the explicitly versioned native se_e2_a,
 //! se_e2_r and se_e3 subsets and for hybrids of them.
+#[cfg(any(test, feature = "gpu"))]
+mod adaptive_table;
 mod autodiff;
 #[cfg(feature = "cuda")]
 pub mod cuda;

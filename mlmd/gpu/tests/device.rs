@@ -569,6 +569,295 @@ fn scalar_table_interpolates_and_flags_inputs_outside_its_range() {
     assert!(max_error(values[3 * width..4 * width].to_vec(), &expected(&[5.0], 0)) < 1e-6);
 }
 
+/// A table in pieces of uneven length laid out by hand, whose quintics say
+/// which piece an input was looked up in: output 0 is the place within the
+/// piece, output 2 the number of the piece, output 1 a quintic with all six
+/// terms, the others the number of the piece plus their own. Returns the
+/// table and, of either sign, the pieces as (start, width).
+fn marked_cells(
+    width: usize,
+    bits: u32,
+    lowest: i32,
+    top: i32,
+) -> (omnimd_gpu::CellSegments, [Vec<(f64, f64)>; 2]) {
+    let per_exponent = 1usize << bits;
+    let cells = 1 + (top - lowest) as usize * per_exponent;
+    let mut records = Vec::new();
+    let mut coefficients = Vec::new();
+    let mut sides: [Vec<(f64, f64)>; 2] = [Vec::new(), Vec::new()];
+    let mut count = 0usize;
+    for (side, pieces) in sides.iter_mut().enumerate() {
+        let mut add = |start: f64, h: f64, coefficients: &mut Vec<f64>| -> usize {
+            let id = count as f64;
+            for m in 0..width {
+                let scale = 1.0 + count as f64 / 100.0;
+                coefficients.extend(match m {
+                    0 => [0.0, 1.0, 0.0, 0.0, 0.0, 0.0],
+                    1 => [0.5, -1.0, 2.0, 0.25, -0.75, 1.5].map(|c| c * scale),
+                    2 => [id, 0.0, 0.0, 0.0, 0.0, 0.0],
+                    _ => [id + m as f64, 0.0, 0.0, 0.0, 0.0, 0.0],
+                });
+            }
+            pieces.push((start, h));
+            count += 1;
+            count - 1
+        };
+        // One piece from zero to twice the end of cell 0: it holds cell 0
+        // and all cells of the first exponent.
+        let first = add(0.0, 2f64.powi(lowest + 1), &mut coefficients);
+        for _ in 0..=per_exponent {
+            records.push((first as i64, lowest + 1));
+        }
+        // Of the last exponent the first half of the cells are one piece
+        // again; every other cell is cut into one, two or four pieces, by
+        // turns, and those of x < 0 one step on.
+        let mut shared = None;
+        for cell in per_exponent + 1..cells {
+            let exponent = lowest + ((cell - 1) / per_exponent) as i32;
+            let part = (cell - 1) % per_exponent;
+            let (level, number) = (exponent - bits as i32, (per_exponent + part) as i64);
+            if exponent == top - 1 && part < per_exponent / 2 {
+                let piece = *shared.get_or_insert_with(|| {
+                    add(
+                        2f64.powi(exponent),
+                        2f64.powi(exponent - 1),
+                        &mut coefficients,
+                    )
+                });
+                records.push((piece as i64 - 2, exponent - 1));
+                continue;
+            }
+            let shift = ((cell + side) % 3) as i32;
+            let h = 2f64.powi(level - shift);
+            let mut first = 0;
+            for k in 0..1i64 << shift {
+                let piece = add(((number << shift) + k) as f64 * h, h, &mut coefficients);
+                if k == 0 {
+                    first = piece;
+                }
+            }
+            records.push((first as i64 - (number << shift), level - shift));
+        }
+    }
+    (
+        omnimd_gpu::CellSegments {
+            top,
+            lowest,
+            cells: records,
+            coefficients,
+        },
+        sides,
+    )
+}
+
+fn cell_table_finds_every_piece<T: omnimd_gpu::Scalar>(device: &Device) {
+    let single = std::mem::size_of::<T>() == 4;
+    let (width, bits) = (35usize, 2u32);
+    // Two layouts; the set has the first twice.
+    let (a, a_pieces) = marked_cells(width, bits, -2, 4);
+    let (b, b_pieces) = marked_cells(width, bits, -5, 3);
+    let a_count = a.coefficients.len() / (6 * width);
+    let table =
+        omnimd_gpu::CellTable::<T>::new_set(device, width, bits, &[a, b], &[0, 1, 0]).unwrap();
+    assert_eq!((table.output(), table.tables()), (width, 3));
+    assert_eq!(
+        table.pieces(),
+        a_count + b_pieces[0].len() + b_pieces[1].len()
+    );
+    // The largest number below `end` in this precision.
+    let below = |end: f64| match single {
+        true => f64::from(f32::from_bits((end as f32).to_bits() - 1)),
+        false => f64::from_bits(end.to_bits() - 1),
+    };
+    let tiny = if single { 1e-40 } else { 1e-310 };
+    let mut x: Vec<f64> = Vec::new();
+    let mut ids: Vec<i32> = Vec::new();
+    for (id, end) in [(0, 16.0), (1, 8.0), (2, 16.0)] {
+        // All over the range, near zero, and at ends of pieces and cells.
+        let spread = values(3000, 40 + id as u64);
+        x.extend(spread[..1000].iter().map(|v| end * v));
+        x.extend(spread[1000..2000].iter().map(|v| v * v * v * v));
+        x.extend(
+            spread[2000..]
+                .iter()
+                .map(|v| v.signum() * 2f64.powf(-12.0 * v.abs()) * end),
+        );
+        for exponent in -8..4 {
+            for quarter in 4..8 {
+                let knot = 2f64.powi(exponent) * f64::from(quarter) / 4.0;
+                if knot < end {
+                    x.extend([knot, -knot, below(knot), -below(knot)]);
+                }
+            }
+        }
+        x.extend([0.0, -0.0, tiny, -tiny, below(end), -below(end)]);
+        ids.resize(x.len(), id);
+    }
+    // What the precision holds of the inputs is what is looked up.
+    let x: Vec<T> = x.iter().map(|&v| T::from_f64(v)).collect();
+    // Some rows are skipped.
+    for row in (7..x.len()).step_by(97) {
+        ids[row] = -1;
+    }
+    let rows = x.len();
+    let run = |x: &[T], ids: &[i32]| {
+        let (mut y, mut dy) = (
+            device
+                .upload(&vec![T::from_f64(f64::NAN); x.len() * width])
+                .unwrap(),
+            device
+                .upload(&vec![T::from_f64(f64::NAN); x.len() * width])
+                .unwrap(),
+        );
+        let mut flag = device.zeros::<i32>(1).unwrap();
+        table
+            .forward_tangent_by_id(
+                device,
+                &device.upload(x).unwrap(),
+                &device.upload(ids).unwrap(),
+                x.len(),
+                &mut y,
+                &mut dy,
+                &mut flag,
+            )
+            .unwrap();
+        (
+            device.download(&y).unwrap(),
+            device.download(&dy).unwrap(),
+            device.download(&flag).unwrap()[0],
+        )
+    };
+    let (y, dy, flag) = run(&x, &ids);
+    assert_eq!(flag, 0);
+    // The piece of an input by its place among the pieces of its side: its
+    // number in its table, its start and its width.
+    let expected = |id: i32, value: f64| -> (f64, f64, f64) {
+        let pieces = if id == 1 { &b_pieces } else { &a_pieces };
+        let side = usize::from(value < 0.0);
+        let index = pieces[side]
+            .iter()
+            .position(|&(start, h)| start <= value.abs() && value.abs() < start + h)
+            .unwrap_or_else(|| panic!("no piece holds {value}"));
+        let (start, h) = pieces[side][index];
+        let number = index + if side == 1 { pieces[0].len() } else { 0 };
+        (number as f64, start, h)
+    };
+    let mut skipped = 0;
+    for row in 0..rows {
+        let (value, out, slope) = (
+            x[row].to_f64(),
+            &y[row * width..(row + 1) * width],
+            &dy[row * width..(row + 1) * width],
+        );
+        if ids[row] < 0 {
+            assert!(out.iter().chain(slope).all(|v| v.to_f64().is_nan()));
+            skipped += 1;
+            continue;
+        }
+        let (number, start, h) = expected(ids[row], value);
+        let u = (value.abs() - start) / h;
+        let sign = if value < 0.0 { -1.0 } else { 1.0 };
+        // The place in the piece and the piece itself, to the bit.
+        assert_eq!(
+            out[0].to_f64(),
+            T::from_f64(u).to_f64(),
+            "row {row}, x {value}"
+        );
+        assert_eq!(out[2].to_f64(), number, "row {row}, x {value}");
+        assert_eq!(slope[0].to_f64(), sign / h, "row {row}, x {value}");
+        assert_eq!(slope[2].to_f64(), 0.0);
+        for m in [3, 31, 32, 34] {
+            assert_eq!(out[m].to_f64(), number + m as f64, "row {row}, output {m}");
+        }
+        // The quintic with all its terms, and its slope.
+        let scale = 1.0 + number / 100.0;
+        let c = [0.5, -1.0, 2.0, 0.25, -0.75, 1.5].map(|c| c * scale);
+        let full = c[0] + u * (c[1] + u * (c[2] + u * (c[3] + u * (c[4] + u * c[5]))));
+        let turn = c[1] + u * (2.0 * c[2] + u * (3.0 * c[3] + u * (4.0 * c[4] + u * 5.0 * c[5])));
+        let rounding = if single { 2e-6 } else { 4e-15 };
+        assert!(
+            (out[1].to_f64() - full).abs() <= rounding * scale * 6.0,
+            "row {row}"
+        );
+        assert!(
+            (slope[1].to_f64() - sign * turn / h).abs() <= rounding * scale * 20.0 / h,
+            "row {row}: {} against {}",
+            slope[1].to_f64(),
+            sign * turn / h
+        );
+    }
+    assert!(skipped > 50);
+
+    // Outside the table, or not a number: flagged, and looked up at the end
+    // of the table, in the last piece of the side.
+    for (outside, id) in [
+        (16.0, 0),
+        (-16.0, 2),
+        (8.0, 1),
+        (-9.5, 1),
+        (1e30, 0),
+        (f64::INFINITY, 1),
+        (f64::NEG_INFINITY, 0),
+        (f64::NAN, 2),
+    ] {
+        let mut x = x.clone();
+        let mut ids = ids.clone();
+        (x[5], ids[5]) = (T::from_f64(outside), id);
+        let (y, _, flag) = run(&x, &ids);
+        assert_eq!(flag, 1, "input {outside}");
+        let end = if id == 1 { 8.0 } else { 16.0 };
+        let (number, start, h) = expected(
+            id,
+            if outside < 0.0 {
+                -below(end)
+            } else {
+                below(end)
+            },
+        );
+        assert_eq!(y[5 * width + 2].to_f64(), number, "input {outside}");
+        let u = T::from_f64((below(end) - start) / h).to_f64();
+        assert_eq!(y[5 * width].to_f64(), u, "input {outside}");
+        // The other rows are what they were.
+        assert_eq!(y[6 * width + 2].to_f64(), expected(ids[6], x[6].to_f64()).0);
+    }
+}
+
+#[test]
+fn cell_table_finds_the_piece_of_an_input_from_its_bits() {
+    let Some(device) = device() else { return };
+    cell_table_finds_every_piece::<f64>(device);
+    cell_table_finds_every_piece::<f32>(device);
+
+    // What is not a table is refused before anything is read on the device.
+    let (good, _) = marked_cells(3, 2, -2, 4);
+    let set = |segments: &[omnimd_gpu::CellSegments], of: &[usize]| {
+        omnimd_gpu::CellTable::<f64>::new_set(device, 3, 2, segments, of).map(|_| ())
+    };
+    assert!(set(std::slice::from_ref(&good), &[0]).is_ok());
+    assert!(set(std::slice::from_ref(&good), &[1]).is_err());
+    assert!(set(std::slice::from_ref(&good), &[]).is_err());
+    assert!(set(&[], &[0]).is_err());
+    // A cell that names a piece past the last, or before the first.
+    for (cell, by) in [(30, 400), (3, -1), (40, -400)] {
+        let mut bad = good.clone();
+        bad.cells[cell].0 += by;
+        assert!(set(&[bad], &[0]).is_err(), "cell {cell} moved by {by}");
+    }
+    let mut bad = good.clone();
+    bad.cells.pop();
+    assert!(set(&[bad], &[0]).is_err());
+    let mut bad = good.clone();
+    bad.coefficients.pop();
+    assert!(set(&[bad], &[0]).is_err());
+    let mut bad = good.clone();
+    bad.coefficients[7] = f64::NAN;
+    assert!(set(&[bad], &[0]).is_err());
+    let mut bad = good.clone();
+    bad.top = 400;
+    assert!(set(&[bad], &[0]).is_err());
+    assert!(omnimd_gpu::CellTable::<f64>::new_set(device, 3, 0, &[good], &[0]).is_err());
+}
+
 fn layer_parameters<T: omnimd_gpu::Scalar>(
     layers: &[CpuLayer],
 ) -> Vec<omnimd_gpu::LayerParameters<T>> {

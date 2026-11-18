@@ -157,6 +157,17 @@ fn evaluate<P: Scalar>(
             (members, batch) => format!(", {members} models, batches of {batch} frames"),
         }
     );
+    if gpu.is_compressed() {
+        let (bytes, pieces) = gpu.table_size();
+        eprintln!(
+            "tables: {:.1} MiB on the device{}",
+            bytes as f64 / (1 << 20) as f64,
+            match pieces {
+                0 => String::new(),
+                pieces => format!(", {pieces} pieces for the nets of se_e3"),
+            }
+        );
+    }
     let input = std::io::stdin();
     if !options.bench_batches.is_empty() {
         let mut frames: Vec<Frame> = Vec::new();

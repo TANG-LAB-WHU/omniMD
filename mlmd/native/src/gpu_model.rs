@@ -42,19 +42,28 @@
 //! neighbors than `sel`, this path selects neighbors like DeePMD-kit 3 (the
 //! nearest `sum(sel)` of any type, then at most `sel[t]` per type);
 //! [`GpuPotential::last_truncated`] reports when that dropped neighbors.
+use crate::adaptive_table::{NetTable, TableOptions};
 use crate::{Activation, Descriptor, DescriptorKind, Model, Network, Residual, RADIAL_RESCALE};
 use omnimd_gpu::{
-    Activation as DeviceActivation, Cell, CudaFunction, CudaSlice, CudaViewMut, DenseLayer,
-    DenseNetwork, Device, GradientNetwork, LaunchConfig, LayerParameters, NeighborList,
-    NeighborSearch, PushKernelArg, Scalar, ScalarNetwork, ScalarTable, TableSegments,
+    Activation as DeviceActivation, Cell, CellSegments, CellTable, CudaFunction, CudaSlice,
+    CudaViewMut, DenseLayer, DenseNetwork, Device, GradientNetwork, LaunchConfig, LayerParameters,
+    NeighborList, NeighborSearch, PushKernelArg, Scalar, ScalarNetwork, ScalarTable, TableSegments,
+    CELL_LOOKUP,
 };
 use omnimd_ml_contract::{
     Committee, Error, Evaluation, Frame, ModelMetadata, Potential, Result, Units,
 };
-use std::sync::Arc;
+use std::sync::{Arc, OnceLock};
 use std::time::Instant;
 
-pub(crate) const SOURCE: &str = r#"
+/// The kernels of the potential, which the trainer shares: the lookup of
+/// the tables in pieces of uneven length, then [`KERNELS`].
+pub(crate) fn source() -> &'static str {
+    static SOURCE: OnceLock<String> = OnceLock::new();
+    SOURCE.get_or_init(|| format!("{CELL_LOOKUP}{KERNELS}"))
+}
+
+const KERNELS: &str = r#"
 // A division or a square root in double precision costs the device as much
 // as some sixty multiplications, so the kernels multiply by reciprocals that
 // are worked out once (`inv_range` = 1 / (rmax - rmin), `dstd_inv` = 1 / dstd,
@@ -740,6 +749,149 @@ __device__ void three_body_dtheta_impl(const P* g, const P* dg, const P* theta,
     }
 }
 
+// With tables for the embedding nets (see the lookup above) the rows of G
+// and dG/dθ are not stored at all: the kernels below work them out from the
+// piece of θ where the stored rows would be read. A piece has six numbers
+// for every output where a stored row has one or two, but they come from
+// tables of a few megabytes that many rows share, where the stored rows are
+// hundreds of megabytes that are written once and read twice.
+//
+// Who goes through the outputs of a row was measured both ways (192 atoms of
+// water with 4,100 rows an atom; 224 atoms of a HAP frame with 310):
+// - A warp per row, its lanes over the outputs, reads the six numbers of
+//   every output of a piece together. In float32 that is the faster way to
+//   the components for few rows (0.028 against 0.050 ms for the HAP frame)
+//   and as fast for many.
+// - A thread per row, alone over the outputs, has every lane of a warp at
+//   work in every instruction. In float64 the time goes with the number of
+//   instructions in double precision that the warps issue, whatever the
+//   number of lanes that take part in one, and a warp per row issues two
+//   rounds of them for forty outputs with three in four lanes idle in the
+//   second: for the water the components take 0.42 against 1.2 ms and the
+//   force stage, of which dE/dθ is the first half, 0.49 against 2.6. dE/dθ
+//   is faster with a thread per row in float32 as well (0.11 against 0.26 ms
+//   of the force stage for the water) and within two percent of the whole
+//   evaluation for the HAP frames.
+// So dE/dθ has a thread per row, and the components a warp per row in
+// float32 and a thread per row in float64.
+//
+// The components with a warp per row: D[m] = sum over the atom's rows of
+// weight·θ·G[m](θ), warps and lanes as in the kernel of the stored rows. A θ
+// outside its table sets the flag (the potential then goes through the frame
+// with the nets).
+template <typename P, int C>
+__device__ void three_body_table_descriptor_impl(const P* theta, const P* weight,
+        const int* network, const long long* row_start, long long chunk_rows, int first,
+        int count, int width, P* d_out, int stride, const P* coef, int bits, const int* shape,
+        const P* range, const int* base, const P* scale, int* flag) {
+    extern __shared__ double table_descriptor_shared[];
+    P* sums = (P*)table_descriptor_shared;   // [warps][width]
+    int li = blockIdx.x, model = blockIdx.y;
+    long long start = (long long)model * chunk_rows + (row_start[first + li] - row_start[first]);
+    long long rows = row_start[first + li + 1] - row_start[first + li];
+    long long center = (long long)model * count + li;
+    theta += start;
+    weight += start;
+    network += start;
+    int lane = threadIdx.x & 31, warp = threadIdx.x >> 5, warps = blockDim.x >> 5;
+    for (int m0 = lane; m0 < width; m0 += 32 * C) {
+        P acc[C], part[C];
+        for (int c = 0; c < C; ++c) { acc[c] = 0; part[c] = 0; }
+        int held = 0;
+        for (long long p = warp; p < rows; p += warps) {
+            P th = theta[p], u, du;
+            int piece = cell_piece(th, network[p], bits, shape, range, base, scale, &u, &du, flag);
+            P scaled = weight[p] * th;
+            const P* k = coef + ((long long)piece * width + m0) * 6;
+            for (int c = 0; c < C; ++c, k += 192)
+                if (m0 + 32 * c < width)
+                    part[c] += scaled
+                        * (k[0] + u * (k[1] + u * (k[2] + u * (k[3] + u * (k[4] + u * k[5])))));
+            if (++held == 32) {
+                for (int c = 0; c < C; ++c) { acc[c] += part[c]; part[c] = 0; }
+                held = 0;
+            }
+        }
+        for (int c = 0; c < C; ++c)
+            if (m0 + 32 * c < width) sums[warp * width + m0 + 32 * c] = acc[c] + part[c];
+    }
+    __syncthreads();
+    for (int m = threadIdx.x; m < width; m += blockDim.x) {
+        P total = 0;
+        for (int w = 0; w < warps; ++w) total += sums[w * width + m];
+        d_out[center * stride + m] = total;
+    }
+}
+
+// The components with a thread per row: every thread adds its rows to sums
+// of its own in shared memory, and the first threads add those of all.
+template <typename P>
+__device__ void three_body_table_descriptor_rows_impl(const P* theta, const P* weight,
+        const int* network, const long long* row_start, long long chunk_rows, int first,
+        int count, int width, P* d_out, int stride, const P* coef, int bits, const int* shape,
+        const P* range, const int* base, const P* scale, int* flag) {
+    extern __shared__ double table_rows_shared[];
+    P* mine = (P*)table_rows_shared + (long long)threadIdx.x * width;   // [threads][width]
+    int li = blockIdx.x, model = blockIdx.y;
+    long long start = (long long)model * chunk_rows + (row_start[first + li] - row_start[first]);
+    long long rows = row_start[first + li + 1] - row_start[first + li];
+    long long center = (long long)model * count + li;
+    theta += start;
+    weight += start;
+    network += start;
+    for (int m = 0; m < width; ++m) mine[m] = 0;
+    for (long long p = threadIdx.x; p < rows; p += blockDim.x) {
+        P th = theta[p], u, du;
+        int piece = cell_piece(th, network[p], bits, shape, range, base, scale, &u, &du, flag);
+        P scaled = weight[p] * th;
+        const P* k = coef + (long long)piece * width * 6;
+        for (int m = 0; m < width; ++m, k += 6)
+            mine[m] += scaled
+                * (k[0] + u * (k[1] + u * (k[2] + u * (k[3] + u * (k[4] + u * k[5])))));
+    }
+    __syncthreads();
+    const P* sums = (const P*)table_rows_shared;
+    int threads = blockDim.x;
+    for (int m = threadIdx.x; m < width; m += blockDim.x) {
+        P total = 0;
+        for (int t = 0; t < threads; ++t) total += sums[(long long)t * width + m];
+        d_out[center * stride + m] = total;
+    }
+}
+
+// dE/dθ of every pair, weight included: dE/dD contracted with G + θ·dG/dθ.
+// Both are quintics in the place u of θ within its piece, so their sum is
+// one: the term of u^k counts u^k + θ·(du/dθ)·k·u^(k-1), six numbers of the
+// row that every output shares. A thread per row.
+template <typename P>
+__device__ void three_body_table_dtheta_impl(const P* theta, const P* weight, const int* network,
+        const P* dd_in, const long long* row_start, long long chunk_rows, int first, int count,
+        int width, int stride, P* dtheta, const P* coef, int bits, const int* shape,
+        const P* range, const int* base, const P* scale) {
+    extern __shared__ double table_dtheta_shared[];
+    P* dd = (P*)table_dtheta_shared;         // [width]: dE/dD of this atom
+    int li = blockIdx.x, i = first + li, model = blockIdx.y;
+    long long center = (long long)model * count + li;
+    for (int m = threadIdx.x; m < width; m += blockDim.x) dd[m] = dd_in[center * stride + m];
+    __syncthreads();
+    long long start = (long long)model * chunk_rows + (row_start[i] - row_start[first]);
+    long long rows = row_start[i + 1] - row_start[i];
+    for (long long p = threadIdx.x; p < rows; p += blockDim.x) {
+        long long row = start + p;
+        P th = theta[row], u, du;
+        int piece = cell_piece(th, network[row], bits, shape, range, base, scale, &u, &du,
+                               (int*)nullptr);
+        P along = th * du, u2 = u * u, u3 = u2 * u, u4 = u3 * u;
+        P b1 = u + along, b2 = u2 + P(2) * along * u, b3 = u3 + P(3) * along * u2;
+        P b4 = u4 + P(4) * along * u3, b5 = u4 * u + P(5) * along * u4;
+        const P* c = coef + (long long)piece * width * 6;
+        P sum = 0;
+        for (int m = 0; m < width; ++m, c += 6)
+            sum += dd[m] * (c[0] + c[1] * b1 + c[2] * b2 + c[3] * b3 + c[4] * b4 + c[5] * b5);
+        dtheta[row] = weight[row] * sum;
+    }
+}
+
 // The second: one thread per neighbor j adds dE/dθ·a_k over its partners k,
 // in float64: θ of a pair moves by a_k with a_j, and that of j with itself
 // by twice a_j. The row of a pair is that of the smaller number first, so
@@ -1044,6 +1196,30 @@ extern "C" __global__ void se_e3_dtheta_##S(const P* g, const P* dg, const P* th
     three_body_dtheta_impl<P>(g, dg, theta, weight, dd_in, row_start, chunk_rows, first, count,   \
                               width, stride, dtheta);                                             \
 }                                                                                                 \
+extern "C" __global__ void se_e3_table_descriptor_##S(const P* theta, const P* weight,            \
+        const int* network, const long long* row_start, long long chunk_rows, int first,          \
+        int count, int width, P* d_out, int stride, const P* coef, int bits, const int* shape,    \
+        const P* range, const int* base, const P* scale, int* flag) {                             \
+    three_body_table_descriptor_impl<P, 2>(theta, weight, network, row_start, chunk_rows, first,  \
+                                           count, width, d_out, stride, coef, bits, shape,        \
+                                           range, base, scale, flag);                             \
+}                                                                                                 \
+extern "C" __global__ void se_e3_table_descriptor_rows_##S(const P* theta, const P* weight,       \
+        const int* network, const long long* row_start, long long chunk_rows, int first,          \
+        int count, int width, P* d_out, int stride, const P* coef, int bits, const int* shape,    \
+        const P* range, const int* base, const P* scale, int* flag) {                             \
+    three_body_table_descriptor_rows_impl<P>(theta, weight, network, row_start, chunk_rows,       \
+                                             first, count, width, d_out, stride, coef, bits,      \
+                                             shape, range, base, scale, flag);                    \
+}                                                                                                 \
+extern "C" __global__ void se_e3_table_dtheta_##S(const P* theta, const P* weight,                \
+        const int* network, const P* dd_in, const long long* row_start, long long chunk_rows,     \
+        int first, int count, int width, int stride, P* dtheta, const P* coef, int bits,          \
+        const int* shape, const P* range, const int* base, const P* scale) {                      \
+    three_body_table_dtheta_impl<P>(theta, weight, network, dd_in, row_start, chunk_rows, first,  \
+                                    count, width, stride, dtheta, coef, bits, shape, range,       \
+                                    base, scale);                                                 \
+}                                                                                                 \
 extern "C" __global__ void se_e3_backward_##S(const P* dtheta, const int* index,                  \
         const double* delta, const double* dist, const int* atype, const double* dstd_inv,        \
         const int* slot_type, const int* slot_local, const int* sel,                              \
@@ -1065,6 +1241,19 @@ const SHARED_LIMIT: usize = 48 * 1024;
 /// (DeePMD's defaults: extrapolate 5, stride ratio 10).
 const TAIL_REACH: f64 = 5.0;
 const TAIL_STEP_FACTOR: f64 = 10.0;
+/// The tables of se_e3 (see [`GpuPotential::compress`]): how close a table is
+/// to its net at the step 0.01, as a fraction of the largest value of the
+/// net, and what the precision of the networks holds of that at best (a
+/// float32 rounds at 6e-8, the checks of a table in float64 at 1e-16).
+const PAIR_TABLE_TOLERANCE: f64 = 1e-13;
+const PAIR_TABLE_FLOOR_F32: f64 = 1.5e-8;
+const PAIR_TABLE_FLOOR_F64: f64 = 1e-14;
+/// The first bits of θ after its exponent that tell a cell of such a table,
+/// and the bits of θ that are left for the place within a piece: a piece is
+/// no narrower than its far end over two to that power.
+const PAIR_TABLE_KEY_BITS: u32 = 4;
+const PAIR_TABLE_RESOLUTION_F32: u32 = 20;
+const PAIR_TABLE_RESOLUTION_F64: u32 = 28;
 /// Float32 chunks of at most this many atoms per center type and model run
 /// the fitting nets in the fused kernels instead of layer-by-layer cuBLAS,
 /// whose fixed cost (some twenty-five launches per type, 0.68 ms for five
@@ -1090,6 +1279,12 @@ struct Kernels {
     count: Option<CudaFunction>,
     pairs: Option<CudaFunction>,
     dtheta: Option<CudaFunction>,
+    /// se_e3 with tables: the components and dE/dθ straight from the tables
+    /// (the components with a warp per row, or a thread per row: see
+    /// [`table_descriptor_threads`]).
+    table_descriptor: Option<CudaFunction>,
+    table_descriptor_rows: Option<CudaFunction>,
+    table_dtheta: Option<CudaFunction>,
 }
 
 /// The rows of the embedding nets of an se_e3 descriptor for a frame: the
@@ -1146,7 +1341,9 @@ fn pair_chunks(starts: &[&[i64]], atoms: usize, limit: usize, rows: usize) -> Ve
 }
 
 /// Device bytes of one row of an se_e3 chunk: the embedding values and
-/// tangents, θ of the pair, its weight and dE/dθ, and its net.
+/// tangents, θ of the pair, its weight and dE/dθ, and its net. With a width
+/// of zero, a row whose embedding values are not kept (they come from
+/// tables where they are used).
 fn bytes_per_pair<P>(width: usize) -> usize {
     let p = std::mem::size_of::<P>();
     2 * width * p + 3 * p + 4
@@ -1161,6 +1358,16 @@ fn bytes_per_pair<P>(width: usize) -> usize {
 /// of this size leaves a thread 64 registers: these kernels take 40 to 48
 /// (`ptxas -v` on the cached PTX tells).
 pub(crate) const PAIR_BLOCK: u32 = 1024;
+
+/// The most warps of a block of the se_e3 descriptor kernel that reads the
+/// tables, with a warp per row and with a thread per row.
+const TABLE_DESCRIPTOR_WARPS: usize = 32;
+const TABLE_ROW_WARPS: usize = 8;
+
+/// Threads per block of the se_e3 kernel of dE/dθ that reads the tables, a
+/// thread per row: for 310 rows an atom two percent of an evaluation faster
+/// than a thousand, for 4,100 the same.
+const PAIR_TABLE_BLOCK: u32 = 256;
 
 /// Threads per block of the se_e3 force kernel, which has a thread for
 /// every neighbor of the atom (one with more neighbors gives its threads
@@ -1185,6 +1392,28 @@ pub(crate) fn pair_force_shared(slots: usize, ntypes: usize) -> usize {
 /// most eight.
 pub(crate) fn descriptor_warps<P>(width: usize) -> usize {
     (SHARED_LIMIT / (width * std::mem::size_of::<P>()).max(1)).clamp(1, 8)
+}
+
+/// How a block of the se_e3 descriptor kernel that reads the tables goes
+/// through the rows of its atom: whether with a thread per row, the threads
+/// of a block, and the bytes of its sums in shared memory.
+///
+/// Float32 has a warp per row, as many warps as have their sums in shared
+/// memory, thirty-two at most (0.14 against 0.23 ms with eight for 192 atoms
+/// of 4,100 rows each). Float64 has a thread per row, as many warps of them
+/// as have a sum for every thread in shared memory, eight at most; a net too
+/// wide for one warp of such sums has a warp per row there too. Why the two
+/// differ is with the kernels.
+fn table_descriptor_threads<P>(width: usize) -> (bool, u32, usize) {
+    let sums = (width * std::mem::size_of::<P>()).max(1);
+    let by_thread = SHARED_LIMIT / (32 * sums);
+    if std::mem::size_of::<P>() == 8 && by_thread > 0 {
+        let warps = by_thread.min(TABLE_ROW_WARPS);
+        (true, 32 * warps as u32, 32 * warps * sums)
+    } else {
+        let warps = (SHARED_LIMIT / sums).clamp(1, TABLE_DESCRIPTOR_WARPS);
+        (false, 32 * warps as u32, warps * sums)
+    }
 }
 
 /// Shared memory of the se_e3 pair kernel per block: the directions of the
@@ -1304,8 +1533,14 @@ struct Part<P: Scalar> {
     /// center type, for building tables.
     embedding_host: Vec<Vec<Network>>,
     radial_normalization: Vec<(f64, f64)>,
-    /// Tabulated embedding nets in the same order, when compressed.
+    /// se_e3: the width the directions of a neighbor are divided by, per
+    /// center type (of every model), for the range of θ.
+    direction_width: Vec<f64>,
+    /// Tabulated embedding nets in the same order, when compressed: of
+    /// se_e2_a and se_e2_r over the radial entry of a slot, with one step.
     tables: Option<ScalarTable<P>>,
+    /// se_e3: its embedding nets over θ, in pieces of uneven length.
+    pair_tables: Option<CellTable<P>>,
     davg: CudaSlice<f64>,
     /// Reciprocals of the normalization widths: the kernels multiply.
     dstd_inv: CudaSlice<f64>,
@@ -1622,7 +1857,7 @@ impl<P: Scalar> Part<P> {
         let function = |name: &str| {
             device
                 .kernels()
-                .function(SOURCE, &format!("{name}_{}", P::SUFFIX))
+                .function(source(), &format!("{name}_{}", P::SUFFIX))
         };
         let three_body = kind == DescriptorKind::SeE3;
         // The environment kernel serves se_e2_a and se_e2_r; se_e3 has its
@@ -1632,7 +1867,7 @@ impl<P: Scalar> Part<P> {
             descriptor: function(&format!("{}_descriptor", kind.name()))?,
             backward: function(&format!("{}_backward", kind.name()))?,
             count: match three_body {
-                true => Some(device.kernels().function(SOURCE, "se_e3_count")?),
+                true => Some(device.kernels().function(source(), "se_e3_count")?),
                 false => None,
             },
             pairs: match three_body {
@@ -1641,6 +1876,18 @@ impl<P: Scalar> Part<P> {
             },
             dtheta: match three_body {
                 true => Some(function("se_e3_dtheta")?),
+                false => None,
+            },
+            table_descriptor: match three_body {
+                true => Some(function("se_e3_table_descriptor")?),
+                false => None,
+            },
+            table_descriptor_rows: match three_body {
+                true => Some(function("se_e3_table_descriptor_rows")?),
+                false => None,
+            },
+            table_dtheta: match three_body {
+                true => Some(function("se_e3_table_dtheta")?),
                 false => None,
             },
         };
@@ -1680,7 +1927,9 @@ impl<P: Scalar> Part<P> {
             embedding,
             embedding_host,
             radial_normalization: normalization().map(|n| (n.mean[0], n.std[0])).collect(),
+            direction_width: normalization().map(|n| n.std[1]).collect(),
             tables: None,
+            pair_tables: None,
             davg: device.upload(&davg)?,
             dstd_inv: device.upload(&dstd_inv)?,
             empty_row: device.upload(&empty_row)?,
@@ -1847,6 +2096,79 @@ impl<P: Scalar> Part<P> {
         .collect::<Result<Vec<_>>>()?;
         ScalarTable::new_set(device, width, &tables)
     }
+
+    /// The embedding nets of an se_e3 descriptor as tables over θ: see
+    /// [`GpuPotential::compress`]. The nets go by the pair of neighbor
+    /// types, in either order one net, which is tabulated once.
+    fn tabulate_pairs(
+        &self,
+        device: &Device,
+        ntypes: usize,
+        min_distance: f64,
+        step: f64,
+    ) -> Result<CellTable<P>> {
+        let single = std::mem::size_of::<P>() == 4;
+        let options = TableOptions {
+            tolerance: (PAIR_TABLE_TOLERANCE * (step / 0.01).powi(6)).max(match single {
+                true => PAIR_TABLE_FLOOR_F32,
+                false => PAIR_TABLE_FLOOR_F64,
+            }),
+            key_bits: PAIR_TABLE_KEY_BITS,
+            resolution: match single {
+                true => PAIR_TABLE_RESOLUTION_F32,
+                false => PAIR_TABLE_RESOLUTION_F64,
+            },
+        };
+        // The longest direction entry a neighbor has at the distance the
+        // tables reach to: s(r) = switch(r)/r, which falls with r.
+        let nearest = min_distance / TAIL_REACH;
+        let t = ((nearest - self.rcut_smth) / (self.rcut - self.rcut_smth)).max(0.0);
+        let radial = (t * t * t * (-6.0 * t * t + 15.0 * t - 10.0) + 1.0) / nearest;
+        // Every net once, with the range of θ = a_j·a_k its model has: the
+        // directions are divided by the width of the center type, and a net
+        // serves the centers of every type.
+        let models = self.embedding_host.len() / ntypes.max(1);
+        let mut nets = Vec::new();
+        let mut of = vec![0; models * ntypes * ntypes];
+        for model in 0..models {
+            let narrowest = self.direction_width[model * ntypes..(model + 1) * ntypes]
+                .iter()
+                .copied()
+                .fold(f64::INFINITY, f64::min);
+            let reach = (radial / narrowest).powi(2);
+            let top = reach.log2().ceil();
+            if !(top.is_finite() && (-60.0..=100.0).contains(&top)) {
+                return Err(Error(format!(
+                    "the directions of se_e3 reach {reach:e} with neighbors from {nearest} Å: no table has that range"
+                )));
+            }
+            for tj in 0..ntypes {
+                for tk in tj..ntypes {
+                    let index = nets.len();
+                    of[(model * ntypes + tj) * ntypes + tk] = index;
+                    of[(model * ntypes + tk) * ntypes + tj] = index;
+                    let network = &self.embedding_host[model * ntypes + tj][tk];
+                    nets.push((network, top as i32, tj, tk));
+                }
+            }
+        }
+        let segments = in_parallel(&nets, |&(network, top, tj, tk)| {
+            let table = NetTable::build(network, top, options).map_err(|e| {
+                Error(format!(
+                    "the embedding net of se_e3 for neighbors of types {tj} and {tk}: {e}"
+                ))
+            })?;
+            Ok(CellSegments {
+                top: table.top,
+                lowest: table.lowest,
+                cells: table.cells,
+                coefficients: table.coefficients,
+            })
+        })
+        .into_iter()
+        .collect::<Result<Vec<_>>>()?;
+        CellTable::new_set(device, self.width, options.key_bits, &segments, &of)
+    }
 }
 
 impl<P: Scalar> GpuPotential<P> {
@@ -1950,7 +2272,7 @@ impl<P: Scalar> GpuPotential<P> {
             .map(|n| dense_network(&device, n, features))
             .collect::<Result<Vec<_>>>()?;
         let narrow = match parts.iter().any(|part| part.view.is_some()) {
-            true => Some(device.kernels().function(SOURCE, "hybrid_slots")?),
+            true => Some(device.kernels().function(source(), "hybrid_slots")?),
             false => None,
         };
         let fitting_width = first
@@ -2070,23 +2392,30 @@ impl<P: Scalar> GpuPotential<P> {
     /// results never depend on the range. Empty neighbor slots do not go
     /// through the tables: their row is the networks' own.
     ///
-    /// The nets of se_e3 are not tabulated. A hybrid gets tables for its
-    /// se_e2_a and se_e2_r descriptors, each over the range of its own
-    /// cutoff and statistics, and keeps the networks of its se_e3
-    /// descriptors; a model with nothing to tabulate is refused.
+    /// The nets of se_e3 take θ, the product of the normalized directions
+    /// of two neighbors, which spans thousands of units where the radial
+    /// entry spans tens, and a trained net turns within a hundredth of a
+    /// unit in some places and not at all in most. Their tables have pieces
+    /// of uneven length instead of one step: a piece is halved until its
+    /// quintic is within a tolerance of the net, 1e-13 of the largest value
+    /// of the net at the step 0.01 and (step / 0.01)⁶ times that at another
+    /// step, which is how the error of a table of one step goes with its
+    /// step; the slope is within a hundred times that fraction of the
+    /// largest slope. A float32 potential has 1.5e-8 at best, below what it
+    /// rounds at. These tables cover θ of neighbors down to a fifth of
+    /// `min_distance` at that tolerance (they have no coarser tail), and a
+    /// frame with a θ beyond is evaluated with the exact networks like one
+    /// that leaves the tables of the other descriptors. A net that turns
+    /// faster than the precision of θ can follow is refused, with the place.
+    ///
+    /// Every descriptor of a hybrid gets tables, each over the range of its
+    /// own cutoff and statistics.
     pub fn compress(&mut self, min_distance: f64, step: f64) -> Result<()> {
-        let tabulated = |part: &Part<P>| part.kind != DescriptorKind::SeE3;
-        if !self.parts.iter().any(tabulated) {
-            return Err(Error(
-                "the embedding nets of se_e3 are not tabulated: evaluate the model without compression"
-                    .into(),
-            ));
-        }
-        // The shortest cutoff of the descriptors that get tables.
+        let ntypes = self.sel.len();
+        // The shortest cutoff of the descriptors.
         let rcut = self
             .parts
             .iter()
-            .filter(|part| tabulated(part))
             .map(|part| part.rcut)
             .fold(f64::INFINITY, f64::min);
         if !(min_distance.is_finite() && 0.0 < min_distance && min_distance < rcut) {
@@ -2102,20 +2431,41 @@ impl<P: Scalar> GpuPotential<P> {
         // All tables first: an error leaves the potential as it was.
         let mut tables = Vec::with_capacity(self.parts.len());
         for part in &self.parts {
-            tables.push(match tabulated(part) {
-                true => Some(part.tabulate(&self.device, min_distance, step)?),
-                false => None,
+            tables.push(match part.kind {
+                DescriptorKind::SeE3 => (
+                    None,
+                    Some(part.tabulate_pairs(&self.device, ntypes, min_distance, step)?),
+                ),
+                _ => (Some(part.tabulate(&self.device, min_distance, step)?), None),
             });
         }
-        for (part, table) in self.parts.iter_mut().zip(tables) {
+        for (part, (table, pair_table)) in self.parts.iter_mut().zip(tables) {
             part.tables = table;
+            part.pair_tables = pair_table;
         }
         Ok(())
     }
 
     /// Whether embedding nets are tabulated (see [`Self::compress`]).
     pub fn is_compressed(&self) -> bool {
-        self.parts.iter().any(|part| part.tables.is_some())
+        self.parts
+            .iter()
+            .any(|part| part.tables.is_some() || part.pair_tables.is_some())
+    }
+
+    /// Device bytes of the embedding tables, and the pieces the tables of
+    /// the se_e3 descriptors have between them (their number follows from
+    /// the nets, not from a step).
+    pub fn table_size(&self) -> (usize, usize) {
+        let bytes = |part: &Part<P>| {
+            part.tables.as_ref().map_or(0, ScalarTable::bytes)
+                + part.pair_tables.as_ref().map_or(0, CellTable::bytes)
+        };
+        let pieces = |part: &Part<P>| part.pair_tables.as_ref().map_or(0, CellTable::pieces);
+        (
+            self.parts.iter().map(bytes).sum(),
+            self.parts.iter().map(pieces).sum(),
+        )
     }
 
     /// Chunks of at most this many atoms evaluate the fitting nets in one
@@ -2370,7 +2720,21 @@ impl<P: Scalar> GpuPotential<P> {
                 .flatten()
                 .map(|rows| rows.host.as_slice())
                 .collect();
-            let rows = (self.chunk_pairs / members).max(1);
+            // With tables a row keeps no embedding values, and as many
+            // times more rows fit a chunk.
+            let fewer = self
+                .parts
+                .iter()
+                .filter(|part| part.kind == DescriptorKind::SeE3)
+                .map(
+                    |part| match part.pair_tables.as_ref().filter(|_| compressed) {
+                        Some(_) => bytes_per_pair::<P>(part.width) / bytes_per_pair::<P>(0),
+                        None => 1,
+                    },
+                )
+                .min()
+                .unwrap_or(1);
+            let rows = (self.chunk_pairs / members).max(1).saturating_mul(fewer);
             pair_chunks(&starts, natoms, chunk, rows)
         };
         // The centers of the largest chunk for all models.
@@ -2396,6 +2760,11 @@ impl<P: Scalar> GpuPotential<P> {
             };
             let all_rows = members * rows;
             let angular = part.kind == DescriptorKind::SeE2A;
+            // se_e3 from its tables: no embedding rows are kept.
+            let kept = match part.pair_tables.as_ref().filter(|_| compressed) {
+                Some(_) => 1,
+                None => all_rows * part.width,
+            };
             // SAFETY: each element a chunk reads was written earlier in the
             // same chunk.
             works.push(unsafe {
@@ -2410,8 +2779,8 @@ impl<P: Scalar> GpuPotential<P> {
                     },
                     input: device.alloc_uninit::<P>(all_rows)?,
                     network: device.alloc_uninit::<i32>(all_rows)?,
-                    g: device.alloc_uninit::<P>(all_rows * part.width)?,
-                    dg: device.alloc_uninit::<P>(all_rows * part.width)?,
+                    g: device.alloc_uninit::<P>(kept)?,
+                    dg: device.alloc_uninit::<P>(kept)?,
                     of_pairs: match &pairs {
                         Some(_) => Some((
                             device.alloc_uninit::<P>(all_rows)?,
@@ -2533,7 +2902,10 @@ impl<P: Scalar> GpuPotential<P> {
                 // the chunk in one launch, [model][neighbor type][local
                 // atom][slot][width] (se_e3: [model][local atom][pair][width],
                 // and atoms without neighbors have no row).
-                if chunk_rows > 0 {
+                // The tables of se_e3 are read by its descriptor and force
+                // kernels themselves: nothing is evaluated here for it.
+                let pair_tables = part.pair_tables.as_ref().filter(|_| compressed);
+                if chunk_rows > 0 && pair_tables.is_none() {
                     let rows = members * chunk_rows;
                     let x = work.input.slice(0..rows);
                     let ids = work.network.slice(0..rows);
@@ -2562,31 +2934,72 @@ impl<P: Scalar> GpuPotential<P> {
                 // The components of this descriptor, at their place among
                 // those of all.
                 let mut d_out = descriptor.slice_mut(part.first_feature..);
-                let mut launch = stream.launch_builder(&part.kernels.descriptor);
+                // (a thread per row, threads of a block, bytes of its sums)
+                let by_table = pair_tables.map(|_| table_descriptor_threads::<P>(width));
+                let function = match by_table {
+                    Some((by_thread, _, _)) => match by_thread {
+                        true => &part.kernels.table_descriptor_rows,
+                        false => &part.kernels.table_descriptor,
+                    }
+                    .as_ref()
+                    .ok_or_else(|| {
+                        Error("an se_e3 descriptor without the kernel of its tables".into())
+                    })?,
+                    None => &part.kernels.descriptor,
+                };
+                let mut launch = stream.launch_builder(function);
+                let buffers = pair_tables.map(CellTable::buffers);
                 let config = match part.kind {
                     DescriptorKind::SeE3 => {
                         let (Some(pairs), Some((weight, _))) = (&work.pairs, &work.of_pairs) else {
                             return Err(Error("an se_e3 descriptor without its rows".into()));
                         };
-                        launch
-                            .arg(&work.g)
-                            .arg(&work.input)
-                            .arg(weight)
-                            .arg(&pairs.start)
-                            .arg(&chunk_rows_i)
-                            .arg(&first_i)
-                            .arg(&count_i)
-                            .arg(&w_i)
-                            .arg(&mut d_out)
-                            .arg(&stride_i);
-                        let warps = descriptor_warps::<P>(width);
+                        if let Some(buffers) = &buffers {
+                            tabulated = true;
+                            launch
+                                .arg(&work.input)
+                                .arg(weight)
+                                .arg(&work.network)
+                                .arg(&pairs.start)
+                                .arg(&chunk_rows_i)
+                                .arg(&first_i)
+                                .arg(&count_i)
+                                .arg(&w_i)
+                                .arg(&mut d_out)
+                                .arg(&stride_i)
+                                .arg(buffers.coefficients)
+                                .arg(&buffers.key_bits)
+                                .arg(buffers.shape)
+                                .arg(buffers.range)
+                                .arg(buffers.base)
+                                .arg(buffers.scale)
+                                .arg(&mut outside_table);
+                        } else {
+                            launch
+                                .arg(&work.g)
+                                .arg(&work.input)
+                                .arg(weight)
+                                .arg(&pairs.start)
+                                .arg(&chunk_rows_i)
+                                .arg(&first_i)
+                                .arg(&count_i)
+                                .arg(&w_i)
+                                .arg(&mut d_out)
+                                .arg(&stride_i);
+                        }
+                        // The sums of every warp, or with tables as
+                        // the kernel of the tables keeps them.
+                        let (threads, shared) = match by_table {
+                            Some((_, threads, shared)) => (threads, shared),
+                            None => {
+                                let warps = descriptor_warps::<P>(width);
+                                (32 * warps as u32, warps * width * std::mem::size_of::<P>())
+                            }
+                        };
                         LaunchConfig {
                             grid_dim: (count as u32, deep, 1),
-                            block_dim: (32 * warps as u32, 1, 1),
-                            // The sums of every warp.
-                            shared_mem_bytes: (warps * width * std::mem::size_of::<P>())
-                                .next_multiple_of(8)
-                                as u32,
+                            block_dim: (threads, 1, 1),
+                            shared_mem_bytes: shared.next_multiple_of(8) as u32,
                         }
                     }
                     DescriptorKind::SeE2A => {
@@ -2721,27 +3134,63 @@ impl<P: Scalar> GpuPotential<P> {
                         else {
                             return Err(Error("an se_e3 descriptor without its rows".into()));
                         };
-                        // dE/dθ of every pair first, by row.
-                        let function = part.kernels.dtheta.as_ref().ok_or_else(|| {
+                        // dE/dθ of every pair first, by row: from the
+                        // stored rows of the nets, or from their tables.
+                        let pair_tables = part.pair_tables.as_ref().filter(|_| compressed);
+                        let function = match pair_tables {
+                            Some(_) => &part.kernels.table_dtheta,
+                            None => &part.kernels.dtheta,
+                        }
+                        .as_ref()
+                        .ok_or_else(|| {
                             Error("an se_e3 descriptor without the kernel of its pairs".into())
                         })?;
+                        let buffers = pair_tables.map(CellTable::buffers);
                         let mut before = stream.launch_builder(function);
-                        before
-                            .arg(&work.g)
-                            .arg(&work.dg)
-                            .arg(&work.input)
-                            .arg(&*weight)
-                            .arg(&dd)
-                            .arg(&pairs.start)
-                            .arg(&chunk_rows_i)
-                            .arg(&first_i)
-                            .arg(&count_i)
-                            .arg(&w_i)
-                            .arg(&stride_i)
-                            .arg(&mut *dtheta);
+                        if let Some(buffers) = &buffers {
+                            before
+                                .arg(&work.input)
+                                .arg(&*weight)
+                                .arg(&work.network)
+                                .arg(&dd)
+                                .arg(&pairs.start)
+                                .arg(&chunk_rows_i)
+                                .arg(&first_i)
+                                .arg(&count_i)
+                                .arg(&w_i)
+                                .arg(&stride_i)
+                                .arg(&mut *dtheta)
+                                .arg(buffers.coefficients)
+                                .arg(&buffers.key_bits)
+                                .arg(buffers.shape)
+                                .arg(buffers.range)
+                                .arg(buffers.base)
+                                .arg(buffers.scale);
+                        } else {
+                            before
+                                .arg(&work.g)
+                                .arg(&work.dg)
+                                .arg(&work.input)
+                                .arg(&*weight)
+                                .arg(&dd)
+                                .arg(&pairs.start)
+                                .arg(&chunk_rows_i)
+                                .arg(&first_i)
+                                .arg(&count_i)
+                                .arg(&w_i)
+                                .arg(&stride_i)
+                                .arg(&mut *dtheta);
+                        }
                         let config = LaunchConfig {
                             grid_dim: (count as u32, deep, 1),
-                            block_dim: (PAIR_BLOCK, 1, 1),
+                            block_dim: (
+                                match pair_tables {
+                                    Some(_) => PAIR_TABLE_BLOCK,
+                                    None => PAIR_BLOCK,
+                                },
+                                1,
+                                1,
+                            ),
                             shared_mem_bytes: pair_dtheta_shared::<P>(width) as u32,
                         };
                         unsafe { before.launch(config) }

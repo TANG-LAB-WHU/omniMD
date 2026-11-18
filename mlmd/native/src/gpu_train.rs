@@ -57,8 +57,8 @@
 //! nearest neighbors in its slots, none at or beyond its cutoff), which is
 //! kept with the frame like the list itself.
 use crate::gpu_model::{
-    descriptor_warps, launch_error, pair_dtheta_shared, pair_force_shared, pair_shared, PAIR_BLOCK,
-    PAIR_FORCE_BLOCK, SOURCE as MODEL_SOURCE,
+    descriptor_warps, launch_error, pair_dtheta_shared, pair_force_shared, pair_shared,
+    source as model_source, PAIR_BLOCK, PAIR_FORCE_BLOCK,
 };
 use crate::{
     Activation, Descriptor, DescriptorKind, Layer, Model, Network, Residual, RADIAL_RESCALE,
@@ -1036,7 +1036,7 @@ impl<P: Scalar> Part<P> {
         let model_kernel = |name: &str| {
             device
                 .kernels()
-                .function(MODEL_SOURCE, &format!("{name}_{}", P::SUFFIX))
+                .function(model_source(), &format!("{name}_{}", P::SUFFIX))
         };
         let train_kernel = |name: &str| {
             device
@@ -1933,7 +1933,7 @@ impl<P: Scalar> GpuTrainer<P> {
         }
         let fitting_set = TrainSet::new(&device, fitting.clone())?;
         let narrow = match parts.iter().any(|part| part.view.is_some()) {
-            true => Some(device.kernels().function(MODEL_SOURCE, "hybrid_slots")?),
+            true => Some(device.kernels().function(model_source(), "hybrid_slots")?),
             false => None,
         };
         let adam_kernel = device
