@@ -959,9 +959,20 @@ mod tests {
         )
         .unwrap();
         assert!(two.pieces() > table.pieces());
-        assert_ne!(two.cells[..per_side], two.cells[two.cells.len() / 2..]);
+        let half = two.cells.len() / 2;
+        assert_ne!(two.cells[..half], two.cells[half..]);
+        // (The same to a few steps of rounding: the cells of the two may cut
+        // a piece in different places.)
         for place in places().step_by(97) {
-            assert_eq!(table.evaluate(place), two.evaluate(place), "place {place}");
+            let one = table.evaluate(place).unwrap();
+            let other = two.evaluate(place).unwrap();
+            for m in 0..table.width {
+                assert!(
+                    (one.0[m] - other.0[m]).abs() <= 1e-14 * table.value_scale
+                        && (one.1[m] - other.1[m]).abs() <= 1e-12 * table.slope_scale,
+                    "place {place}"
+                );
+            }
         }
         // Below the origin the two-sided table follows the net as well.
         let (value, _) = worst(&two, &network, places().map(|x| -x));

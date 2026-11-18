@@ -2717,3 +2717,93 @@ fn the_tables_of_a_descriptor_have_the_sides_its_nets_are_given() {
     gpu.compress(0.8, 0.01).unwrap();
     assert!(gpu.table_size().1 > 20 * pieces, "{:?}", gpu.table_size());
 }
+
+/// The other end of the tables of se_e2_a and se_e2_r: the entry of a
+/// neighbor just inside the cutoff, where the switch has come down to
+/// rounding. Such a neighbor is at the start of its table, not before it:
+/// its frame stays in the tables, to the last distance below the cutoff
+/// that a float64 holds, for centers of either type and in both
+/// precisions. (The switch is a product with the cube of 1 - t. That is
+/// not below zero for a neighbor inside the cutoff as long as the device
+/// rounds t before it takes it from one: so for every pair of a cutoff and
+/// a smoothing radius in tenths of an angstrom up to 12 Å, by exact
+/// arithmetic (`tools/switch_rounding.py`). Were the product fused into
+/// the subtraction, it would be below zero by 2e-17 at the last distance
+/// below a cutoff of 3.0 with a smoothing radius of 0.7, among others, and
+/// that frame would go back to the nets. The frames here have that pair of
+/// radii too.)
+#[test]
+fn a_neighbor_just_inside_the_cutoff_stays_in_its_table() {
+    let Some(device) = device() else { return };
+    // Towards the cutoff in ever smaller steps, then the last distances
+    // below it.
+    let below = |rcut: f64| -> Vec<f64> {
+        let mut distances: Vec<f64> = (0..96)
+            .map(|k| rcut - 1e-4 * 0.5f64.powf(0.4 * k as f64))
+            .chain((1..=16).rev().map(|j| f64::from_bits(rcut.to_bits() - j)))
+            .filter(|&r| r < rcut)
+            .collect();
+        distances.dedup();
+        distances
+    };
+    let hybrid = three_kinds(341);
+    let cases: Vec<(&str, Model, Vec<f64>)> = vec![
+        ("se_e2_a", model(2, vec![80, 160], 4.5, 342), vec![4.5]),
+        (
+            "se_e2_a to 3.0 from 0.7",
+            tuned(model(2, vec![40, 60], 3.0, 343), 0.7, 1.0),
+            vec![3.0],
+        ),
+        ("se_e2_r", radial(2, vec![80, 160], 4.5, 344), vec![4.5]),
+        (
+            "se_e2_r to 3.0 from 0.7",
+            tuned(radial(2, vec![40, 60], 3.0, 345), 0.7, 1.0),
+            vec![3.0],
+        ),
+        // The cutoffs of the three descriptors of the hybrid.
+        ("hybrid", hybrid, vec![3.2, 3.8, 4.5]),
+    ];
+    for (label, model, cutoffs) in cases {
+        let mut cpu = NativePotential::new(model.clone()).unwrap();
+        let mut double = GpuPotential::<f64>::new(&model, device.clone()).unwrap();
+        double.compress(0.8, 0.01).unwrap();
+        let mut single = GpuPotential::<f32>::new(&model, device.clone()).unwrap();
+        single.compress(0.8, 0.01).unwrap();
+        for rcut in cutoffs {
+            let distances = below(rcut);
+            assert!(distances.len() > 60, "{}", distances.len());
+            assert_eq!(
+                distances.last().copied(),
+                Some(f64::from_bits(rcut.to_bits() - 1))
+            );
+            for (a, b) in [("O", "O"), ("H", "H"), ("O", "H")] {
+                let frames: Vec<Frame> = distances
+                    .iter()
+                    .map(|&r| Frame {
+                        positions: vec![[0.0, 0.0, 0.0], [0.0, 0.0, r]],
+                        species: vec![a.into(), b.into()],
+                        cell: None,
+                        units: Units::EvAngstrom,
+                    })
+                    .collect();
+                let batch: Vec<&Frame> = frames.iter().collect();
+                let from_double = double.eval_batch(&batch).unwrap();
+                let from_single = single.eval_batch(&batch).unwrap();
+                for (index, frame) in frames.iter().enumerate() {
+                    let exact = cpu.eval(frame).unwrap();
+                    let what = format!(
+                        "{label}, {a}-{b} at {:e} below {rcut}",
+                        rcut - distances[index]
+                    );
+                    compare(&what, &from_double[index], &exact, (1e-11, 1e-9));
+                    compare(&what, &from_single[index], &exact, (1e-6, 1e-4));
+                }
+                assert_eq!(
+                    (double.table_fallbacks(), single.table_fallbacks()),
+                    (0, 0),
+                    "{label}, {a}-{b} below {rcut}"
+                );
+            }
+        }
+    }
+}

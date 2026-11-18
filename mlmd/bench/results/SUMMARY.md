@@ -4,10 +4,10 @@
 se_e2_a and se_e2_r the kind of table that the nets of se_e3 got earlier
 the same day (the section below): pieces as long as the net allows, each
 within a tolerance of its net, found from the bits of the input. The tables
-with a knot every `step` that these descriptors had since 2026-11-10 are
-gone, and their code with them (`ScalarTable` of the gpu crate). What the
-tables are and how they are made is in
-[`native/README.md`](../../native/README.md#embedding-tables).
+with a knot every `step` that these descriptors had (se_e2_a since
+2026-11-10, se_e2_r since 2026-11-12) are gone, and their code with them
+(`ScalarTable` of the gpu crate). What the tables are and how they are
+made is in [`native/README.md`](../../native/README.md#embedding-tables).
 
 **What changes for whoever asks for tables.**
 
@@ -17,6 +17,10 @@ tables are and how they are made is in
   another step, with 1e-14 at best in float64 and 1.5e-8 in float32.
 - The tables reach to a fifth of the distance asked for at that tolerance
   all the way. They had ten times the step below the distance asked for.
+- The tables of se_e3 end there too, exactly. They went on to the next
+  power of two of θ, so that a pair somewhat closer than a fifth of the
+  distance asked for was still looked up; such a frame now goes to the
+  nets.
 - A request for tables can now be refused for an se_e2_a or se_e2_r model
   as well, when a net turns faster than the precision of its input can
   follow; the potential then keeps its nets. None of the models here is.
@@ -210,7 +214,13 @@ of neighbor types, the members of a committee each their own), in both
 precisions, with the size that goes with it; a net of an se_e2_a model
 that float32 cannot tabulate, refused with its model, its types and its
 place, while the committee goes on with its nets, and the same for se_e3
-in a committee.
+in a committee; a neighbor just inside the cutoff, down to the last
+distance below it that a float64 holds, for several cutoffs and smoothing
+radii, centers of either type and both precisions, stays in its table (the
+switch there is rounding, and a place below zero would send the frame to
+the nets; [`switch_rounding.py`](../../native/tools/switch_rounding.py)
+shows by exact arithmetic that the kernel as written gives none, and for
+which radii a product fused into its subtraction would).
 
 A mutation round on the builder (34 mutants), the lookup and the reach on
 the device (19), and the tables of a descriptor, the environment kernel,
@@ -224,7 +234,7 @@ two-body table to the power of two beyond the next one, where no input is
 looked up. The first 76 ran before the last commit of the code, which
 changed comments and usage texts.
 
-Locally: workspace 232, engine with `native-gpu` 93, GPU crates 182, each
+Locally: workspace 232, engine with `native-gpu` 93, GPU crates 183, each
 in release and debug; `cargo fmt --check` clean; the legacy `cuda` features
 compile. The GPU suites do not run in CI.
 
