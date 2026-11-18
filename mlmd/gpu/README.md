@@ -80,6 +80,21 @@ What follows for the kernels:
   what the descriptor kernel does, four multiply-adds for every neighbor and
   embedding output: for 98,304 water atoms it took 11.9 ms with them in
   double and 5.6 ms in single.
+- In double precision, give every lane of a warp work. The table above
+  counts a multiply-add for a whole warp, and that is what it costs: an
+  instruction in double precision takes its eight nanoseconds of the
+  multiprocessor with one lane at work or with thirty-two. The kernels that
+  read the tables of se_e3 had a warp for a row at first, the lanes over
+  the forty outputs of the row, which is two rounds of instructions with
+  three in four lanes idle in the second, and what a row needs once was
+  worked out by all thirty-two. With a thread for a row, alone over the
+  outputs, the same work took a third of the time and less (192 water atoms
+  with 3,600 rows each in float64: the components 0.42 against 1.2 ms, the
+  force stage 0.49 against 2.6). Handing the per-row work from one lane to
+  the others changed nothing (4.17 against 4.22 ms an evaluation): idle
+  lanes cost as much as busy ones. In single precision the same kernels are
+  bound by their loads, and a warp that reads the six numbers of every
+  output of a row together is as fast or faster.
 - Past the arithmetic stands the memory. With many atoms the stages that
   write the embedding rows or read them (100 values a neighbor) move at its
   rate: the descriptor reads 3.5 GB in 5.6 ms for 98,304 atoms, and nothing

@@ -3,22 +3,22 @@
   "natoms": 192,
   "precision": "float64",
   "compressed": false,
-  "ms_per_eval": 9.814109,
+  "ms_per_eval": 9.808907999999999,
   "stages_ms": {
    "chunks": 1,
-   "descriptor": 0.6161150000000001,
-   "download": 0.018764999999999997,
-   "embedding": 7.9316070000000005,
-   "environment": 0.10142799999999996,
-   "fitting": 0.149866,
-   "forces": 0.7612660000000001,
-   "host_prepare": 0.0064849999999999994,
-   "neighbors": 0.111951
+   "descriptor": 0.6011669999999999,
+   "download": 0.023869999999999995,
+   "embedding": 8.125753999999999,
+   "environment": 0.11391600000000002,
+   "fitting": 0.14502200000000007,
+   "forces": 0.7727190000000002,
+   "host_prepare": 0.006906999999999999,
+   "neighbors": 0.10122099999999999
   },
   "vs_deepmd_float64": {
    "energy_per_atom": 9.473903143468002e-15,
    "force_max": 5.204170427930421e-17,
-   "force_rms": 1.3670196383730921e-17,
+   "force_rms": 1.3611834270703091e-17,
    "virial_max": 2.6645352591003757e-15
   }
  },
@@ -26,28 +26,28 @@
   "natoms": 192,
   "precision": "float32",
   "compressed": false,
-  "ms_per_eval": 2.040695,
+  "ms_per_eval": 2.061138,
   "stages_ms": {
    "chunks": 1,
-   "descriptor": 0.25768699999999994,
-   "download": 0.016952999999999992,
-   "embedding": 1.1190600000000004,
-   "environment": 0.09607699999999995,
-   "fitting": 0.10434299999999996,
-   "forces": 0.36856900000000004,
-   "host_prepare": 0.004484000000000002,
-   "neighbors": 0.11318000000000004
+   "descriptor": 0.2587529999999999,
+   "download": 0.015890000000000005,
+   "embedding": 1.0955850000000005,
+   "environment": 0.10041700000000003,
+   "fitting": 0.11609499999999999,
+   "forces": 0.38403699999999996,
+   "host_prepare": 0.0046500000000000005,
+   "neighbors": 0.114269
   },
   "vs_deepmd_float64": {
    "energy_per_atom": 5.659652894488924e-09,
-   "force_max": 9.205196677825045e-09,
-   "force_rms": 2.696037742505005e-09,
+   "force_max": 9.205196670886151e-09,
+   "force_rms": 2.6960377423940997e-09,
    "virial_max": 4.106356983335502e-07
   },
   "vs_omnimd_float64": {
    "energy_per_atom": 5.659662368392067e-09,
-   "force_max": 9.205196677825045e-09,
-   "force_rms": 2.6960377428410213e-09,
+   "force_max": 9.205196670886151e-09,
+   "force_rms": 2.6960377427673054e-09,
    "virial_max": 4.1063570099808544e-07
   }
  },
@@ -55,57 +55,57 @@
   "natoms": 192,
   "precision": "float64",
   "compressed": true,
-  "ms_per_eval": 1.2056360000000002,
+  "ms_per_eval": 1.2519630000000002,
   "stages_ms": {
    "chunks": 1,
-   "descriptor": 0.415754,
-   "download": 0.012214999999999997,
-   "embedding": 0.0003040000000000001,
-   "environment": 0.10307500000000004,
-   "fitting": 0.18242699999999995,
-   "forces": 0.44492799999999993,
-   "host_prepare": 0.003269,
-   "neighbors": 0.07042199999999996
+   "descriptor": 0.4225429999999998,
+   "download": 0.014548000000000005,
+   "embedding": 0.0003380000000000002,
+   "environment": 0.09790199999999999,
+   "fitting": 0.17956699999999998,
+   "forces": 0.47980599999999995,
+   "host_prepare": 0.0038920000000000005,
+   "neighbors": 0.06904200000000002
   },
   "vs_deepmd_float64": {
    "energy_per_atom": 9.473903143468002e-15,
-   "force_max": 6.834463550653425e-14,
-   "force_rms": 1.385100491149765e-14,
-   "virial_max": 3.5837999234900053e-13
+   "force_max": 6.834116605958229e-14,
+   "force_rms": 1.4455378918827047e-14,
+   "virial_max": 4.0589753780295723e-13
   },
   "vs_omnimd_float64": {
    "energy_per_atom": 0.0,
-   "force_max": 6.833422716567839e-14,
-   "force_rms": 1.3848801973146952e-14,
-   "virial_max": 3.610445276081009e-13
+   "force_max": 6.833075771872643e-14,
+   "force_rms": 1.445328496754698e-14,
+   "virial_max": 4.085620730620576e-13
   }
  },
  {
   "natoms": 192,
   "precision": "float32",
   "compressed": true,
-  "ms_per_eval": 0.47801499999999997,
+  "ms_per_eval": 0.48497300000000004,
   "stages_ms": {
    "chunks": 1,
-   "descriptor": 0.14137200000000005,
-   "download": 0.010803000000000002,
-   "embedding": 0.000325,
-   "environment": 0.10090099999999999,
-   "fitting": 0.07088599999999999,
-   "forces": 0.11244099999999996,
-   "host_prepare": 0.003065,
-   "neighbors": 0.07335599999999999
+   "descriptor": 0.14530000000000004,
+   "download": 0.011628000000000001,
+   "embedding": 0.00034800000000000006,
+   "environment": 0.09433799999999999,
+   "fitting": 0.06749300000000003,
+   "forces": 0.11901400000000002,
+   "host_prepare": 0.0033030000000000025,
+   "neighbors": 0.087835
   },
   "vs_deepmd_float64": {
    "energy_per_atom": 4.495499676219576e-09,
-   "force_max": 9.057949975146973e-09,
-   "force_rms": 2.198115873874225e-09,
+   "force_max": 9.057949976881696e-09,
+   "force_rms": 2.1981158739680345e-09,
    "virial_max": 3.5031570977395177e-08
   },
   "vs_omnimd_float64": {
    "energy_per_atom": 4.495509150122719e-09,
-   "force_max": 9.057949962136547e-09,
-   "force_rms": 2.198115873437647e-09,
+   "force_max": 9.057949965605994e-09,
+   "force_rms": 2.198115873395701e-09,
    "virial_max": 3.5031573641930436e-08
   }
  },
@@ -113,39 +113,39 @@
   "natoms": 1536,
   "precision": "float64",
   "compressed": false,
-  "ms_per_eval": 72.767865,
+  "ms_per_eval": 73.92572999999999,
   "stages_ms": {
    "chunks": 1,
-   "descriptor": 2.5180360000000004,
-   "download": 0.045066000000000044,
-   "embedding": 64.517841,
-   "environment": 0.520665,
-   "fitting": 0.7900180000000002,
-   "forces": 5.046767,
-   "host_prepare": 0.024352000000000006,
-   "neighbors": 0.191094
+   "descriptor": 2.6176119999999994,
+   "download": 0.04827099999999999,
+   "embedding": 64.808574,
+   "environment": 0.5335180000000002,
+   "fitting": 0.7900260000000001,
+   "forces": 4.894379999999999,
+   "host_prepare": 0.025088999999999986,
+   "neighbors": 0.2152
   }
  },
  {
   "natoms": 1536,
   "precision": "float32",
   "compressed": false,
-  "ms_per_eval": 14.146981,
+  "ms_per_eval": 14.204346000000001,
   "stages_ms": {
    "chunks": 1,
-   "descriptor": 1.4205899999999998,
-   "download": 0.03236300000000001,
-   "embedding": 9.007745000000002,
-   "environment": 0.4480180000000001,
-   "fitting": 0.3750459999999999,
-   "forces": 2.706654000000001,
-   "host_prepare": 0.019979999999999998,
-   "neighbors": 0.18741899999999986
+   "descriptor": 1.406722000000001,
+   "download": 0.041744,
+   "embedding": 9.010029000000001,
+   "environment": 0.4689820000000002,
+   "fitting": 0.4088180000000001,
+   "forces": 2.730652,
+   "host_prepare": 0.024144000000000006,
+   "neighbors": 0.1958220000000001
   },
   "vs_omnimd_float64": {
    "energy_per_atom": 6.207784508660552e-09,
-   "force_max": 1.0203401394626166e-08,
-   "force_rms": 2.9696309821571506e-09,
+   "force_max": 1.0203401391156719e-08,
+   "force_rms": 2.9696309821589158e-09,
    "virial_max": 3.3610490852709063e-06
   }
  },
@@ -153,45 +153,45 @@
   "natoms": 1536,
   "precision": "float64",
   "compressed": true,
-  "ms_per_eval": 7.085440999999999,
+  "ms_per_eval": 7.115752,
   "stages_ms": {
    "chunks": 1,
-   "descriptor": 2.7016999999999998,
-   "download": 0.032667,
-   "embedding": 0.00077,
-   "environment": 0.554837,
-   "fitting": 0.7941039999999999,
-   "forces": 2.7991609999999993,
-   "host_prepare": 0.017578,
-   "neighbors": 0.18192599999999998
+   "descriptor": 2.709856,
+   "download": 0.03867099999999998,
+   "embedding": 0.000691,
+   "environment": 0.5295779999999999,
+   "fitting": 0.7976479999999997,
+   "forces": 2.809092,
+   "host_prepare": 0.019960999999999996,
+   "neighbors": 0.18491899999999997
   },
   "vs_omnimd_float64": {
    "energy_per_atom": 0.0,
    "force_max": 6.834463550653425e-14,
-   "force_rms": 1.3848980684720524e-14,
-   "virial_max": 2.8173019472887972e-12
+   "force_rms": 1.445378924476015e-14,
+   "virial_max": 3.147704319417244e-12
   }
  },
  {
   "natoms": 1536,
   "precision": "float32",
   "compressed": true,
-  "ms_per_eval": 2.521154,
+  "ms_per_eval": 2.5352059999999996,
   "stages_ms": {
    "chunks": 1,
-   "descriptor": 0.8393130000000001,
-   "download": 0.02630099999999999,
-   "embedding": 0.0009239999999999998,
-   "environment": 0.45430899999999963,
-   "fitting": 0.3604299999999999,
-   "forces": 0.6507000000000002,
-   "host_prepare": 0.015443,
-   "neighbors": 0.16360500000000003
+   "descriptor": 0.9080269999999999,
+   "download": 0.028576000000000015,
+   "embedding": 0.0007430000000000005,
+   "environment": 0.4564380000000002,
+   "fitting": 0.3507100000000001,
+   "forces": 0.653941,
+   "host_prepare": 0.016692999999999993,
+   "neighbors": 0.18137099999999998
   },
   "vs_omnimd_float64": {
    "energy_per_atom": 5.201277038698511e-09,
-   "force_max": 1.0111387439143416e-08,
-   "force_rms": 2.4638993749479604e-09,
+   "force_max": 1.0111387435673969e-08,
+   "force_rms": 2.463899374953552e-09,
    "virial_max": 2.1543791461908768e-07
   }
  },
@@ -199,39 +199,39 @@
   "natoms": 12288,
   "precision": "float64",
   "compressed": false,
-  "ms_per_eval": 588.2962150000001,
+  "ms_per_eval": 590.22172,
   "stages_ms": {
    "chunks": 5,
-   "descriptor": 20.984900000000003,
-   "download": 0.23541999999999996,
-   "embedding": 517.11605,
-   "environment": 3.8979299999999997,
-   "fitting": 6.629760000000002,
-   "forces": 39.53862500000001,
-   "host_prepare": 0.12799,
-   "neighbors": 0.729835
+   "descriptor": 21.22088,
+   "download": 0.26331499999999997,
+   "embedding": 517.87266,
+   "environment": 3.889095,
+   "fitting": 6.775435,
+   "forces": 39.691159999999996,
+   "host_prepare": 0.135685,
+   "neighbors": 0.8162050000000001
   }
  },
  {
   "natoms": 12288,
   "precision": "float32",
   "compressed": false,
-  "ms_per_eval": 108.97752999999997,
+  "ms_per_eval": 110.01875,
   "stages_ms": {
    "chunks": 3,
-   "descriptor": 10.450605000000001,
-   "download": 0.235245,
-   "embedding": 71.10104,
-   "environment": 3.691675000000001,
-   "fitting": 0.9007949999999999,
-   "forces": 21.48203,
-   "host_prepare": 0.12632000000000002,
-   "neighbors": 0.7312249999999999
+   "descriptor": 10.757835,
+   "download": 0.25369499999999995,
+   "embedding": 71.995025,
+   "environment": 3.9748450000000006,
+   "fitting": 0.8864650000000003,
+   "forces": 21.517229999999998,
+   "host_prepare": 0.13496,
+   "neighbors": 0.7468950000000001
   },
   "vs_omnimd_float64": {
    "energy_per_atom": 6.419999939074235e-09,
-   "force_max": 1.3801682824388095e-08,
-   "force_rms": 2.988644032132956e-09,
+   "force_max": 1.3801682831326989e-08,
+   "force_rms": 2.9886440321162896e-09,
    "virial_max": 2.4177436216632486e-05
   }
  },
@@ -239,45 +239,45 @@
   "natoms": 12288,
   "precision": "float64",
   "compressed": true,
-  "ms_per_eval": 52.757865,
+  "ms_per_eval": 53.21595500000001,
   "stages_ms": {
    "chunks": 1,
-   "descriptor": 20.285500000000003,
-   "download": 0.24922499999999997,
-   "embedding": 0.0014550000000000001,
-   "environment": 3.7434199999999995,
-   "fitting": 6.143015,
-   "forces": 21.314549999999997,
-   "host_prepare": 0.13084500000000002,
-   "neighbors": 0.763015
+   "descriptor": 20.606119999999997,
+   "download": 0.27079,
+   "embedding": 0.0018950000000000002,
+   "environment": 3.827905,
+   "fitting": 6.191134999999999,
+   "forces": 21.476084999999994,
+   "host_prepare": 0.13762000000000002,
+   "neighbors": 0.7378600000000001
   },
   "vs_omnimd_float64": {
    "energy_per_atom": 0.0,
-   "force_max": 6.835157440043815e-14,
-   "force_rms": 1.3848881548894344e-14,
-   "virial_max": 2.1799451133119874e-11
+   "force_max": 6.835504384739011e-14,
+   "force_rms": 1.44536237282545e-14,
+   "virial_max": 2.7768010113504715e-11
   }
  },
  {
   "natoms": 12288,
   "precision": "float32",
   "compressed": true,
-  "ms_per_eval": 18.9891,
+  "ms_per_eval": 19.176645,
   "stages_ms": {
    "chunks": 1,
-   "descriptor": 8.800549999999998,
-   "download": 0.22468499999999997,
-   "embedding": 0.001255,
-   "environment": 3.6832449999999994,
-   "fitting": 0.51537,
-   "forces": 4.878165000000001,
-   "host_prepare": 0.12884,
-   "neighbors": 0.70998
+   "descriptor": 8.661785000000002,
+   "download": 0.24028999999999998,
+   "embedding": 0.0023799999999999997,
+   "environment": 3.6256899999999996,
+   "fitting": 0.6087550000000002,
+   "forces": 5.144885000000001,
+   "host_prepare": 0.135525,
+   "neighbors": 0.7381000000000001
   },
   "vs_omnimd_float64": {
    "energy_per_atom": 5.580839494238414e-09,
-   "force_max": 1.991332688111233e-08,
-   "force_rms": 4.8307660694078875e-09,
+   "force_max": 1.9913326878943927e-08,
+   "force_rms": 4.8307660693969985e-09,
    "virial_max": 2.9983297906710504e-06
   }
  },
@@ -285,39 +285,39 @@
   "natoms": 98304,
   "precision": "float64",
   "compressed": false,
-  "ms_per_eval": 4695.86905,
+  "ms_per_eval": 4693.430450000001,
   "stages_ms": {
    "chunks": 39,
-   "descriptor": 167.32184999999998,
-   "download": 1.36759,
-   "embedding": 4131.148620000001,
-   "environment": 30.515530000000002,
-   "fitting": 51.06091,
-   "forces": 316.71085000000005,
-   "host_prepare": 1.3144,
-   "neighbors": 6.51441
+   "descriptor": 165.16798,
+   "download": 1.49725,
+   "embedding": 4126.36105,
+   "environment": 30.938079999999996,
+   "fitting": 52.72484000000001,
+   "forces": 315.7339,
+   "host_prepare": 1.3042499999999997,
+   "neighbors": 6.364730000000001
   }
  },
  {
   "natoms": 98304,
   "precision": "float32",
   "compressed": false,
-  "ms_per_eval": 879.8117100000002,
+  "ms_per_eval": 875.2860800000001,
   "stages_ms": {
    "chunks": 20,
-   "descriptor": 84.3537,
-   "download": 1.31718,
-   "embedding": 579.9602600000001,
-   "environment": 29.79003,
-   "fitting": 6.00267,
-   "forces": 172.72623,
-   "host_prepare": 1.08498,
-   "neighbors": 6.3970400000000005
+   "descriptor": 83.63728,
+   "download": 1.38975,
+   "embedding": 573.52165,
+   "environment": 29.410559999999997,
+   "fitting": 6.024490000000002,
+   "forces": 172.01227,
+   "host_prepare": 1.12522,
+   "neighbors": 6.548299999999999
   },
   "vs_omnimd_float64": {
    "energy_per_atom": 6.3737672917341115e-09,
    "force_max": 1.5345563257607164e-08,
-   "force_rms": 2.9370490831383186e-09,
+   "force_rms": 2.9370490831424115e-09,
    "virial_max": 0.00018169503164244816
   }
  },
@@ -325,45 +325,45 @@
   "natoms": 98304,
   "precision": "float64",
   "compressed": true,
-  "ms_per_eval": 425.56679999999994,
+  "ms_per_eval": 425.58511,
   "stages_ms": {
    "chunks": 2,
-   "descriptor": 162.49434000000002,
-   "download": 1.37846,
-   "embedding": 0.00819,
-   "environment": 30.115819999999996,
-   "fitting": 49.461800000000004,
-   "forces": 170.74360000000001,
-   "host_prepare": 1.27405,
-   "neighbors": 6.2247
+   "descriptor": 162.92754000000005,
+   "download": 1.42462,
+   "embedding": 0.008570000000000001,
+   "environment": 30.0238,
+   "fitting": 49.05194,
+   "forces": 171.17915,
+   "host_prepare": 1.3199,
+   "neighbors": 6.63048
   },
   "vs_omnimd_float64": {
    "energy_per_atom": 0.0,
    "force_max": 6.836198274129401e-14,
-   "force_rms": 1.3848864072329113e-14,
-   "virial_max": 1.7780621419660747e-10
+   "force_rms": 1.445356948246009e-14,
+   "virial_max": 1.7985257727559656e-10
   }
  },
  {
   "natoms": 98304,
   "precision": "float32",
   "compressed": true,
-  "ms_per_eval": 151.74613,
+  "ms_per_eval": 153.05360000000002,
   "stages_ms": {
    "chunks": 1,
-   "descriptor": 69.85795999999999,
-   "download": 1.3395,
-   "embedding": 0.0049700000000000005,
-   "environment": 29.208940000000002,
-   "fitting": 4.88395,
-   "forces": 39.25542,
-   "host_prepare": 1.0892300000000001,
-   "neighbors": 6.253469999999999
+   "descriptor": 69.77301,
+   "download": 1.3721599999999998,
+   "embedding": 0.00584,
+   "environment": 29.29184,
+   "fitting": 4.71923,
+   "forces": 38.88152000000001,
+   "host_prepare": 1.10934,
+   "neighbors": 6.4596800000000005
   },
   "vs_omnimd_float64": {
    "energy_per_atom": 5.581445824039595e-09,
-   "force_max": 2.175670508856864e-08,
-   "force_rms": 5.205391504438059e-09,
+   "force_max": 2.1756705089869682e-08,
+   "force_rms": 5.2053915044412196e-09,
    "virial_max": 2.1458904257087852e-05
   }
  }

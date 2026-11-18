@@ -122,10 +122,16 @@ Milliseconds per energy/force/virial evaluation; DeepMD-kit 3.1.3 is LAMMPS
   (DeepMD-kit in LAMMPS: 28.8 and 219 ms), 11.0 and 86.3 ms in float64 (92.3
   and 6,494 ms), and 994 ms at 98,304 atoms in float32; omniMD's float64
   result equals DeepMD-kit's at 192 atoms within 1e-14 eV per atom and
-  6e-17 eV/angstrom. Both sides evaluate the embedding networks themselves:
-  omniMD has no tables for this descriptor, and the compressed model that
-  DeepMD-kit 3.1.3 makes of this one did not reproduce the uncompressed model
-  (see the summary), so it gave no baseline.
+  6e-17 eV/angstrom. Both sides evaluate the embedding networks themselves
+  there: the compressed model that DeepMD-kit 3.1.3 makes of this one did not
+  reproduce the uncompressed model (see the summary), so it gave no baseline.
+  omniMD has tables for these networks since 2026-11-18, in pieces of uneven
+  length that are each within a tolerance of the network (a table of one
+  step is either wrong by percent for a trained network of this descriptor,
+  or of gigabytes): 0.49 ms at 192 atoms and 2.50 ms at 1,536 in float32,
+  1.25 and 7.11 ms in float64, 153 ms at 98,304 atoms in float32, with
+  float64 forces within 7e-14 eV/angstrom of DeepMD-kit's uncompressed
+  model at 192 atoms.
 - A hybrid of two descriptors, se_e2_a to 4.0 angstrom (`sel` [16, 32]) and
   se_e2_r to 6.0 angstrom ([46, 92]), costs 0.38 ms at 192 atoms and 10.6 ms
   at 12,288 in float32, and 0.31 and 6.85 ms with embedding tables. DeepMD-kit
@@ -345,8 +351,7 @@ see [DeepMD setup and limits](mlmd/deepmd/README.md).
   an atom's neighbors, must fit the device in one piece. The bounded `train-native` trainers do not
   use the GPU runtime, and the engine passes each frame through the host.
 - Arbitrary DeepMD architectures (attention, type embedding) or generic
-  .pb/.pth/pickle import; se_e3 has no embedding tables, alone or in a
-  hybrid.
+  .pb/.pth/pickle import.
 - Partial PBC, mixed-type/virtual atoms or automatic unit/type-map guessing.
 - Classical-potential mixing and the full legacy Simulation/Propagator pipeline.
 - Sharded/distributed or end-to-end GPU training, learned normalization or generic

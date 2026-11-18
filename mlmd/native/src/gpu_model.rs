@@ -2392,15 +2392,15 @@ impl<P: Scalar> GpuPotential<P> {
     /// normalized radial input, covering neighbor distances from
     /// `min_distance` out to the cutoff. With `step = 0.01` such a table
     /// follows a smooth net to rounding level, and a trained one whose
-    /// weights have grown less closely: for the models of iteration 4 of the
-    /// HAP pipeline the forces of its sealed test frames are within 2.4e-6
-    /// eV/Å of those of the nets, 1.4e-7 at half the step and 2.8e-9 at a
-    /// quarter. Like DeePMD's extrapolation region, the tables continue with
-    /// ten times the step down to a fifth of `min_distance`. A frame with a
-    /// pair closer than that is evaluated with the exact networks instead
-    /// (see [`Self::table_fallbacks`]), so results never depend on the
-    /// range. Empty neighbor slots do not go through the tables: their row
-    /// is the networks' own.
+    /// weights have grown less closely: for the four models of iteration 4
+    /// of the HAP pipeline the forces of its sealed test frames are within
+    /// 3.9e-6 eV/Å of those of the nets (for one of them 2.4e-6, 1.4e-7 at
+    /// half the step and 2.8e-9 at a quarter). Like DeePMD's extrapolation
+    /// region, the tables continue with ten times the step down to a fifth
+    /// of `min_distance`. A frame with a pair closer than that is evaluated
+    /// with the exact networks instead (see [`Self::table_fallbacks`]), so
+    /// results never depend on the range. Empty neighbor slots do not go
+    /// through the tables: their row is the networks' own.
     ///
     /// The nets of se_e3 take θ, the product of the normalized directions
     /// of two neighbors, which spans thousands of units where the radial

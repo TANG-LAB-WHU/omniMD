@@ -329,6 +329,86 @@ All candidate images in the resulting integer box are checked. This handles
 triclinic and small cells; it does not assume nearest fractional rounding.
 Capacity overflow fails instead of selecting a truncated neighborhood.
 
+## Embedding tables
+
+On the GPU runtime the embedding nets can be replaced by piecewise quintics
+(DeePMD-kit's model compression): `GpuPotential::compress(min_distance,
+step)`, `--compress RMIN[:STEP]` of `omnimd-native-gpu-eval`,
+`compress_min_distance` and `table_step` of the engine's `gpu_runtime`. A
+frame with an input outside the tables is evaluated with the nets instead,
+so a result never depends on the range of the tables; `table_fallbacks`
+counts such frames.
+
+**se_e2_a and se_e2_r.** A net takes the normalized radial entry of a
+neighbor, some tens of units at most. Its table has a knot every `step`
+(0.01 unless given) from the value of an empty slot to that of a neighbor at
+`min_distance`, and goes on with ten times the step to a fifth of that
+distance. How close such a table is depends on the net. On the 83 frames of
+the HAP sealed test (largest force 6.1 eV/Å, float64, `--compress 0.5`) the
+forces are within 2.2e-7 eV/Å of those of the nets for models trained by
+omniMD and within 3.9e-6 for the pipeline's models of iteration 4, trained
+by DeePMD-kit, four models each; half the step brings one of the latter
+from 2.4e-6 to 1.4e-7 and a quarter to 2.8e-9. The tables of such a model
+(25 nets of 100 outputs) take 392 MiB in float64.
+
+**se_e3.** A net takes θ, the product of the normalized directions of two
+neighbors, and that spans thousands of units: ±1,400 for neighbors from
+0.9 Å in the HAP models, whose directions have a width of 0.03. A trained
+net turns within a hundredth of a unit where its data is and not at all
+over most of the range. A table of one step cannot follow that: with the
+step of 0.1 that DeePMD-kit takes for this descriptor the worst net of the
+HAP model is off by 2% of its largest value and 27% of its largest slope at
+its worst place, with 0.01 by 1e-5 and 7e-5, and tables of that step would
+take 4 GB in float32
+([`se_e3_uniform_tables.py`](../bench/se_e3_uniform_tables.py),
+[numbers](../bench/results/hap-se-e3-uniform-tables-2026-11-18.json)).
+
+So these tables have pieces of uneven length
+([`adaptive_table.rs`](src/adaptive_table.rs)). The range, a power of two
+on either side of zero, is halved again and again, and a piece is kept when
+
+- no unit of the net that may be in the bent part of its activation can
+  move by more than 2 in its argument over the piece (bounds by interval
+  arithmetic through all layers), so that the net has no feature between
+  the points a piece is checked at, and
+- the quintic through value, slope and curvature of the net at the ends of
+  the piece is within the tolerance of the net at a quarter, the middle and
+  three quarters of it: the value within 1e-13 of the largest value of the
+  net at the step 0.01, and (step/0.01)⁶ times that at another step (how
+  the error of a table of one step goes with its step), the slope within a
+  hundred times that fraction of the largest slope. Float32 has 1.5e-8 at
+  best, below what it rounds at. Where the net itself is not computed that
+  exactly (a unit whose large weight and bias cancel where it turns), the
+  bound on its rounding is allowed on top, and for the slope what the
+  rounding of the values at the ends of a piece comes to over its width.
+
+The ends of all pieces are whole multiples of powers of two, and the piece
+of a θ is found from θ itself: its sign, its exponent and its first six
+bits name a cell of a directory, and a cell says how wide its pieces are
+and where they start, `piece = base + floor(|θ| / width)`; the fraction
+that is left is the place in the piece. Nothing is rounded on the way in
+float32 or float64, whatever the size of θ (a table that counts steps from
+the lower end of its range rounds a float32 θ to a thousandth of a unit
+here). For this a cell that holds pieces of several lengths has them all
+cut to its shortest, 0.2% more pieces for the HAP nets. A net that turns
+faster than the precision of θ has room for is refused, with the place;
+none of the models here does. The tables reach to θ of neighbors at a fifth
+of `min_distance`, at the same tolerance all the way.
+
+With such tables the descriptor keeps no rows of embedding values: the
+kernels of its components and of its forces read the pieces where they
+would read the rows, and a chunk holds as many times more pairs as a pair
+takes less memory. For the fifteen nets of the HAP se_e3 model the tables
+have 26,966 pieces in 50 MiB in float64 and 4,092 pieces in 4.1 MiB in
+float32, and are made in 0.1 s. On the sealed test the forces are within
+1.6e-10 eV/Å of those of the nets in float64 (four models). In float32 the
+tables are 9.5e-6 eV/Å from the float64 nets, where the float32 nets are
+8.5e-6 from them. In a hybrid the tables of its two-body descriptor are
+what the difference from the nets comes from (2.1e-8 and 1.9e-7 eV/Å for
+the two hybrids trained here). Records:
+[`hap-se-e3-tables-against-nets-...json`](../bench/results/hap-se-e3-tables-against-nets-rtx4090-2026-11-18.json),
+timings in the [summary](../bench/results/SUMMARY.md).
+
 ## Scope, acceptance, and next integration step
 
 The fixture is synthetic and deterministic, created by

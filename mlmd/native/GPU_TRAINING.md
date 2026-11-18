@@ -1150,7 +1150,14 @@ morning of 2026-11-17.
   and 0.48 ms at 88, 169 and 224 atoms in float32 against 0.19, 0.24 and
   0.28 (1.09, 1.95 and 2.52 against 0.65, 1.15 and 1.40 in float64), and
   0.29, 0.37 and 0.44 against 0.17, 0.20 and 0.22 with embedding tables,
-  which the three-body nets do not have.
+  which the three-body nets do not have. (They have since 2026-11-18: with
+  tables for both descriptors the model takes 0.28, 0.34 and 0.36 ms in
+  float32 against 0.18, 0.22 and 0.24, and 0.60, 0.96 and 1.03 against
+  0.45, 0.77 and 0.80 in float64, 1.5 and 1.3 times as long. In float32
+  the nets of the three-body descriptor were a quarter of the difference
+  between the two models at 88 atoms and half at 224: the rest of what it
+  costs there is its other stages. See the
+  [summary](../bench/results/SUMMARY.md).)
 - **The earlier hybrid** has a tenth of the parameters. It reaches the
   force error of se_e2_a to 4 Å alone and the lowest energy error of the
   five, trains 2.8 times faster than the pipeline's model and evaluates in

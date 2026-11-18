@@ -1,3 +1,225 @@
+# Tables for the embedding nets of se_e3, 2026-11-18
+
+`--compress` (`compress_min_distance` in the engine) now gives the nets of
+an se_e3 descriptor tables too, alone or in a hybrid, where they kept their
+networks before. They are not DeePMD-kit's kind of table: their pieces are
+of uneven length, each within a tolerance of its net, and the kernels read
+them where they read rows of embedding values before. What they are and
+how they are made is in
+[`native/README.md`](../../native/README.md#embedding-tables).
+
+**Why not a table of one step.** These nets take θ, the product of the
+normalized directions of two neighbors. For the HAP model trained on
+2026-11-17 (se_e3 to 4 Å) θ spans ±1,400 for neighbors from 0.9 Å, and the
+first layers of its nets have weights up to 4.5: a net turns within a
+hundredth of a unit of θ where its data is. Quintic tables with a knot
+every step of θ over that range, against the nets at 20,000 random θ, the
+worst of the fifteen nets
+([`se_e3_uniform_tables.py`](../se_e3_uniform_tables.py)):
+
+| step | value off by (of the largest value) | slope off by (of the largest slope) | all nets, float32 |
+|---:|---:|---:|---:|
+| 0.1 (DeePMD-kit's for this descriptor) | 2.4e-2 | 2.7e-1 | 404 MB |
+| 0.05 | 2.2e-3 | 9.1e-2 | 808 MB |
+| 0.02 | 3.5e-4 | 1.2e-2 | 2.0 GB |
+| 0.01 | 9.8e-6 | 7.3e-5 | 4.0 GB |
+
+The tables in pieces of uneven length for the same nets: 4,092 pieces in
+4.1 MiB in float32 (within 1.5e-8 of the largest value everywhere) and
+26,966 pieces in 50 MiB in float64 (within 1e-13), made in 0.1 s.
+
+**Against the nets.** The 83 frames of the HAP sealed test (largest force
+component 6.1 eV/Å), `--compress 0.5`, four models of each kind, the
+largest difference from the same model with its exact nets:
+
+| models | precision | energy (eV/atom) | force (eV/Å) | virial (eV) | tables |
+|---|---|---:|---:|---:|---|
+| se_e3 to 4 Å | float64 | 1.8e-13 | 1.6e-10 | 6.4e-10 | 26,966 pieces, 50 MiB |
+| se_e3 to 4 Å | float32 | 2.1e-7 | 1.4e-5 | 1.4e-4 | 4,092 pieces, 4.1 MiB |
+| se_e2_a to 6 Å with se_e3 to 4 Å | float64 | 3.2e-12 | 2.1e-8 | 6.3e-8 | 433 MiB, 40 of them se_e3's |
+| the earlier hybrid | float64 | 1.5e-11 | 1.9e-7 | 9.3e-7 | 147 MiB |
+| se_e2_a to 6 Å, trained by omniMD | float64 | 2.3e-11 | 2.2e-7 | 8.1e-7 | 392 MiB |
+| se_e2_a to 6 Å, the pipeline's models of iteration 4 (DeePMD-kit) | float64 | 8.4e-10 | 3.9e-6 | 2.0e-5 | 393 MiB |
+
+- In float32 the tables are no further from the float64 nets than the
+  float32 nets are: 9.5e-6 eV/Å against 8.5e-6 for se_e3 alone, and 8.0e-6
+  to 9.7e-6 against 5.2e-6 to 8.9e-6 for the other four kinds.
+- The last two rows have no se_e3: they are the tables of one step that
+  se_e2_a has had all along, measured here for the first time on trained
+  models. They follow a smooth net to rounding level (the untrained water
+  models below) and a trained one to 1e-7 or 1e-6 of a force; half the step
+  takes one of the pipeline's models from 2.4e-6 to 1.4e-7 eV/Å and a
+  quarter to 2.8e-9. In a hybrid they are what the difference from the
+  nets comes from. Tables in pieces of uneven length for these nets as
+  well would be smaller and closer; that was not built.
+- No frame left the tables. A frame that does is evaluated with the nets
+  (the shortest distance in these frames is 0.890 Å; the tables of se_e3
+  reach to a fifth of the 0.5 Å asked for).
+
+**Speed on the HAP frames.** The fully trained models of 2026-11-17 on
+three frames of the sealed test, microseconds for energy, forces and
+virial, the least of four alternated rounds of `--bench 3000`:
+
+| frame | precision | embedding | se_e2_a to 6 Å | with se_e3 to 4 Å | the earlier hybrid | se_e3 to 4 Å |
+|---|---|---|---:|---:|---:|---:|
+| 88 atoms | float32 | nets | 209 | 332 | 210 | 204 |
+| 88 atoms | float32 | tables | 183 | 284 | 197 | 175 |
+| 88 atoms | float64 | nets | 737 | 1,238 | 394 | 596 |
+| 88 atoms | float64 | tables | 448 | 604 | 254 | 267 |
+| 169 atoms | float32 | nets | 265 | 444 | 225 | 281 |
+| 169 atoms | float32 | tables | 224 | 344 | 219 | 219 |
+| 169 atoms | float64 | nets | 1,264 | 2,132 | 455 | 1,048 |
+| 169 atoms | float64 | tables | 768 | 963 | 293 | 388 |
+| 224 atoms | float32 | nets | 301 | 526 | 260 | 329 |
+| 224 atoms | float32 | tables | 244 | 357 | 231 | 242 |
+| 224 atoms | float64 | nets | 1,539 | 2,769 | 635 | 1,403 |
+| 224 atoms | float64 | tables | 804 | 1,025 | 333 | 439 |
+
+- The pipeline's descriptor with the three-body one beside it (the model
+  whose force error is 8 to 9 percent lower) takes 0.28 to 0.36 ms in
+  float32 with tables, 1.5 times the pipeline's own model with tables
+  (0.18 to 0.24 ms), and 1.3 times in float64 (0.60 to 1.03 against 0.45
+  to 0.80 ms). With tables for its se_e2_a descriptor alone, as the build
+  before had them, the same model took 0.32, 0.41 and 0.48 ms in float32
+  and 0.95, 1.67 and 2.06 in float64 in the same session: the tables of
+  se_e3 take 10 to 27 percent off that in float32 and 37 to 50 percent in
+  float64.
+- This corrects the section below, which put the cost of the second
+  descriptor at 1.6 to 2.0 times an evaluation and named the missing
+  tables beside it. In float32 the two models were 0.13 to 0.24 ms apart
+  with tables for se_e2_a alone and are 0.10 to 0.12 with tables for both:
+  the nets of the three-body descriptor were a quarter of the difference at
+  88 atoms and half at 224, and the rest is its other stages (the rows of
+  its pairs, with a small download of the neighbor counts in every
+  evaluation, its components, its two force kernels). In float64 the nets
+  were most of it.
+- se_e3 alone: 1.2 to 1.4 times faster in float32, 2.2 to 3.2 times in
+  float64. All numbers of this table are from one session; the same build
+  measured some 9% lower without tables on 2026-11-17 than it does today
+  (the build before and this one are within 1% of each other on the nets
+  today), so they are not to be set against that day's.
+
+**Speed on the water benchmark** (untrained models, ms per evaluation, the
+faster of two runs, `bench_omnimd_gpu.py`). se_e3 alone, to 6 Å with `sel`
+[46, 92] and embedding [10, 20, 40], 3,600 pairs of neighbors an atom.
+DeePMD-kit: LAMMPS with its exact nets, 2026-11-15; its own tables for this
+descriptor do not reproduce its model (the section of 2026-11-16 below), so
+there is no DeePMD-kit column for tables:
+
+| atoms | precision | DeePMD-kit, nets | omniMD, nets | omniMD, tables | chunks |
+|---:|---|---:|---:|---:|---|
+| 192 | fp64 | 92.3 | 9.76 | 1.25 | 1 |
+| 1,536 | fp64 | 6,494 | 73.9 | 7.11 | 1 |
+| 12,288 | fp64 | out of memory | 590 | 53.2 | 5, with tables 1 |
+| 98,304 | fp64 | error | 4,693 | 425 | 39, with tables 2 |
+| 192 | fp32 | 28.8 | 2.05 | 0.485 | 1 |
+| 1,536 | fp32 | 219 | 14.1 | 2.50 | 1 |
+| 12,288 | fp32 | error | 110 | 19.1 | 3, with tables 1 |
+| 98,304 | fp32 | error | 875 | 153 | 20, with tables 1 |
+
+The hybrid of se_e2_a to 6 Å and se_e3 to 4 Å (`sel` [16, 32]), now with
+tables for both descriptors (DeePMD-kit with the atoms held, 2026-11-16):
+
+| atoms | precision | DeePMD-kit, nets | omniMD, nets | omniMD, tables |
+|---:|---|---:|---:|---:|
+| 192 | fp64 | 25.2 | 2.37 | 1.00 |
+| 1,536 | fp64 | 142 | 16.4 | 5.89 |
+| 12,288 | fp64 | no result | 129 | 44.0 |
+| 98,304 | fp64 | error | 1,026 | 348 |
+| 192 | fp32 | 14.1 | 0.506 | 0.350 |
+| 1,536 | fp32 | 42.5 | 2.92 | 1.33 |
+| 12,288 | fp32 | no result | 20.2 | 8.16 |
+| 98,304 | fp32 | error | 161 | 67.8 |
+
+- With tables the float64 result of se_e3 at 192 atoms is DeePMD-kit's
+  uncompressed model (CPU, float64) within 9.5e-15 eV per atom, 6.8e-14
+  eV/Å and 4.1e-13 eV of virial, the hybrid's within 2.8e-13 eV/Å at 192
+  and 1,536 atoms; float32 with tables is 9.1e-9 eV/Å from it, as float32
+  with nets is (9.2e-9). At the larger sizes the tables are within 6.8e-14
+  eV/Å (se_e3) and 2.8e-13 (hybrid) of omniMD's float64 nets.
+- se_e3 with tables is 4.2 to 5.8 times faster than with nets in float32
+  and 7.8 to 11.1 times in float64; at 192 atoms in float32 59 times
+  faster than DeePMD-kit's exact nets in LAMMPS, where most of a LAMMPS
+  step does not grow with the atoms.
+- A pair takes 16 bytes with tables in float32 where it took 336 with its
+  embedding rows, so 98,304 atoms (350 million pairs) are one chunk
+  instead of twenty.
+- Where the time goes at 192 atoms (stage times, each with a
+  synchronization). Float32, 2.12 ms with nets: embedding nets 1.12,
+  forces 0.37, descriptor 0.25. With tables 0.49 ms: descriptor 0.14,
+  forces 0.11, rows of the pairs 0.10, neighbor search 0.07, fitting 0.07.
+  Float64, 9.72 ms with nets: embedding nets 8.08. With tables 1.24 ms:
+  forces 0.47, descriptor 0.42.
+
+**How the kernels are laid out.** A first version put the tables where the
+nets were: a kernel wrote the values and slopes of every pair, and the
+descriptor and force kernels read them as before (192 water atoms: 1.22 ms
+in float32, 3.70 in float64). Reading the pieces in those kernels instead,
+with no rows stored, was faster in float32 (0.81 ms) and slower in float64
+(4.22): in double precision the time went with the number of instructions
+the warps issued, whatever the number of lanes at work in one, and a warp
+for a row has most lanes idle most of the time. With a thread for a row
+the same work took 1.25 ms in float64 and 0.49 in float32. The components
+keep a warp for a row in float32, which is faster for frames of a few
+hundred pairs an atom. The measurements are with the kernels in
+`native/src/gpu_model.rs` and the rule in
+[`gpu/README.md`](../../gpu/README.md).
+
+**Tests.** `native/src/adaptive_table.rs` and `native/src/network.rs`
+(run in CI): tables against nets at 40,000 points each, spread over the
+range and packed near zero, for nets that turn within a fraction of a unit
+and over hundreds; a net whose feature lies between all points a piece is
+checked at (two units of a second layer with a gain of a thousand: a
+builder that compared values alone keeps one piece that is zero
+everywhere); every activation, residual and time step; that pieces meet in
+value and slope and that the cells name them; the lookup in float32
+throughout; a net too fast for float32; a net whose own rounding is above
+the tolerance; the bound on that rounding against what cancelling terms
+lose. `gpu/tests/device.rs`: the lookup on the device against a table laid
+out by hand whose quintics say which piece was read, to the bit, in both
+precisions, with inputs at the ends of pieces and cells, at zero of either
+sign, denormal, at the last float inside and outside. `native/tests/
+gpu_parity.rs`: se_e3 with tables against the CPU reference in chunks by
+atoms and by rows, in batches, in committees whose members have ranges of
+their own, for atoms without a pair, with embeddings of 40, 136 and 200
+outputs, in float32; a pair of atoms just inside and just outside the end
+of the tables, and a batch with one frame outside, which alone goes back to
+the nets; a coarse step that is visibly worse; a net that float32 cannot
+tabulate, refused with its place while the potential goes on with its
+nets; hybrids with tables for every descriptor, each shown to be in use.
+`engine/tests/se_e3.rs`: an NVE run with tables follows the CPU run within
+1e-9 eV.
+
+A mutation round on the builder, the bounds on movement and rounding, the
+lookup, the range and the nets of a descriptor's tables, the kernels that
+read them and the host side had 72 mutants. 69 were caught by the tests as
+first written, and three showed gaps that now have checks: the range the
+movement of the units is bounded over on the negative side of zero, that a
+chunk holds more pairs with tables, and the allowance for the rounding of a
+net. The third did more than add a check. Its test net had a weight of few
+bits, whose products with the places the builder looks at are exact, so the
+rounding never showed there; with a weight of all its bits the builder
+halved down to the last bit of θ and failed, because what the values at the
+ends of a piece are off by shows in its slope the more, the narrower the
+piece is. The allowance now covers that, with a mutant of its own, and all
+73 are caught. Locally: workspace 233, engine with `native-gpu` 93, GPU
+crates 182, each in release and debug; `cargo fmt --check` clean; the
+legacy `cuda` features compile. The GPU suites do not run in CI.
+
+**Not built.** Tables in pieces of uneven length for the nets of se_e2_a
+and se_e2_r (see above: theirs are eight times larger and a thousand times
+less close on these models). The small download of the neighbor counts
+that an se_e3 descriptor makes in every evaluation, which a frame of a
+hundred atoms feels. Going through the pairs of an atom by piece, so that
+the outputs of a piece are worked out once for all its pairs. The trainer
+does not use tables.
+
+Files: `hap-se-e3-uniform-tables-2026-11-18.json`,
+`hap-se-e3-tables-against-nets-rtx4090-2026-11-18.json`,
+`hap-eval-se-e3-tables-rtx4090-2026-11-18.json`,
+`omnimd-gpu-se-e3-tables-rtx4090-2026-11-18.csv` (and `-r2`),
+`omnimd-gpu-hybrid-e3-tables-rtx4090-2026-11-18.csv` (and `-r2`).
+
 # Training se_e3, 2026-11-17
 
 `omnimd-native-gpu-train` trains the three-body descriptor se_e3 (`se_at`,
@@ -103,7 +325,9 @@ again with the others):
 - It costs 23 percent of the training speed and 1.6 to 2.0 times the time
   of an evaluation (0.30 to 0.48 ms at 88 to 224 atoms in float32 against
   0.19 to 0.28; 0.29 to 0.44 against 0.17 to 0.22 with embedding tables,
-  which se_e3 does not have).
+  which se_e3 does not have). (It has them since 2026-11-18, and with
+  tables for both the factor is 1.5 in float32 and 1.3 in float64; the
+  section above also says what the difference is made of.)
 - The earlier hybrid, with a tenth of the parameters, has the force error
   of se_e2_a to 4 Å alone and the lowest energy error of the five; it
   trains 2.8 times faster than the pipeline's model and evaluates as fast
