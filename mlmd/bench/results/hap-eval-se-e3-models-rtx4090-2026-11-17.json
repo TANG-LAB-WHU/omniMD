@@ -1,0 +1,74 @@
+{
+ "date": "2026-11-17",
+ "device": "NVIDIA GeForce RTX 4090",
+ "what": "omnimd-native-gpu-eval --bench 3000 on one frame, energy, forces and virial; the four models alternated in four rounds, the least of each kept; microseconds per evaluation",
+ "tables": "--compress 0.5: tables for the se_e2_a descriptors; the nets of se_e3 are not tabulated, in a hybrid they stay as they are, and a model of se_e3 alone has no tables",
+ "models": [
+  "se_e2_a to 6 A (hap-iter0-pre/ens4-f32-0)",
+  "se_e2_a to 6 A with se_e3 to 4 A (full-hp-f32-0)",
+  "the earlier hybrid, se_e2_a to 5 A with se_e3 to 3.2 A (full-ho-f32-0)",
+  "se_e3 to 4 A (full-e3-f32-0)"
+ ],
+ "microseconds_per_evaluation": {
+  "hap_bulk__H4Ca20O52P12 (88 atoms)": {
+   "float32": {
+    "se_e2_a to 6 A (hap-iter0-pre/ens4-f32-0)": 188,
+    "se_e2_a to 6 A with se_e3 to 4 A (full-hp-f32-0)": 302,
+    "the earlier hybrid, se_e2_a to 5 A with se_e3 to 3.2 A (full-ho-f32-0)": 191,
+    "se_e3 to 4 A (full-e3-f32-0)": 180
+   },
+   "float32 with embedding tables": {
+    "se_e2_a to 6 A (hap-iter0-pre/ens4-f32-0)": 166,
+    "se_e2_a to 6 A with se_e3 to 4 A (full-hp-f32-0)": 287,
+    "the earlier hybrid, se_e2_a to 5 A with se_e3 to 3.2 A (full-ho-f32-0)": 183,
+    "se_e3 to 4 A (full-e3-f32-0)": null
+   },
+   "float64": {
+    "se_e2_a to 6 A (hap-iter0-pre/ens4-f32-0)": 654,
+    "se_e2_a to 6 A with se_e3 to 4 A (full-hp-f32-0)": 1089,
+    "the earlier hybrid, se_e2_a to 5 A with se_e3 to 3.2 A (full-ho-f32-0)": 357,
+    "se_e3 to 4 A (full-e3-f32-0)": 528
+   }
+  },
+  "hap001_water_co2__C2H54Ca20O81P12 (169 atoms)": {
+   "float32": {
+    "se_e2_a to 6 A (hap-iter0-pre/ens4-f32-0)": 239,
+    "se_e2_a to 6 A with se_e3 to 4 A (full-hp-f32-0)": 402,
+    "the earlier hybrid, se_e2_a to 5 A with se_e3 to 3.2 A (full-ho-f32-0)": 210,
+    "se_e3 to 4 A (full-e3-f32-0)": 252
+   },
+   "float32 with embedding tables": {
+    "se_e2_a to 6 A (hap-iter0-pre/ens4-f32-0)": 204,
+    "se_e2_a to 6 A with se_e3 to 4 A (full-hp-f32-0)": 371,
+    "the earlier hybrid, se_e2_a to 5 A with se_e3 to 3.2 A (full-ho-f32-0)": 200,
+    "se_e3 to 4 A (full-e3-f32-0)": null
+   },
+   "float64": {
+    "se_e2_a to 6 A (hap-iter0-pre/ens4-f32-0)": 1153,
+    "se_e2_a to 6 A with se_e3 to 4 A (full-hp-f32-0)": 1954,
+    "the earlier hybrid, se_e2_a to 5 A with se_e3 to 3.2 A (full-ho-f32-0)": 417,
+    "se_e3 to 4 A (full-e3-f32-0)": 954
+   }
+  },
+  "monetite_CaHPO4__H32Ca32O128P32 (224 atoms)": {
+   "float32": {
+    "se_e2_a to 6 A (hap-iter0-pre/ens4-f32-0)": 278,
+    "se_e2_a to 6 A with se_e3 to 4 A (full-hp-f32-0)": 482,
+    "the earlier hybrid, se_e2_a to 5 A with se_e3 to 3.2 A (full-ho-f32-0)": 238,
+    "se_e3 to 4 A (full-e3-f32-0)": 301
+   },
+   "float32 with embedding tables": {
+    "se_e2_a to 6 A (hap-iter0-pre/ens4-f32-0)": 224,
+    "se_e2_a to 6 A with se_e3 to 4 A (full-hp-f32-0)": 441,
+    "the earlier hybrid, se_e2_a to 5 A with se_e3 to 3.2 A (full-ho-f32-0)": 220,
+    "se_e3 to 4 A (full-e3-f32-0)": null
+   },
+   "float64": {
+    "se_e2_a to 6 A (hap-iter0-pre/ens4-f32-0)": 1403,
+    "se_e2_a to 6 A with se_e3 to 4 A (full-hp-f32-0)": 2517,
+    "the earlier hybrid, se_e2_a to 5 A with se_e3 to 3.2 A (full-ho-f32-0)": 578,
+    "se_e3 to 4 A (full-e3-f32-0)": 1258
+   }
+  }
+ }
+}

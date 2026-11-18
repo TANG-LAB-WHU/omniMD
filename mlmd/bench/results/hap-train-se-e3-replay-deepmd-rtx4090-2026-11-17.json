@@ -1,0 +1,263 @@
+{
+ "date": "2026-11-17",
+ "device": "NVIDIA GeForce RTX 4090",
+ "what": "omniMD given DeePMD-kit's initial model and the frames in the order DeePMD-kit took them (bench/deepmd_replay.py), 4,000 steps on the 171 frames of the HAP iteration-0 training, float64, seed 11, learning rate 1e-3 to 3e-8, energy and force terms; scored on the 83 sealed-test frames",
+ "models": {
+  "se_e3 to 4 A": "sel [16, 8, 20, 24, 8], embedding [10, 20, 40], fitting [240, 240, 240]",
+  "hybrid of the HAP project's earlier models, se_e2_a to 5 A with se_e3 to 3.2 A": "HAP results/t2-fit-diagnostic-20261014/model-architecture.json: se_e2_a rcut 5.0, rcut_smth 4.5, sel [16, 12, 36, 4, 4], embedding [16, 32, 64], 8 axis neurons, a net per pair of types; se_e3 rcut 3.2, rcut_smth 2.8, sel [8, 4, 12, 4, 4], embedding [8, 16, 32]; fitting [64, 64]. On these frames the slots are fewer than the neighbors in 13,263 selections of an atom and a neighbor type for se_e2_a and 2,209 for se_e3, of 99,370"
+ },
+ "replays": {
+  "se_e3 to 4 A": {
+   "parameters": {
+    "embedding nets of descriptor 0 (se_e3)": {
+     "numbers": 16200,
+     "mean_change_by_deepmd": 0.01815780295647471,
+     "mean_difference": 9.404315677755663e-11,
+     "largest_difference": 1.7168472130069112e-09
+    },
+    "fitting nets": {
+     "numbers": 631205,
+     "mean_change_by_deepmd": 0.009964997860788815,
+     "mean_difference": 6.66437575451668e-11,
+     "largest_difference": 7.302294516044194e-07
+    }
+   },
+   "displayed_steps": [
+    {
+     "step": 0,
+     "deepmd_rmse_e_per_atom": 0.347,
+     "deepmd_rmse_f": 0.979,
+     "omnimd_rmse_e_per_atom": 0.3474918,
+     "omnimd_rmse_f": 0.9789381
+    },
+    {
+     "step": 499,
+     "deepmd_rmse_e_per_atom": 0.0402,
+     "deepmd_rmse_f": 0.349,
+     "omnimd_rmse_e_per_atom": 0.04022072,
+     "omnimd_rmse_f": 0.3490382
+    },
+    {
+     "step": 999,
+     "deepmd_rmse_e_per_atom": 0.388,
+     "deepmd_rmse_f": 0.24,
+     "omnimd_rmse_e_per_atom": 0.388375,
+     "omnimd_rmse_f": 0.2404708
+    },
+    {
+     "step": 1499,
+     "deepmd_rmse_e_per_atom": 0.0142,
+     "deepmd_rmse_f": 0.443,
+     "omnimd_rmse_e_per_atom": 0.01416075,
+     "omnimd_rmse_f": 0.4434345
+    },
+    {
+     "step": 1999,
+     "deepmd_rmse_e_per_atom": 0.0138,
+     "deepmd_rmse_f": 0.438,
+     "omnimd_rmse_e_per_atom": 0.01382085,
+     "omnimd_rmse_f": 0.4378222
+    },
+    {
+     "step": 2499,
+     "deepmd_rmse_e_per_atom": 0.00225,
+     "deepmd_rmse_f": 0.769,
+     "omnimd_rmse_e_per_atom": 0.002250489,
+     "omnimd_rmse_f": 0.7694562
+    },
+    {
+     "step": 2999,
+     "deepmd_rmse_e_per_atom": 0.0157,
+     "deepmd_rmse_f": 0.579,
+     "omnimd_rmse_e_per_atom": 0.01571135,
+     "omnimd_rmse_f": 0.5785648
+    },
+    {
+     "step": 3499,
+     "deepmd_rmse_e_per_atom": 0.00864,
+     "deepmd_rmse_f": 0.449,
+     "omnimd_rmse_e_per_atom": 0.008640445,
+     "omnimd_rmse_f": 0.4487767
+    },
+    {
+     "step": 3999,
+     "deepmd_rmse_e_per_atom": 0.00243,
+     "deepmd_rmse_f": 0.32,
+     "omnimd_rmse_e_per_atom": 0.00242514,
+     "omnimd_rmse_f": 0.3202771
+    }
+   ],
+   "test": {
+    "dataset": "D:/project/omniMD-w1/mlmd/bench/cases/hap/dataset.jsonl",
+    "deepmd": {
+     "force_rmse": 0.4952006759015834,
+     "energy_rmse_per_atom": 0.0665593829171521,
+     "frames": 83
+    },
+    "omnimd": {
+     "force_rmse": 0.49520067691012326,
+     "energy_rmse_per_atom": 0.06655938285830462,
+     "frames": 83
+    }
+   },
+   "steps_per_part": 1500,
+   "deepmd_kit_run": {
+    "deepmd_version": "3.1.3",
+    "steps": 4000,
+    "precision": "float64",
+    "last_curve_line": [
+     "4000",
+     "3.28e-01",
+     "2.43e-03",
+     "3.20e-01",
+     "3.9e-08"
+    ]
+   }
+  },
+  "hybrid of the HAP project's earlier models, se_e2_a to 5 A with se_e3 to 3.2 A": {
+   "parameters": {
+    "embedding nets of descriptor 0 (se_e2_a)": {
+     "numbers": 67200,
+     "mean_change_by_deepmd": 0.015626271739115093,
+     "mean_difference": 3.416406163315257e-08,
+     "largest_difference": 1.2166335788613147e-06
+    },
+    "embedding nets of descriptor 1 (se_e3)": {
+     "numbers": 10560,
+     "mean_change_by_deepmd": 0.019767319716769965,
+     "mean_difference": 4.539525821156375e-08,
+     "largest_difference": 2.3955874918143993e-06
+    },
+    "fitting nets": {
+     "numbers": 195845,
+     "mean_change_by_deepmd": 0.0156263207436671,
+     "mean_difference": 3.3264423551283875e-08,
+     "largest_difference": 6.525988168533392e-06
+    }
+   },
+   "displayed_steps": [
+    {
+     "step": 0,
+     "deepmd_rmse_e_per_atom": 0.434,
+     "deepmd_rmse_f": 1.01,
+     "omnimd_rmse_e_per_atom": 0.4344611,
+     "omnimd_rmse_f": 1.013909
+    },
+    {
+     "step": 499,
+     "deepmd_rmse_e_per_atom": 0.045,
+     "deepmd_rmse_f": 0.54,
+     "omnimd_rmse_e_per_atom": 0.04497127,
+     "omnimd_rmse_f": 0.5398603
+    },
+    {
+     "step": 999,
+     "deepmd_rmse_e_per_atom": 0.739,
+     "deepmd_rmse_f": 0.395,
+     "omnimd_rmse_e_per_atom": 0.7386398,
+     "omnimd_rmse_f": 0.3945967
+    },
+    {
+     "step": 1499,
+     "deepmd_rmse_e_per_atom": 0.0363,
+     "deepmd_rmse_f": 0.42,
+     "omnimd_rmse_e_per_atom": 0.03631042,
+     "omnimd_rmse_f": 0.4197149
+    },
+    {
+     "step": 1999,
+     "deepmd_rmse_e_per_atom": 0.0171,
+     "deepmd_rmse_f": 0.644,
+     "omnimd_rmse_e_per_atom": 0.01707024,
+     "omnimd_rmse_f": 0.6439186
+    },
+    {
+     "step": 2499,
+     "deepmd_rmse_e_per_atom": 0.0139,
+     "deepmd_rmse_f": 0.788,
+     "omnimd_rmse_e_per_atom": 0.01389871,
+     "omnimd_rmse_f": 0.787936
+    },
+    {
+     "step": 2999,
+     "deepmd_rmse_e_per_atom": 0.0155,
+     "deepmd_rmse_f": 0.899,
+     "omnimd_rmse_e_per_atom": 0.01547506,
+     "omnimd_rmse_f": 0.8991801
+    },
+    {
+     "step": 3499,
+     "deepmd_rmse_e_per_atom": 0.0238,
+     "deepmd_rmse_f": 0.61,
+     "omnimd_rmse_e_per_atom": 0.02377889,
+     "omnimd_rmse_f": 0.609538
+    },
+    {
+     "step": 3999,
+     "deepmd_rmse_e_per_atom": 0.011,
+     "deepmd_rmse_f": 0.353,
+     "omnimd_rmse_e_per_atom": 0.01100416,
+     "omnimd_rmse_f": 0.3529111
+    }
+   ],
+   "test": {
+    "dataset": "D:/project/omniMD-w1/mlmd/bench/cases/hap/dataset.jsonl",
+    "deepmd": {
+     "force_rmse": 0.6229247798116535,
+     "energy_rmse_per_atom": 0.1787625438322128,
+     "frames": 83
+    },
+    "omnimd": {
+     "force_rmse": 0.6229245854112432,
+     "energy_rmse_per_atom": 0.17876232127763028,
+     "frames": 83
+    }
+   },
+   "steps_per_part": 1500,
+   "deepmd_kit_run": {
+    "deepmd_version": "3.1.3",
+    "steps": 4000,
+    "precision": "float64",
+    "last_curve_line": [
+     "4000",
+     "3.86e-01",
+     "1.10e-02",
+     "3.53e-01",
+     "3.9e-08"
+    ]
+   }
+  }
+ },
+ "repeated": "each replay run twice: the two omniMD models of a replay are the same distance from DeePMD-kit's in every digit printed",
+ "growth_of_a_change_of_the_initial_model": {
+  "what": "every network number of DeePMD-kit's initial model times 1 + r * (a random number in -1..1), the replay from it against the replay from the unchanged model: mean distance of the trained numbers of the two initial models and of the two trained ones",
+  "runs": {
+   "se_e3 to 4 A": {
+    "1e-11": {
+     "initial": 2.238e-13,
+     "trained": 4.875e-13,
+     "grown": 2.1782841823056303
+    },
+    "1e-09": {
+     "initial": 2.238e-11,
+     "trained": 4.875e-11,
+     "grown": 2.17828418230563
+    }
+   },
+   "hybrid of the HAP project's earlier models, se_e2_a to 5 A with se_e3 to 3.2 A": {
+    "1e-11": {
+     "initial": 3.193e-13,
+     "trained": 6.369e-10,
+     "grown": 1994.6758534293767
+    },
+    "1e-09": {
+     "initial": 3.193e-11,
+     "trained": 6.527e-08,
+     "grown": 2044.1590980269339
+    }
+   }
+  },
+  "reading": "the hybrid run amplifies a difference two thousand times and the se_e3 run twice: the distance of omniMD from DeePMD-kit, three hundred times larger for the hybrid, is what a difference of 2e-11 to 4e-11 at the start would leave in either run"
+ },
+ "covered": "the gradient through se_e3, alone and in a hybrid, and through se_e2_a with a net per pair of types; lists and descriptors that drop neighbors; energy and force terms with prefactors following the learning rate, Adam, the stepped schedule, float64, one frame a step. The virial term was off."
+}

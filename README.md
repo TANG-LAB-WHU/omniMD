@@ -146,8 +146,7 @@ Milliseconds per energy/force/virial evaluation; DeepMD-kit 3.1.3 is LAMMPS
   ms); from 12,288 atoms on DeepMD-kit no longer fits the card, omniMD takes
   23 ms there.
 - Scope: one GPU, se_e2_a or se_e2_r with one embedding net per type pair or
-  per neighbor type, se_e3 (inference), or a hybrid of these descriptors
-  (trained when it has no se_e3 descriptor). The engine can
+  per neighbor type, se_e3, or a hybrid of these descriptors. The engine can
   select it for dynamics, minimization, batch evaluation and model deviation
   (`gpu_runtime` in the model options). It has a trainer of its own (below); the
   bounded `train-native` trainers do not use it.
@@ -179,8 +178,8 @@ seconds: 9,198 run-steps per second against 58 to 78 in the LAMMPS records
 of the same models. The ensemble is not a production-qualified potential; see the
 [summary](mlmd/bench/results/SUMMARY.md) for the protocol.
 
-`omnimd-native-gpu-train` trains se_e2_a and se_e2_r models of any size, and
-hybrids of the two, on the
+`omnimd-native-gpu-train` trains se_e2_a, se_e2_r and se_e3 models of any
+size, and hybrids of them, on the
 GPU with DeepMD-kit's `ener` loss, learning-rate schedule and Adam settings,
 from a DeepMD `model` section or an existing native model, with one embedding
 net per pair of types or per neighbor type (`type_one_side`), with snapshots
@@ -208,7 +207,20 @@ descriptor to 4 angstrom with a radial one to 6 reaches a force RMSE of
 0.072 to 0.075 eV/angstrom after the full schedule: close to se_e2_a to
 6 angstrom (0.070 to 0.072), well below the angular descriptor to 4
 angstrom alone (0.095), and no cheaper to train or to evaluate than
-se_e2_a to 6.
+se_e2_a to 6. The three-body descriptor se_e3 trains the same way, alone or
+in a hybrid, and again omniMD arrives at DeepMD-kit's model from its initial
+model and frame order: 9e-11 away on average after 4,000 steps with se_e3
+alone, and 3e-8 to 5e-8 with the hybrid of the HAP project's earlier models
+(se_e2_a with se_e3), a run that amplifies any change of its initial model
+two thousand times. On the same frames se_e3 to 4 angstrom trains at 1,293
+steps per second with float32 networks and 355 with float64 ones where
+DeepMD-kit makes 19.3, the pipeline's se_e2_a with that descriptor beside
+it at 414 and 160 against 7.0, and the earlier hybrid at 1,486 and 647
+against 7.75. After the full schedule the three-body descriptor beside the
+pipeline's se_e2_a lowers the force RMSE on the sealed test from 0.070 to
+0.072 eV/angstrom to 0.064 to 0.066 (four seeds each, every one of them
+below every one without it), for 23 percent more time to train and 1.6 to
+2 times the time to evaluate; alone to 4 angstrom it reaches 0.13.
 [Contract, checks and the full comparison](mlmd/native/GPU_TRAINING.md).
 
 `omnimd-native-stat` computes DeepMD-style dataset statistics: `dp neighbor-stat`,
@@ -328,12 +340,13 @@ see [DeepMD setup and limits](mlmd/deepmd/README.md).
   and fully flexible coupling and fixed axes, but no surface-tension coupling. Optional
   CUDA inference is available within the separate scopes above; training
   retains CPU stages.
-- The GPU trainer (se_e2_a, se_e2_r and hybrids of the two) takes one frame per step on one GPU
-  and has no fine-tuning controls; the bounded `train-native` trainers do not
+- The GPU trainer (se_e2_a, se_e2_r, se_e3 and hybrids of them) takes one frame per step on one GPU
+  and has no fine-tuning controls; a frame of an se_e3 descriptor, whose rows go with the square of
+  an atom's neighbors, must fit the device in one piece. The bounded `train-native` trainers do not
   use the GPU runtime, and the engine passes each frame through the host.
 - Arbitrary DeepMD architectures (attention, type embedding) or generic
-  .pb/.pth/pickle import; se_e3 has inference only, without embedding
-  tables, and a hybrid with an se_e3 descriptor cannot be trained.
+  .pb/.pth/pickle import; se_e3 has no embedding tables, alone or in a
+  hybrid.
 - Partial PBC, mixed-type/virtual atoms or automatic unit/type-map guessing.
 - Classical-potential mixing and the full legacy Simulation/Propagator pipeline.
 - Sharded/distributed or end-to-end GPU training, learned normalization or generic

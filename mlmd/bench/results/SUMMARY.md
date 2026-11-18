@@ -1,11 +1,127 @@
+# Training se_e3, 2026-11-17
+
+`omnimd-native-gpu-train` trains the three-body descriptor se_e3 (`se_at`,
+`se_a_3be`), alone or in a hybrid: with this the trainer has every
+descriptor a native model can have. A request writes it as a DeePMD input
+script does. Its embedding nets take the pairs of every atom's neighbors,
+one net for a pair of neighbor types in either order; the pairs, the
+descriptor and the forces come from the kernels of the inference path, the
+tangent and the reverse pass are the trainer's. Contract, checks and the
+full tables are in [`native/GPU_TRAINING.md`](../../native/GPU_TRAINING.md).
+
+All runs below: the 171 frames of the HAP pipeline's iteration-0 training
+(54 to 224 atoms, five types), one frame per step, the pipeline's schedule
+(learning rate 1e-3 to 3e-8, energy and force terms), scored on its 83
+sealed-test frames. Three models:
+
+- **se_e3 to 4 Å**: `sel` [16, 8, 20, 24, 8] (room for every neighbor of
+  these frames), the embedding sizes DeePMD-kit's input has by default for
+  this descriptor, [10, 20, 40], fitting nets [240, 240, 240]. Its frames
+  have 28,000 pairs on average and 70,000 at most.
+- **se_e2_a to 6 Å with se_e3 to 4 Å**: the pipeline's descriptor with the
+  one above beside it.
+- **The earlier hybrid**: the architecture of the HAP project's models of
+  October 2026 (`results/t2-fit-diagnostic-20261014/model-architecture.json`
+  there): se_e2_a to 5.0 Å with [16, 32, 64] and 8 axis neurons, se_e3 to
+  3.2 Å with [8, 16, 32], fitting [64, 64], narrow smoothing ranges and
+  slots that are short on these frames (in 13,000 and 2,200 of 99,370
+  selections of an atom and a neighbor type). Only the architecture is
+  theirs: that diagnostic fitted eight frames with LBFGS and is not
+  reproduced here.
+
+The pipeline marks its models as not production-qualified.
+
+**The same step as DeePMD-kit.** omniMD was given DeePMD-kit's initial
+model and the frames in the order DeePMD-kit took them in a run of 4,000
+steps, in float64 ([`bench/deepmd_replay.py`](../deepmd_replay.py)):
+
+| | nets of se_e2_a | nets of se_e3 | fitting nets | sealed test, both models |
+|---|---:|---:|---:|---|
+| se_e3 to 4 Å: moved by DeePMD-kit | | 1.8e-2 | 1.0e-2 | |
+| se_e3 to 4 Å: omniMD away from DeePMD-kit | | 9.4e-11 | 6.7e-11 | 0.495201 eV/Å, 66.5594 meV/atom |
+| the earlier hybrid: moved by DeePMD-kit | 1.6e-2 | 2.0e-2 | 1.6e-2 | |
+| the earlier hybrid: omniMD away from DeePMD-kit | 3.4e-8 | 4.5e-8 | 3.3e-8 | 0.622925 eV/Å; 178.7625 and 178.7623 meV/atom |
+
+(Mean absolute difference of the trained numbers; each net of se_e3
+counted once.) Both follow DeePMD-kit's displayed errors to the three
+digits it prints. The hybrid is three hundred times further off because of
+the run, not the step: a change of DeePMD-kit's initial model by one part in
+1e11 has grown 2.2 times at the end of the first run and 2,000 times at the
+end of the second (the same for one part in 1e9), so both distances are
+what a difference of 2e-11 to 4e-11 at the start would leave. Two replays
+of each run end the same distance from DeePMD-kit in every printed digit.
+This adds to what the replay of the hybrid of se_e2_a and se_e2_r (the
+section below) had covered: the gradient through se_e3, alone and in a
+hybrid, through se_e2_a with a net per pair of types, and lists and
+descriptors that drop neighbors. The virial term was off here too.
+
+**Speed.** One request, steps per second, the best of three alternated
+rounds (20,000 steps in float32, 6,000 in float64); DeePMD-kit 3.1.3
+(PyTorch backend, float64, 2,000 steps) on the same requests:
+
+| model | parameters | omniMD float32 | omniMD float64 | DeePMD-kit float64 |
+|---|---:|---:|---:|---:|
+| se_e2_a to 6 Å, a net per pair of types | 2,664,455 | 535 | 245 | 10.4 (2026-11-13) |
+| se_e3 to 4 Å | 647,405 | 1,293 | 355 | 19.3 |
+| se_e2_a to 6 Å with se_e3 to 4 Å | 2,728,655 | 414 | 160 | 7.04 |
+| the earlier hybrid | 273,605 | 1,486 | 647 | 7.75 |
+
+- omniMD trains the three 18, 23 and 83 times faster than DeePMD-kit with
+  float64 networks, and 67, 59 and 192 times with float32 ones.
+- Four requests at once in float32 run at 406, 121 and 538 steps/s each.
+- A float32 step of se_e3 alone takes 0.96 ms with every stage timed, the
+  reverse pass of its embedding nets 0.21 of it. That its rows come in a
+  run for every atom and pair of types costs nothing: with all atoms as
+  one type, where the rows of the one net are a single run, that pass
+  takes 0.210 ms against 0.211.
+- The inference path changed with this (the rows of an atom's pairs go by
+  the pair of neighbor types; the force kernel is two kernels) and is no
+  slower: se_e3 alone 2.31 and 2.30 ms before and after at 192 atoms in
+  float32, 124.3 and 124.4 at 12,288; the hybrid of se_e2_a with se_e3
+  0.594 and 0.566, 24.0 and 22.8.
+
+**The full schedule: is the three-body descriptor worth it on this data?**
+300,000 steps, float32 networks, four seeds at once. Smallest and largest
+of the four models over all 83 frames:
+
+| model | parameters | force RMSE (eV/Å) | energy RMSE (meV/atom) |
+|---|---:|---:|---:|
+| se_e2_a to 6 Å (the pipeline's model) | 2,664,455 | 0.0698 to 0.0723 | 1.64 to 1.78 |
+| se_e2_a to 6 Å with se_e3 to 4 Å | 2,728,655 | 0.0641 to 0.0659 | 1.52 to 1.71 |
+| the earlier hybrid | 273,605 | 0.0933 to 0.0949 | 1.28 to 1.38 |
+| se_e2_a to 4 Å alone | 2,664,455 | 0.0947 to 0.0961 | 1.88 to 2.11 |
+| se_e3 to 4 Å alone | 647,405 | 0.1282 to 0.1352 | 2.00 to 2.46 |
+
+- Beside the pipeline's se_e2_a the three-body descriptor takes 8 to 9
+  percent off the force error: each of its four models is below each of
+  the four without it, and by system its four lie below the others in five
+  of the eight, lower with overlap in two, the same in one. The energies
+  are a little lower overall, with ranges that overlap.
+- It costs 23 percent of the training speed and 1.6 to 2.0 times the time
+  of an evaluation (0.30 to 0.48 ms at 88 to 224 atoms in float32 against
+  0.19 to 0.28; 0.29 to 0.44 against 0.17 to 0.22 with embedding tables,
+  which se_e3 does not have).
+- The earlier hybrid, with a tenth of the parameters, has the force error
+  of se_e2_a to 4 Å alone and the lowest energy error of the five; it
+  trains 2.8 times faster than the pipeline's model and evaluates as fast
+  in float32. se_e3 to 4 Å alone is not enough for this data.
+- DeePMD-kit was not run on the full schedule (4.3 and 11.8 hours a model
+  at its measured rates). Four seeds each; nothing here is a statement
+  about the physics.
+
+Files: `hap-train-speed-se-e3-rtx4090-2026-11-17.json`,
+`hap-train-se-e3-replay-deepmd-...`, `hap-train-ensemble-se-e3-float32-omnimd-...`,
+`hap-eval-se-e3-models-...`. The full runs shared the card with the test
+suites for most of their time, so their own times are not rates.
+
 # Training hybrids, 2026-11-17
 
 `omnimd-native-gpu-train` trains a hybrid of se_e2_a and se_e2_r
 descriptors: each descriptor of the list with its own cutoffs, `sel`, nets
 and statistics, the fitting nets on the components of all of them, one
 neighbor list for all as in the inference path. A request writes it as a
-DeePMD input script does (`{"type": "hybrid", "list": [...]}`). A model
-with an se_e3 descriptor, alone or in a hybrid, still has no trainer.
+DeePMD input script does (`{"type": "hybrid", "list": [...]}`). (A model
+with an se_e3 descriptor had no trainer yet that morning; see above.)
 Contract, checks and the full tables are in
 [`native/GPU_TRAINING.md`](../../native/GPU_TRAINING.md).
 
@@ -136,7 +252,8 @@ runtime (float64 or float32, batches of frames and committees of models,
 with embedding tables for its se_e2_a and se_e2_r descriptors if asked) and
 converted from DeePMD-kit 3.1.3 `.dp`/YAML by `convert_deepmd.py`. Inference
 only on this day: every trainer refused it (the GPU trainer has trained
-hybrids of se_e2_a and se_e2_r descriptors since 2026-11-17, above). Format
+hybrids since 2026-11-17, those with an se_e3 descriptor included: the
+sections above). Format
 and formulas are in
 [`native/README.md`](../../native/README.md#model-format-v1).
 
@@ -339,7 +456,8 @@ types, and the descriptor is the sum of θ·G(θ) over the pairs. It is
 evaluated on the CPU and on the GPU runtime (float64 or float32, batches of
 frames and committees of models, with the exact embedding nets: there are no
 tables for it) and converted from DeePMD-kit 3.1.3 `.dp`/YAML by
-`convert_deepmd.py`. Inference only: every trainer refuses the descriptor.
+`convert_deepmd.py`. Inference only at this date: every trainer refused the
+descriptor (the GPU trainer has it since 2026-11-17, the first section).
 Format and formulas are in
 [`native/README.md`](../../native/README.md#model-format-v1).
 

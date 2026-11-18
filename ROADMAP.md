@@ -109,7 +109,7 @@ with executable commands; pending branch work is not counted as integrated.
 - Native model coverage remains `se_e2_a`, `se_e2_r`, `se_e3` and hybrids
   of them with restricted conversion (`se_e2_r`, `se_e3` and hybrids on the
   CPU reference and on the [GPU runtime](mlmd/gpu/README.md), whose trainer
-  takes the first two descriptors, alone or together in a hybrid);
+  takes the three descriptors, alone or together in a hybrid);
   attention/DPA, type embeddings, spin and tensor models
   are not implemented. Two audited frozen graph profiles are not a generic
   `.pb` importer; native `.pth`/JAX/Paddle import and compression are absent.

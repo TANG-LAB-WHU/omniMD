@@ -1,0 +1,359 @@
+{
+ "date": "2026-11-17",
+ "device": "NVIDIA GeForce RTX 4090",
+ "frames": "171 frames of the HAP iteration-0 training, 54 to 224 atoms, one frame per step",
+ "settings": "learning rate 1e-3 to 3e-8, energy and force terms. se_e2_a to 6 A: sel [44, 16, 60, 72, 20], embedding [25, 50, 100], 16 axis neurons, a net per pair of types, fitting [240, 240, 240]. se_e3 to 4 A: sel [16, 8, 20, 24, 8], embedding [10, 20, 40], fitting [240, 240, 240]. Their hybrid: both descriptors, fitting [240, 240, 240]. The earlier hybrid (HAP results/t2-fit-diagnostic-20261014/model-architecture.json): se_e2_a rcut 5.0, rcut_smth 4.5, sel [16, 12, 36, 4, 4], embedding [16, 32, 64], 8 axis neurons; se_e3 rcut 3.2, rcut_smth 2.8, sel [8, 4, 12, 4, 4], embedding [8, 16, 32]; fitting [64, 64]",
+ "omnimd_runs": "20,000 steps in float32 and 6,000 in float64 per run; variants alternated, three rounds; nothing else computing on the machine (a desktop wallpaper animation takes part of the card)",
+ "parameters": {
+  "se_e2_a to 6 A, a net per pair of types": 2664455,
+  "se_e3 to 4 A": 647405,
+  "hybrid of the HAP project's earlier models, se_e2_a to 5 A with se_e3 to 3.2 A": 273605,
+  "hybrid, se_e2_a to 6 A with se_e3 to 4 A": 2728655
+ },
+ "omnimd_one_request_steps_per_second": {
+  "float32": {
+   "se_e2_a to 6 A, a net per pair of types": [
+    532.4,
+    532.3,
+    535.5
+   ],
+   "se_e3 to 4 A": [
+    1292.9,
+    1283.8,
+    1275.1
+   ],
+   "hybrid of the HAP project's earlier models, se_e2_a to 5 A with se_e3 to 3.2 A": [
+    1475.1,
+    1485.5,
+    1474.6
+   ],
+   "hybrid, se_e2_a to 6 A with se_e3 to 4 A": [
+    414.5,
+    414.4,
+    413.2
+   ]
+  },
+  "float64": {
+   "se_e2_a to 6 A, a net per pair of types": [
+    243.5,
+    243.9,
+    244.5
+   ],
+   "se_e3 to 4 A": [
+    353.1,
+    354.5,
+    354.7
+   ],
+   "hybrid of the HAP project's earlier models, se_e2_a to 5 A with se_e3 to 3.2 A": [
+    645.1,
+    646.5,
+    645.6
+   ],
+   "hybrid, se_e2_a to 6 A with se_e3 to 4 A": [
+    159.4,
+    160.2,
+    160.1
+   ]
+  }
+ },
+ "omnimd_four_requests_at_once_steps_per_second_each": {
+  "float32": {
+   "se_e3 to 4 A": [
+    [
+     407.0,
+     405.1,
+     403.2,
+     403.8
+    ],
+    [
+     408.0,
+     406.6,
+     405.3,
+     404.2
+    ]
+   ],
+   "hybrid of the HAP project's earlier models, se_e2_a to 5 A with se_e3 to 3.2 A": [
+    [
+     542.5,
+     538.2,
+     533.9,
+     534.2
+    ],
+    [
+     543.5,
+     537.7,
+     538.0,
+     533.2
+    ]
+   ],
+   "hybrid, se_e2_a to 6 A with se_e3 to 4 A": [
+    [
+     121.0,
+     120.7,
+     120.5,
+     120.4
+    ],
+    [
+     120.5,
+     120.0,
+     120.1,
+     120.0
+    ]
+   ]
+  }
+ },
+ "omnimd_stage_ms_per_step_float32_every_stage_synchronized": {
+  "se_e2_a to 6 A, a net per pair of types": {
+   "descriptor": 0.09002617499999854,
+   "descriptor_reverse": 0.18012595000000084,
+   "embedding": 0.12421774500000145,
+   "embedding_gradient": 0.22405390999999977,
+   "environment": 0.03487140999999951,
+   "fitting": 0.5106696650000017,
+   "fitting_gradient": 0.4434814100000001,
+   "forces": 0.12228508499999993,
+   "host_prepare": 0.00022256499999999998,
+   "loss": 0.0723477749999996,
+   "neighbors": 0.0011116549999999998,
+   "optimizer": 0.1985090949999961,
+   "tangent": 0.0815214200000003
+  },
+  "se_e3 to 4 A": {
+   "descriptor": 0.034635350000000384,
+   "descriptor_reverse": 0.047156280000000154,
+   "embedding": 0.07686892499999995,
+   "embedding_gradient": 0.20949969000000146,
+   "environment": 0.033272900000000084,
+   "fitting": 0.14106419000000023,
+   "fitting_gradient": 0.15842295000000114,
+   "forces": 0.06526548000000035,
+   "host_prepare": 0.00017578000000000008,
+   "loss": 0.058554965000000354,
+   "neighbors": 0.0011248049999999993,
+   "optimizer": 0.08867598499999824,
+   "tangent": 0.046759525000000524
+  },
+  "hybrid of the HAP project's earlier models, se_e2_a to 5 A with se_e3 to 3.2 A": {
+   "descriptor": 0.0433027150000005,
+   "descriptor_reverse": 0.0781730100000008,
+   "embedding": 0.0488350400000003,
+   "embedding_gradient": 0.16937023999999973,
+   "environment": 0.03725897499999992,
+   "fitting": 0.09737329000000057,
+   "fitting_gradient": 0.12767575500000045,
+   "forces": 0.06964868999999982,
+   "host_prepare": 0.00022548499999999993,
+   "loss": 0.061633535,
+   "neighbors": 0.0016223650000000002,
+   "optimizer": 0.07465189500000075,
+   "tangent": 0.060906569999999736
+  },
+  "hybrid, se_e2_a to 6 A with se_e3 to 4 A": {
+   "descriptor": 0.1267625750000016,
+   "descriptor_reverse": 0.1946406349999985,
+   "embedding": 0.18719202500000143,
+   "embedding_gradient": 0.4709320050000012,
+   "environment": 0.04646236500000037,
+   "fitting": 0.5666075249999958,
+   "fitting_gradient": 0.46615078500000234,
+   "forces": 0.14336216500000107,
+   "host_prepare": 0.0002360799999999999,
+   "loss": 0.07447709499999995,
+   "neighbors": 0.0015206649999999996,
+   "optimizer": 0.21761245499999649,
+   "tangent": 0.11059161499999927
+  }
+ },
+ "deepmd_kit_float64": {
+  "se_e3 to 4 A": {
+   "deepmd_version": "3.1.3",
+   "steps": 2000,
+   "systems": 8,
+   "precision": "float64",
+   "average_training_time_s_per_batch": 0.0517,
+   "batches_excluded_from_that_average": 0,
+   "steps_per_second": 19.342359767891683,
+   "train_wall_seconds": 109.88659620285034,
+   "steps_per_wall_second": 18.200581955491693,
+   "last_curve_line": [
+    "2000",
+    "8.70e-01",
+    "4.58e-02",
+    "5.23e-01",
+    "5.0e-08"
+   ]
+  },
+  "hybrid, se_e2_a to 6 A with se_e3 to 4 A": {
+   "deepmd_version": "3.1.3",
+   "steps": 2000,
+   "systems": 8,
+   "precision": "float64",
+   "average_training_time_s_per_batch": 0.1421,
+   "batches_excluded_from_that_average": 0,
+   "steps_per_second": 7.037297677691766,
+   "train_wall_seconds": 291.56637740135193,
+   "steps_per_wall_second": 6.8595014892506825,
+   "last_curve_line": [
+    "2000",
+    "5.70e-01",
+    "1.63e-02",
+    "5.02e-01",
+    "5.0e-08"
+   ]
+  },
+  "hybrid of the HAP project's earlier models, se_e2_a to 5 A with se_e3 to 3.2 A": {
+   "deepmd_version": "3.1.3",
+   "steps": 2000,
+   "systems": 8,
+   "precision": "float64",
+   "average_training_time_s_per_batch": 0.1291,
+   "batches_excluded_from_that_average": 0,
+   "steps_per_second": 7.74593338497289,
+   "train_wall_seconds": 264.9746689796448,
+   "steps_per_wall_second": 7.5478913048614436,
+   "last_curve_line": [
+    "2000",
+    "8.38e-01",
+    "2.80e-02",
+    "7.08e-01",
+    "5.0e-08"
+   ]
+  }
+ },
+ "deepmd_kit_runs": "DeePMD-kit 3.1.3, PyTorch backend, image ghcr.io/deepmodeling/deepmd-kit:3.1.3_cuda129, 2,000 steps of the same requests (bench/deepmd_train.py); OMP_NUM_THREADS=2 and expandable allocator segments; its own average training time per batch; nothing else on the card",
+ "embedding_rows_per_frame": {
+  "se_e3 to 4 A": {
+   "mean": 28303,
+   "least": 9348,
+   "most": 70200,
+   "neighbors_per_atom_mean": 21.3,
+   "neighbors_per_atom_most": 34,
+   "selections_short_of_slots": 0
+  },
+  "se_e3 to 3.2 A of the earlier hybrid": {
+   "mean": 5609,
+   "least": 1134,
+   "most": 15687,
+   "selections_short_of_slots": 2209
+  },
+  "se_e2_a to 5 A of the earlier hybrid": {
+   "selections_short_of_slots": 13263
+  },
+  "note": "pairs of the neighbors an atom holds, n(n + 1)/2; a selection is an atom and a neighbor type, 99,370 in the 171 frames; counted on the host from the frames"
+ },
+ "one_run_of_blocks": "se_e3 to 4 A with every atom relabelled as one type (sel [76]): the rows of the single net are one run, where five types give a run per atom and pair of types. Reverse pass of the embedding nets with their gradients, ms per step with every stage synchronized, 3,000 steps, two alternated rounds: 0.211 and 0.211 with five types, 0.210 and 0.210 with one",
+ "se_e3_inference_before_and_after": {
+  "what": "the rows of an atom's pairs ordered by the pair of neighbor types, the force kernel in two kernels; omnimd-native-gpu-eval --bench, builds alternated four times, the best and the median of each (2,000 evaluations at 192 atoms, 500 at 1,536, 60 at 12,288)",
+  "models": "bench/cases/se-e3/water-se_e3-float64 and bench/cases/hybrid_e3/water-hybrid_e3-float64",
+  "ms_per_evaluation": [
+   {
+    "model": "water-se_e3-float64",
+    "atoms": 192,
+    "precision": "float32",
+    "before_ms": 2.31,
+    "before_median_ms": 2.333,
+    "after_ms": 2.299,
+    "after_median_ms": 2.325
+   },
+   {
+    "model": "water-se_e3-float64",
+    "atoms": 192,
+    "precision": "float64",
+    "before_ms": 11.069,
+    "before_median_ms": 11.134,
+    "after_ms": 11.037,
+    "after_median_ms": 11.106
+   },
+   {
+    "model": "water-se_e3-float64",
+    "atoms": 1536,
+    "precision": "float32",
+    "before_ms": 16.052,
+    "before_median_ms": 16.097,
+    "after_ms": 15.963,
+    "after_median_ms": 16.098
+   },
+   {
+    "model": "water-se_e3-float64",
+    "atoms": 1536,
+    "precision": "float64",
+    "before_ms": 83.293,
+    "before_median_ms": 83.62,
+    "after_ms": 81.529,
+    "after_median_ms": 83.371
+   },
+   {
+    "model": "water-se_e3-float64",
+    "atoms": 12288,
+    "precision": "float32",
+    "before_ms": 124.253,
+    "before_median_ms": 125.448,
+    "after_ms": 124.418,
+    "after_median_ms": 126.065
+   },
+   {
+    "model": "water-se_e3-float64",
+    "atoms": 12288,
+    "precision": "float64",
+    "before_ms": 667.686,
+    "before_median_ms": 670.962,
+    "after_ms": 664.076,
+    "after_median_ms": 666.74
+   },
+   {
+    "model": "water-hybrid_e3-float64",
+    "atoms": 192,
+    "precision": "float32",
+    "before_ms": 0.594,
+    "before_median_ms": 0.598,
+    "after_ms": 0.566,
+    "after_median_ms": 0.569
+   },
+   {
+    "model": "water-hybrid_e3-float64",
+    "atoms": 192,
+    "precision": "float64",
+    "before_ms": 2.693,
+    "before_median_ms": 2.708,
+    "after_ms": 2.673,
+    "after_median_ms": 2.686
+   },
+   {
+    "model": "water-hybrid_e3-float64",
+    "atoms": 1536,
+    "precision": "float32",
+    "before_ms": 3.365,
+    "before_median_ms": 3.442,
+    "after_ms": 3.148,
+    "after_median_ms": 3.258
+   },
+   {
+    "model": "water-hybrid_e3-float64",
+    "atoms": 1536,
+    "precision": "float64",
+    "before_ms": 18.654,
+    "before_median_ms": 18.851,
+    "after_ms": 18.552,
+    "after_median_ms": 18.599
+   },
+   {
+    "model": "water-hybrid_e3-float64",
+    "atoms": 12288,
+    "precision": "float32",
+    "before_ms": 24.021,
+    "before_median_ms": 24.356,
+    "after_ms": 22.789,
+    "after_median_ms": 23.156
+   },
+   {
+    "model": "water-hybrid_e3-float64",
+    "atoms": 12288,
+    "precision": "float64",
+    "before_ms": 145.903,
+    "before_median_ms": 146.307,
+    "after_ms": 144.612,
+    "after_median_ms": 144.921
+   }
+  ]
+ }
+}

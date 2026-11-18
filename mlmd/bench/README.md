@@ -128,7 +128,8 @@ steps, batch size, seed and display interval into a DeePMD input script, runs
 `dp --pt train` and `freeze`, and writes the trainer's own time per batch and
 the model converted for omniMD; the request's `dataset` and `output` paths
 are the host's and are not read there. The request may ask for a hybrid:
-its `precision` then goes into every descriptor of the list.
+its `precision` then goes into every descriptor of the list. It may ask
+for se_e3, alone or in a hybrid, as well.
 
 `deepmd_replay.py` takes the random numbers out of a comparison of the two
 trainers. DeePMD-kit writes the system and the frame of every step when it
