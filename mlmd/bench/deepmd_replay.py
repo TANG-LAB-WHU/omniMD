@@ -90,11 +90,21 @@ def flat(value):
     return np.array(out)
 
 
+def nets(part):
+    """The embedding nets a descriptor trains. se_e3 has the net of a pair of neighbor types at
+    both places of its table: once each. (DeePMD-kit holds a net for either order and uses one;
+    the conversion writes the one it uses to both places, so none here stands still unused.)"""
+    table = part['embedding']
+    if part['kind'] == 'se_e3':
+        return [row[t:] for t, row in enumerate(table)]
+    return table
+
+
 def parts(model):
     """The trained numbers of a native model by what they belong to."""
     descriptor = model['descriptor']
     listed = descriptor['list'] if descriptor['kind'] == 'hybrid' else [descriptor]
-    found = {f"embedding nets of descriptor {number} ({part['kind']})": flat(part['embedding'])
+    found = {f"embedding nets of descriptor {number} ({part['kind']})": flat(nets(part))
              for number, part in enumerate(listed)}
     found['fitting nets'] = flat(model['fitting'])
     return found

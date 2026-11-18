@@ -1,8 +1,9 @@
 //! The GPU trainer: prediction and loss against the inference path, the loss
 //! gradient against finite differences, batching, Adam against a host
 //! reference, and a short optimization; for se_e2_a, for se_e2_r, for
-//! models with one embedding net per neighbor type, and for hybrids of such
-//! descriptors. Skips without a CUDA driver unless OMNIMD_REQUIRE_GPU=1.
+//! models with one embedding net per neighbor type, for se_e3, and for
+//! hybrids of these descriptors. Skips without a CUDA driver unless
+//! OMNIMD_REQUIRE_GPU=1.
 #![cfg(feature = "gpu")]
 mod common;
 use common::{device, frame, model, values};
@@ -971,10 +972,15 @@ fn parameter_ranges(model: &omnimd_native::Model) -> Vec<(String, std::ops::Rang
     let mut ranges = Vec::new();
     let mut first = 0;
     for (number, d) in model.descriptor.parts().iter().enumerate() {
-        // A net that the central types share is there once.
-        let nets: Vec<&omnimd_native::Network> = match d.type_one_side {
-            true => d.embedding[0].iter().collect(),
-            false => d.embedding.iter().flatten().collect(),
+        // A net that the central types share is there once, and so is the
+        // net of a pair of neighbor types of se_e3, whichever comes first.
+        let ntypes = d.sel.len();
+        let nets: Vec<&omnimd_native::Network> = match (d.kind.as_str(), d.type_one_side) {
+            ("se_e3", _) => (0..ntypes)
+                .flat_map(|t| (t..ntypes).map(move |u| &d.embedding[t][u]))
+                .collect(),
+            (_, true) => d.embedding[0].iter().collect(),
+            (_, false) => d.embedding.iter().flatten().collect(),
         };
         let count: usize = nets.into_iter().map(parameters_of).sum();
         ranges.push((
@@ -999,6 +1005,46 @@ fn every_range_has_the_loss_gradient(
     each: usize,
     case: &str,
 ) {
+    let checks = Checks { each, ..USUAL };
+    ranges_have_the_loss_gradient(trainer, data, weights, ranges, &checks, case);
+}
+
+/// How the gradient of a range of parameters is held against finite
+/// differences.
+#[derive(Clone, Copy)]
+struct Checks {
+    /// Parameters of every range, evenly spread over it.
+    each: usize,
+    /// The share of the largest gradient of the model that the largest of a
+    /// range must have: no range without a gradient.
+    least: f64,
+    /// What a parameter may differ by, as a share of the largest gradient of
+    /// its range (on top of 1e-5 of the finite difference itself).
+    tolerance: f64,
+}
+
+/// Measured: the embedding nets of a descriptor have gradients of 4e-3 to
+/// 0.7 of the largest of the model.
+const USUAL: Checks = Checks {
+    each: 40,
+    least: 1e-3,
+    tolerance: 1e-6,
+};
+
+/// As [`every_range_has_the_loss_gradient`], with the checks named.
+fn ranges_have_the_loss_gradient(
+    trainer: &mut GpuTrainer<f64>,
+    data: &Labeled,
+    weights: &LossWeights,
+    ranges: &[(String, std::ops::Range<usize>)],
+    checks: &Checks,
+    case: &str,
+) {
+    let Checks {
+        each,
+        least,
+        tolerance,
+    } = *checks;
     let theta = trainer.parameters().unwrap();
     assert_eq!(ranges.last().unwrap().1.end, theta.len(), "{case}");
     trainer.zero_gradient().unwrap();
@@ -1013,15 +1059,13 @@ fn every_range_has_the_loss_gradient(
         let largest = gradient[range.clone()]
             .iter()
             .fold(0.0_f64, |m, g| m.max(g.abs()));
-        // Measured: the embedding nets of a descriptor have gradients of
-        // 4e-3 to 0.7 of the largest of the model.
         assert!(
-            largest > 1e-3 * scale,
+            largest > least * scale,
             "{case}: {name}: largest gradient {largest} of {scale}"
         );
         // An error of a descriptor is seen against its own gradients, not
         // against those of the fitting nets.
-        let tolerance = 1e-6 * largest.max(1e-2 * scale);
+        let tolerance = tolerance * largest.max(1e-2 * scale);
         let (stride, mut checked) = ((range.len() / each).max(1), 0);
         for k in range.clone().step_by(stride) {
             let mut loss = |shift: f64| {
@@ -1242,6 +1286,11 @@ fn a_hybrid_of_one_descriptor_trains_as_that_descriptor_alone() {
             "se_e2_r, a net per neighbor type",
             common::one_sided(common::radial_model(2, vec![40, 80], 4.0, 142, 40)),
             142,
+        ),
+        (
+            "se_e3",
+            common::three_body_model(2, vec![40, 80], 4.0, 144, 16),
+            144,
         ),
     ];
     for (case, alone, seed) in cases {
@@ -1518,32 +1567,672 @@ fn a_saved_optimizer_state_continues_the_run_of_a_hybrid() {
     assert!(apart > 1e-6);
 }
 
-/// What the trainer has no arithmetic for is refused by name, a descriptor
-/// of a hybrid by its place in the list.
-#[test]
-fn a_hybrid_with_a_three_body_descriptor_is_refused() {
-    let Some(device) = device() else { return };
-    let three_body = common::three_body_model(2, vec![20, 30], 3.0, 191, 8);
-    let error = GpuTrainer::<f64>::new(&three_body, device.clone())
-        .err()
-        .unwrap();
+// se_e3: the embedding nets take the pairs of an atom's neighbors.
+
+/// The parameters of an se_e3 model in the order of the trainer's, net by
+/// net: that of every pair of neighbor types t <= u, then the fitting nets.
+fn pair_net_ranges(model: &omnimd_native::Model) -> Vec<(String, std::ops::Range<usize>)> {
+    let d = &model.descriptor;
+    let ntypes = d.sel.len();
+    let (mut ranges, mut first) = (Vec::new(), 0);
+    for t in 0..ntypes {
+        for u in t..ntypes {
+            let count = parameters_of(&d.embedding[t][u]);
+            ranges.push((
+                format!("embedding net of the neighbor types {t} and {u}"),
+                first..first + count,
+            ));
+            first += count;
+        }
+    }
+    let count: usize = model.fitting.iter().map(parameters_of).sum();
+    ranges.push(("fitting nets".to_string(), first..first + count));
+    ranges
+}
+
+/// The trainer of `model` for `frame`: the prediction of the inference path
+/// (energy, forces, virial), the loss gradient in every range of the
+/// parameters for each loss term alone and for all together, and an exported
+/// model that is the model it was given. Returns the largest force.
+fn every_range_trains_like_the_inference_path(
+    device: &std::sync::Arc<omnimd_gpu::Device>,
+    model: &omnimd_native::Model,
+    frame: Frame,
+    ranges: &[(String, std::ops::Range<usize>)],
+    checks: &Checks,
+    case: &str,
+) -> f64 {
+    let mut trainer = GpuTrainer::<f64>::new(model, device.clone()).unwrap();
     assert_eq!(
-        error.to_string(),
-        "the GPU trainer supports the se_e2_a and se_e2_r descriptors and hybrids of them, not se_e3"
+        ranges.last().unwrap().1.end,
+        trainer.parameter_count(),
+        "{case}"
     );
-    let hybrid = common::hybrid_model(&[model(2, vec![40, 80], 4.0, 192), three_body], 193);
-    for (name, error) in [
-        (
-            "float64",
-            GpuTrainer::<f64>::new(&hybrid, device.clone()).err(),
-        ),
-        ("float32", GpuTrainer::<f32>::new(&hybrid, device).err()),
-    ] {
-        assert_eq!(
-            error.unwrap().to_string(),
-            "descriptor.list[1]: the GPU trainer supports the se_e2_a and se_e2_r descriptors and hybrids of them, not se_e3",
-            "{name}"
+    let data = label(&mut trainer, frame, 33);
+    let (_, prediction) = trainer
+        .accumulate(&data.frame, &data.labels(), &ALL, 1.0)
+        .unwrap();
+    let expected = GpuPotential::<f64>::new(model, device.clone())
+        .unwrap()
+        .eval(&data.frame)
+        .unwrap();
+    assert!(
+        (prediction.energy - expected.energy).abs() < 1e-10,
+        "{case}: {} against {}",
+        prediction.energy,
+        expected.energy
+    );
+    let mut largest = 0.0_f64;
+    for (ours, theirs) in prediction.forces.iter().zip(&expected.forces) {
+        for a in 0..3 {
+            assert!(
+                (ours[a] - theirs[a]).abs() < 1e-10,
+                "{case}: force {} against {}",
+                ours[a],
+                theirs[a]
+            );
+            largest = largest.max(theirs[a].abs());
+        }
+    }
+    for (ours, theirs) in prediction
+        .virial
+        .iter()
+        .flatten()
+        .zip(expected.virial.iter().flatten())
+    {
+        assert!(
+            (ours - theirs).abs() < 1e-9,
+            "{case}: virial {ours} against {theirs}"
         );
+    }
+    let only = |energy: f64, force: f64, virial: f64| LossWeights {
+        energy,
+        force,
+        virial,
+    };
+    for (term, weights) in [
+        ("energy", only(0.7, 0.0, 0.0)),
+        ("force", only(0.0, 30.0, 0.0)),
+        ("virial", only(0.0, 0.0, 0.4)),
+        ("all", ALL),
+    ] {
+        ranges_have_the_loss_gradient(
+            &mut trainer,
+            &data,
+            &weights,
+            ranges,
+            checks,
+            &format!("{case}, {term}"),
+        );
+    }
+    let exported = trainer.model().unwrap();
+    assert_eq!(
+        serde_json::to_value(&exported).unwrap(),
+        serde_json::to_value(model).unwrap(),
+        "{case}"
+    );
+    largest
+}
+
+/// Neighbors of every atom of a frame without a cell within `rcut`.
+fn open_neighbors(frame: &Frame, rcut: f64) -> Vec<usize> {
+    assert!(frame.cell.is_none());
+    let near = |i: usize, j: usize| {
+        let r2: f64 = (0..3)
+            .map(|c| (frame.positions[j][c] - frame.positions[i][c]).powi(2))
+            .sum();
+        j != i && r2.sqrt() < rcut
+    };
+    let atoms = frame.positions.len();
+    (0..atoms)
+        .map(|i| (0..atoms).filter(|&j| near(i, j)).count())
+        .collect()
+}
+
+/// An se_e3 model goes through the passes of the others with rows of its
+/// own, the pairs of every atom's neighbors: the prediction is that of the
+/// inference path and the gradient that of the loss, in the net of every
+/// pair of neighbor types and in the fitting nets.
+#[test]
+fn se_e3_trains_like_the_inference_path() {
+    let Some(device) = device() else { return };
+    let three_body = common::three_body_model;
+    let (fewest, most) = fewest_and_most(33, 4.0);
+    assert!(fewest >= 3 && most >= fewest + 4, "{fewest}..{most}");
+    let middle = (fewest + most) / 2;
+    let periodic = |types: usize| frame(LATTICE, 3, types, true, 33);
+    // Slots for all neighbors and a few more: a pair counts once over the
+    // slots of its two types, and with many empty slots the descriptor and
+    // the gradients of its nets are small beside those of the fitting nets.
+    let roomy = vec![most + 3, most + 5];
+    let cases = [
+        ("two types", three_body(2, roomy.clone(), 4.0, 211, 16), 2),
+        // More outputs than a warp has lanes.
+        ("wide embedding", three_body(2, roomy, 4.0, 212, 40), 2),
+        // Six nets, and atoms sorted by three types.
+        (
+            "three types",
+            three_body(3, vec![most + 1; 3], 4.0, 213, 16),
+            3,
+        ),
+        // One net, whose rows follow each other from atom to atom.
+        (
+            "one type",
+            three_body(1, vec![2 * most + 4], 4.0, 214, 16),
+            1,
+        ),
+        // Slots always full, with a truncated list, and in between.
+        (
+            "always short of slots",
+            three_body(2, vec![fewest - 1, fewest - 2], 4.0, 215, 16),
+            2,
+        ),
+        (
+            "sometimes short of slots",
+            three_body(2, vec![middle, middle + 1], 4.0, 216, 16),
+            2,
+        ),
+    ];
+    for (case, model, types) in cases {
+        let model = stronger(model);
+        let ranges = pair_net_ranges(&model);
+        assert_eq!(ranges.len(), types * (types + 1) / 2 + 1, "{case}");
+        let largest = every_range_trains_like_the_inference_path(
+            &device,
+            &model,
+            periodic(types),
+            &ranges,
+            &USUAL,
+            case,
+        );
+        eprintln!("se_e3, {case}: largest force {largest:.2e} eV/A");
+        assert!(largest > 3e-3, "{case}: forces of {largest} say little");
+    }
+
+    // An open cluster, whose atoms at the surface have few neighbors, and
+    // beside it an atom without a neighbor and two that have each other
+    // only: no row, and the one row of a neighbor with itself.
+    let mut cluster = frame(LATTICE, 3, 2, false, 35);
+    let far = cluster.positions.len();
+    cluster
+        .positions
+        .extend([[40.0, 0.0, 0.0], [0.0, 40.0, 0.0], [0.0, 41.6, 0.3]]);
+    cluster.species.extend(["O", "O", "H"].map(String::from));
+    let neighbors = open_neighbors(&cluster, 3.4);
+    assert_eq!(neighbors[far..], [0, 1, 1]);
+    let (least, largest) = (
+        *neighbors[..far].iter().min().unwrap(),
+        *neighbors[..far].iter().max().unwrap(),
+    );
+    eprintln!("se_e3, cluster: {least} to {largest} neighbors");
+    assert!(least >= 2 && largest >= least + 4, "{neighbors:?}");
+    let model = stronger(three_body(2, vec![12, 12], 3.4, 217, 16));
+    let ranges = pair_net_ranges(&model);
+    // (Few atoms of the cluster have neighbors of both types: the net of
+    // the two has 3e-4 of the largest gradient with the energy term alone.)
+    let checks = Checks {
+        least: 1e-4,
+        ..USUAL
+    };
+    let largest = every_range_trains_like_the_inference_path(
+        &device, &model, cluster, &ranges, &checks, "cluster",
+    );
+    eprintln!("se_e3, cluster: largest force {largest:.2e} eV/A");
+    assert!(largest > 3e-3, "cluster: forces of {largest} say little");
+}
+
+/// The kernels of the pairs have a thread for every neighbor of an atom (the
+/// force kernel 256 of them, the others 128) and give a thread several
+/// neighbors when an atom has more. Here one atom has 260 neighbors, on a
+/// shell around it, of two types: its 33,930 pairs are right in the
+/// prediction and in the gradient.
+#[test]
+fn se_e3_with_more_neighbors_than_a_kernel_has_threads() {
+    let Some(device) = device() else { return };
+    // The points of a spiral on a sphere of 6 A around the first atom, 1.3 A
+    // apart, each a little off the sphere.
+    let shell = 260;
+    let off = values(shell, 311);
+    let golden = std::f64::consts::PI * (3.0 - 5.0_f64.sqrt());
+    let mut positions = vec![[0.0; 3]];
+    let mut species = vec!["O".to_string()];
+    for k in 0..shell {
+        let z = 1.0 - 2.0 * (k as f64 + 0.5) / shell as f64;
+        let (ring, turn) = ((1.0 - z * z).sqrt(), golden * k as f64);
+        let radius = 6.0 + 0.2 * off[k];
+        positions.push([
+            radius * ring * turn.cos(),
+            radius * ring * turn.sin(),
+            radius * z,
+        ]);
+        species.push(["O", "H"][k % 2].to_string());
+    }
+    let star = Frame {
+        species,
+        positions,
+        cell: None,
+        units: omnimd_ml_contract::Units::EvAngstrom,
+    };
+    let neighbors = open_neighbors(&star, 6.5);
+    assert_eq!(neighbors[0], shell);
+    let most = *neighbors[1..].iter().max().unwrap();
+    assert!(most > 40 && most < 128, "{most}");
+    // Narrow nets: the frame has some 800,000 pairs. And directions that are
+    // not divided by a small width: neighbors 1.3 A apart would drive the
+    // nets into saturation.
+    let mut model = stronger(common::three_body_model(2, vec![140, 140], 6.5, 312, 4));
+    for normalization in &mut model.descriptor.normalization {
+        normalization.std = [1.0, 0.4, 0.4, 0.4];
+    }
+    let ranges = pair_net_ranges(&model);
+    // The residuals of 261 atoms add up to small gradients of the force and
+    // virial terms (1e-4 where the energy term has 0.5), near the rounding
+    // of the loss in a finite difference: a share of 1e-5 of a range's
+    // largest gradient is what those can tell here. A neighbor left out
+    // would change them by far more.
+    let checks = Checks {
+        each: 8,
+        least: 1e-4,
+        tolerance: 1e-5,
+    };
+    let largest =
+        every_range_trains_like_the_inference_path(&device, &model, star, &ranges, &checks, "star");
+    eprintln!("se_e3, star: largest force {largest:.2e} eV/A");
+    assert!(largest > 3e-3, "star: forces of {largest} say little");
+}
+
+/// The net of a pair of neighbor types is one net, whichever type comes
+/// first: among the parameters once, in the model at both places, and alike
+/// there after any number of updates.
+#[test]
+fn se_e3_keeps_one_net_for_a_pair_of_types_in_either_order() {
+    let Some(device) = device() else { return };
+    let model = stronger(common::three_body_model(3, vec![30, 30, 30], 4.0, 221, 16));
+    let mut trainer = GpuTrainer::<f64>::new(&model, device.clone()).unwrap();
+    let nets: usize = pair_net_ranges(&model).iter().map(|(_, r)| r.len()).sum();
+    assert_eq!(trainer.parameter_count(), nets);
+    // Six nets of nine places.
+    let all: usize = model
+        .descriptor
+        .embedding
+        .iter()
+        .flatten()
+        .map(parameters_of)
+        .sum();
+    let one = parameters_of(&model.descriptor.embedding[0][0]);
+    assert_eq!(
+        all - 3 * one,
+        nets - model.fitting.iter().map(parameters_of).sum::<usize>()
+    );
+    let data = label(&mut trainer, frame(LATTICE, 3, 3, true, 222), 222);
+    for _ in 0..3 {
+        trainer.zero_gradient().unwrap();
+        trainer
+            .accumulate(&data.frame, &data.labels(), &ALL, 1.0)
+            .unwrap();
+        trainer.adam_step(1e-3).unwrap();
+    }
+    // `model()` checks the model it gives, the two orders of a pair included.
+    let exported = trainer.model().unwrap();
+    let (before, after) = (&model.descriptor.embedding, &exported.descriptor.embedding);
+    for t in 0..3 {
+        for u in 0..3 {
+            assert_eq!(after[t][u], after[u][t], "nets {t} {u}");
+            assert_ne!(after[t][u], before[t][u], "net {t} {u} has not moved");
+        }
+    }
+    assert_ne!(after[0][1], after[0][2]);
+    let again = GpuTrainer::<f64>::new(&exported, device.clone()).unwrap();
+    assert_eq!(again.parameters().unwrap(), trainer.parameters().unwrap());
+    // The trained model predicts what its trainer does.
+    let (_, prediction) = trainer
+        .accumulate(&data.frame, &data.labels(), &ALL, 0.0)
+        .unwrap();
+    let reloaded = GpuPotential::<f64>::new(&exported, device)
+        .unwrap()
+        .eval(&data.frame)
+        .unwrap();
+    assert!((reloaded.energy - prediction.energy).abs() < 1e-10);
+}
+
+/// An se_e3 descriptor has no row where no atom has a neighbor within its
+/// cutoff: its components are zero, it gives no force, and its nets have no
+/// gradient, while the rest of the model trains. Alone, and in a hybrid
+/// before and after a descriptor that has rows (the first descriptor of a
+/// list writes the virial the others add to).
+#[test]
+fn se_e3_without_a_pair_of_neighbors_trains_the_rest() {
+    let Some(device) = device() else { return };
+    // Alone, three atoms far apart: the fitting nets at D = 0.
+    let alone = stronger(common::three_body_model(2, vec![6, 6], 3.0, 231, 16));
+    let apart = Frame {
+        species: ["O", "H", "O"].map(String::from).to_vec(),
+        positions: vec![[0.0, 0.0, 0.0], [10.0, 0.5, 0.0], [0.3, 11.0, 0.2]],
+        cell: None,
+        units: omnimd_ml_contract::Units::EvAngstrom,
+    };
+    // In a hybrid: a cutoff below the nearest distance of the frame.
+    let lone = common::three_body_model(2, vec![4, 4], 0.9, 232, 16);
+    let angular = model(2, vec![40, 80], 4.0, 233);
+    let first = stronger(common::hybrid_model(&[lone.clone(), angular.clone()], 234));
+    let last = stronger(common::hybrid_model(&[angular, lone], 235));
+    let periodic = frame(LATTICE, 3, 2, true, 236);
+    let nearest = neighbor_counts(&periodic, 0.9);
+    assert!(nearest.iter().flatten().all(|&n| n == 0));
+    for (case, model, frame, without) in [
+        ("alone", &alone, apart, 0),
+        ("first of a hybrid", &first, periodic.clone(), 0),
+        ("last of a hybrid", &last, periodic, 1),
+    ] {
+        let mut trainer = GpuTrainer::<f64>::new(model, device.clone()).unwrap();
+        let data = label(&mut trainer, frame, 237);
+        trainer.zero_gradient().unwrap();
+        let (_, prediction) = trainer
+            .accumulate(&data.frame, &data.labels(), &ALL, 1.0)
+            .unwrap();
+        let expected = GpuPotential::<f64>::new(model, device.clone())
+            .unwrap()
+            .eval(&data.frame)
+            .unwrap();
+        assert!(
+            (prediction.energy - expected.energy).abs() < 1e-10,
+            "{case}"
+        );
+        for (ours, theirs) in prediction.forces.iter().zip(&expected.forces) {
+            for a in 0..3 {
+                assert!((ours[a] - theirs[a]).abs() < 1e-10, "{case}: force");
+            }
+        }
+        for (ours, theirs) in prediction
+            .virial
+            .iter()
+            .flatten()
+            .zip(expected.virial.iter().flatten())
+        {
+            assert!((ours - theirs).abs() < 1e-9, "{case}: virial");
+        }
+        // The nets of the descriptor without a row have no gradient; every
+        // other range has the gradient of the loss.
+        let ranges = parameter_ranges(model);
+        let gradient = trainer.gradient().unwrap();
+        let (name, empty) = &ranges[without];
+        assert!(name.contains("se_e3"), "{case}: {name}");
+        assert!(
+            gradient[empty.clone()].iter().all(|&g| g == 0.0),
+            "{case}: {name}"
+        );
+        let rest: Vec<_> = ranges
+            .iter()
+            .enumerate()
+            .filter(|(number, _)| *number != without)
+            .map(|(_, range)| range.clone())
+            .collect();
+        for weights in [
+            LossWeights {
+                energy: 0.7,
+                force: 0.0,
+                virial: 0.0,
+            },
+            ALL,
+        ] {
+            every_range_has_the_loss_gradient(&mut trainer, &data, &weights, &rest, 40, case);
+        }
+        // An update moves the rest and leaves those nets alone.
+        let before = trainer.parameters().unwrap();
+        trainer.zero_gradient().unwrap();
+        trainer
+            .accumulate(&data.frame, &data.labels(), &ALL, 1.0)
+            .unwrap();
+        trainer.adam_step(1e-3).unwrap();
+        let after = trainer.parameters().unwrap();
+        assert_eq!(after[empty.clone()], before[empty.clone()], "{case}");
+        assert_ne!(after, before, "{case}");
+        assert!(trainer.model().is_ok(), "{case}");
+    }
+}
+
+/// An se_e3 descriptor with a table of its own of the list, one that reads
+/// the list as it is and stands first, one between two others, and two in
+/// one list: a hybrid with the three-body descriptor trains like one
+/// without.
+fn hybrids_with_three_body(seed: u64) -> Vec<(&'static str, omnimd_native::Model)> {
+    let three_body = common::three_body_model;
+    vec![
+        (
+            "angular with three-body near",
+            common::hybrid_model(
+                &[
+                    model(2, vec![40, 80], 4.0, seed),
+                    three_body(2, vec![20, 30], 3.0, seed + 1, 8),
+                ],
+                seed + 2,
+            ),
+        ),
+        (
+            "three-body first, on the list",
+            common::hybrid_model(
+                &[
+                    three_body(2, vec![40, 80], 4.0, seed + 3, 16),
+                    common::one_sided(common::radial_model(2, vec![24, 48], 3.2, seed + 4, 40)),
+                ],
+                seed + 5,
+            ),
+        ),
+        (
+            "three-body between two",
+            common::hybrid_model(
+                &[
+                    common::radial_model(2, vec![40, 80], 4.0, seed + 6, 16),
+                    three_body(2, vec![30, 60], 3.6, seed + 7, 40),
+                    model(2, vec![20, 44], 3.0, seed + 8),
+                ],
+                seed + 9,
+            ),
+        ),
+        (
+            "two three-body descriptors",
+            common::hybrid_model(
+                &[
+                    three_body(2, vec![40, 80], 4.0, seed + 10, 16),
+                    three_body(2, vec![20, 30], 3.0, seed + 11, 8),
+                ],
+                seed + 12,
+            ),
+        ),
+    ]
+}
+
+#[test]
+fn a_hybrid_with_se_e3_trains_like_the_inference_path() {
+    let Some(device) = device() else { return };
+    for (case, hybrid) in hybrids_with_three_body(241) {
+        let hybrid = stronger(hybrid);
+        let ranges = parameter_ranges(&hybrid);
+        assert_eq!(ranges.len(), hybrid.descriptor.list.len() + 1, "{case}");
+        let frame = frame(LATTICE, 3, 2, true, 254);
+        let largest = every_range_trains_like_the_inference_path(
+            &device, &hybrid, frame, &ranges, &USUAL, case,
+        );
+        eprintln!("{case}: largest force {largest:.2e} eV/A");
+        assert!(largest > 3e-3, "{case}: forces of {largest} say little");
+    }
+}
+
+/// Float32 networks give the loss and the gradient of float64 ones to their
+/// precision with se_e3, alone and in a hybrid, and an se_e3 model with
+/// other random networks learns the labels of one, in both precisions.
+#[test]
+fn se_e3_trains_in_float32_and_fits_a_teacher() {
+    let Some(device) = device() else { return };
+    let alone = stronger(common::three_body_model(2, vec![40, 80], 4.0, 261, 16));
+    let mut cases = vec![("se_e3", alone)];
+    cases.extend(
+        hybrids_with_three_body(262)
+            .into_iter()
+            .map(|(case, hybrid)| (case, stronger(hybrid))),
+    );
+    for (case, model) in cases {
+        let mut double = GpuTrainer::<f64>::new(&model, device.clone()).unwrap();
+        let mut single = GpuTrainer::<f32>::new(&model, device.clone()).unwrap();
+        assert_eq!(single.parameter_count(), double.parameter_count());
+        let data = labeled(&mut double, 275);
+        double.zero_gradient().unwrap();
+        single.zero_gradient().unwrap();
+        let (exact, _) = double
+            .accumulate(&data.frame, &data.labels(), &ALL, 1.0)
+            .unwrap();
+        let (rounded, _) = single
+            .accumulate(&data.frame, &data.labels(), &ALL, 1.0)
+            .unwrap();
+        let (of_double, of_single) = (double.gradient().unwrap(), single.gradient().unwrap());
+        let scale = of_double.iter().fold(0.0_f64, |m, g| m.max(g.abs()));
+        let worst = of_double
+            .iter()
+            .zip(&of_single)
+            .map(|(a, b)| (a - b).abs())
+            .fold(0.0, f64::max);
+        eprintln!(
+            "{case}: float32 loss off by {:.1e}, gradient by {:.1e} of its largest entry",
+            (rounded.loss - exact.loss).abs() / exact.loss,
+            worst / scale
+        );
+        assert!(
+            (rounded.loss - exact.loss).abs() < 1e-5 * exact.loss,
+            "{case}: loss {} against {}",
+            rounded.loss,
+            exact.loss
+        );
+        assert!(scale > 1e-6, "{case}: gradient is zero");
+        assert!(
+            worst < 2e-5 * scale,
+            "{case}: {worst} against a largest entry of {scale}"
+        );
+    }
+
+    let teacher_model = stronger(common::three_body_model(2, vec![40, 80], 4.0, 281, 16));
+    let mut teacher = GpuPotential::<f64>::new(&teacher_model, device.clone()).unwrap();
+    let data = [taught(&mut teacher, 284), taught(&mut teacher, 285)];
+    let student = stronger(common::three_body_model(2, vec![40, 80], 4.0, 286, 16));
+    let mut double = GpuTrainer::<f64>::new(&student, device.clone()).unwrap();
+    let (start, end) = fit(&mut double, &data);
+    eprintln!("se_e3 float64: {start} -> {end}");
+    assert!(end < 0.1 * start, "float64: {start} -> {end}");
+    let exported = double.model().unwrap();
+    assert_eq!(exported.format, "omnimd-native-se-e3");
+    assert_ne!(exported.descriptor.embedding, student.descriptor.embedding);
+    assert_eq!(
+        exported.descriptor.embedding[0][1],
+        exported.descriptor.embedding[1][0]
+    );
+    let mut single = GpuTrainer::<f32>::new(&student, device).unwrap();
+    let (start, end) = fit(&mut single, &data);
+    eprintln!("se_e3 float32: {start} -> {end}");
+    assert!(end < 0.1 * start, "float32: {start} -> {end}");
+}
+
+/// A frame seen before keeps the first row of the pairs of every atom, and
+/// of an se_e3 descriptor in a hybrid its table of the list as well; both
+/// count toward the memory the kept frames may take.
+#[test]
+fn an_se_e3_frame_seen_before_keeps_the_rows_of_its_pairs() {
+    let Some(device) = device() else { return };
+    let alone = common::three_body_model(2, vec![40, 80], 4.0, 291, 16);
+    let hybrid = hybrids_with_three_body(292).remove(0).1;
+    for (case, model) in [("alone", alone), ("in a hybrid", hybrid)] {
+        let mut trainer = GpuTrainer::<f64>::new(&model, device.clone()).unwrap();
+        let data = labeled(&mut trainer, 295);
+        assert_eq!(trainer.cached_frames(), 1, "{case}");
+        let gradient = |trainer: &mut GpuTrainer<f64>| {
+            trainer.zero_gradient().unwrap();
+            let (terms, _) = trainer
+                .accumulate(&data.frame, &data.labels(), &ALL, 1.0)
+                .unwrap();
+            (terms.loss, trainer.gradient().unwrap())
+        };
+        let (loss, kept) = gradient(&mut trainer);
+        assert_eq!(trainer.cached_frames(), 1, "{case}");
+        let mut fresh = GpuTrainer::<f64>::new(&model, device.clone()).unwrap();
+        fresh.set_frame_cache(0);
+        let (fresh_loss, afresh) = gradient(&mut fresh);
+        assert_eq!(fresh.cached_frames(), 0, "{case}");
+        assert!((loss - fresh_loss).abs() < 1e-12 * loss.abs(), "{case}");
+        let scale = kept.iter().fold(0.0_f64, |m, g| m.max(g.abs()));
+        for (a, b) in kept.iter().zip(&afresh) {
+            assert!((a - b).abs() < 1e-11 * scale, "{case}: {a} vs {b}");
+        }
+        // In bytes: the list as for any model; of an se_e3 descriptor a
+        // 64-bit first row for every atom and one more for their number, and
+        // its table when it does not read the list as it is; of another
+        // descriptor three numbers of its rows per atom and type.
+        let (atoms, types) = (data.frame.positions.len(), 2);
+        let d = &model.descriptor;
+        let list_slots: usize = d.sel.iter().sum();
+        let list = atoms * (4 + list_slots * (4 + 24 + 8) + types * 4 + 8);
+        let parts: usize = d
+            .parts()
+            .iter()
+            .map(|part| {
+                let rows = match part.kind.as_str() {
+                    "se_e3" => 8 * (atoms + 1),
+                    _ => 3 * atoms * types * 4,
+                };
+                let table = match part.sel == d.sel && part.rcut == d.rcut {
+                    true => 0,
+                    false => atoms * part.sel.iter().sum::<usize>() * (4 + 24 + 8),
+                };
+                rows + table
+            })
+            .sum();
+        let bytes = list + parts;
+        for (room, held) in [(bytes, 1), (bytes - 1, 0)] {
+            let mut limited = GpuTrainer::<f64>::new(&model, device.clone()).unwrap();
+            limited.set_frame_cache(room);
+            gradient(&mut limited);
+            assert_eq!(
+                limited.cached_frames(),
+                held,
+                "{case}: room for {room} of {bytes} bytes"
+            );
+        }
+    }
+}
+
+/// The pairs of a frame go with the square of its neighbors, and a step
+/// holds the rows of all of them at once: a frame that cannot fit the device
+/// is refused by what it would take, before any of it is worked out, and
+/// nothing of it is kept.
+#[test]
+fn an_se_e3_frame_whose_pairs_do_not_fit_the_device_is_refused() {
+    let Some(device) = device() else { return };
+    let none = FrameLabels {
+        energy: None,
+        forces: None,
+        virial: None,
+    };
+    // A thousand atoms three angstrom apart with some 270 neighbors each
+    // within 12 angstrom: 36,000 pairs an atom, and embedding nets of a
+    // hundred outputs. Hundreds of gigabytes.
+    let lattice = [[30.0, 0.0, 0.0], [0.0, 30.0, 0.0], [0.0, 0.0, 30.0]];
+    let dense = frame(lattice, 10, 2, true, 301);
+    let three_body = common::three_body_model(2, vec![300, 300], 12.0, 302, 100);
+    let hybrid = common::hybrid_model(&[model(2, vec![40, 80], 4.0, 303), three_body.clone()], 304);
+    for (case, model, place) in [
+        ("alone", three_body, ""),
+        ("in a hybrid", hybrid, "descriptor.list[1]: "),
+    ] {
+        let mut trainer = GpuTrainer::<f64>::new(&model, device.clone()).unwrap();
+        let error = trainer
+            .accumulate(&dense, &none, &ALL, 1.0)
+            .err()
+            .unwrap()
+            .to_string();
+        assert!(
+            error.starts_with(&format!("{place}se_e3: the "))
+                && error.contains(" pairs of neighbors of this frame of 1000 atoms need ")
+                && error.contains(" GiB are free; the trainer takes a frame in one piece"),
+            "{case}: {error}"
+        );
+        assert_eq!(trainer.cached_frames(), 0, "{case}");
     }
 }
 
@@ -1561,6 +2250,10 @@ fn a_frame_with_two_atoms_in_one_place_is_refused() {
     for (case, model) in [
         ("se_e2_a", model(2, vec![40, 80], 4.0, 201)),
         ("hybrid", three_descriptors(202)),
+        (
+            "se_e3",
+            common::three_body_model(2, vec![40, 80], 4.0, 203, 16),
+        ),
     ] {
         let mut trainer = GpuTrainer::<f64>::new(&model, device.clone()).unwrap();
         let mut frame = frame(LATTICE, 3, 2, true, 206);

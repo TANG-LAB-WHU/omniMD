@@ -497,11 +497,30 @@ __device__ void radial_backward_impl(const P* dg, const P* dd_in, const int* ind
 // otherwise (a neighbor with itself, or neighbors of two types).
 //
 // The neighbors of an atom are numbered in the order of their slots, 0 to
-// n - 1, so that their types do not decrease, and the pair (j <= k) is row
-// j·n - j(j - 1)/2 + (k - j) of the atom's n(n + 1)/2 rows. `row_start` has
-// the first row of every atom of the frame as if all its atoms were laid
-// out one after the other; a chunk has its rows from that of its first atom
-// on, model after model (`chunk_rows` each).
+// n - 1, so that their types do not decrease, and the pairs (j <= k) are the
+// atom's n(n + 1)/2 rows. They go by the types of the two neighbors (t <= u,
+// t first) and within a pair of types by j, then k: the rows of one
+// embedding net follow each other, which the trainer needs for the gradient
+// of that net (see pair_row). `row_start` has the first row of every atom of
+// the frame as if all its atoms were laid out one after the other; a chunk
+// has its rows from that of its first atom on, model after model
+// (`chunk_rows` each).
+
+// The row of the pair of neighbors j <= k, of types tj <= tk, among the rows
+// of their atom. `first_of[t]` is the number of the first neighbor of type
+// t and `first_of[ntypes]` the number of neighbors n. The f neighbors before
+// those of type tj have the f·n - f(f - 1)/2 rows before (neighbor j' has
+// n - j' of them). Then come the pairs within type tj, row after row of a
+// triangle, then for every later type u the pairs with its neighbors, by j
+// and by the neighbor of type u. (The rows of one atom are counted in 32
+// bits: an atom has far fewer than the 46,000 neighbors that would take.)
+__device__ int pair_row(const int* first_of, int ntypes, int tj, int tk, int j, int k) {
+    int n = first_of[ntypes], f = first_of[tj], own = first_of[tj + 1] - f, lj = j - f;
+    int row = f * n - f * (f - 1) / 2;
+    if (tk == tj) return row + lj * own - lj * (lj - 1) / 2 + (k - j);
+    return row + own * (own + 1) / 2 + own * (first_of[tk] - first_of[tj + 1])
+         + lj * (first_of[tk + 1] - first_of[tk]) + (k - first_of[tk]);
+}
 
 // Neighbors held by every atom, one thread per atom: the host lays out the
 // rows from them.
@@ -550,7 +569,8 @@ __device__ void three_body_neighbors(const int* mine, const double* delta, const
 // One block per atom writes the rows of its pairs: the input θ of the
 // embedding net (worked out in double precision), the net of the pair of
 // types (of this model) and the weight of the pair in the descriptor.
-// Thread j has the pairs (j, k >= j).
+// Thread j has the pairs (j, k >= j): for every type from that of j on, a
+// run of rows.
 template <typename P>
 __device__ void three_body_pairs_impl(const int* index, const double* delta, const double* dist,
         const int* atype, const double* dstd_inv, const int* slot_type, const int* slot_local,
@@ -570,15 +590,59 @@ __device__ void three_body_pairs_impl(const int* index, const double* delta, con
     long long base = (long long)model * chunk_rows + (row_start[i] - row_start[first]);
     for (int j = threadIdx.x; j < n; j += blockDim.x) {
         int tj = slot_type[list[j]];
-        long long row = base + (long long)j * n - (long long)j * (j - 1) / 2;
-        for (int k = j; k < n; ++k, ++row) {
-            int tk = slot_type[list[k]];
-            double th = a[3 * j] * a[3 * k] + a[3 * j + 1] * a[3 * k + 1]
-                      + a[3 * j + 2] * a[3 * k + 2];
-            double orders = (k != j && tk == tj) ? 2.0 : 1.0;
-            theta[row] = (P)th;
-            weight[row] = (P)(orders * sel_inv[tj] * sel_inv[tk]);
-            network[row] = (model * ntypes + tj) * ntypes + tk;
+        for (int tk = tj; tk < ntypes; ++tk) {
+            int from = tk == tj ? j : first_of[tk], to = first_of[tk + 1];
+            if (from >= to) continue;
+            long long row = base + pair_row(first_of, ntypes, tj, tk, j, from);
+            double once = sel_inv[tj] * sel_inv[tk];
+            int net = (model * ntypes + tj) * ntypes + tk;
+            for (int k = from; k < to; ++k, ++row) {
+                double th = a[3 * j] * a[3 * k] + a[3 * j + 1] * a[3 * k + 1]
+                          + a[3 * j + 2] * a[3 * k + 2];
+                double orders = (k != j && tk == tj) ? 2.0 : 1.0;
+                theta[row] = (P)th;
+                weight[row] = (P)(orders * once);
+                network[row] = net;
+            }
+        }
+    }
+}
+
+// The trainer's: the tangent of θ of every pair when the direction entries
+// of the neighbors move by those of `envdot` (the tangent of the normalized
+// environment rows, four entries a slot, of which the last three are read).
+// θ = a_j·a_k moves by ȧ_j·a_k + a_j·ȧ_k. One block per atom, thread j with
+// the pairs (j, k >= j) as above; one model, all atoms of the frame.
+template <typename P>
+__device__ void three_body_tangent_impl(const int* index, const double* delta, const double* dist,
+        const int* atype, const double* dstd_inv, const double* envdot, const int* slot_type,
+        const int* slot_local, const int* sel, int slots, int ntypes, double rmin,
+        double inv_range, const long long* row_start, P* thetadot) {
+    extern __shared__ double tangent_shared[];
+    double* a = tangent_shared;          // [slots][3]
+    double* ad = a + 3 * slots;          // [slots][3]: their tangents
+    int* list = (int*)(ad + 3 * slots);  // [slots]
+    int* first_of = list + slots;        // [ntypes + 1]
+    int i = blockIdx.x;
+    long long at = (long long)i * slots;
+    three_body_neighbors(index + at, delta + 3 * at, dist + at, dstd_inv[4 * atype[i] + 1],
+                         slot_type, slot_local, sel, slots, ntypes, rmin, inv_range, a, list,
+                         first_of);
+    int n = first_of[ntypes];
+    for (int k = threadIdx.x; k < n; k += blockDim.x)
+        for (int c = 0; c < 3; ++c) ad[3 * k + c] = envdot[4 * (at + list[k]) + 1 + c];
+    __syncthreads();
+    long long base = row_start[i];
+    for (int j = threadIdx.x; j < n; j += blockDim.x) {
+        int tj = slot_type[list[j]];
+        for (int tk = tj; tk < ntypes; ++tk) {
+            int from = tk == tj ? j : first_of[tk], to = first_of[tk + 1];
+            if (from >= to) continue;
+            long long row = base + pair_row(first_of, ntypes, tj, tk, j, from);
+            for (int k = from; k < to; ++k, ++row)
+                thetadot[row] = (P)(ad[3 * j] * a[3 * k] + ad[3 * j + 1] * a[3 * k + 1]
+                                  + ad[3 * j + 2] * a[3 * k + 2] + a[3 * j] * ad[3 * k]
+                                  + a[3 * j + 1] * ad[3 * k + 1] + a[3 * j + 2] * ad[3 * k + 2]);
         }
     }
 }
@@ -591,10 +655,13 @@ __device__ void three_body_pairs_impl(const int* index, const double* delta, con
 // warp adds its rows thirty-two at a time, so that a sum in single precision
 // stays short, and leaves its sums in shared memory, where the first threads
 // add those of all warps.
-template <typename P, int C>
-__device__ void three_body_descriptor_impl(const P* g, const P* theta, const P* weight,
-        const long long* row_start, long long chunk_rows, int first, int count, int width,
-        P* d_out, int stride) {
+//
+// With TANGENT (the trainer's) the sum is the tangent of D when θ of every
+// row moves by `thetadot`: weight·θ̇·(G[row][m] + θ·dG/dθ[row][m]).
+template <typename P, int C, bool TANGENT>
+__device__ void three_body_descriptor_impl(const P* g, const P* dg, const P* theta,
+        const P* thetadot, const P* weight, const long long* row_start, long long chunk_rows,
+        int first, int count, int width, P* d_out, int stride) {
     extern __shared__ double descriptor_shared[];
     P* sums = (P*)descriptor_shared;     // [warps][width]
     int li = blockIdx.x, model = blockIdx.y;
@@ -604,16 +671,23 @@ __device__ void three_body_descriptor_impl(const P* g, const P* theta, const P* 
     theta += base;
     weight += base;
     g += base * width;
+    if (TANGENT) {
+        thetadot += base;
+        dg += base * width;
+    }
     int lane = threadIdx.x & 31, warp = threadIdx.x >> 5, warps = blockDim.x >> 5;
     for (int m0 = lane; m0 < width; m0 += 32 * C) {
         P acc[C], part[C];
         for (int c = 0; c < C; ++c) { acc[c] = 0; part[c] = 0; }
         int held = 0;
         for (long long p = warp; p < rows; p += warps) {
-            P scaled = weight[p] * theta[p];
+            P th = theta[p];
+            P scaled = weight[p] * (TANGENT ? thetadot[p] : th);
             const P* row = g + p * width + m0;
+            const P* drow = dg + p * width + m0;
             for (int c = 0; c < C; ++c)
-                if (m0 + 32 * c < width) part[c] += scaled * row[32 * c];
+                if (m0 + 32 * c < width)
+                    part[c] += scaled * (TANGENT ? row[32 * c] + th * drow[32 * c] : row[32 * c]);
             if (++held == 32) {
                 for (int c = 0; c < C; ++c) { acc[c] += part[c]; part[c] = 0; }
                 held = 0;
@@ -630,44 +704,28 @@ __device__ void three_body_descriptor_impl(const P* g, const P* theta, const P* 
     }
 }
 
-// The forces of an se_e3 model, one block per atom, two phases:
-//  1. one warp per row (lanes over the embedding width, so that the rows of
-//     G and dG/dθ are read coalesced) contracts dE/dD with G + θ·dG/dθ in
-//     the network precision and leaves dE/dθ of the pair, weight included,
-//     at the row's place in `dtheta`. The warps of the block share the rows,
-//     as in the descriptor kernel. (A thread per row, each summing over the
-//     width by itself, was no faster for a few hundred atoms and up to
-//     twice slower for thousands: its loads are scattered.)
-//  2. one thread per neighbor j adds dE/dθ·a_k over its partners k, in
-//     float64: θ of a pair moves by a_k with a_j, and that of j with itself
-//     by twice a_j. The row of the pair (j, k) is that of the smaller number
-//     first. The same thread then applies the float64 Jacobian of the
-//     direction entries of j, as the last phase of the se_e2_a kernel does
-//     for a row without its radial entry.
+// The forces of an se_e3 model come from two kernels, each with one block
+// per atom. They were one kernel of two phases once; its second phase left
+// no room among the sixty-four registers a thread has in a block of a
+// thousand, and it has no use for so many threads.
+//
+// The first: dE/dθ of every pair. One warp per row (lanes over the embedding
+// width, so that the rows of G and dG/dθ are read coalesced) contracts dE/dD
+// with G + θ·dG/dθ in the network precision and leaves dE/dθ of the pair,
+// weight included, at the row's place in `dtheta`. The warps of the block
+// share the rows, as in the descriptor kernel. (A thread per row, each
+// summing over the width by itself, was no faster for a few hundred atoms
+// and up to twice slower for thousands: its loads are scattered.)
 template <typename P>
-__device__ void three_body_backward_impl(const P* g, const P* dg, const P* theta,
-        const P* weight, P* dtheta, const P* dd_in, const int* index, const double* delta,
-        const double* dist, const int* atype, const double* dstd_inv, const int* slot_type,
-        const int* slot_local, const int* sel, const long long* row_start, long long chunk_rows,
-        int first, int count, int slots, int width, int ntypes, double rmin, double inv_range,
-        double* force, double* virial, int natoms, int stride, int add) {
-    extern __shared__ double back_shared[];
-    double* a = back_shared;             // [slots][3]: directions of the neighbors
-    double* red = a + 3 * slots;         // [12]: center force, virial
-    P* dd = (P*)(red + 12);              // [width]: dE/dD of this atom, on 8 bytes' bounds
-    int* list = (int*)(red + 12 + (width * sizeof(P) + 7) / 8);  // [slots]
-    int* first_of = list + slots;        // [ntypes + 1]
+__device__ void three_body_dtheta_impl(const P* g, const P* dg, const P* theta,
+        const P* weight, const P* dd_in, const long long* row_start, long long chunk_rows,
+        int first, int count, int width, int stride, P* dtheta) {
+    extern __shared__ double dtheta_shared[];
+    P* dd = (P*)dtheta_shared;           // [width]: dE/dD of this atom
     int li = blockIdx.x, i = first + li, model = blockIdx.y;
-    long long at = (long long)i * slots;
     long long center = (long long)model * count + li;
-    const double inv_std = dstd_inv[4 * (model * ntypes + atype[i]) + 1];
-    force += 3 * (long long)model * natoms;
-    virial += 9 * (long long)model * natoms;
     for (int m = threadIdx.x; m < width; m += blockDim.x) dd[m] = dd_in[center * stride + m];
-    for (int e = threadIdx.x; e < 12; e += blockDim.x) red[e] = 0.0;
-    three_body_neighbors(index + at, delta + 3 * at, dist + at, inv_std, slot_type, slot_local,
-                         sel, slots, ntypes, rmin, inv_range, a, list, first_of);
-    int n = first_of[ntypes];
+    __syncthreads();
     long long base = (long long)model * chunk_rows + (row_start[i] - row_start[first]);
     long long rows = row_start[i + 1] - row_start[i];
     int lane = threadIdx.x & 31, warp = threadIdx.x >> 5, warps = blockDim.x >> 5;
@@ -680,18 +738,70 @@ __device__ void three_body_backward_impl(const P* g, const P* dg, const P* theta
         sum = warp_sum(sum);
         if (lane == 0) dtheta[row] = weight[row] * sum;
     }
-    __syncthreads();
+}
+
+// The second: one thread per neighbor j adds dE/dθ·a_k over its partners k,
+// in float64: θ of a pair moves by a_k with a_j, and that of j with itself
+// by twice a_j. The row of a pair is that of the smaller number first, so
+// the partners go type by type with a row that is stepped, not worked out
+// again: those of an earlier type have one row each among the rows of the
+// two types, as many apart as there are neighbors of the type of j; of the
+// type of j those before it have their rows in a triangle, one fewer apart
+// with each; all from j on follow each other. The same thread then applies
+// the float64 Jacobian of the direction entries of j, as the last phase of
+// the se_e2_a kernel does for a row without its radial entry.
+template <typename P>
+__device__ void three_body_backward_impl(const P* dtheta, const int* index, const double* delta,
+        const double* dist, const int* atype, const double* dstd_inv, const int* slot_type,
+        const int* slot_local, const int* sel, const long long* row_start, long long chunk_rows,
+        int first, int slots, int ntypes, double rmin, double inv_range, double* force,
+        double* virial, int natoms, int add) {
+    extern __shared__ double back_shared[];
+    double* a = back_shared;             // [slots][3]: directions of the neighbors
+    double* red = a + 3 * slots;         // [12]: center force, virial
+    int* list = (int*)(red + 12);        // [slots]
+    int* first_of = list + slots;        // [ntypes + 1]
+    int i = first + blockIdx.x, model = blockIdx.y;
+    long long at = (long long)i * slots;
+    const double inv_std = dstd_inv[4 * (model * ntypes + atype[i]) + 1];
+    force += 3 * (long long)model * natoms;
+    virial += 9 * (long long)model * natoms;
+    for (int e = threadIdx.x; e < 12; e += blockDim.x) red[e] = 0.0;
+    three_body_neighbors(index + at, delta + 3 * at, dist + at, inv_std, slot_type, slot_local,
+                         sel, slots, ntypes, rmin, inv_range, a, list, first_of);
+    int n = first_of[ntypes];
+    // dE/dθ of the atom's pairs, from its first row on.
+    dtheta += (long long)model * chunk_rows + (row_start[i] - row_start[first]);
     double fi[3] = {0.0, 0.0, 0.0}, vir[9] = {0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0};
     for (int j = threadIdx.x; j < n; j += blockDim.x) {
-        // dE/da_j. The pairs (j, k >= j) follow each other from `own` on.
-        long long own = base + (long long)j * n - (long long)j * (j - 1) / 2;
+        int tj = slot_type[list[j]];
         double da[3] = {0.0, 0.0, 0.0};
-        for (int k = 0; k < n; ++k) {
-            long long row = k >= j ? own + (k - j)
-                                   : base + (long long)k * n - (long long)k * (k - 1) / 2 + (j - k);
-            double w = (double)dtheta[row];
-            if (k == j) w *= 2.0;
-            for (int c = 0; c < 3; ++c) da[c] += w * a[3 * k + c];
+        for (int tk = 0; tk < ntypes; ++tk) {
+            int from = first_of[tk], to = first_of[tk + 1];
+            if (from >= to) continue;
+            int k = from;
+            if (tk <= tj) {
+                // Before j: the pair is (k, j).
+                int until = tk < tj ? to : j;
+                int row = pair_row(first_of, ntypes, tk, tj, from, j);
+                // To the row of the next partner: the neighbors of the type
+                // of j, or within one type one fewer with every partner.
+                int step = tk < tj ? first_of[tj + 1] - first_of[tj] : to - from;
+                for (; k < until; ++k) {
+                    double w = (double)dtheta[row];
+                    for (int c = 0; c < 3; ++c) da[c] += w * a[3 * k + c];
+                    if (tk == tj) --step;
+                    row += step;
+                }
+            }
+            if (k >= to) continue;
+            // From j on: the pair is (j, k), and j with itself counts twice.
+            int row = pair_row(first_of, ntypes, tj, tk, j, k);
+            for (; k < to; ++k, ++row) {
+                double w = (double)dtheta[row];
+                if (k == j) w *= 2.0;
+                for (int c = 0; c < 3; ++c) da[c] += w * a[3 * k + c];
+            }
         }
         long long slot = at + list[j];
         int neighbor = index[slot];
@@ -714,6 +824,43 @@ __device__ void three_body_backward_impl(const P* g, const P* dg, const P* theta
         }
     }
     block_sums(fi, vir, red, force, virial, i, add);
+}
+
+// The trainer's: the adjoints of every embedding row of an se_e3 descriptor
+// and of its derivative along θ, from the adjoints of D (`dbar_in`) and of
+// its tangent (`ddbar_in`), both `stride` values an atom. With
+// D[m] = sum of weight·θ·G[m] and its tangent sum of weight·θ̇·(G[m] + θ·G'[m])
+// over the rows of an atom, a row has weight·(θ·dbar[m] + θ̇·ddbar[m]) for
+// G[m] and weight·θ̇·θ·ddbar[m] for G'[m]. One block per atom of the frame:
+// its warps share the rows and the lanes of a warp the outputs, so that a
+// row is written coalesced. Every row is some atom's: nothing is left
+// unwritten.
+template <typename P>
+__device__ void three_body_reverse_impl(const P* theta, const P* thetadot, const P* weight,
+        const P* dbar_in, const P* ddbar_in, const long long* row_start, int width, int stride,
+        P* gbar, P* gpbar) {
+    extern __shared__ double reverse_shared[];
+    P* dbar = (P*)reverse_shared;        // [width]
+    P* ddbar = dbar + width;             // [width]
+    int i = blockIdx.x;
+    for (int m = threadIdx.x; m < width; m += blockDim.x) {
+        dbar[m] = dbar_in[(long long)i * stride + m];
+        ddbar[m] = ddbar_in[(long long)i * stride + m];
+    }
+    __syncthreads();
+    long long base = row_start[i], rows = row_start[i + 1] - base;
+    int lane = threadIdx.x & 31, warp = threadIdx.x >> 5, warps = blockDim.x >> 5;
+    for (long long p = warp; p < rows; p += warps) {
+        long long row = base + p;
+        P value = weight[row] * theta[row], tangent = weight[row] * thetadot[row];
+        P second = tangent * theta[row];
+        P* out = gbar + row * width;
+        P* dout = gpbar + row * width;
+        for (int m = lane; m < width; m += 32) {
+            out[m] = value * dbar[m] + tangent * ddbar[m];
+            dout[m] = second * ddbar[m];
+        }
+    }
 }
 
 // The descriptors of a hybrid read one neighbor list, made with the largest
@@ -760,8 +907,11 @@ extern "C" __global__ void hybrid_slots(const int* index, const double* delta,
 // empty slots, take the number of atoms a model's forces span and keep
 // them in the precision of the networks. All take the stride of the
 // descriptor in the buffers of all descriptors of the model, and the force
-// kernels whether their virial is added to the one that is there.
-#define INSTANTIATE(P, S)                                                                         \
+// kernels whether their virial is added to the one that is there. The
+// se_e3 kernels serve the potential and the trainer alike; those of the
+// tangent of θ, of the tangent of D and of the adjoints of the rows are the
+// trainer's, one model deep and over all atoms of a frame.
+#define INSTANTIATE(P, S)                                                                      \
 extern "C" __global__ void se_e2_a_env_##S(const int* index, const double* delta,                 \
         const double* dist, const int* atype, const double* davg, const double* dstd_inv,         \
         const int* slot_type, const int* slot_local, const int* sel, const int* offset,           \
@@ -865,20 +1015,43 @@ extern "C" __global__ void se_e3_pairs_##S(const int* index, const double* delta
 extern "C" __global__ void se_e3_descriptor_##S(const P* g, const P* theta, const P* weight,      \
         const long long* row_start, long long chunk_rows, int first, int count, int width,        \
         P* d_out, int stride) {                                                                   \
-    three_body_descriptor_impl<P, 4>(g, theta, weight, row_start, chunk_rows, first, count,       \
-                                     width, d_out, stride);                                       \
+    three_body_descriptor_impl<P, 4, false>(g, nullptr, theta, nullptr, weight, row_start,        \
+                                            chunk_rows, first, count, width, d_out, stride);      \
 }                                                                                                 \
-extern "C" __global__ void se_e3_backward_##S(const P* g, const P* dg, const P* theta,            \
-        const P* weight, P* dtheta, const P* dd_in, const int* index, const double* delta,        \
-        const double* dist, const int* atype, const double* dstd_inv, const int* slot_type,       \
-        const int* slot_local, const int* sel, const long long* row_start,                        \
-        long long chunk_rows, int first, int count, int slots, int width, int ntypes,             \
-        double rmin, double inv_range, double* force, double* virial, int natoms, int stride,     \
-        int add) {                                                                                \
-    three_body_backward_impl<P>(g, dg, theta, weight, dtheta, dd_in, index, delta, dist, atype,   \
-                                dstd_inv, slot_type, slot_local, sel, row_start, chunk_rows,      \
-                                first, count, slots, width, ntypes, rmin, inv_range, force,       \
-                                virial, natoms, stride, add);                                     \
+extern "C" __global__ void se_e3_theta_tangent_##S(const int* index, const double* delta,         \
+        const double* dist, const int* atype, const double* dstd_inv, const double* envdot,       \
+        const int* slot_type, const int* slot_local, const int* sel, int slots, int ntypes,       \
+        double rmin, double inv_range, const long long* row_start, P* thetadot) {                 \
+    three_body_tangent_impl<P>(index, delta, dist, atype, dstd_inv, envdot, slot_type,            \
+                               slot_local, sel, slots, ntypes, rmin, inv_range, row_start,        \
+                               thetadot);                                                         \
+}                                                                                                 \
+extern "C" __global__ void se_e3_descriptor_tangent_##S(const P* g, const P* dg, const P* theta,  \
+        const P* thetadot, const P* weight, const long long* row_start, long long chunk_rows,     \
+        int count, int width, P* ddot_out, int stride) {                                          \
+    three_body_descriptor_impl<P, 4, true>(g, dg, theta, thetadot, weight, row_start,             \
+                                           chunk_rows, 0, count, width, ddot_out, stride);        \
+}                                                                                                 \
+extern "C" __global__ void se_e3_reverse_##S(const P* theta, const P* thetadot,                   \
+        const P* weight, const P* dbar, const P* ddbar, const long long* row_start, int width,    \
+        int stride, P* gbar, P* gpbar) {                                                          \
+    three_body_reverse_impl<P>(theta, thetadot, weight, dbar, ddbar, row_start, width, stride,    \
+                               gbar, gpbar);                                                      \
+}                                                                                                 \
+extern "C" __global__ void se_e3_dtheta_##S(const P* g, const P* dg, const P* theta,              \
+        const P* weight, const P* dd_in, const long long* row_start, long long chunk_rows,        \
+        int first, int count, int width, int stride, P* dtheta) {                                 \
+    three_body_dtheta_impl<P>(g, dg, theta, weight, dd_in, row_start, chunk_rows, first, count,   \
+                              width, stride, dtheta);                                             \
+}                                                                                                 \
+extern "C" __global__ void se_e3_backward_##S(const P* dtheta, const int* index,                  \
+        const double* delta, const double* dist, const int* atype, const double* dstd_inv,        \
+        const int* slot_type, const int* slot_local, const int* sel,                              \
+        const long long* row_start, long long chunk_rows, int first, int slots, int ntypes,       \
+        double rmin, double inv_range, double* force, double* virial, int natoms, int add) {      \
+    three_body_backward_impl<P>(dtheta, index, delta, dist, atype, dstd_inv, slot_type,           \
+                                slot_local, sel, row_start, chunk_rows, first, slots, ntypes,     \
+                                rmin, inv_range, force, virial, natoms, add);                     \
 }
 INSTANTIATE(float, f32)
 INSTANTIATE(double, f64)
@@ -912,9 +1085,11 @@ struct Kernels {
     env: CudaFunction,
     descriptor: CudaFunction,
     backward: CudaFunction,
-    /// se_e3: the neighbors every atom holds, and the rows of their pairs.
+    /// se_e3: the neighbors every atom holds, the rows of their pairs, and
+    /// dE/dθ of every pair, from which the force kernel goes on.
     count: Option<CudaFunction>,
     pairs: Option<CudaFunction>,
+    dtheta: Option<CudaFunction>,
 }
 
 /// The rows of the embedding nets of an se_e3 descriptor for a frame: the
@@ -936,7 +1111,7 @@ impl PairRows {
 
 /// The first row of every atom that holds `held[atom]` neighbors, and after
 /// the last the number of all rows.
-fn pair_starts(held: &[i32]) -> Vec<i64> {
+pub(crate) fn pair_starts(held: &[i32]) -> Vec<i64> {
     let mut start = Vec::with_capacity(held.len() + 1);
     let mut next = 0i64;
     for &n in held {
@@ -977,23 +1152,41 @@ fn bytes_per_pair<P>(width: usize) -> usize {
     2 * width * p + 3 * p + 4
 }
 
-/// Threads per block of the se_e3 force kernel: thirty-two warps, each with
-/// a row of the atom at a time. A warp waits for the rows it reads, so a
-/// few hundred atoms go faster the more warps share an atom's rows (192
+/// Threads per block of the se_e3 kernel of dE/dθ: thirty-two warps, each
+/// with a row of the atom at a time. A warp waits for the rows it reads, so
+/// a few hundred atoms go faster the more warps share an atom's rows (192
 /// atoms in float32: 0.43 ms with thirty-two warps, 0.67 with eight);
 /// thousands of atoms are bound by reading the rows either way.
-const PAIR_BLOCK: u32 = 1024;
+pub(crate) const PAIR_BLOCK: u32 = 1024;
+
+/// Threads per block of the se_e3 force kernel, which has a thread for
+/// every neighbor of the atom (one with more neighbors gives its threads
+/// several).
+pub(crate) const PAIR_FORCE_BLOCK: u32 = 256;
+
+/// Shared memory of the se_e3 kernel of dE/dθ per block: dE/dD of the atom
+/// in the precision of the networks.
+pub(crate) fn pair_dtheta_shared<P>(width: usize) -> usize {
+    (width * std::mem::size_of::<P>()).next_multiple_of(8)
+}
+
+/// Shared memory of the se_e3 force kernel per block: the directions of the
+/// neighbors and the block's sums in double, the neighbors' slots and the
+/// first neighbor of each type.
+pub(crate) fn pair_force_shared(slots: usize, ntypes: usize) -> usize {
+    (3 * slots + 12) * 8 + (4 * (slots + ntypes + 1)).next_multiple_of(8)
+}
 
 /// Warps per block of the se_e3 descriptor kernel, which share the rows of
 /// an atom: as many as have their sums (`width` each) in shared memory, at
 /// most eight.
-fn descriptor_warps<P>(width: usize) -> usize {
+pub(crate) fn descriptor_warps<P>(width: usize) -> usize {
     (SHARED_LIMIT / (width * std::mem::size_of::<P>()).max(1)).clamp(1, 8)
 }
 
 /// Shared memory of the se_e3 pair kernel per block: the directions of the
 /// atom's neighbors in double, their slots and the first of each type.
-fn pair_shared(slots: usize, ntypes: usize) -> usize {
+pub(crate) fn pair_shared(slots: usize, ntypes: usize) -> usize {
     3 * slots * 8 + (4 * (slots + ntypes + 1)).next_multiple_of(8)
 }
 
@@ -1350,16 +1543,14 @@ impl<P: Scalar> Part<P> {
             DescriptorKind::SeE2R => {
                 (slots + 12) * 8 + (width * std::mem::size_of::<P>()).next_multiple_of(8)
             }
-            // se_e3: the directions of the neighbors and the block's sums in
-            // double, dE/dD in the precision of the networks, the neighbors'
-            // slots and the first of each type.
-            DescriptorKind::SeE3 => {
-                (3 * slots + 12) * 8
-                    + (width * std::mem::size_of::<P>()).next_multiple_of(8)
-                    + (4 * (slots + ntypes + 1)).next_multiple_of(8)
-            }
+            DescriptorKind::SeE3 => pair_force_shared(slots, ntypes),
         };
-        if backward_shared > SHARED_LIMIT {
+        // se_e3 has a kernel before the force kernel, with dE/dD of the atom.
+        let before = match kind {
+            DescriptorKind::SeE3 => pair_dtheta_shared::<P>(width),
+            _ => 0,
+        };
+        if backward_shared.max(before) > SHARED_LIMIT {
             return Err(Error(format!(
                 "GPU {} needs {backward_shared} bytes of shared memory per atom (embedding width {width}, {slots} neighbor slots); the limit is {SHARED_LIMIT}",
                 kind.name()
@@ -1443,6 +1634,10 @@ impl<P: Scalar> Part<P> {
             },
             pairs: match three_body {
                 true => Some(function("se_e3_pairs")?),
+                false => None,
+            },
+            dtheta: match three_body {
+                true => Some(function("se_e3_dtheta")?),
                 false => None,
             },
         };
@@ -2523,13 +2718,34 @@ impl<P: Scalar> GpuPotential<P> {
                         else {
                             return Err(Error("an se_e3 descriptor without its rows".into()));
                         };
-                        launch
+                        // dE/dθ of every pair first, by row.
+                        let function = part.kernels.dtheta.as_ref().ok_or_else(|| {
+                            Error("an se_e3 descriptor without the kernel of its pairs".into())
+                        })?;
+                        let mut before = stream.launch_builder(function);
+                        before
                             .arg(&work.g)
                             .arg(&work.dg)
                             .arg(&work.input)
                             .arg(&*weight)
-                            .arg(dtheta)
                             .arg(&dd)
+                            .arg(&pairs.start)
+                            .arg(&chunk_rows_i)
+                            .arg(&first_i)
+                            .arg(&count_i)
+                            .arg(&w_i)
+                            .arg(&stride_i)
+                            .arg(&mut *dtheta);
+                        let config = LaunchConfig {
+                            grid_dim: (count as u32, deep, 1),
+                            block_dim: (PAIR_BLOCK, 1, 1),
+                            shared_mem_bytes: pair_dtheta_shared::<P>(width) as u32,
+                        };
+                        unsafe { before.launch(config) }
+                            .map(drop)
+                            .map_err(launch_error("pair force"))?;
+                        launch
+                            .arg(&*dtheta)
                             .arg(index)
                             .arg(delta)
                             .arg(dist)
@@ -2541,18 +2757,15 @@ impl<P: Scalar> GpuPotential<P> {
                             .arg(&pairs.start)
                             .arg(&chunk_rows_i)
                             .arg(&first_i)
-                            .arg(&count_i)
                             .arg(&slots_i)
-                            .arg(&w_i)
                             .arg(&ntypes_i)
                             .arg(&part.rcut_smth)
                             .arg(&part.inv_range)
                             .arg(&mut force)
                             .arg(&mut virial)
                             .arg(&natoms_i)
-                            .arg(&stride_i)
                             .arg(&add_i);
-                        PAIR_BLOCK
+                        PAIR_FORCE_BLOCK
                     }
                     DescriptorKind::SeE2A | DescriptorKind::SeE2R => {
                         if let (Some(env), Some(b)) = (&work.env, &work.b) {

@@ -415,9 +415,15 @@ fn se_e2_r_and_nets_per_neighbor_type_train_from_a_request() {
         radial(body, "se_e2_r", false);
         body["model"]["descriptor"]["axis_neuron"] = json!(2);
     });
-    assert!(error.contains("se_e2_r has no axis_neuron"), "{error}");
-    let error = refused("unknown", &|body| radial(body, "se_e3", false));
-    assert!(error.contains("only se_e2_a and se_e2_r"), "{error}");
+    assert!(
+        error.contains("se_e2_r and se_e3 have no axis_neuron"),
+        "{error}"
+    );
+    let error = refused("unknown", &|body| radial(body, "se_atten", false));
+    assert!(
+        error.contains("only se_e2_a, se_e2_r and se_e3 descriptors"),
+        "{error}"
+    );
     std::fs::remove_dir_all(directory).unwrap();
 }
 
@@ -640,6 +646,17 @@ fn a_hybrid_trains_from_a_request() {
         );
         String::from_utf8_lossy(&run.stderr).into_owned()
     };
+    let mut attention = radial.clone();
+    attention["type"] = json!("se_atten");
+    let error = refused(
+        "attention",
+        json!({"type": "hybrid", "list": [angular, attention]}),
+    );
+    assert!(
+        error.contains("descriptor.list[1]: only se_e2_a, se_e2_r and se_e3 descriptors"),
+        "{error}"
+    );
+    // The three-body descriptor has no net per neighbor type.
     let mut three_body = radial.clone();
     three_body["type"] = json!("se_e3");
     let error = refused(
@@ -647,7 +664,9 @@ fn a_hybrid_trains_from_a_request() {
         json!({"type": "hybrid", "list": [angular, three_body]}),
     );
     assert!(
-        error.contains("descriptor.list[1]: only se_e2_a and se_e2_r descriptors"),
+        error.contains(
+            "descriptor.list[1]: se_e3 has one embedding net per pair of neighbor types: type_one_side does not apply"
+        ),
         "{error}"
     );
     let mut typo = angular.clone();
@@ -684,6 +703,182 @@ fn a_hybrid_trains_from_a_request() {
     );
     assert!(
         error.contains("model: descriptor: unknown field `rcut`"),
+        "{error}"
+    );
+    std::fs::remove_dir_all(directory).unwrap();
+}
+
+/// A request may ask for the three-body descriptor, under each of its names,
+/// alone or in the list of a hybrid: it gets the selection and the width of
+/// the directions from the data, a net for every pair of neighbor types, and
+/// a trained model to evaluate and to continue from, in either precision.
+#[test]
+fn the_three_body_descriptor_trains_from_a_request() {
+    if !gpu_available() {
+        return;
+    }
+    let directory =
+        std::env::temp_dir().join(format!("omnimd-train-cli-se-e3-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&directory);
+    std::fs::create_dir_all(&directory).unwrap();
+    let edit = |name: &str, change: &dyn Fn(&mut Value)| -> PathBuf {
+        let path = request(&directory, name, 5);
+        let mut body: Value =
+            serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
+        change(&mut body);
+        std::fs::write(&path, body.to_string()).unwrap();
+        path
+    };
+    let trained = |name: &str, request: &Path| -> (Value, String) {
+        let run = train(&[request]);
+        let notes = String::from_utf8_lossy(&run.stderr).into_owned();
+        assert!(run.status.success(), "{name}: {notes}");
+        let summary: Value = serde_json::from_slice(&run.stdout).unwrap();
+        assert_eq!(summary["steps"].as_u64(), Some(12), "{name}");
+        let path = directory.join(format!("{name}.native.json"));
+        // The model that was written is one the CPU reference takes.
+        omnimd_native::NativePotential::load(&path).unwrap();
+        let model = serde_json::from_str(&std::fs::read_to_string(path).unwrap()).unwrap();
+        (model, notes)
+    };
+    let three_body = json!({"type": "se_e3", "sel": "auto", "rcut": 3.0, "rcut_smth": 0.5,
+                            "neuron": [4, 8], "resnet_dt": false, "seed": 5});
+    let (alone, notes) = trained(
+        "alone",
+        &edit("alone", &|body| {
+            body["model"]["descriptor"] = three_body.clone()
+        }),
+    );
+    assert_eq!(alone["format"], "omnimd-native-se-e3");
+    let d = &alone["descriptor"];
+    assert_eq!(d["kind"], "se_e3");
+    assert!(d.get("type_one_side").is_none() && d.get("list").is_none());
+    assert!(notes.contains("neighbor statistics:"), "{notes}");
+    // Of every central type: no mean, a radial width of one that nothing
+    // reads, and the width of the directions from the data.
+    for entry in d["normalization"].as_array().unwrap() {
+        assert_eq!(entry["mean"], json!([0.0, 0.0, 0.0, 0.0]));
+        let std = entry["std"].as_array().unwrap();
+        let direction = std[1].as_f64().unwrap();
+        assert_eq!(std[0], 1.0);
+        assert!(direction > 0.01 && direction < 1.0, "{direction}");
+        assert!(std[2] == std[1] && std[3] == std[1]);
+    }
+    // Three types: nine places for six nets, alike in either order of a pair
+    // and trained apart otherwise.
+    let nets = d["embedding"].as_array().unwrap();
+    assert_eq!(nets.len(), 3);
+    for t in 0..3 {
+        for u in 0..3 {
+            assert_eq!(nets[t][u], nets[u][t], "nets {t} {u}");
+        }
+    }
+    assert_ne!(nets[0][1], nets[0][2]);
+    assert_ne!(nets[0][0], nets[1][1]);
+    // The fitting nets take the eight outputs of the embedding nets.
+    let first = &alone["fitting"][0]["layers"][0]["weights"];
+    assert_eq!(first.as_array().unwrap().len(), 8);
+
+    // The other names of the descriptor ask for the same model.
+    for name in ["se_at", "se_a_3be"] {
+        let mut renamed = three_body.clone();
+        renamed["type"] = json!(name);
+        let (other, _) = trained(
+            name,
+            &edit(name, &|body| body["model"]["descriptor"] = renamed.clone()),
+        );
+        assert_eq!(other["descriptor"]["kind"], "se_e3", "{name}");
+        let difference = apart(&numbers_of(&other), &numbers_of(&alone));
+        assert!(difference < 1e-8, "{name}: models differ by {difference}");
+    }
+
+    // In a hybrid after an angular descriptor: with the selection and the
+    // normalization it has alone, and nets of its own that were trained.
+    let angular = json!({"type": "se_e2_a", "sel": "auto", "rcut": 4.0, "rcut_smth": 0.5,
+                         "neuron": [4, 8], "axis_neuron": 2, "seed": 5});
+    let (hybrid, notes) = trained(
+        "hybrid",
+        &edit("hybrid", &|body| {
+            body["model"]["descriptor"] = json!({"type": "hybrid", "list": [angular, three_body]})
+        }),
+    );
+    assert_eq!(hybrid["format"], "omnimd-native-hybrid");
+    let parts = hybrid["descriptor"]["list"].as_array().unwrap();
+    assert_eq!(
+        (&parts[0]["kind"], &parts[1]["kind"]),
+        (&json!("se_e2_a"), &json!("se_e3"))
+    );
+    assert_eq!(parts[1]["sel"], d["sel"]);
+    assert_eq!(parts[1]["normalization"], d["normalization"]);
+    assert!(
+        notes.contains("descriptor.list[1]: se_e3 within 3 A, sel ["),
+        "{notes}"
+    );
+    // The fitting nets take the components of both: 8 · 2 + 8.
+    let first = &hybrid["fitting"][0]["layers"][0]["weights"];
+    assert_eq!(first.as_array().unwrap().len(), 24);
+    let untrained = apart(
+        &numbers_of(&parts[1]["embedding"]),
+        &numbers_of(&d["embedding"]),
+    );
+    assert!(untrained > 1e-6, "{untrained}");
+
+    // Continuing from the trained models, the hybrid with float32 networks.
+    let (more, _) = trained(
+        "more",
+        &edit("more", &|body| {
+            body["model"] = json!(directory.join("alone.native.json"))
+        }),
+    );
+    assert_eq!(more["format"], "omnimd-native-se-e3");
+    assert_eq!(more["descriptor"]["sel"], d["sel"]);
+    assert_ne!(more["descriptor"]["embedding"], d["embedding"]);
+    let (single, _) = trained(
+        "single",
+        &edit("single", &|body| {
+            body["model"] = json!(directory.join("hybrid.native.json"));
+            body["precision"] = json!("float32");
+        }),
+    );
+    let after = single["descriptor"]["list"].as_array().unwrap();
+    assert_eq!(after[1]["kind"], "se_e3");
+    assert_ne!(after[1]["embedding"], parts[1]["embedding"]);
+    let nets = after[1]["embedding"].as_array().unwrap();
+    assert_eq!(nets[0][2], nets[2][0]);
+
+    // What the descriptor does not have is said.
+    let refused = |name: &str, descriptor: Value| {
+        let run = train(&[&edit(name, &|body| {
+            body["model"]["descriptor"] = descriptor.clone()
+        })]);
+        assert!(!run.status.success(), "{name}");
+        assert!(
+            !directory.join(format!("{name}.native.json")).exists(),
+            "{name}"
+        );
+        String::from_utf8_lossy(&run.stderr).into_owned()
+    };
+    let mut axis = three_body.clone();
+    axis["axis_neuron"] = json!(2);
+    let error = refused("axis", axis);
+    assert!(
+        error.contains("se_e2_r and se_e3 have no axis_neuron"),
+        "{error}"
+    );
+    let mut shared = three_body.clone();
+    shared["type_one_side"] = json!(true);
+    let error = refused("shared", shared);
+    assert!(
+        error.contains(
+            "se_e3 has one embedding net per pair of neighbor types: type_one_side does not apply"
+        ),
+        "{error}"
+    );
+    let mut excluded = three_body.clone();
+    excluded["exclude_types"] = json!([[0, 1]]);
+    let error = refused("excluded", excluded);
+    assert!(
+        error.contains("model: descriptor: unknown field `exclude_types`"),
         "{error}"
     );
     std::fs::remove_dir_all(directory).unwrap();

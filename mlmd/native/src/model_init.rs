@@ -1,5 +1,5 @@
-//! A fresh se_e2_a or se_e2_r model, or a hybrid of such descriptors, from
-//! DeePMD's `model` input section (plan W2): the network shapes and residual
+//! A fresh se_e2_a, se_e2_r or se_e3 model, or a hybrid of such descriptors,
+//! from DeePMD's `model` input section (plan W2): the network shapes and residual
 //! rules of DeePMD-kit, its random initialization distributions, and
 //! normalization and energy bias supplied by the caller (see
 //! [`crate::stats`]).
@@ -71,15 +71,16 @@ pub struct DescriptorSpec {
     pub rcut: f64,
     pub rcut_smth: f64,
     pub neuron: Vec<usize>,
-    /// se_e2_a only; se_e2_r has no axis neurons.
+    /// se_e2_a only; se_e2_r and se_e3 have no axis neurons.
     #[serde(default)]
     pub axis_neuron: usize,
     #[serde(default)]
     pub resnet_dt: bool,
     /// One embedding net per neighbor type instead of one per pair of
-    /// types. DeePMD-kit's input default is false for both descriptors; its
-    /// PyTorch backend (3.1.3) gives se_e2_r a net per neighbor type
-    /// whatever this says.
+    /// types. DeePMD-kit's input default is false for se_e2_a and se_e2_r;
+    /// its PyTorch backend (3.1.3) gives se_e2_r a net per neighbor type
+    /// whatever this says. Not a key of se_e3, whose nets go by the pair of
+    /// neighbor types and never by the central type.
     #[serde(default)]
     pub type_one_side: bool,
     #[serde(default = "tanh_name")]
@@ -196,9 +197,9 @@ impl<'de> Deserialize<'de> for DescriptorSection {
     }
 }
 
-/// The `model` section of a DeePMD input script: se_e2_a or se_e2_r (also
-/// written `se_r`), or a hybrid of such descriptors, with an energy fitting
-/// net.
+/// The `model` section of a DeePMD input script: se_e2_a, se_e2_r (also
+/// written `se_r`) or se_e3 (also `se_at`, `se_a_3be`), or a hybrid of such
+/// descriptors, with an energy fitting net.
 #[derive(Clone, Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct ModelSpec {
@@ -261,17 +262,18 @@ fn layer(rng: &mut Rng, input: usize, output: usize, hidden: bool, resnet_dt: bo
     }
 }
 
-/// The descriptor a spec names: `se_e2_a`, or `se_e2_r` under either of
-/// DeePMD-kit's names for it.
+/// The descriptor a spec names: `se_e2_a`, or `se_e2_r` or `se_e3` under
+/// any of DeePMD-kit's names for them.
 fn spec_kind(descriptor: &DescriptorSpec) -> Option<DescriptorKind> {
     match descriptor.kind.as_str() {
         "se_e2_a" => Some(DescriptorKind::SeE2A),
         "se_e2_r" | "se_r" => Some(DescriptorKind::SeE2R),
+        "se_e3" | "se_at" | "se_a_3be" => Some(DescriptorKind::SeE3),
         _ => None,
     }
 }
 
-const UNSUPPORTED: &str = "only se_e2_a and se_e2_r descriptors, alone or in a hybrid, with tanh activations, an ener fitting net and float64 parameters can be initialized";
+const UNSUPPORTED: &str = "only se_e2_a, se_e2_r and se_e3 descriptors, alone or in a hybrid, with tanh activations, an ener fitting net and float64 parameters can be initialized";
 const SHAPES: &str = "model needs a type map, one sel per type and nonempty positive neuron lists";
 
 /// Whether a `precision` key asks for float64 parameters, the only ones a
@@ -297,12 +299,16 @@ fn check_descriptor(
     }
     let axis_fits = match kind {
         DescriptorKind::SeE2A => d.axis_neuron > 0 && d.axis_neuron <= *d.neuron.last().unwrap(),
-        // (A script cannot name se_e3 here: see `spec_kind`.)
         DescriptorKind::SeE2R | DescriptorKind::SeE3 => d.axis_neuron == 0,
     };
     if !axis_fits {
         return Err(Error(format!(
-            "{context}se_e2_a needs 0 < axis_neuron <= the embedding width; se_e2_r has no axis_neuron"
+            "{context}se_e2_a needs 0 < axis_neuron <= the embedding width; se_e2_r and se_e3 have no axis_neuron"
+        )));
+    }
+    if kind == DescriptorKind::SeE3 && d.type_one_side {
+        return Err(Error(format!(
+            "{context}se_e3 has one embedding net per pair of neighbor types: type_one_side does not apply"
         )));
     }
     Ok(kind)
@@ -312,7 +318,8 @@ fn check_descriptor(
 /// descriptor of the script (one, or those of the list of a hybrid, in its
 /// order), the resolved neighbor selection and the normalization;
 /// `atom_energy_bias` has one entry per type. Of the normalization an
-/// se_e2_r descriptor keeps the radial entry, which is all it reads.
+/// se_e2_r descriptor keeps the radial entry, which is all it reads, and an
+/// se_e3 descriptor the width of the direction entries.
 pub fn initialize(
     spec: &ModelSpec,
     inputs: Vec<DescriptorInput>,
@@ -390,21 +397,32 @@ pub fn initialize(
         .enumerate()
     {
         let mut normalization = input.normalization;
-        if kind == DescriptorKind::SeE2R {
-            for entry in &mut normalization {
-                entry.mean = [entry.mean[0], 0.0, 0.0, 0.0];
-                entry.std = [entry.std[0], 1.0, 1.0, 1.0];
+        for entry in &mut normalization {
+            match kind {
+                DescriptorKind::SeE2A => {}
+                DescriptorKind::SeE2R => {
+                    entry.mean = [entry.mean[0], 0.0, 0.0, 0.0];
+                    entry.std = [entry.std[0], 1.0, 1.0, 1.0];
+                }
+                // The directions have no mean; their width is the same for
+                // the three.
+                DescriptorKind::SeE3 => {
+                    entry.mean = [0.0; 4];
+                    entry.std = [1.0, entry.std[1], entry.std[2], entry.std[3]];
+                }
             }
         }
         // A net for every pair of types, or with `type_one_side` one for
-        // every neighbor type, which all central types then have.
+        // every neighbor type, which all central types then have. se_e3: a
+        // net for every pair of neighbor types, at both places of the pair.
         let embedding = (0..ntypes)
             .map(|i| {
                 (0..ntypes)
                     .map(|j| {
-                        let index = match d.type_one_side {
-                            true => j,
-                            false => i * ntypes + j,
+                        let index = match (kind, d.type_one_side) {
+                            (DescriptorKind::SeE3, _) => i.min(j) * ntypes + i.max(j),
+                            (_, true) => j,
+                            (_, false) => i * ntypes + j,
                         };
                         let mut rng = stream(d.seed, number, index);
                         network(&mut rng, 1, &d.neuron, d.resnet_dt, None)
@@ -686,12 +704,100 @@ mod tests {
         .is_err());
     }
 
+    /// se_e3 under each of its names: a net for every pair of neighbor
+    /// types, the same at both places of the pair; no axis neurons; fitting
+    /// nets on the embedding width; of the normalization the width of the
+    /// directions.
+    #[test]
+    fn the_three_body_descriptor_has_a_net_for_every_pair_of_neighbor_types() {
+        for name in ["se_e3", "se_at", "se_a_3be"] {
+            let mut three_body = spec();
+            let descriptor = &mut three_body.descriptor.parts_mut()[0];
+            descriptor.kind = name.into();
+            descriptor.axis_neuron = 0;
+            descriptor.neuron = vec![10, 20, 40];
+            let model = initialize(
+                &three_body,
+                one(vec![44, 16, 60], unit_normalization(3)),
+                vec![-1.0, -2.0, -3.0],
+            )
+            .unwrap();
+            assert_eq!(model.format, "omnimd-native-se-e3", "{name}");
+            assert_eq!(model.descriptor.kind, "se_e3");
+            assert_eq!(model.descriptor_kind(), Some(DescriptorKind::SeE3));
+            assert_eq!(model.descriptor.axis_neuron, 0);
+            assert!(!model.descriptor.type_one_side);
+            let nets = &model.descriptor.embedding;
+            for t in 0..3 {
+                for u in 0..3 {
+                    assert_eq!(nets[t][u], nets[u][t], "{name}: {t} {u}");
+                }
+            }
+            // Six nets of their own.
+            let own = [
+                &nets[0][0],
+                &nets[0][1],
+                &nets[0][2],
+                &nets[1][1],
+                &nets[1][2],
+                &nets[2][2],
+            ];
+            for (a, first) in own.iter().enumerate() {
+                for second in &own[a + 1..] {
+                    assert_ne!(first.layers[0].bias, second.layers[0].bias, "{name}");
+                }
+            }
+            let shapes: Vec<_> = nets[1][2]
+                .layers
+                .iter()
+                .map(|l| (l.weights.len(), l.bias.len()))
+                .collect();
+            assert_eq!(shapes, [(1, 10), (10, 20), (20, 40)]);
+            for entry in &model.descriptor.normalization {
+                assert_eq!(entry.mean, [0.0; 4]);
+                assert_eq!(entry.std, [1.0, 0.1, 0.1, 0.1]);
+            }
+            assert_eq!(model.fitting[1].layers[0].weights.len(), 40);
+            assert_eq!(model.atom_energy_bias, [-1.0, -2.0, -3.0]);
+            // Neither axis neurons nor a net per neighbor type.
+            three_body.descriptor.parts_mut()[0].axis_neuron = 4;
+            let inputs = || one(vec![44, 16, 60], unit_normalization(3));
+            let error = initialize(&three_body, inputs(), vec![0.0; 3]).unwrap_err();
+            assert!(
+                error
+                    .to_string()
+                    .contains("se_e2_r and se_e3 have no axis_neuron"),
+                "{name}: {error}"
+            );
+            three_body.descriptor.parts_mut()[0].axis_neuron = 0;
+            three_body.descriptor.parts_mut()[0].type_one_side = true;
+            let error = initialize(&three_body, inputs(), vec![0.0; 3]).unwrap_err();
+            assert_eq!(
+                error.to_string(),
+                "se_e3 has one embedding net per pair of neighbor types: type_one_side does not apply",
+                "{name}"
+            );
+        }
+        // A script of se_e3 has the keys of DeePMD-kit's and no more.
+        let text = r#"{"type_map": ["O", "H"],
+            "descriptor": {"type": "se_e3", "sel": [4, 8], "rcut_smth": 0.5, "rcut": 4.0,
+                           "neuron": [2, 4, 8], "resnet_dt": false, "seed": 1},
+            "fitting_net": {"neuron": [6, 6]}}"#;
+        let script: ModelSpec = serde_json::from_str(text).unwrap();
+        let model = initialize(
+            &script,
+            one(vec![4, 8], unit_normalization(2)),
+            vec![0.0; 2],
+        );
+        assert_eq!(model.unwrap().descriptor.features(), 8);
+    }
+
     #[test]
     fn unsupported_models_are_rejected() {
         let mut bad = spec();
         // (A hybrid is not a descriptor of this kind: it is a section of its
         // own, read by its type.)
-        for unsupported in ["se_e3", "se_atten", "hybrid"] {
+        for unsupported in ["se_e3_tebd", "se_atten", "hybrid"] {
             bad.descriptor.parts_mut()[0].kind = unsupported.into();
             let error = initialize(
                 &bad,
@@ -701,7 +807,7 @@ mod tests {
             .unwrap_err()
             .to_string();
             assert!(
-                error.contains("only se_e2_a and se_e2_r"),
+                error.contains("only se_e2_a, se_e2_r and se_e3 descriptors"),
                 "{unsupported}: {error}"
             );
         }
@@ -849,13 +955,30 @@ mod tests {
                 .to_string()
         };
         // A descriptor that cannot be trained, by its place in the list.
+        let mut attention = spec.clone();
+        attention.descriptor.parts_mut()[1].kind = "se_atten".into();
+        let error = build(&attention, hybrid_inputs());
+        assert!(
+            error.starts_with("descriptor.list[1]: only se_e2_a, se_e2_r and se_e3 descriptors"),
+            "{error}"
+        );
+        // se_e3 has neither a net per neighbor type nor axis neurons.
         let mut three_body = spec.clone();
         three_body.descriptor.parts_mut()[1].kind = "se_e3".into();
         let error = build(&three_body, hybrid_inputs());
+        assert_eq!(
+            error,
+            "descriptor.list[1]: se_e3 has one embedding net per pair of neighbor types: type_one_side does not apply"
+        );
+        three_body.descriptor.parts_mut()[1].type_one_side = false;
+        three_body.descriptor.parts_mut()[1].axis_neuron = 4;
+        let error = build(&three_body, hybrid_inputs());
         assert!(
-            error.starts_with("descriptor.list[1]: only se_e2_a and se_e2_r descriptors"),
+            error.starts_with("descriptor.list[1]: se_e2_a needs 0 < axis_neuron"),
             "{error}"
         );
+        three_body.descriptor.parts_mut()[1].axis_neuron = 0;
+        assert!(initialize(&three_body, hybrid_inputs(), vec![0.0; 3]).is_ok());
         let mut axis = spec.clone();
         axis.descriptor.parts_mut()[1].axis_neuron = 4;
         let error = build(&axis, hybrid_inputs());

@@ -1,4 +1,4 @@
-//! Trains a native se_e2_a or se_e2_r model, or a hybrid of such
+//! Trains a native se_e2_a, se_e2_r or se_e3 model, or a hybrid of such
 //! descriptors, on the omnimd-gpu runtime (device 0).
 //!
 //! ```text
@@ -9,9 +9,10 @@
 //! `learning_rate`, `loss` and `training` sections of a DeePMD input script
 //! with the same meaning (see `GPU_TRAINING.md`). `model` is either the path
 //! of a native model to continue from, or the `model` section of a DeePMD
-//! input script (`se_e2_a`, or `se_e2_r` under that name or `se_r`; with
-//! `type_one_side` one embedding net per neighbor type; or `hybrid` with a
-//! `list` of such descriptors): then the networks are drawn afresh, and the
+//! input script (`se_e2_a`, or `se_e2_r` under that name or `se_r`, with
+//! `type_one_side` one embedding net per neighbor type; `se_e3` under that
+//! name, `se_at` or `se_a_3be`; or `hybrid` with a `list` of such
+//! descriptors): then the networks are drawn afresh, and the
 //! normalization (`davg`, `dstd`), the energy bias and an `"auto"` `sel` are
 //! computed from the dataset, for every descriptor of a hybrid its own.
 //!

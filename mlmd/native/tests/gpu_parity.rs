@@ -1355,14 +1355,26 @@ fn se_e3_in_float32_in_batches_and_committees() {
         "model 1 differs from the first in its descriptor"
     );
     assert!(omnimd_native::gpu_model::committee_mismatch(&members).is_none());
-    // The GPU trainer has the arithmetic of the other two descriptors only.
-    let error = omnimd_native::gpu_train::GpuTrainer::<f64>::new(&models[0], device)
-        .err()
-        .unwrap();
-    assert_eq!(
-        error.to_string(),
-        "the GPU trainer supports the se_e2_a and se_e2_r descriptors and hybrids of them, not se_e3"
-    );
+    // The GPU trainer takes the descriptor (its tests are in gpu_train.rs).
+    // Among its parameters the net of a pair of neighbor types is there
+    // once, whichever of the two types comes first.
+    let trainer = omnimd_native::gpu_train::GpuTrainer::<f64>::new(&models[0], device).unwrap();
+    let size = |network: &omnimd_native::Network| {
+        let layer = |l: &omnimd_native::Layer| {
+            l.weights.iter().map(Vec::len).sum::<usize>()
+                + l.bias.len()
+                + l.timestep.as_ref().map_or(0, Vec::len)
+        };
+        network.layers.iter().map(layer).sum::<usize>()
+    };
+    let d = &models[0].descriptor;
+    let ntypes = d.sel.len();
+    let nets: usize = (0..ntypes)
+        .flat_map(|t| (t..ntypes).map(move |u| (t, u)))
+        .map(|(t, u)| size(&d.embedding[t][u]))
+        .sum();
+    let fitting: usize = models[0].fitting.iter().map(size).sum();
+    assert_eq!(trainer.parameter_count(), nets + fitting);
 }
 
 /// A descriptor for a hybrid, as a model of its own, with a smoothing radius
@@ -2172,13 +2184,7 @@ fn hybrid_in_float32_compressed_in_batches_and_committees() {
         "model 1 differs from the first in its descriptor"
     );
     assert!(GpuPotential::<f64>::committee(&pair, device.clone()).is_err());
-    // The GPU trainer has no arithmetic for the three-body descriptor, in a
-    // hybrid either: it names the descriptor by its place in the list.
-    let error = omnimd_native::gpu_train::GpuTrainer::<f64>::new(&models[0], device)
-        .err()
-        .unwrap();
-    assert_eq!(
-        error.to_string(),
-        "descriptor.list[2]: the GPU trainer supports the se_e2_a and se_e2_r descriptors and hybrids of them, not se_e3"
-    );
+    // The GPU trainer takes a hybrid of the three descriptors (its tests
+    // are in gpu_train.rs).
+    assert!(omnimd_native::gpu_train::GpuTrainer::<f64>::new(&models[0], device).is_ok());
 }

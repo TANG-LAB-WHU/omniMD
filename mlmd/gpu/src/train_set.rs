@@ -514,6 +514,20 @@ impl<T: Scalar> TrainSet<T> {
         self.networks[0].last().unwrap().output
     }
 
+    /// Device bytes a row takes from [`forward`](Self::forward) to the end
+    /// of [`backward`](Self::backward): both rows of the value strip, the
+    /// records of every layer, the outputs with their tangents, and in the
+    /// reverse pass the adjoint strip with its scratch. A caller whose rows
+    /// are many (the pairs of an se_e3 atom's neighbors) can tell beforehand
+    /// whether they fit.
+    pub fn bytes_per_row(&self) -> usize {
+        // p1, p2 and zd, and phi with timesteps; zz and scratch of two rows
+        // each, and the timestep terms.
+        let records = if self.timesteps { 9 } else { 7 };
+        (2 * self.strip_width + records * self.record_width + 2 * self.output())
+            * std::mem::size_of::<T>()
+    }
+
     /// Outputs `[rows][output]` and their tangents for inputs `x[rows][input]`
     /// with unit input tangents (for one input: the derivative), and the
     /// network index `ids[rows]` of every row, recording what `backward` needs.

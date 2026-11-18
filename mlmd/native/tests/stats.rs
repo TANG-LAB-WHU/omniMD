@@ -241,6 +241,10 @@ struct Readings {
 /// slots of each type of the list of all descriptors), and the statistics
 /// over those are other numbers: the fixture has both, from DeePMD-kit.
 /// What a trainer computes for a descriptor of a hybrid is the first.
+///
+/// The three-body descriptor has the four statistics of the angular one
+/// (DeePMD-kit computes them with the same code); a model keeps the width of
+/// its directions and nothing else of them.
 #[test]
 fn the_descriptors_of_a_hybrid_have_the_statistics_they_have_alone() {
     let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("fixtures");
@@ -252,11 +256,12 @@ fn the_descriptors_of_a_hybrid_have_the_statistics_they_have_alone() {
     let names = &dataset.header.type_map;
     let frames: Vec<&Frame> = dataset.frames.iter().map(|f| &f.frame).collect();
     let close = |a: f64, b: f64| (a - b).abs() <= 1e-8 * b.abs().max(1.0);
-    assert_eq!(reference.parts.len(), 2);
+    let kinds: Vec<&str> = reference.parts.iter().map(|p| p.kind.as_str()).collect();
+    assert_eq!(kinds, ["se_e2_a", "se_e2_r", "se_e3"]);
     for part in &reference.parts {
         let stats = env_mat_stat(&frames, names, part.rcut, part.rcut_smth, &part.sel).unwrap();
         assert_eq!(stats.len(), part.davg.len(), "{}", part.kind);
-        // se_e2_r has the radial entry only; of se_e2_a all four.
+        // se_e2_r has the radial entry only; of se_e2_a and se_e3 all four.
         let entries = part.davg[0].len();
         assert_eq!(
             entries,
@@ -290,11 +295,20 @@ fn the_descriptors_of_a_hybrid_have_the_statistics_they_have_alone() {
             }
         }
         // The fixture tells the two apart: by 6e-5 for the mean of the
-        // angular descriptor, 1e-6 for that of the radial one.
+        // angular descriptor, 1e-6 for that of the radial one, and 3e-5 for
+        // the width of the directions of the three-body one.
         assert!(
             other_reading > 5e-7,
             "{}: the readings differ by {other_reading} only",
             part.kind
         );
+        if part.kind == "se_e3" {
+            // In what the descriptor reads, the width of its directions.
+            let forward = &part.as_in_the_forward_pass;
+            let directions = (0..stats.len())
+                .map(|t| (forward.dstd[t][1] - part.dstd[t][1]).abs())
+                .fold(0.0, f64::max);
+            assert!(directions > 1e-5, "{directions}");
+        }
     }
 }

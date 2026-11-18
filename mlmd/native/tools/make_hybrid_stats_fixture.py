@@ -6,11 +6,13 @@ Run in the DeePMD-kit image from `mlmd/native`:
     python tools/make_hybrid_stats_fixture.py fixtures
 
 Reads `stats-dataset.jsonl` and writes `hybrid-stats-deepmd-reference.json`.
-A hybrid of an se_e2_a and an se_e2_r descriptor gets its statistics from
-DeePMD-kit's own code (`DescrptHybrid.compute_input_stats`), which hands the
+A hybrid of an se_e2_a, an se_e2_r and an se_e3 descriptor gets its statistics
+from DeePMD-kit's own code (`DescrptHybrid.compute_input_stats`), which hands the
 frames to every descriptor of the list: each takes its mean and width over
 the neighbors it selects as the descriptor of a model, within its own cutoff
 and with its own slots (`EnvMatStatSe` builds its list from the descriptor).
+se_e3 has the four statistics of se_e2_a, of which it reads the width of the
+directions.
 
 In the forward pass of a hybrid the descriptors read something else: of one
 list made with the largest cutoff and of every type the most slots, the first
@@ -26,16 +28,18 @@ from pathlib import Path
 
 import numpy as np
 import deepmd
-from deepmd.dpmodel.descriptor import DescrptHybrid, DescrptSeA, DescrptSeR
+from deepmd.dpmodel.descriptor import DescrptHybrid, DescrptSeA, DescrptSeR, DescrptSeT
 from deepmd.dpmodel.utils.env_mat import EnvMat
 from deepmd.dpmodel.utils.nlist import extend_input_and_build_neighbor_list
 
-# The second has the shorter cutoff; each has fewer slots of one type than
-# the list of both, [6, 14, 4] within 4.0.
+# The second and the third have shorter cutoffs; each has fewer slots of one
+# type than the list of all, [6, 14, 4] within 4.0.
 PARTS = [
     {'type': 'se_e2_a', 'rcut': 4.0, 'rcut_smth': 0.5, 'sel': [6, 12, 4]},
     {'type': 'se_e2_r', 'rcut': 3.0, 'rcut_smth': 1.0, 'sel': [3, 14, 2]},
+    {'type': 'se_e3', 'rcut': 3.5, 'rcut_smth': 0.8, 'sel': [5, 9, 3]},
 ]
+KINDS = {'se_e2_a': DescrptSeA, 'se_e2_r': DescrptSeR, 'se_e3': DescrptSeT}
 
 
 def load(path):
@@ -108,7 +112,7 @@ def main():
     ntypes = len(type_map)
     descriptors = []
     for part in PARTS:
-        kind = DescrptSeA if part['type'] == 'se_e2_a' else DescrptSeR
+        kind = KINDS[part['type']]
         descriptors.append(kind(part['rcut'], part['rcut_smth'], part['sel'], precision='float64'))
     hybrid = DescrptHybrid(list=descriptors)
     list_rcut, list_sel = float(hybrid.get_rcut()), [int(s) for s in hybrid.get_sel()]
@@ -132,8 +136,7 @@ def main():
     # check of `forward_statistics` against DeePMD-kit's own.
     for part in PARTS:
         whole = {**part, 'rcut': list_rcut, 'sel': list_sel}
-        kind = DescrptSeA if part['type'] == 'se_e2_a' else DescrptSeR
-        alone = kind(list_rcut, part['rcut_smth'], list_sel, precision='float64')
+        alone = KINDS[part['type']](list_rcut, part['rcut_smth'], list_sel, precision='float64')
         alone.compute_input_stats(systems)
         davg, dstd = forward_statistics(systems, ntypes, whole, list_rcut, list_sel)
         assert np.allclose(davg, np.asarray(alone.davg)[:, 0, :], rtol=0, atol=1e-12), part['type']
