@@ -232,7 +232,10 @@ followed over for a table with an origin, and the model and types in the
 message of a refusal. One mutant is left out as equivalent: pieces of a
 two-body table to the power of two beyond the next one, where no input is
 looked up. The first 76 ran before the last commit of the code, which
-changed comments and usage texts.
+changed comments and usage texts; the 34 of the builder ran again after
+the last change of its tests (the comparison of a table of one side with
+the table of two, within rounding where it was bit for bit) and are caught
+as before.
 
 Locally: workspace 232, engine with `native-gpu` 93, GPU crates 183, each
 in release and debug; `cargo fmt --check` clean; the legacy `cuda` features
