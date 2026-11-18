@@ -1,16 +1,20 @@
 //! Tables of an embedding net in pieces of uneven length.
 //!
-//! The two-body descriptors give their embedding nets a normalized radial
-//! entry of some tens of units at most, and their tables have a knot every
-//! hundredth of a unit. The θ of se_e3, the product of two normalized
-//! directions, spans thousands of units (±1,400 for neighbors from 0.9 Å in
-//! the HAP models, whose directions have a width of 0.03), and a trained net
-//! turns within a hundredth of a unit where its data is and not at all over
-//! most of the rest. A table of one step is then wrong by percent, or has
-//! gigabytes.
+//! A trained embedding net turns within a hundredth of a unit of its input
+//! where its data is and not at all over most of the rest. The two-body
+//! descriptors give their nets a normalized radial entry of some tens of
+//! units (up to 160 for a neighbor at 0.1 Å in the HAP models); the θ of
+//! se_e3, the product of two normalized directions, spans thousands (±1,400
+//! for neighbors from 0.9 Å in those models, whose directions have a width
+//! of 0.03). A table of one step is then coarse where the net turns and fine
+//! where nothing happens. With a knot every hundredth of a unit it follows
+//! the radial nets of a trained HAP model to 2e-5 of their largest value at
+//! its worst place (to 7e-4 for a model with a cutoff of 4 Å) and takes
+//! 390 MiB in float64; for the nets of se_e3 it is wrong by percent with the
+//! step DeePMD-kit takes, or has gigabytes.
 //!
-//! So the pieces here are of uneven length. The range ±2^top is halved again
-//! and again, and a piece is kept when
+//! So the pieces here are of uneven length. The range of a table, 2^top from
+//! where it counts, is halved again and again, and a piece is kept when
 //! - no unit of the net that may be in the bent part of its activation moves
 //!   by more than [`MOVE`] in its argument over the piece (bounds by interval
 //!   arithmetic, [`Network::bent_movement`]), so that the net has no feature
@@ -26,10 +30,7 @@
 //! and se_e2_r have it at the entry of a neighbor at the cutoff, the lowest
 //! their input takes, and pieces above it only: the place in the table is
 //! then s(r) over the width of the radial entry, which the device has
-//! without a subtraction. (The pieces are for the same reason as for se_e3:
-//! a table with a knot every hundredth of a unit follows the nets of a
-//! trained HAP model to 2e-5 of their largest value at its worst place,
-//! where these follow them to a tolerance.)
+//! without a subtraction.
 //!
 //! A net is not computed more exactly than its sums allow: a unit with a
 //! large weight and a large bias, which cancel where it turns, is exact to

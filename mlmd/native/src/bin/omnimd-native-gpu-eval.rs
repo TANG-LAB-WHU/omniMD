@@ -11,11 +11,13 @@
 //! evaluations of each frame after one warmup and prints one JSON line per
 //! frame to stderr; `--profile` adds per-stage times from one extra,
 //! synchronized evaluation. `--chunk` overrides the per-chunk atom count.
-//! `--compress RMIN` tabulates the embedding nets for neighbor distances
-//! down to RMIN Å (table step 0.01 unless given; for se_e3 the step sets
-//! the tolerance of tables in pieces of uneven length); frames with pairs
-//! closer than a fifth of RMIN fall back to the exact networks, and the
-//! size of the tables is printed. `--fused-fitting ATOMS` sets the largest
+//! `--compress RMIN` replaces the embedding nets by tables in pieces of
+//! uneven length, each within a tolerance of its net (that of a table with
+//! a knot every 0.01 on a smooth net, or of another step if `:STEP` is
+//! given). RMIN is a distance in Å below the shortest expected: the tables
+//! reach to a fifth of it, frames with closer pairs fall back to the exact
+//! networks, and the size of the tables is printed. `--fused-fitting ATOMS`
+//! sets the largest
 //! chunk whose fitting nets run in the single fused kernel instead of cuBLAS
 //! (0 disables it); the default suits an RTX 4090.
 //!

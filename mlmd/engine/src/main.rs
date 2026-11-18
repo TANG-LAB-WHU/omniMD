@@ -38,9 +38,11 @@ struct GpuRuntimeOptions {
     #[serde(default)]
     precision: NetworkPrecision,
     /// Tabulate the embedding nets for neighbor distances down to this many
-    /// angstrom; closer pairs fall back to the exact networks.
+    /// angstrom; pairs closer than a fifth of it fall back to the exact
+    /// networks.
     compress_min_distance: Option<f64>,
-    /// Table step in the normalized radial input (default 0.01).
+    /// The tolerance of the tables, named by the step of the table of one
+    /// step it stands for (default 0.01; see `GpuPotential::compress`).
     table_step: Option<f64>,
 }
 
