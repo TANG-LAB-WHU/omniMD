@@ -62,6 +62,8 @@ model, and the time to make them:
   smaller (the pipeline's 1.8 to 1.9 times), not the factor of float32.
 - se_e3 is as it was: the same pieces, to the same numbers.
 - No frame left the tables, of either kind.
+- (The section below has 2.2e-7 where the second row has 2.1e-7 for the
+  tables of one step: the same 2.149e-7, rounded twice there.)
 
 In float32 a table cannot be closer to its net than the net is computed,
 so the differences are those of rounding. The largest difference of a force
