@@ -464,7 +464,7 @@ fn compressed_embedding_matches_cpu_and_falls_back_outside_the_table() {
     // A net that turns within a hundred-thousandth of a unit at the entry
     // 11.8, twelve units from that of a neighbor at the cutoff, where a
     // float32 has steps of 1e-6: too few for a piece. The potential says
-    // which net of which member and where, and goes on with its nets.
+    // which net of which model and where, and goes on with its nets.
     let mut sharp = model.clone();
     let normalization = &sharp.descriptor.normalization[1];
     let turn = -normalization.mean[0] / normalization.std[0] + 12.0;
@@ -475,7 +475,7 @@ fn compressed_embedding_matches_cpu_and_falls_back_outside_the_table() {
     let mut single = GpuPotential::<f32>::committee(&[&model, &sharp], device).unwrap();
     let error = single.compress(0.8, 0.01).unwrap_err().to_string();
     assert!(
-        error.contains("se_e2_a for a center of type 1 and neighbors of type 0")
+        error.contains("se_e2_a of model 1 for a center of type 1 and neighbors of type 0")
             && error.contains("turns too fast"),
         "{error}"
     );
@@ -1773,12 +1773,20 @@ fn se_e3_tables_follow_the_nets_and_give_way_outside_their_range() {
     let first = &mut sharp.descriptor.embedding[0][0].layers[0];
     first.weights[0][0] = 2000.0;
     first.bias[0] = -2000.0 * 200.0;
-    let mut single = GpuPotential::<f32>::new(&sharp, device).unwrap();
+    let mut single = GpuPotential::<f32>::new(&sharp, device.clone()).unwrap();
     let error = single.compress(0.8, 0.01).unwrap_err().to_string();
     assert!(
         error.contains("se_e3 for neighbors of types 0 and 0") && error.contains("turns too fast"),
         "{error}"
     );
+    // In a committee the model of the net is named as well.
+    let mut members = GpuPotential::<f32>::committee(&[&model, &sharp], device).unwrap();
+    let of_members = members.compress(0.8, 0.01).unwrap_err().to_string();
+    assert!(
+        of_members.contains("se_e3 of model 1 for neighbors of types 0 and 0"),
+        "{of_members}"
+    );
+    assert!(!members.is_compressed());
     let place: f64 = error
         .split("near ")
         .nth(1)

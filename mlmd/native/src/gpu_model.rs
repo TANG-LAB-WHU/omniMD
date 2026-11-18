@@ -2070,6 +2070,7 @@ impl<P: Scalar> Part<P> {
     ) -> Result<CellTable<P>> {
         let options = table_options::<P>(step);
         let nearest = self.radial_entry(min_distance / TAIL_REACH);
+        let models = self.embedding_host.len() / ntypes.max(1);
         // Every net with the origin and the reach of its central type.
         let mut nets = Vec::new();
         for (center, (row, &(mean, std))) in self
@@ -2084,19 +2085,21 @@ impl<P: Scalar> Part<P> {
                 origin: -mean / std,
                 below: false,
             };
+            let of = (center / ntypes, center % ntypes);
             nets.extend(
                 row.iter()
                     .enumerate()
-                    .map(|(neighbor, network)| (network, span, reach, center % ntypes, neighbor)),
+                    .map(|(neighbor, network)| (network, span, reach, of, neighbor)),
             );
         }
         // A table is some thousands of evaluations of its net with two
         // derivatives, and the nets do not depend on each other: all cores.
-        let segments = in_parallel(&nets, |&(network, span, reach, center, neighbor)| {
+        let segments = in_parallel(&nets, |&(network, span, reach, (model, center), neighbor)| {
             let table = NetTable::build(network, span, options).map_err(|e| {
                 Error(format!(
-                    "the embedding net of {} for a center of type {center} and neighbors of type {neighbor}: {e}",
-                    self.kind.name()
+                    "the embedding net of {}{} for a center of type {center} and neighbors of type {neighbor}: {e}",
+                    self.kind.name(),
+                    of_model(model, models)
                 ))
             })?;
             Ok(CellSegments {
@@ -2150,14 +2153,15 @@ impl<P: Scalar> Part<P> {
                     of[(model * ntypes + tj) * ntypes + tk] = index;
                     of[(model * ntypes + tk) * ntypes + tj] = index;
                     let network = &self.embedding_host[model * ntypes + tj][tk];
-                    nets.push((network, span, reach, tj, tk));
+                    nets.push((network, span, reach, model, tj, tk));
                 }
             }
         }
-        let segments = in_parallel(&nets, |&(network, span, reach, tj, tk)| {
+        let segments = in_parallel(&nets, |&(network, span, reach, model, tj, tk)| {
             let table = NetTable::build(network, span, options).map_err(|e| {
                 Error(format!(
-                    "the embedding net of se_e3 for neighbors of types {tj} and {tk}: {e}"
+                    "the embedding net of se_e3{} for neighbors of types {tj} and {tk}: {e}",
+                    of_model(model, models)
                 ))
             })?;
             Ok(CellSegments {
@@ -2171,6 +2175,15 @@ impl<P: Scalar> Part<P> {
         .into_iter()
         .collect::<Result<Vec<_>>>()?;
         CellTable::new_set(device, self.width, options.key_bits, &segments, &of)
+    }
+}
+
+/// Which model of several a net belongs to, for the message that refuses
+/// its table: nothing for a potential of one model.
+fn of_model(model: usize, models: usize) -> String {
+    match models {
+        0 | 1 => String::new(),
+        _ => format!(" of model {model}"),
     }
 }
 
