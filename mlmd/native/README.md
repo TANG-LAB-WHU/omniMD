@@ -12,8 +12,8 @@ This is a progressively implemented subset, not all DeepMD functionality:
 | --- | --- | --- |
 | Native-v1 se_e2_a scalar-energy inference, E/F/virial | Implemented | Implemented within [CUDA bounds](CUDA.md) |
 | Native-v1 se_e2_r (radial descriptor) inference, E/F/virial | Implemented | On the [GPU runtime](../gpu/README.md) (`gpu` feature), whose [trainer](GPU_TRAINING.md) also trains it; the CUDA subset and the bounded trainers refuse it |
-| Native-v1 se_e3 (three-body descriptor) inference, E/F/virial | Implemented | On the [GPU runtime](../gpu/README.md) (`gpu` feature), with the exact embedding nets (no tables), whose [trainer](GPU_TRAINING.md) also trains it; the CUDA subset and the bounded trainers refuse it |
-| Native-v1 hybrid (several of these descriptors in one model) inference, E/F/virial | Implemented | On the [GPU runtime](../gpu/README.md) (`gpu` feature), with tables for its se_e2_a and se_e2_r descriptors if asked; its [trainer](GPU_TRAINING.md) trains a hybrid of any of the three descriptors; the CUDA subset and the bounded trainers refuse it |
+| Native-v1 se_e3 (three-body descriptor) inference, E/F/virial | Implemented | On the [GPU runtime](../gpu/README.md) (`gpu` feature), with [tables for its embedding nets](#embedding-tables) if asked, whose [trainer](GPU_TRAINING.md) also trains it; the CUDA subset and the bounded trainers refuse it |
+| Native-v1 hybrid (several of these descriptors in one model) inference, E/F/virial | Implemented | On the [GPU runtime](../gpu/README.md) (`gpu` feature), with [tables](#embedding-tables) for every descriptor if asked; its [trainer](GPU_TRAINING.md) trains a hybrid of any of the three descriptors; the CUDA subset and the bounded trainers refuse it |
 | tanh/linear, explicit residuals and timesteps | Implemented | Implemented |
 | sigmoid/softplus inference | Implemented | Rejected |
 | Final-readout E/F fitting | Implemented, bounded | Implemented: GPU features, CPU QR/assessment |

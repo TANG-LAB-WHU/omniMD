@@ -857,6 +857,17 @@ mod tests {
         let table = NetTable::build(&network, 11, coarser).unwrap();
         let (value, _) = worst(&table, &network, near());
         assert!(value <= 1.5e-9, "{value:e}");
+        // A tolerance far below the rounding of the net asks for what no
+        // piece can give: without the allowance for that rounding the
+        // halving would go on to the last bit of θ and fail there.
+        let finer = TableOptions {
+            tolerance: 1e-14,
+            ..DOUBLE
+        };
+        let table = NetTable::build(&network, 11, finer).unwrap();
+        let (value, _) = worst(&table, &network, near());
+        assert!(value <= 2e-10, "{value:e}");
+        assert!(table.pieces() < 300_000, "{}", table.pieces());
         // What cannot be a table at all.
         let two_inputs = Network {
             layers: vec![Layer {

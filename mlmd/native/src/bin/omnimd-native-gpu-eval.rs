@@ -137,8 +137,11 @@ fn evaluate<P: Scalar>(
     if let Some(atoms) = options.fused_fitting {
         gpu.set_fused_fitting_max_atoms(atoms);
     }
+    let mut build_seconds = 0.0;
     if let Some((min_distance, step)) = options.compress {
+        let start = Instant::now();
         gpu.compress(min_distance, step)?;
+        build_seconds = start.elapsed().as_secs_f64();
     }
     if let Some(on) = options.tiled_fitting {
         if gpu.set_tiled_fitting(on) != on {
@@ -162,7 +165,7 @@ fn evaluate<P: Scalar>(
     if gpu.is_compressed() {
         let (bytes, pieces) = gpu.table_size();
         eprintln!(
-            "tables: {:.1} MiB on the device{}",
+            "tables: {:.1} MiB on the device{}, made in {build_seconds:.2} s",
             bytes as f64 / (1 << 20) as f64,
             match pieces {
                 0 => String::new(),

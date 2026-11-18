@@ -10,6 +10,7 @@ NVRTC at run time (and cached on disk), launched through `cudarc`.
 | `Device`, `KernelCache` | context, stream, cuBLAS handle; compiled kernels by source hash, in memory and on disk |
 | `NeighborSearch`, `NeighborList` | cell-list search with DeePMD's selection, for one system or several that do not see each other; the search keeps its buffers between calls |
 | `ScalarNetwork`, `ScalarTable` | embedding nets (value and tangent in one launch), exactly or as quintic tables |
+| `CellTable` | quintic tables in pieces of uneven length for a net whose input spans far more than its finest feature (the θ of se_e3): the piece of an input is found from its sign, its exponent and its first bits, with nothing rounded on the way in float32 or float64. `CELL_LOOKUP` is the lookup as CUDA source, for kernels that read such tables themselves |
 | `GradientNetwork` | fitting nets, forward and backward (few atoms): one launch, or three with a wide first layer in tiles through shared memory and the other layers two rows a block |
 | `DenseNetwork` | fitting nets layer by layer on cuBLAS (many atoms) |
 | `TrainSet`, `TrainNetwork` | networks with tangents and parameter gradients for the trainer |

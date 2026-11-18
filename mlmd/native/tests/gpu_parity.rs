@@ -1605,6 +1605,33 @@ fn se_e3_tables_follow_the_nets_and_give_way_outside_their_range() {
         );
         assert_eq!(short.table_fallbacks(), fallbacks, "at {factor} of the end");
     }
+    // Every member of a committee has the range of its own widths. A second
+    // member whose directions are divided by half as much has four times
+    // the θ: for a pair just inside the end of the first member's tables
+    // that is far outside them and inside its own, so nothing goes back to
+    // the nets, and each member is its model.
+    let mut narrow = model.clone();
+    for normalization in &mut narrow.descriptor.normalization {
+        let direction = normalization.std[1] / 2.0;
+        normalization.std = [1.0, direction, direction, direction];
+    }
+    let mut both = GpuPotential::<f64>::committee(&[&model, &narrow], device.clone()).unwrap();
+    both.compress(2.0, 0.01).unwrap();
+    let inside = pair(edge * 1.001);
+    let of_members = both.eval_members(&[&inside]).unwrap().remove(0);
+    for (member, (got, of)) in of_members.iter().zip([&model, &narrow]).enumerate() {
+        let exact = NativePotential::new(of.clone())
+            .unwrap()
+            .eval(&inside)
+            .unwrap();
+        compare(
+            &format!("three-body tables, member {member} at the end of the first member's"),
+            got,
+            &exact,
+            TABLES,
+        );
+    }
+    assert_eq!(both.table_fallbacks(), 0);
     // The frames above are within these tables as well, at the tolerance of
     // any (there is no coarser part).
     compare(

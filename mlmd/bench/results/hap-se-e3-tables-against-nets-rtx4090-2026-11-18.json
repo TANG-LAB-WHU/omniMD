@@ -1,0 +1,188 @@
+{
+ "date": "2026-11-18",
+ "device": "NVIDIA GeForce RTX 4090",
+ "what": "omnimd-native-gpu-eval on the 83 frames of the sealed test (mlmd/bench/cases/hap/frames.jsonl), with the exact embedding nets and with --compress 0.5 (step 0.01; the shortest distance in these frames is 0.890 A): the largest difference over the frames and the four models of a group",
+ "groups": {
+  "se_e3 to 4 A (full-e3-f32-K)": {
+   "float64": {
+    "largest_difference": {
+     "energy_ev_per_atom": 1.8189894035458566e-13,
+     "force_ev_per_angstrom": 1.564175455825989e-10,
+     "virial_ev": 6.487823611678323e-10
+    },
+    "largest_force_component_ev_per_angstrom": 6.108210741566655,
+    "tables": [
+     "tables: 50.4 MiB on the device, 27185 pieces for the nets of se_e3",
+     "tables: 49.5 MiB on the device, 26694 pieces for the nets of se_e3",
+     "tables: 47.8 MiB on the device, 25768 pieces for the nets of se_e3",
+     "tables: 48.4 MiB on the device, 26090 pieces for the nets of se_e3"
+    ],
+    "frames_outside_the_tables": 0
+   },
+   "float32": {
+    "largest_difference": {
+     "energy_ev_per_atom": 2.0563602447509767e-07,
+     "force_ev_per_angstrom": 1.3455281384078255e-05,
+     "virial_ev": 0.00013640892698285612
+    },
+    "largest_force_component_ev_per_angstrom": 6.108209934721204,
+    "tables": [
+     "tables: 4.1 MiB on the device, 4092 pieces for the nets of se_e3",
+     "tables: 4.1 MiB on the device, 4121 pieces for the nets of se_e3",
+     "tables: 4.0 MiB on the device, 3982 pieces for the nets of se_e3",
+     "tables: 4.0 MiB on the device, 3993 pieces for the nets of se_e3"
+    ],
+    "frames_outside_the_tables": 0
+   },
+   "float32_against_the_float64_nets_force_ev_per_angstrom": {
+    "float32 nets": 8.52459463762667e-06,
+    "float32 tables": 9.459931654687281e-06
+   }
+  },
+  "se_e2_a to 6 A with se_e3 to 4 A (full-hp-f32-K)": {
+   "float64": {
+    "largest_difference": {
+     "energy_ev_per_atom": 3.233758939637078e-12,
+     "force_ev_per_angstrom": 2.0846584347644637e-08,
+     "virial_ev": 6.27778327100259e-08
+    },
+    "largest_force_component_ev_per_angstrom": 6.195188779535849,
+    "tables": [
+     "tables: 433.0 MiB on the device, 21868 pieces for the nets of se_e3",
+     "tables: 432.6 MiB on the device, 21662 pieces for the nets of se_e3",
+     "tables: 435.6 MiB on the device, 23289 pieces for the nets of se_e3",
+     "tables: 432.3 MiB on the device, 21460 pieces for the nets of se_e3"
+    ],
+    "frames_outside_the_tables": 0
+   },
+   "float32": {
+    "largest_difference": {
+     "energy_ev_per_atom": 1.876442520706742e-07,
+     "force_ev_per_angstrom": 5.315166622832379e-06,
+     "virial_ev": 6.773463502440791e-05
+    },
+    "largest_force_component_ev_per_angstrom": 6.195189314355833,
+    "tables": [
+     "tables: 199.6 MiB on the device, 3393 pieces for the nets of se_e3",
+     "tables: 199.6 MiB on the device, 3386 pieces for the nets of se_e3",
+     "tables: 199.7 MiB on the device, 3527 pieces for the nets of se_e3",
+     "tables: 199.6 MiB on the device, 3326 pieces for the nets of se_e3"
+    ],
+    "frames_outside_the_tables": 0
+   },
+   "float32_against_the_float64_nets_force_ev_per_angstrom": {
+    "float32 nets": 5.206280730279955e-06,
+    "float32 tables": 7.969662668499966e-06
+   }
+  },
+  "the earlier hybrid, se_e2_a to 5 A with se_e3 to 3.2 A (full-ho-f32-K)": {
+   "float64": {
+    "largest_difference": {
+     "energy_ev_per_atom": 1.4821395140003276e-11,
+     "force_ev_per_angstrom": 1.851637310146259e-07,
+     "virial_ev": 9.261474946953285e-07
+    },
+    "largest_force_component_ev_per_angstrom": 6.010824757270954,
+    "tables": [
+     "tables: 146.6 MiB on the device, 17490 pieces for the nets of se_e3",
+     "tables: 146.7 MiB on the device, 17540 pieces for the nets of se_e3",
+     "tables: 148.2 MiB on the device, 18586 pieces for the nets of se_e3",
+     "tables: 147.5 MiB on the device, 18054 pieces for the nets of se_e3"
+    ],
+    "frames_outside_the_tables": 0
+   },
+   "float32": {
+    "largest_difference": {
+     "energy_ev_per_atom": 1.1934233563286917e-07,
+     "force_ev_per_angstrom": 8.655656438483206e-06,
+     "virial_ev": 0.00012255090680124425
+    },
+    "largest_force_component_ev_per_angstrom": 6.010824007601893,
+    "tables": [
+     "tables: 62.5 MiB on the device, 2669 pieces for the nets of se_e3",
+     "tables: 62.5 MiB on the device, 2727 pieces for the nets of se_e3",
+     "tables: 62.6 MiB on the device, 2844 pieces for the nets of se_e3",
+     "tables: 62.5 MiB on the device, 2751 pieces for the nets of se_e3"
+    ],
+    "frames_outside_the_tables": 0
+   },
+   "float32_against_the_float64_nets_force_ev_per_angstrom": {
+    "float32 nets": 6.561059365139954e-06,
+    "float32 tables": 9.710209507463041e-06
+   }
+  },
+  "se_e2_a to 6 A, trained by omniMD (hap-iter0-pre/ens4-f32-K)": {
+   "float64": {
+    "largest_difference": {
+     "energy_ev_per_atom": 2.2905792489095972e-11,
+     "force_ev_per_angstrom": 2.1486599699471753e-07,
+     "virial_ev": 8.115662684105018e-07
+    },
+    "largest_force_component_ev_per_angstrom": 6.1943757796739325,
+    "tables": [
+     "tables: 392.4 MiB on the device",
+     "tables: 392.4 MiB on the device",
+     "tables: 392.4 MiB on the device",
+     "tables: 392.4 MiB on the device"
+    ],
+    "frames_outside_the_tables": 0
+   },
+   "float32": {
+    "largest_difference": {
+     "energy_ev_per_atom": 2.0992010831832886e-07,
+     "force_ev_per_angstrom": 7.569707505150625e-06,
+     "virial_ev": 0.00016254633855083966
+    },
+    "largest_force_component_ev_per_angstrom": 6.194375356795427,
+    "tables": [
+     "tables: 196.2 MiB on the device",
+     "tables: 196.2 MiB on the device",
+     "tables: 196.2 MiB on the device",
+     "tables: 196.2 MiB on the device"
+    ],
+    "frames_outside_the_tables": 0
+   },
+   "float32_against_the_float64_nets_force_ev_per_angstrom": {
+    "float32 nets": 7.710549687095503e-06,
+    "float32 tables": 8.905751054388844e-06
+   }
+  },
+  "se_e2_a to 6 A, the models of iteration 4 of the pipeline, trained by DeePMD-kit (hap/model-K)": {
+   "float64": {
+    "largest_difference": {
+     "energy_ev_per_atom": 8.43741603333641e-10,
+     "force_ev_per_angstrom": 3.889026898518111e-06,
+     "virial_ev": 2.0138229640309646e-05
+    },
+    "largest_force_component_ev_per_angstrom": 6.167340150428636,
+    "tables": [
+     "tables: 393.4 MiB on the device",
+     "tables: 392.1 MiB on the device",
+     "tables: 392.8 MiB on the device",
+     "tables: 392.5 MiB on the device"
+    ],
+    "frames_outside_the_tables": 0
+   },
+   "float32": {
+    "largest_difference": {
+     "energy_ev_per_atom": 2.39349901676178e-07,
+     "force_ev_per_angstrom": 6.438080895954101e-06,
+     "virial_ev": 0.00010327270919674447
+    },
+    "largest_force_component_ev_per_angstrom": 6.167338841261618,
+    "tables": [
+     "tables: 196.7 MiB on the device",
+     "tables: 196.1 MiB on the device",
+     "tables: 196.4 MiB on the device",
+     "tables: 196.3 MiB on the device"
+    ],
+    "frames_outside_the_tables": 0
+   },
+   "float32_against_the_float64_nets_force_ev_per_angstrom": {
+    "float32 nets": 8.904808519671903e-06,
+    "float32 tables": 8.72217252068097e-06
+   }
+  }
+ },
+ "float32_against_the_float64_nets": "the largest difference of a force component from the float64 nets, of the float32 nets and of the float32 tables: what float32 itself is off by"
+}

@@ -1,0 +1,107 @@
+{
+ "date": "2026-11-18",
+ "device": "NVIDIA GeForce RTX 4090",
+ "what": "omnimd-native-gpu-eval --bench 3000 on one frame, energy, forces and virial; the cases alternated in 4 rounds, the least of each kept; microseconds per evaluation",
+ "tables": "--compress 0.5: tables for the nets of every descriptor (se_e2_a: knots every 0.01; se_e3: pieces of uneven length within 1e-13 of the net in float64, 1.5e-8 in float32)",
+ "table_fallbacks": 0,
+ "table_sizes": {
+  "float32 with embedding tables": {
+   "se_e2_a to 6 A (hap-iter0-pre/ens4-f32-0)": "tables: 196.2 MiB on the device",
+   "se_e2_a to 6 A with se_e3 to 4 A (full-hp-f32-0)": "tables: 199.6 MiB on the device, 3393 pieces for the nets of se_e3",
+   "the earlier hybrid, se_e2_a to 5 A with se_e3 to 3.2 A (full-ho-f32-0)": "tables: 62.5 MiB on the device, 2669 pieces for the nets of se_e3",
+   "se_e3 to 4 A (full-e3-f32-0)": "tables: 4.1 MiB on the device, 4092 pieces for the nets of se_e3"
+  },
+  "float64 with embedding tables": {
+   "se_e2_a to 6 A (hap-iter0-pre/ens4-f32-0)": "tables: 392.4 MiB on the device",
+   "se_e2_a to 6 A with se_e3 to 4 A (full-hp-f32-0)": "tables: 433.0 MiB on the device, 21868 pieces for the nets of se_e3",
+   "the earlier hybrid, se_e2_a to 5 A with se_e3 to 3.2 A (full-ho-f32-0)": "tables: 146.6 MiB on the device, 17490 pieces for the nets of se_e3",
+   "se_e3 to 4 A (full-e3-f32-0)": "tables: 50.4 MiB on the device, 27185 pieces for the nets of se_e3"
+  }
+ },
+ "models": [
+  "se_e2_a to 6 A (hap-iter0-pre/ens4-f32-0)",
+  "se_e2_a to 6 A with se_e3 to 4 A (full-hp-f32-0)",
+  "the earlier hybrid, se_e2_a to 5 A with se_e3 to 3.2 A (full-ho-f32-0)",
+  "se_e3 to 4 A (full-e3-f32-0)"
+ ],
+ "microseconds_per_evaluation": {
+  "hap_bulk__H4Ca20O52P12 (88 atoms)": {
+   "float32": {
+    "se_e2_a to 6 A (hap-iter0-pre/ens4-f32-0)": 207.1,
+    "se_e2_a to 6 A with se_e3 to 4 A (full-hp-f32-0)": 327.6,
+    "the earlier hybrid, se_e2_a to 5 A with se_e3 to 3.2 A (full-ho-f32-0)": 206.0,
+    "se_e3 to 4 A (full-e3-f32-0)": 204.6
+   },
+   "float32 with embedding tables": {
+    "se_e2_a to 6 A (hap-iter0-pre/ens4-f32-0)": 180.4,
+    "se_e2_a to 6 A with se_e3 to 4 A (full-hp-f32-0)": 281.0,
+    "the earlier hybrid, se_e2_a to 5 A with se_e3 to 3.2 A (full-ho-f32-0)": 192.8,
+    "se_e3 to 4 A (full-e3-f32-0)": 174.2
+   },
+   "float64": {
+    "se_e2_a to 6 A (hap-iter0-pre/ens4-f32-0)": 729.9,
+    "se_e2_a to 6 A with se_e3 to 4 A (full-hp-f32-0)": 1221.7,
+    "the earlier hybrid, se_e2_a to 5 A with se_e3 to 3.2 A (full-ho-f32-0)": 389.7,
+    "se_e3 to 4 A (full-e3-f32-0)": 592.4
+   },
+   "float64 with embedding tables": {
+    "se_e2_a to 6 A (hap-iter0-pre/ens4-f32-0)": 443.7,
+    "se_e2_a to 6 A with se_e3 to 4 A (full-hp-f32-0)": 588.0,
+    "the earlier hybrid, se_e2_a to 5 A with se_e3 to 3.2 A (full-ho-f32-0)": 246.9,
+    "se_e3 to 4 A (full-e3-f32-0)": 263.8
+   }
+  },
+  "hap001_water_co2__C2H54Ca20O81P12 (169 atoms)": {
+   "float32": {
+    "se_e2_a to 6 A (hap-iter0-pre/ens4-f32-0)": 260.7,
+    "se_e2_a to 6 A with se_e3 to 4 A (full-hp-f32-0)": 440.6,
+    "the earlier hybrid, se_e2_a to 5 A with se_e3 to 3.2 A (full-ho-f32-0)": 225.8,
+    "se_e3 to 4 A (full-e3-f32-0)": 275.4
+   },
+   "float32 with embedding tables": {
+    "se_e2_a to 6 A (hap-iter0-pre/ens4-f32-0)": 218.6,
+    "se_e2_a to 6 A with se_e3 to 4 A (full-hp-f32-0)": 334.7,
+    "the earlier hybrid, se_e2_a to 5 A with se_e3 to 3.2 A (full-ho-f32-0)": 218.2,
+    "se_e3 to 4 A (full-e3-f32-0)": 215.3
+   },
+   "float64": {
+    "se_e2_a to 6 A (hap-iter0-pre/ens4-f32-0)": 1259.0,
+    "se_e2_a to 6 A with se_e3 to 4 A (full-hp-f32-0)": 2136.8,
+    "the earlier hybrid, se_e2_a to 5 A with se_e3 to 3.2 A (full-ho-f32-0)": 447.4,
+    "se_e3 to 4 A (full-e3-f32-0)": 1048.7
+   },
+   "float64 with embedding tables": {
+    "se_e2_a to 6 A (hap-iter0-pre/ens4-f32-0)": 767.0,
+    "se_e2_a to 6 A with se_e3 to 4 A (full-hp-f32-0)": 959.3,
+    "the earlier hybrid, se_e2_a to 5 A with se_e3 to 3.2 A (full-ho-f32-0)": 286.8,
+    "se_e3 to 4 A (full-e3-f32-0)": 388.9
+   }
+  },
+  "monetite_CaHPO4__H32Ca32O128P32 (224 atoms)": {
+   "float32": {
+    "se_e2_a to 6 A (hap-iter0-pre/ens4-f32-0)": 299.1,
+    "se_e2_a to 6 A with se_e3 to 4 A (full-hp-f32-0)": 522.5,
+    "the earlier hybrid, se_e2_a to 5 A with se_e3 to 3.2 A (full-ho-f32-0)": 252.7,
+    "se_e3 to 4 A (full-e3-f32-0)": 327.1
+   },
+   "float32 with embedding tables": {
+    "se_e2_a to 6 A (hap-iter0-pre/ens4-f32-0)": 240.1,
+    "se_e2_a to 6 A with se_e3 to 4 A (full-hp-f32-0)": 349.9,
+    "the earlier hybrid, se_e2_a to 5 A with se_e3 to 3.2 A (full-ho-f32-0)": 222.7,
+    "se_e3 to 4 A (full-e3-f32-0)": 237.2
+   },
+   "float64": {
+    "se_e2_a to 6 A (hap-iter0-pre/ens4-f32-0)": 1536.4,
+    "se_e2_a to 6 A with se_e3 to 4 A (full-hp-f32-0)": 2756.4,
+    "the earlier hybrid, se_e2_a to 5 A with se_e3 to 3.2 A (full-ho-f32-0)": 626.4,
+    "se_e3 to 4 A (full-e3-f32-0)": 1389.5
+   },
+   "float64 with embedding tables": {
+    "se_e2_a to 6 A (hap-iter0-pre/ens4-f32-0)": 799.3,
+    "se_e2_a to 6 A with se_e3 to 4 A (full-hp-f32-0)": 1016.4,
+    "the earlier hybrid, se_e2_a to 5 A with se_e3 to 3.2 A (full-ho-f32-0)": 325.7,
+    "se_e3 to 4 A (full-e3-f32-0)": 434.5
+   }
+  }
+ }
+}

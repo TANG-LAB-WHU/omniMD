@@ -63,7 +63,9 @@ because the untrained models do not store one), then step 3 with
 `--skip-deeppot --compressed`. Before it is timed, compare the compressed
 model with the uncompressed one on a frame (`deepmd.infer.DeepPot` on both):
 DeePMD-kit 3.1.3's tables for se_e2_a and se_e2_r reproduce the nets, alone
-and in a hybrid, its tables for se_e3 do not (see the summary).
+and in a hybrid, its tables for se_e3 do not (see the summary). omniMD's
+own tables for se_e3 are held against its exact nets, which equal
+DeePMD-kit's uncompressed model.
 
 The models are untrained and have no repulsion, so the LAMMPS run of step 3
 is dynamics in which the atoms fall into each other sooner or later; its log

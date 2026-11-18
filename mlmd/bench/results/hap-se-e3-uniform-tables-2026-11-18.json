@@ -1,0 +1,59 @@
+{
+ "model": "full-e3-f32-0.native.json",
+ "neighbors_from_angstrom": 0.9,
+ "what": "quintic tables with a knot every step of theta over the range neighbors from that distance reach, against the nets at 20,000 random theta of each net: the worst net of each se_e3 descriptor",
+ "descriptors": [
+  {
+   "rcut": 4.0,
+   "sel": [
+    16,
+    8,
+    20,
+    24,
+    8
+   ],
+   "embedding_outputs": 40,
+   "widths_of_the_directions": [
+    0.029304785169702804,
+    0.07171749777855259,
+    0.0564954522637621,
+    0.07633782395362677,
+    0.0805364682591925
+   ],
+   "theta_reaches": 1401.9262218561498,
+   "largest_first_layer_weight": 4.4964587914128815,
+   "by_step": {
+    "0.01": {
+     "largest_value_difference_over_largest_value": 9.798463552715546e-06,
+     "largest_slope_difference_over_largest_slope": 7.26605264796523e-05,
+     "float32_megabytes_for_all_nets": 4037.5584
+    },
+    "0.02": {
+     "largest_value_difference_over_largest_value": 0.0003467225573397737,
+     "largest_slope_difference_over_largest_slope": 0.01208058422539125,
+     "float32_megabytes_for_all_nets": 2018.7792
+    },
+    "0.05": {
+     "largest_value_difference_over_largest_value": 0.0021549488943419888,
+     "largest_slope_difference_over_largest_slope": 0.09108693019702394,
+     "float32_megabytes_for_all_nets": 807.5232
+    },
+    "0.1": {
+     "largest_value_difference_over_largest_value": 0.02444315137806904,
+     "largest_slope_difference_over_largest_slope": 0.2705813095665236,
+     "float32_megabytes_for_all_nets": 403.7616
+    },
+    "0.2": {
+     "largest_value_difference_over_largest_value": 0.34342552603963744,
+     "largest_slope_difference_over_largest_slope": 0.4663641543171115,
+     "float32_megabytes_for_all_nets": 201.888
+    },
+    "0.5": {
+     "largest_value_difference_over_largest_value": 0.6058115544754422,
+     "largest_slope_difference_over_largest_slope": 0.7948803593773865,
+     "float32_megabytes_for_all_nets": 80.7552
+    }
+   }
+  }
+ ]
+}
