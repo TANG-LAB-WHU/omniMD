@@ -1118,7 +1118,12 @@ The three models with the three-body descriptor of the speed table above,
 each trained on the 171 frames with the schedule of the full run (300,000
 steps, float32 networks, four seeds at once) and scored on the 83
 sealed-test frames. Smallest and largest of the four models over all
-frames, with the models of the sections above beside them:
+frames, with the models of the sections above beside them. Those are
+earlier runs scored again today: se_e2_a to 6 Å is the full run of
+2026-11-10, whose requests are those of the second row without the
+three-body descriptor (the same frames, schedule, loss, seeds 11 to 14 and
+precision, by the build of that day), and se_e2_a to 4 Å is from the
+morning of 2026-11-17.
 
 | model | parameters | force RMSE (eV/Å) | energy RMSE (meV/atom) |
 |---|---:|---:|---:|

@@ -88,7 +88,7 @@
     }
    ],
    "test": {
-    "dataset": "D:/project/omniMD-w1/mlmd/bench/cases/hap/dataset.jsonl",
+    "dataset": "mlmd/bench/cases/hap/dataset.jsonl",
     "deepmd": {
      "force_rmse": 0.4952006759015834,
      "energy_rmse_per_atom": 0.0665593829171521,
@@ -201,7 +201,7 @@
     }
    ],
    "test": {
-    "dataset": "D:/project/omniMD-w1/mlmd/bench/cases/hap/dataset.jsonl",
+    "dataset": "mlmd/bench/cases/hap/dataset.jsonl",
     "deepmd": {
      "force_rmse": 0.6229247798116535,
      "energy_rmse_per_atom": 0.1787625438322128,

@@ -1156,7 +1156,10 @@ fn bytes_per_pair<P>(width: usize) -> usize {
 /// with a row of the atom at a time. A warp waits for the rows it reads, so
 /// a few hundred atoms go faster the more warps share an atom's rows (192
 /// atoms in float32: 0.43 ms with thirty-two warps, 0.67 with eight);
-/// thousands of atoms are bound by reading the rows either way.
+/// thousands of atoms are bound by reading the rows either way. The
+/// trainer's kernel of the adjoints of the rows runs the same way. A block
+/// of this size leaves a thread 64 registers: these kernels take 40 to 48
+/// (`ptxas -v` on the cached PTX tells).
 pub(crate) const PAIR_BLOCK: u32 = 1024;
 
 /// Threads per block of the se_e3 force kernel, which has a thread for

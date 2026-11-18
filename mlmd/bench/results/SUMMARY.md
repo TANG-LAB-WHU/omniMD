@@ -82,7 +82,10 @@ rounds (20,000 steps in float32, 6,000 in float64); DeePMD-kit 3.1.3
 
 **The full schedule: is the three-body descriptor worth it on this data?**
 300,000 steps, float32 networks, four seeds at once. Smallest and largest
-of the four models over all 83 frames:
+of the four models over all 83 frames (se_e2_a to 6 Å: the run of
+2026-11-10, the same requests without the three-body descriptor, by the
+build of that day; se_e2_a to 4 Å: the morning of 2026-11-17; both scored
+again with the others):
 
 | model | parameters | force RMSE (eV/Å) | energy RMSE (meV/atom) |
 |---|---:|---:|---:|
