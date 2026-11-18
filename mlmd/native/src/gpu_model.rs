@@ -20,7 +20,9 @@
 //! of atoms ends where its rows would be too many; the embedding nets
 //! themselves are the same kernel. With tables for these nets (in pieces of
 //! uneven length: see [`GpuPotential::compress`]) no rows of them are kept:
-//! the descriptor and force kernels read the tables themselves.
+//! the descriptor and force kernels read the tables themselves, and a frame
+//! of few atoms has its rows laid out on the device, without that download
+//! (see [`GpuPotential::layout_atoms`]).
 //!
 //! A hybrid model has several of these descriptors, whose components one
 //! after the other are the input of the fitting nets. They read one neighbor
@@ -546,6 +548,53 @@ extern "C" __global__ void se_e3_count(const int* index, int natoms, int slots, 
     int n = 0;
     for (int s = 0; s < slots; ++s) n += mine[s] >= 0;
     held[i] = n;
+}
+
+// The same layout made on the device, for a frame whose rows the host need
+// not know: `row_start[natoms + 1]`, the first row of every atom and after
+// the last the number of all rows, as the host makes it from the neighbors
+// the atoms hold. One block with a thread for every atom (and threads
+// without one, up to a whole warp): each counts the neighbors of its atom,
+// n(n + 1)/2 rows, and a scan over the block's shared memory gives every
+// atom the rows of those before it and its own. `sums`: a number per atom.
+// The neighbors of a type fill its first slots (as for `count_neighbors`),
+// so their number is the place of the first empty slot of the type, which
+// halving finds in a few loads where counting takes one for every slot. A
+// block has one multiprocessor: with a load for every slot a pass of 960
+// atoms with 138 slots each took 19 µs longer (of 1.6 ms, in float32; with
+// fewer atoms the two were within what the timings scatter). Every thread
+// goes through every barrier, with an atom or without.
+extern "C" __global__ void se_e3_layout(const int* index, const int* sel, int natoms, int slots,
+        int ntypes, long long* row_start) {
+    extern __shared__ long long sums[];
+    int t = threadIdx.x;
+    bool atom = t < natoms;
+    if (atom) {
+        const int* mine = index + (long long)t * slots;
+        int n = 0;
+        for (int u = 0; u < ntypes; ++u) {
+            // The first empty slot of the type is one of lo..hi.
+            int lo = 0, hi = sel[u];
+            while (lo < hi) {
+                int middle = (lo + hi) / 2;
+                if (mine[middle] >= 0) lo = middle + 1; else hi = middle;
+            }
+            n += lo;
+            mine += sel[u];
+        }
+        sums[t] = (long long)n * (n + 1) / 2;
+    }
+    __syncthreads();
+    // After the round of `step`, sums[t] holds the rows of the 2·step atoms
+    // up to t (or of all up to t, if they are fewer).
+    for (int step = 1; step < natoms; step *= 2) {
+        long long before = atom && t >= step ? sums[t - step] : 0;
+        __syncthreads();
+        if (atom) sums[t] += before;
+        __syncthreads();
+    }
+    if (atom) row_start[t + 1] = sums[t];
+    if (t == 0) row_start[0] = 0;
 }
 
 // The neighbors of the block's atom in shared memory, there for all threads
@@ -1282,6 +1331,9 @@ struct Kernels {
     /// se_e3: the neighbors every atom holds, the rows of their pairs, and
     /// dE/dθ of every pair, from which the force kernel goes on.
     count: Option<CudaFunction>,
+    /// se_e3: the layout of the rows made on the device (see
+    /// [`GpuPotential::layout_atoms`]).
+    layout: Option<CudaFunction>,
     pairs: Option<CudaFunction>,
     dtheta: Option<CudaFunction>,
     /// se_e3 with tables: the components and dE/dθ straight from the tables
@@ -1299,14 +1351,111 @@ struct PairRows {
     /// The first row of every atom, as if all atoms were laid out one after
     /// the other, and the number of all rows after the last.
     start: CudaSlice<i64>,
-    host: Vec<i64>,
+    known: Laid,
+}
+
+/// What the host knows of the rows of a frame.
+enum Laid {
+    /// It made the layout: the first row of every atom, as on the device.
+    OnHost(Vec<i64>),
+    /// The device made it, and the host has not seen it: an atom has at
+    /// most this many rows (every one of its slots a neighbor).
+    OnDevice { most: usize },
 }
 
 impl PairRows {
-    /// Rows of the atoms `first..end`.
+    /// Rows of the atoms `first..end`; for a layout made on the device the
+    /// most they can be. That is enough for the two things the host needs
+    /// them for with tables: buffers that hold the rows, and how far the
+    /// rows of one model are from those of the next.
     fn rows(&self, first: usize, end: usize) -> usize {
-        (self.host[end] - self.host[first]) as usize
+        match &self.known {
+            Laid::OnHost(start) => (start[end] - start[first]) as usize,
+            Laid::OnDevice { most } => (end - first) * most,
+        }
     }
+}
+
+/// The most rows an atom of an se_e3 descriptor with `slots` neighbor slots
+/// can have: the pairs of as many neighbors.
+fn most_pairs(slots: usize) -> usize {
+    slots * (slots + 1) / 2
+}
+
+/// The most atoms of a frame whose se_e3 rows are laid out on the device:
+/// the threads of one block, which has one for every atom.
+pub const LAYOUT_ATOMS: usize = 1024;
+
+/// The first row of every atom of an se_e3 descriptor, laid out by the
+/// kernel `se_e3_layout`: `index` is the table of neighbor slots the
+/// descriptor reads, `[atoms][slots]`, and `sel` its slots by type;
+/// `shape` is (atoms, slots, types). The launch is asynchronous like any
+/// other: nothing comes back to the host.
+fn lay_out_rows(
+    device: &Device,
+    function: &CudaFunction,
+    index: &CudaSlice<i32>,
+    sel: &CudaSlice<i32>,
+    shape: (usize, usize, usize),
+) -> Result<CudaSlice<i64>> {
+    let (natoms, slots, ntypes) = shape;
+    if natoms == 0 || natoms > LAYOUT_ATOMS || index.len() < natoms * slots || sel.len() < ntypes {
+        return Err(Error(format!(
+            "the rows of {natoms} atoms with {slots} slots are not laid out on the device"
+        )));
+    }
+    let (natoms_i, slots_i, ntypes_i) = (natoms as i32, slots as i32, ntypes as i32);
+    // SAFETY: the kernel writes every element.
+    let mut start = unsafe { device.alloc_uninit::<i64>(natoms + 1)? };
+    let stream = device.stream();
+    let mut launch = stream.launch_builder(function);
+    launch
+        .arg(index)
+        .arg(sel)
+        .arg(&natoms_i)
+        .arg(&slots_i)
+        .arg(&ntypes_i)
+        .arg(&mut start);
+    // One block: a thread for every atom, in whole warps, and a number for
+    // every atom in its shared memory.
+    let config = LaunchConfig {
+        grid_dim: (1, 1, 1),
+        block_dim: (natoms.next_multiple_of(32) as u32, 1, 1),
+        shared_mem_bytes: (natoms * std::mem::size_of::<i64>()) as u32,
+    };
+    unsafe { launch.launch(config) }
+        .map(drop)
+        .map_err(launch_error("row layout"))?;
+    Ok(start)
+}
+
+/// What the device makes of a table of neighbor slots when it lays out the
+/// rows of an se_e3 descriptor (see [`GpuPotential::layout_atoms`]), brought
+/// back for a look: the first row of every atom, and after the last the
+/// number of all rows. `index` is `[atoms][slots]`, -1 for an empty slot,
+/// with `sel[t]` slots of type `t` one type after the other and the
+/// neighbors of a type in its first slots, as a neighbor search leaves
+/// them. The potential keeps the layout on the device; this is for the
+/// tests of the kernel.
+pub fn device_row_starts(device: &Device, index: &[i32], sel: &[usize]) -> Result<Vec<i64>> {
+    let slots: usize = sel.iter().sum();
+    if slots == 0 || index.len() % slots != 0 {
+        return Err(Error(format!(
+            "{} neighbor slots are not rows of {slots}",
+            index.len()
+        )));
+    }
+    let natoms = index.len() / slots;
+    let sel_i: Vec<i32> = sel.iter().map(|&s| s as i32).collect();
+    let function = device.kernels().function(source(), "se_e3_layout")?;
+    let start = lay_out_rows(
+        device,
+        &function,
+        &device.upload(index)?,
+        &device.upload(&sel_i)?,
+        (natoms, slots, sel.len()),
+    )?;
+    device.download(&start)
 }
 
 /// The first row of every atom that holds `held[atom]` neighbors, and after
@@ -1509,6 +1658,11 @@ pub struct GpuPotential<P: Scalar> {
     chunk_atoms: usize,
     /// se_e3: rows of the embedding nets (pairs of neighbors) per chunk.
     chunk_pairs: usize,
+    /// se_e3: frames of at most this many atoms can have their rows laid
+    /// out on the device, and the passes that had them laid out on the
+    /// host instead.
+    layout_atoms: usize,
+    count_downloads: usize,
     /// Neighbor search with its device buffers, kept between evaluations.
     search: NeighborSearch,
     last_truncated: bool,
@@ -1874,6 +2028,10 @@ impl<P: Scalar> Part<P> {
             backward: function(&format!("{}_backward", kind.name()))?,
             count: match three_body {
                 true => Some(device.kernels().function(source(), "se_e3_count")?),
+                false => None,
+            },
+            layout: match three_body {
+                true => Some(device.kernels().function(source(), "se_e3_layout")?),
                 false => None,
             },
             pairs: match three_body {
@@ -2372,6 +2530,8 @@ impl<P: Scalar> GpuPotential<P> {
             narrow,
             chunk_atoms,
             chunk_pairs,
+            layout_atoms: LAYOUT_ATOMS,
+            count_downloads: 0,
             search: NeighborSearch::new(d.rcut, &d.sel)?,
             last_truncated: false,
             profile: None,
@@ -2424,6 +2584,38 @@ impl<P: Scalar> GpuPotential<P> {
     /// memory at load time.
     pub fn set_chunk_pairs(&mut self, pairs: usize) {
         self.chunk_pairs = pairs.max(1);
+    }
+
+    /// se_e3: the most atoms of a pass whose rows are laid out on the
+    /// device. The host lays the rows out from the neighbors every atom
+    /// holds, which it has to bring back from the device in the middle of
+    /// an evaluation: twenty to twenty-five microseconds, for the wait and
+    /// the calls, which a frame of a hundred atoms feels. It needs the
+    /// rows for three things: to launch the embedding nets over them, to
+    /// end a chunk where they would be too many, and to size the buffers
+    /// that hold them. With tables nothing is launched over the rows. So a
+    /// pass that reads the tables of every se_e3 descriptor, has no more
+    /// atoms than this and is one chunk even if every neighbor slot of
+    /// every atom is full gets its layout from a kernel instead, with
+    /// buffers for that many rows, and nothing comes back from the device
+    /// before the results. [`Self::count_downloads`] counts the other
+    /// passes.
+    pub fn layout_atoms(&self) -> usize {
+        self.layout_atoms
+    }
+
+    /// Override [`Self::layout_atoms`]: at most [`LAYOUT_ATOMS`], the
+    /// threads of the block that makes the layout; zero has every layout
+    /// made on the host.
+    pub fn set_layout_atoms(&mut self, atoms: usize) {
+        self.layout_atoms = atoms.min(LAYOUT_ATOMS);
+    }
+
+    /// Passes over the device that brought the neighbor counts of the se_e3
+    /// descriptors back to lay their rows out on the host (see
+    /// [`Self::layout_atoms`]). None for a model without such a descriptor.
+    pub fn count_downloads(&self) -> usize {
+        self.count_downloads
     }
 
     /// Model compression (DeePMD `dp compress`): replaces every embedding
@@ -2718,13 +2910,57 @@ impl<P: Scalar> GpuPotential<P> {
         // Atoms per chunk: every model works on a chunk at once.
         let chunk = (self.chunk_atoms / members).clamp(1, natoms);
         // se_e3: the rows of the embedding nets are the pairs of each atom's
-        // neighbors, laid out from the neighbors every atom holds. Those of
-        // all such descriptors come back in one download.
+        // neighbors, laid out from the neighbors every atom holds.
         let three_body: Vec<usize> = (0..self.parts.len())
             .filter(|&index| self.parts[index].kind == DescriptorKind::SeE3)
             .collect();
+        // The most rows of a chunk in each of these descriptors. With
+        // tables a row keeps no embedding values, and as many times more
+        // rows fit a chunk.
+        let most_rows = {
+            let fewer = self
+                .parts
+                .iter()
+                .filter(|part| part.kind == DescriptorKind::SeE3)
+                .map(|part| match part.tables.as_ref().filter(|_| compressed) {
+                    Some(_) => bytes_per_pair::<P>(part.width) / bytes_per_pair::<P>(0),
+                    None => 1,
+                })
+                .min()
+                .unwrap_or(1);
+            (self.chunk_pairs / members).max(1).saturating_mul(fewer)
+        };
+        // The layout is made on the device when the host has no need to see
+        // it (see `layout_atoms`): every se_e3 descriptor reads its tables,
+        // and the frame is one chunk whatever its atoms hold.
+        let on_device = !three_body.is_empty()
+            && compressed
+            && natoms <= self.layout_atoms.min(chunk)
+            && three_body.iter().all(|&index| {
+                let part = &self.parts[index];
+                part.tables.is_some() && natoms.saturating_mul(most_pairs(part.slots)) <= most_rows
+            });
         let mut pair_rows: Vec<Option<PairRows>> = self.parts.iter().map(|_| None).collect();
-        if !three_body.is_empty() {
+        if on_device {
+            for &index in &three_body {
+                let part = &self.parts[index];
+                let (slots_index, _, _) = part.slots_of(list)?;
+                let function =
+                    part.kernels.layout.as_ref().ok_or_else(|| {
+                        Error("an se_e3 descriptor without its layout kernel".into())
+                    })?;
+                let shape = (natoms, part.slots, ntypes);
+                pair_rows[index] = Some(PairRows {
+                    start: lay_out_rows(device, function, slots_index, &part.sel_d, shape)?,
+                    known: Laid::OnDevice {
+                        most: most_pairs(part.slots),
+                    },
+                });
+            }
+        } else if !three_body.is_empty() {
+            // The neighbors every atom holds, of all these descriptors in
+            // one download, and the layouts the host makes of them.
+            self.count_downloads += 1;
             // SAFETY: the kernels write every element before the download.
             let mut held = unsafe { device.alloc_uninit::<i32>(three_body.len() * natoms)? };
             let natoms_i = natoms as i32;
@@ -2756,32 +2992,26 @@ impl<P: Scalar> GpuPotential<P> {
                 let host = pair_starts(&held[k * natoms..(k + 1) * natoms]);
                 pair_rows[index] = Some(PairRows {
                     start: device.upload(&host)?,
-                    host,
+                    known: Laid::OnHost(host),
                 });
             }
         }
         // A chunk ends where its atoms are too many, or its rows in one of
-        // the se_e3 descriptors.
+        // the se_e3 descriptors. (A layout made on the device is of a frame
+        // that is one chunk.)
         let chunks = {
             let starts: Vec<&[i64]> = pair_rows
                 .iter()
                 .flatten()
-                .map(|rows| rows.host.as_slice())
-                .collect();
-            // With tables a row keeps no embedding values, and as many
-            // times more rows fit a chunk.
-            let fewer = self
-                .parts
-                .iter()
-                .filter(|part| part.kind == DescriptorKind::SeE3)
-                .map(|part| match part.tables.as_ref().filter(|_| compressed) {
-                    Some(_) => bytes_per_pair::<P>(part.width) / bytes_per_pair::<P>(0),
-                    None => 1,
+                .filter_map(|rows| match &rows.known {
+                    Laid::OnHost(start) => Some(start.as_slice()),
+                    Laid::OnDevice { .. } => None,
                 })
-                .min()
-                .unwrap_or(1);
-            let rows = (self.chunk_pairs / members).max(1).saturating_mul(fewer);
-            pair_chunks(&starts, natoms, chunk, rows)
+                .collect();
+            match on_device {
+                true => vec![(0, natoms)],
+                false => pair_chunks(&starts, natoms, chunk, most_rows),
+            }
         };
         // The centers of the largest chunk for all models.
         let most = chunks

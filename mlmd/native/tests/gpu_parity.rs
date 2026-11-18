@@ -2807,3 +2807,315 @@ fn a_neighbor_just_inside_the_cutoff_stays_in_its_table() {
         }
     }
 }
+
+/// The layout of the rows of an se_e3 descriptor as the device makes it
+/// (`se_e3_layout`) against the sums it stands for, to the row: for one
+/// atom, for atoms that do not fill a warp, fill it, and are one more, for
+/// as many as the kernel takes, with atoms that hold nothing and atoms with
+/// every slot full, a type without slots, neighbors whose number is zero,
+/// and rows that pass thirty-two bits.
+#[test]
+fn the_device_lays_out_the_rows_of_se_e3_as_the_host_would() {
+    use omnimd_native::gpu_model::{device_row_starts, LAYOUT_ATOMS};
+    let Some(device) = device() else { return };
+    let limit = LAYOUT_ATOMS;
+    // Slots by type, and the numbers of atoms.
+    let cases: Vec<(Vec<usize>, Vec<usize>)> = vec![
+        (
+            vec![3, 5, 2],
+            vec![1, 2, 31, 32, 33, 63, 64, 65, 500, limit - 1, limit],
+        ),
+        (vec![4, 0, 7], vec![1, 33, limit]),
+        (vec![1], vec![1, 2, 40]),
+        (vec![0, 1], vec![3]),
+        (vec![46, 92], vec![192, limit]),
+        (vec![6000], vec![limit]),
+    ];
+    let mut state = 0x9e37_79b9_7f4a_7c15u64;
+    let mut next = move || {
+        state = state
+            .wrapping_mul(6364136223846793005)
+            .wrapping_add(1442695040888963407);
+        state >> 33
+    };
+    let mut largest = 0i64;
+    for (case, (sel, sizes)) in cases.into_iter().enumerate() {
+        let slots: usize = sel.iter().sum();
+        for natoms in sizes {
+            let mut index = vec![-1i32; natoms * slots];
+            let mut expected = vec![0i64];
+            for atom in 0..natoms {
+                // An atom in seven holds nothing, one every slot, one has
+                // the atom 0 for all its neighbors; the others anything.
+                let kind = (atom + case) % 7;
+                let (mut held, mut first) = (0usize, 0);
+                for &of_type in &sel {
+                    let filled = match kind {
+                        0 => 0,
+                        1 => of_type,
+                        _ => (next() % (of_type as u64 + 1)) as usize,
+                    };
+                    // The neighbors of a type are in its first slots.
+                    for slot in &mut index[atom * slots + first..][..filled] {
+                        *slot = if kind == 2 { 0 } else { (next() % 1000) as i32 };
+                    }
+                    held += filled;
+                    first += of_type;
+                }
+                expected.push(expected[atom] + (held * (held + 1) / 2) as i64);
+            }
+            let got = device_row_starts(&device, &index, &sel).unwrap();
+            assert_eq!(got, expected, "{natoms} atoms with the slots {sel:?}");
+            largest = largest.max(expected[natoms]);
+        }
+    }
+    // The sums are of sixty-four bits.
+    assert!(largest > 2 * i64::from(i32::MAX), "{largest}");
+    // One atom more than the block has threads, slots that are not rows of
+    // a table, and a table of nothing are refused.
+    let error = device_row_starts(&device, &vec![0i32; 2 * (limit + 1)], &[2])
+        .unwrap_err()
+        .to_string();
+    assert!(
+        error.contains("1025 atoms") && error.contains("not laid out on the device"),
+        "{error}"
+    );
+    assert!(device_row_starts(&device, &vec![0i32; 2 * limit], &[2]).is_ok());
+    assert!(device_row_starts(&device, &[0, 0, 0], &[2]).is_err());
+    assert!(device_row_starts(&device, &[], &[2]).is_err());
+    assert!(device_row_starts(&device, &[0, 0], &[0]).is_err());
+}
+
+/// Where the rows of an se_e3 descriptor are laid out. With tables no
+/// kernel is launched over the rows, so a frame that is one chunk whatever
+/// its atoms hold has them laid out on the device and nothing comes back
+/// before the results; every other pass brings the neighbor counts back and
+/// has the host lay them out. Both give the same numbers, so the passes
+/// that came back are counted.
+#[test]
+fn the_rows_of_se_e3_are_laid_out_where_the_host_need_not_see_them() {
+    use omnimd_native::gpu_model::LAYOUT_ATOMS;
+    let Some(device) = device() else { return };
+    const TABLES: (f64, f64) = (1e-11, 1e-9);
+    // Both ways give the same sums in another order.
+    const SAME: (f64, f64) = (1e-13, 1e-11);
+    let triclinic = [[9.0, 0.0, 0.0], [1.5, 8.5, 0.0], [-1.0, 0.8, 9.2]];
+    let model = three_body(2, vec![80, 160], 4.5, 501);
+    let frame = frame(triclinic, 5, 2, true, 502);
+    let natoms = frame.positions.len();
+    assert_eq!(natoms, 125);
+    let mut cpu = NativePotential::new(model.clone()).unwrap();
+    let exact = cpu.eval(&frame).unwrap();
+    let mut gpu = GpuPotential::<f64>::new(&model, device.clone()).unwrap();
+    assert_eq!(
+        (gpu.layout_atoms(), gpu.count_downloads()),
+        (LAYOUT_ATOMS, 0)
+    );
+
+    // Without tables the nets are launched over the rows: the host has to
+    // know them.
+    compare("nets", &gpu.eval(&frame).unwrap(), &exact, FLOAT64);
+    assert_eq!(gpu.count_downloads(), 1);
+    gpu.compress(0.8, 0.01).unwrap();
+    // With tables, in one chunk: on the device.
+    let on_device = gpu.eval(&frame).unwrap();
+    compare("rows laid out on the device", &on_device, &exact, TABLES);
+    assert_eq!(gpu.count_downloads(), 1);
+    // The same pass with the layout made on the host.
+    gpu.set_layout_atoms(0);
+    let on_host = gpu.eval(&frame).unwrap();
+    compare("rows laid out on the host", &on_host, &exact, TABLES);
+    compare("the two layouts", &on_device, &on_host, SAME);
+    assert_eq!(gpu.count_downloads(), 2);
+    // The limit is in atoms: a frame of as many is laid out on the device,
+    // of one more on the host. No limit is above what the kernel takes.
+    let mut seen = 2;
+    for (limit, host) in [(natoms, 0), (natoms - 1, 1), (usize::MAX, 0)] {
+        gpu.set_layout_atoms(limit);
+        assert_eq!(gpu.layout_atoms(), limit.min(LAYOUT_ATOMS));
+        compare("by the limit", &gpu.eval(&frame).unwrap(), &on_host, SAME);
+        seen += host;
+        assert_eq!(gpu.count_downloads(), seen, "limit {limit}");
+    }
+    // Several chunks of atoms: the host ends them where the rows say.
+    let atoms = gpu.chunk_atoms();
+    for (chunk, host) in [(natoms - 1, 1), (natoms, 0), (natoms + 1, 0)] {
+        gpu.set_chunk_atoms(chunk);
+        compare("by the chunks", &gpu.eval(&frame).unwrap(), &on_host, SAME);
+        seen += host;
+        assert_eq!(gpu.count_downloads(), seen, "chunks of {chunk} atoms");
+    }
+    gpu.set_chunk_atoms(atoms);
+    // One chunk whatever the atoms hold: 240 slots are 28,920 rows an atom
+    // at most, and a chunk takes ten times its rows with tables (a row with
+    // its sixteen embedding values and slopes is 284 bytes in float64,
+    // without them 28). With room for ten rows less the host lays out.
+    let pairs = gpu.chunk_pairs();
+    let most = natoms * 28920;
+    for (rows, host) in [(most / 10, 0), (most / 10 - 1, 1), (most, 0), (1, 1)] {
+        gpu.set_chunk_pairs(rows);
+        compare("by the rows", &gpu.eval(&frame).unwrap(), &on_host, SAME);
+        seen += host;
+        assert_eq!(gpu.count_downloads(), seen, "chunks of {rows} rows");
+    }
+    gpu.set_chunk_pairs(pairs);
+    // The atoms of all frames of a pass count: eight frames are 1,000
+    // atoms, nine 1,125.
+    for (frames, host) in [(8, 0), (9, 1)] {
+        let batch: Vec<&Frame> = (0..frames).map(|_| &frame).collect();
+        for got in gpu.eval_batch(&batch).unwrap() {
+            compare("in a batch", &got, &on_host, SAME);
+        }
+        seen += host;
+        assert_eq!(gpu.count_downloads(), seen, "{frames} frames");
+    }
+    // A frame that leaves the tables is evaluated again with the nets, and
+    // that pass is laid out on the host.
+    let mut close = frame.clone();
+    close.positions[1] = [
+        close.positions[0][0] + 0.1,
+        close.positions[0][1],
+        close.positions[0][2],
+    ];
+    let exact_close = cpu.eval(&close).unwrap();
+    compare(
+        "outside the tables",
+        &gpu.eval(&close).unwrap(),
+        &exact_close,
+        FLOAT64,
+    );
+    assert_eq!(
+        (gpu.table_fallbacks(), gpu.count_downloads()),
+        (1, seen + 1)
+    );
+    // Float32 goes the same way.
+    let mut single = GpuPotential::<f32>::new(&model, device.clone()).unwrap();
+    single.compress(0.8, 0.01).unwrap();
+    compare(
+        "float32",
+        &single.eval(&frame).unwrap(),
+        &exact,
+        (1e-6, 1e-4),
+    );
+    assert_eq!(single.count_downloads(), 0);
+
+    // A hybrid: every se_e3 descriptor of it on the device, each with the
+    // slots and the cutoff of its own, beside a descriptor without rows of
+    // pairs; and a model without se_e3 has nothing to bring back.
+    let both = common::hybrid_model(
+        &[
+            three_body(2, vec![80, 160], 4.5, 503),
+            common::three_body_model(2, vec![40, 60], 3.2, 504, 8),
+            radial(2, vec![80, 160], 4.5, 505),
+        ],
+        506,
+    );
+    let exact_both = NativePotential::new(both.clone())
+        .unwrap()
+        .eval(&frame)
+        .unwrap();
+    let mut hybrid = GpuPotential::<f64>::new(&both, device.clone()).unwrap();
+    hybrid.compress(0.8, 0.01).unwrap();
+    let got = hybrid.eval(&frame).unwrap();
+    compare("a hybrid on the device", &got, &exact_both, TABLES);
+    assert_eq!(hybrid.count_downloads(), 0);
+    hybrid.set_layout_atoms(0);
+    compare(
+        "a hybrid on the host",
+        &hybrid.eval(&frame).unwrap(),
+        &got,
+        SAME,
+    );
+    assert_eq!(hybrid.count_downloads(), 1);
+    let mut plain = GpuPotential::<f64>::new(&radial(2, vec![80, 160], 4.5, 507), device).unwrap();
+    plain.eval(&frame).unwrap();
+    plain.compress(0.8, 0.01).unwrap();
+    plain.eval(&frame).unwrap();
+    assert_eq!(plain.count_downloads(), 0);
+}
+
+/// The rows of the models of a committee, one model after the other: with
+/// the layout made on the device the host does not know how many rows a
+/// model has, and puts the next model where they would end if every slot of
+/// every atom were full. Here they are full, so that the rows of a model
+/// end where those of the next begin.
+#[test]
+fn the_rows_of_the_models_of_a_committee_do_not_meet() {
+    let Some(device) = device() else { return };
+    let cubic = [[8.0, 0.0, 0.0], [0.0, 8.0, 0.0], [0.0, 0.0, 8.0]];
+    let frame = frame(cubic, 5, 2, true, 521);
+    let (natoms, rcut, sel) = (frame.positions.len(), 3.9, [2usize, 3]);
+    // Every atom has more neighbors of either type within the cutoff than
+    // slots for them (the nearest image is the only one within it).
+    for i in 0..natoms {
+        let mut within = [0usize; 2];
+        for j in 0..natoms {
+            let squared: f64 = (0..3)
+                .map(|a| {
+                    let d = frame.positions[j][a] - frame.positions[i][a];
+                    (d - 8.0 * (d / 8.0).round()).powi(2)
+                })
+                .sum();
+            if j != i && squared < rcut * rcut {
+                within[usize::from(frame.species[j] == "H")] += 1;
+            }
+        }
+        assert!(
+            within[0] >= sel[0] && within[1] >= sel[1],
+            "atom {i}: {within:?}"
+        );
+    }
+    let models: Vec<Model> = (0..3)
+        .map(|member| three_body(2, sel.to_vec(), rcut, 522 + 10 * member))
+        .collect();
+    let members: Vec<&Model> = models.iter().collect();
+    // Each model alone, with its rows laid out on the host.
+    let alone: Vec<Evaluation> = models
+        .iter()
+        .map(|model| {
+            let mut gpu = GpuPotential::<f64>::new(model, device.clone()).unwrap();
+            gpu.compress(0.8, 0.01).unwrap();
+            gpu.set_layout_atoms(0);
+            let got = gpu.eval(&frame).unwrap();
+            assert!(gpu.last_truncated());
+            assert_eq!(gpu.count_downloads(), 1);
+            got
+        })
+        .collect();
+    let largest = alone[0]
+        .forces
+        .iter()
+        .flatten()
+        .fold(0.0f64, |m, f| m.max(f.abs()));
+    assert!(largest > 1e-3, "{largest}");
+    for single in [false, true] {
+        let of_members = match single {
+            false => {
+                let mut committee =
+                    GpuPotential::<f64>::committee(&members, device.clone()).unwrap();
+                committee.compress(0.8, 0.01).unwrap();
+                let got = committee.eval_members(&[&frame, &frame]).unwrap();
+                assert_eq!(committee.count_downloads(), 0);
+                got
+            }
+            true => {
+                let mut committee =
+                    GpuPotential::<f32>::committee(&members, device.clone()).unwrap();
+                committee.compress(0.8, 0.01).unwrap();
+                let got = committee.eval_members(&[&frame, &frame]).unwrap();
+                assert_eq!(committee.count_downloads(), 0);
+                got
+            }
+        };
+        for (index, of_frame) in of_members.iter().enumerate() {
+            for (member, got) in of_frame.iter().enumerate() {
+                compare(
+                    &format!("frame {index}, member {member}, float32: {single}"),
+                    got,
+                    &alone[member],
+                    if single { (1e-6, 1e-4) } else { (1e-13, 1e-11) },
+                );
+            }
+        }
+    }
+}

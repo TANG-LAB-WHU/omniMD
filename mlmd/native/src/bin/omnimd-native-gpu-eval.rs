@@ -204,7 +204,8 @@ fn evaluate<P: Scalar>(
                 serde_json::json!({"frames": size, "natoms": natoms, "models": members,
                     "precision": P::SUFFIX, "ms_per_eval": ms, "evaluations": passes,
                     "ms_per_frame_and_model": ms / (size * members) as f64,
-                    "table_fallbacks": gpu.table_fallbacks()})
+                    "table_fallbacks": gpu.table_fallbacks(),
+                    "count_downloads": gpu.count_downloads()})
             );
         }
         return Ok(());
@@ -255,7 +256,8 @@ fn evaluate<P: Scalar>(
             let ms = start.elapsed().as_secs_f64() * 1e3 / options.bench as f64;
             let mut record = serde_json::json!({"frame": first_line + 1, "natoms": natoms,
                 "precision": P::SUFFIX, "ms_per_eval": ms, "evaluations": options.bench,
-                "table_fallbacks": gpu.table_fallbacks()});
+                "table_fallbacks": gpu.table_fallbacks(),
+                "count_downloads": gpu.count_downloads()});
             if members > 1 || options.batch > 1 {
                 record["frames"] = frames.len().into();
                 record["models"] = members.into();

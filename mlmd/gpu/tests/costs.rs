@@ -578,3 +578,52 @@ fn fitting_costs() {
         println!("{line}");
     }
 }
+
+/// What an allocation costs by its size: the work buffers of an evaluation
+/// come from the stream-ordered pool and go back to it, four at a time here
+/// as for the rows of an se_e3 descriptor, with a launch between and a
+/// download at the end as an evaluation has them.
+#[test]
+#[ignore]
+fn allocation_costs_by_size() {
+    let device = Device::new(0).unwrap();
+    let stream = device.stream().clone();
+    let function = device.kernels().function(SOURCE, "touch").unwrap();
+    let mut small = device.upload(&vec![1.0f64; 1024]).unwrap();
+    let mut back = vec![0.0f64; 1024];
+    let n_i = 1024i32;
+    let config = LaunchConfig {
+        grid_dim: (4, 1, 1),
+        block_dim: (256, 1, 1),
+        shared_mem_bytes: 0,
+    };
+    for megabytes in [0.008, 0.125, 1.0, 8.0, 64.0, 256.0] {
+        let n = (megabytes * 1024.0 * 1024.0 / 8.0) as usize;
+        println!("--- buffers of {megabytes} MiB");
+        micros("alloc_uninit + free", 2000, &device, || {
+            drop(unsafe { device.alloc_uninit::<f64>(n) }.unwrap());
+        });
+        micros("4 x alloc_uninit, then free", 2000, &device, || {
+            let held: Vec<_> = (0..4)
+                .map(|_| unsafe { device.alloc_uninit::<f64>(n) }.unwrap())
+                .collect();
+            drop(held);
+        });
+        micros("launch + download", 2000, &device, || {
+            let mut launch = stream.launch_builder(&function);
+            launch.arg(&mut small).arg(&n_i);
+            unsafe { launch.launch(config) }.map(drop).unwrap();
+            stream.memcpy_dtoh(&small, &mut back).unwrap();
+        });
+        micros("4 x alloc, launch + download, free", 2000, &device, || {
+            let held: Vec<_> = (0..4)
+                .map(|_| unsafe { device.alloc_uninit::<f64>(n) }.unwrap())
+                .collect();
+            let mut launch = stream.launch_builder(&function);
+            launch.arg(&mut small).arg(&n_i);
+            unsafe { launch.launch(config) }.map(drop).unwrap();
+            stream.memcpy_dtoh(&small, &mut back).unwrap();
+            drop(held);
+        });
+    }
+}
