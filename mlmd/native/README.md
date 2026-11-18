@@ -429,7 +429,14 @@ tables take ten times the step below `min_distance`).
   the type with the narrowest directions. With these tables the descriptor
   keeps no rows of embedding values: the kernels of its components and of
   its forces read the pieces where they would read the rows, and a chunk
-  holds as many times more pairs as a pair takes less memory.
+  holds as many times more pairs as a pair takes less memory. Nothing is
+  launched over the rows then, so the host need not know how many there
+  are: a pass of at most 1,024 atoms that is one chunk even if every
+  neighbor slot of every atom is full has its rows laid out by a kernel,
+  and nothing comes back from the device before the results. That takes
+  17 to 30 µs off an evaluation of 88 to 384 atoms (6% to 14% of one of
+  the HAP frames in float32); other passes bring the neighbor counts back
+  as before (`GpuPotential::count_downloads` counts them).
 
 **What they come to.** The 83 frames of the HAP sealed test, `--compress
 0.5`, four models of each kind: the largest difference of a force

@@ -1,0 +1,404 @@
+{
+ "date": "2026-11-18",
+ "device": "NVIDIA GeForce RTX 4090",
+ "what": "omnimd-native-gpu-eval --bench with --compress 0.5 (step 0.01), one frame a pass, or several frames a pass with --bench-batches; two builds alternated in 4 rounds in one session, the least of each kept. count_downloads_after: the passes of the build after that brought the neighbor counts back to the host (0: the rows of se_e3 were laid out on the device)",
+ "builds": {
+  "before": "omnimd-native-gpu-eval of commit ab943ea (the host lays out the rows of se_e3 from neighbor counts it brings back in every evaluation)",
+  "after": "omnimd-native-gpu-eval of commit 94109f5 (with tables, a pass of at most 1,024 atoms that is one chunk has them laid out on the device)"
+ },
+ "frames_outside_the_tables": 0,
+ "ms_per_evaluation": [
+  {
+   "case": "se_e3 to 4 A, 88 atoms",
+   "precision": "float32",
+   "before": 0.15507023333333333,
+   "after": 0.13501213333333334,
+   "count_downloads_after": 0
+  },
+  {
+   "case": "se_e3 to 4 A, 88 atoms",
+   "precision": "float64",
+   "before": 0.23690653333333334,
+   "after": 0.21709093333333332,
+   "count_downloads_after": 0
+  },
+  {
+   "case": "se_e2_a to 6 A with se_e3 to 4 A, 88 atoms",
+   "precision": "float32",
+   "before": 0.2522302333333334,
+   "after": 0.22693293333333334,
+   "count_downloads_after": 0
+  },
+  {
+   "case": "se_e2_a to 6 A with se_e3 to 4 A, 88 atoms",
+   "precision": "float64",
+   "before": 0.5255609333333333,
+   "after": 0.4994186333333333,
+   "count_downloads_after": 0
+  },
+  {
+   "case": "the earlier hybrid, 88 atoms",
+   "precision": "float32",
+   "before": 0.17989253333333333,
+   "after": 0.1525052,
+   "count_downloads_after": 0
+  },
+  {
+   "case": "the earlier hybrid, 88 atoms",
+   "precision": "float64",
+   "before": 0.23894863333333335,
+   "after": 0.20676236666666667,
+   "count_downloads_after": 0
+  },
+  {
+   "case": "se_e2_a to 6 A (no se_e3), 88 atoms",
+   "precision": "float32",
+   "before": 0.16609866666666667,
+   "after": 0.16832693333333332,
+   "count_downloads_after": 0
+  },
+  {
+   "case": "se_e2_a to 6 A (no se_e3), 88 atoms",
+   "precision": "float64",
+   "before": 0.398338,
+   "after": 0.4068009666666667,
+   "count_downloads_after": 0
+  },
+  {
+   "case": "se_e3 to 4 A, 169 atoms",
+   "precision": "float32",
+   "before": 0.1967711,
+   "after": 0.17719853333333332,
+   "count_downloads_after": 0
+  },
+  {
+   "case": "se_e3 to 4 A, 169 atoms",
+   "precision": "float64",
+   "before": 0.3691133666666667,
+   "after": 0.3344195333333333,
+   "count_downloads_after": 0
+  },
+  {
+   "case": "se_e2_a to 6 A with se_e3 to 4 A, 169 atoms",
+   "precision": "float32",
+   "before": 0.3171934,
+   "after": 0.2849982333333333,
+   "count_downloads_after": 0
+  },
+  {
+   "case": "se_e2_a to 6 A with se_e3 to 4 A, 169 atoms",
+   "precision": "float64",
+   "before": 0.8857925999999999,
+   "after": 0.8566456,
+   "count_downloads_after": 0
+  },
+  {
+   "case": "the earlier hybrid, 169 atoms",
+   "precision": "float32",
+   "before": 0.19925366666666666,
+   "after": 0.16939596666666668,
+   "count_downloads_after": 0
+  },
+  {
+   "case": "the earlier hybrid, 169 atoms",
+   "precision": "float64",
+   "before": 0.2729742,
+   "after": 0.24413546666666666,
+   "count_downloads_after": 0
+  },
+  {
+   "case": "se_e2_a to 6 A (no se_e3), 169 atoms",
+   "precision": "float32",
+   "before": 0.20192426666666666,
+   "after": 0.20374596666666667,
+   "count_downloads_after": 0
+  },
+  {
+   "case": "se_e2_a to 6 A (no se_e3), 169 atoms",
+   "precision": "float64",
+   "before": 0.6899105333333334,
+   "after": 0.6939288666666666,
+   "count_downloads_after": 0
+  },
+  {
+   "case": "se_e3 to 4 A, 224 atoms",
+   "precision": "float32",
+   "before": 0.2174206,
+   "after": 0.20287046666666667,
+   "count_downloads_after": 0
+  },
+  {
+   "case": "se_e3 to 4 A, 224 atoms",
+   "precision": "float64",
+   "before": 0.4058518333333333,
+   "after": 0.3825825,
+   "count_downloads_after": 0
+  },
+  {
+   "case": "se_e2_a to 6 A with se_e3 to 4 A, 224 atoms",
+   "precision": "float32",
+   "before": 0.322689,
+   "after": 0.3043048333333333,
+   "count_downloads_after": 0
+  },
+  {
+   "case": "se_e2_a to 6 A with se_e3 to 4 A, 224 atoms",
+   "precision": "float64",
+   "before": 0.9339643333333332,
+   "after": 0.9029873,
+   "count_downloads_after": 0
+  },
+  {
+   "case": "the earlier hybrid, 224 atoms",
+   "precision": "float32",
+   "before": 0.21308886666666668,
+   "after": 0.18497223333333332,
+   "count_downloads_after": 0
+  },
+  {
+   "case": "the earlier hybrid, 224 atoms",
+   "precision": "float64",
+   "before": 0.3033165666666667,
+   "after": 0.27779543333333334,
+   "count_downloads_after": 0
+  },
+  {
+   "case": "se_e2_a to 6 A (no se_e3), 224 atoms",
+   "precision": "float32",
+   "before": 0.21899946666666664,
+   "after": 0.22087186666666667,
+   "count_downloads_after": 0
+  },
+  {
+   "case": "se_e2_a to 6 A (no se_e3), 224 atoms",
+   "precision": "float64",
+   "before": 0.7213750666666666,
+   "after": 0.7190576333333334,
+   "count_downloads_after": 0
+  },
+  {
+   "case": "water se_e3, 192 atoms",
+   "precision": "float32",
+   "before": 0.4486434,
+   "after": 0.4244081,
+   "count_downloads_after": 0
+  },
+  {
+   "case": "water se_e3, 192 atoms",
+   "precision": "float64",
+   "before": 1.1113826,
+   "after": 1.089398,
+   "count_downloads_after": 0
+  },
+  {
+   "case": "water se_e3, 1,536 atoms",
+   "precision": "float32",
+   "before": 2.2301116666666667,
+   "after": 2.2435620000000003,
+   "count_downloads_after": 302
+  },
+  {
+   "case": "water se_e3, 1,536 atoms",
+   "precision": "float64",
+   "before": 6.291796333333333,
+   "after": 6.292674,
+   "count_downloads_after": 302
+  },
+  {
+   "case": "water se_e2_a with se_e3, 192 atoms",
+   "precision": "float32",
+   "before": 0.324104,
+   "after": 0.2937646,
+   "count_downloads_after": 0
+  },
+  {
+   "case": "water se_e2_a with se_e3, 192 atoms",
+   "precision": "float64",
+   "before": 0.8885842,
+   "after": 0.8640475,
+   "count_downloads_after": 0
+  },
+  {
+   "case": "water se_e2_a with se_e3, 1,536 atoms",
+   "precision": "float32",
+   "before": 1.2768156666666668,
+   "after": 1.249246,
+   "count_downloads_after": 302
+  },
+  {
+   "case": "water se_e2_a with se_e3, 1,536 atoms",
+   "precision": "float64",
+   "before": 5.109317666666667,
+   "after": 5.1133766666666665,
+   "count_downloads_after": 302
+  },
+  {
+   "case": "water se_e3, 1 frames of 192 atoms (192 atoms)",
+   "precision": "float32",
+   "before": 0.450286,
+   "after": 0.42495716666666666,
+   "count_downloads_after": 0
+  },
+  {
+   "case": "water se_e3, 2 frames of 192 atoms (384 atoms)",
+   "precision": "float32",
+   "before": 0.6391556666666667,
+   "after": 0.6179366666666667,
+   "count_downloads_after": 0
+  },
+  {
+   "case": "water se_e3, 3 frames of 192 atoms (576 atoms)",
+   "precision": "float32",
+   "before": 0.9692845,
+   "after": 0.9311060000000001,
+   "count_downloads_after": 0
+  },
+  {
+   "case": "water se_e3, 4 frames of 192 atoms (768 atoms)",
+   "precision": "float32",
+   "before": 1.3347186666666666,
+   "after": 1.3118473333333334,
+   "count_downloads_after": 0
+  },
+  {
+   "case": "water se_e3, 5 frames of 192 atoms (960 atoms)",
+   "precision": "float32",
+   "before": 1.5845791666666666,
+   "after": 1.578694166666667,
+   "count_downloads_after": 0
+  },
+  {
+   "case": "water se_e3, 6 frames of 192 atoms (1,152 atoms)",
+   "precision": "float32",
+   "before": 1.797909,
+   "after": 1.819159,
+   "count_downloads_after": 102
+  },
+  {
+   "case": "water se_e3, 1 frames of 192 atoms (192 atoms)",
+   "precision": "float64",
+   "before": 1.1127658333333332,
+   "after": 1.0862903333333334,
+   "count_downloads_after": 0
+  },
+  {
+   "case": "water se_e3, 2 frames of 192 atoms (384 atoms)",
+   "precision": "float64",
+   "before": 1.8810953333333331,
+   "after": 1.859988,
+   "count_downloads_after": 0
+  },
+  {
+   "case": "water se_e3, 3 frames of 192 atoms (576 atoms)",
+   "precision": "float64",
+   "before": 2.7984899999999997,
+   "after": 2.78297,
+   "count_downloads_after": 0
+  },
+  {
+   "case": "water se_e3, 4 frames of 192 atoms (768 atoms)",
+   "precision": "float64",
+   "before": 3.3994366666666664,
+   "after": 3.3820913333333333,
+   "count_downloads_after": 0
+  },
+  {
+   "case": "water se_e3, 5 frames of 192 atoms (960 atoms)",
+   "precision": "float64",
+   "before": 4.188039166666666,
+   "after": 4.156815,
+   "count_downloads_after": 0
+  },
+  {
+   "case": "water se_e3, 6 frames of 192 atoms (1,152 atoms)",
+   "precision": "float64",
+   "before": 5.010997000000001,
+   "after": 4.9955240000000005,
+   "count_downloads_after": 102
+  },
+  {
+   "case": "water se_e2_a with se_e3, 1 frames of 192 atoms (192 atoms)",
+   "precision": "float32",
+   "before": 0.3192731666666667,
+   "after": 0.2929718333333333,
+   "count_downloads_after": 0
+  },
+  {
+   "case": "water se_e2_a with se_e3, 2 frames of 192 atoms (384 atoms)",
+   "precision": "float32",
+   "before": 0.4347923333333333,
+   "after": 0.41043666666666667,
+   "count_downloads_after": 0
+  },
+  {
+   "case": "water se_e2_a with se_e3, 3 frames of 192 atoms (576 atoms)",
+   "precision": "float32",
+   "before": 0.614398,
+   "after": 0.590057,
+   "count_downloads_after": 0
+  },
+  {
+   "case": "water se_e2_a with se_e3, 4 frames of 192 atoms (768 atoms)",
+   "precision": "float32",
+   "before": 0.728154,
+   "after": 0.7202366666666667,
+   "count_downloads_after": 0
+  },
+  {
+   "case": "water se_e2_a with se_e3, 5 frames of 192 atoms (960 atoms)",
+   "precision": "float32",
+   "before": 0.8908616666666666,
+   "after": 0.8633483333333333,
+   "count_downloads_after": 0
+  },
+  {
+   "case": "water se_e2_a with se_e3, 6 frames of 192 atoms (1,152 atoms)",
+   "precision": "float32",
+   "before": 1.025043,
+   "after": 1.02327,
+   "count_downloads_after": 102
+  },
+  {
+   "case": "water se_e2_a with se_e3, 1 frames of 192 atoms (192 atoms)",
+   "precision": "float64",
+   "before": 0.8813911666666666,
+   "after": 0.8637698333333335,
+   "count_downloads_after": 0
+  },
+  {
+   "case": "water se_e2_a with se_e3, 2 frames of 192 atoms (384 atoms)",
+   "precision": "float64",
+   "before": 1.3772060000000002,
+   "after": 1.3479526666666668,
+   "count_downloads_after": 0
+  },
+  {
+   "case": "water se_e2_a with se_e3, 3 frames of 192 atoms (576 atoms)",
+   "precision": "float64",
+   "before": 2.0892155000000003,
+   "after": 2.0664235,
+   "count_downloads_after": 0
+  },
+  {
+   "case": "water se_e2_a with se_e3, 4 frames of 192 atoms (768 atoms)",
+   "precision": "float64",
+   "before": 2.588264666666667,
+   "after": 2.5506113333333333,
+   "count_downloads_after": 0
+  },
+  {
+   "case": "water se_e2_a with se_e3, 5 frames of 192 atoms (960 atoms)",
+   "precision": "float64",
+   "before": 3.3063708333333333,
+   "after": 3.29218,
+   "count_downloads_after": 0
+  },
+  {
+   "case": "water se_e2_a with se_e3, 6 frames of 192 atoms (1,152 atoms)",
+   "precision": "float64",
+   "before": 3.887657,
+   "after": 3.8733980000000003,
+   "count_downloads_after": 102
+  }
+ ]
+}

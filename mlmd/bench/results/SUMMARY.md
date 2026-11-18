@@ -1,3 +1,150 @@
+# The rows of se_e3 laid out on the device, 2026-11-18
+
+An se_e3 descriptor has a row for every pair of an atom's neighbors, and
+the rows of a frame are laid out from the number of neighbors every atom
+holds. The host made that layout: a kernel counted, the counts came back,
+the host added up n(n + 1)/2 for every atom and sent the first rows down
+again. That is a copy back to the host in the middle of every evaluation,
+the one thing the pipeline otherwise avoids: the host waits for all that
+is queued, and the device then stands still while the host queues the
+rest. The two sections below name it as not done.
+
+**What the host needs the rows for.** Three things: to launch the embedding
+nets over them, to end a chunk where they would be too many, and to size
+the buffers that hold them. With tables for the nets (since this morning)
+nothing is launched over the rows: every kernel of the descriptor has a
+block for an atom and reads the first row of its atom from the device.
+What is left are the chunks and the sizes, and a frame that is one chunk
+even if every neighbor slot of every atom is full needs neither answered:
+its buffers are made for that many rows (an allocation from the pool costs
+0.4 µs at any size from 8 KB to 256 MiB, `gpu/tests/costs.rs`), and the
+rows of one model of a committee are that far from those of the next.
+
+**What is done.** For such a pass a kernel of one block makes the layout
+(`se_e3_layout`): a thread for every atom finds the number of its
+neighbors of each type by halving (they fill the first slots of their
+type), and a scan over the block's shared memory adds up the rows. Nothing
+comes back from the device before the results. The conditions, all of
+them: tables for every se_e3 descriptor of the model in this pass; at most
+1,024 atoms in the pass, the threads of a block (`set_layout_atoms` takes
+fewer); one chunk by atoms; and for every se_e3 descriptor atoms ×
+slots(slots + 1)/2 rows within what a chunk may hold. Any other pass goes
+as before, and `GpuPotential::count_downloads` counts those: a model
+without tables, a frame that left its tables and is evaluated again with
+the nets, a large frame, a large batch.
+
+**Measured.** The build before (ab943ea) and this one with `--compress
+0.5`, alternated in six rounds in one session, the least of each kept,
+before → after. Trained HAP models on frames of the sealed test,
+microseconds for energy, forces and virial (`--bench 3000`):
+
+| frame | precision | se_e3 to 4 Å | se_e2_a to 6 Å with se_e3 to 4 Å | the earlier hybrid | se_e2_a to 6 Å, no se_e3 |
+|---|---|---:|---:|---:|---:|
+| 88 atoms | float32 | 154 → 135 | 245 → 225 | 176 → 151 | 163 → 164 |
+| 88 atoms | float64 | 231 → 214 | 515 → 493 | 228 → 202 | 391 → 391 |
+| 169 atoms | float32 | 192 → 172 | 302 → 282 | 187 → 165 | 199 → 200 |
+| 169 atoms | float64 | 351 → 330 | 869 → 846 | 261 → 236 | 687 → 685 |
+| 224 atoms | float32 | 217 → 196 | 319 → 299 | 202 → 181 | 218 → 217 |
+| 224 atoms | float64 | 396 → 375 | 922 → 899 | 294 → 274 | 716 → 716 |
+
+The water benchmark models (untrained), a frame of 192 atoms and one of
+1,536, which is past the limit and goes as before:
+
+| frame | precision | se_e3 to 6 Å | se_e2_a to 6 Å with se_e3 to 4 Å |
+|---|---|---:|---:|
+| 192 atoms | float32 | 446 → 422 | 313 → 291 |
+| 192 atoms | float64 | 1,106 → 1,082 | 884 → 862 |
+| 1,536 atoms | float32 | 2,212 → 2,211 | 1,239 → 1,238 |
+| 1,536 atoms | float64 | 6,269 → 6,265 | 5,089 → 5,086 |
+
+Batches of frames of 192 water atoms in one pass (`--bench-batches`),
+microseconds a pass; six frames are past the limit:
+
+| frames | atoms | precision | se_e3 to 6 Å | se_e2_a to 6 Å with se_e3 to 4 Å |
+|---:|---:|---|---:|---:|
+| 1 | 192 | float32 | 450 → 420 | 317 → 293 |
+| 1 | 192 | float64 | 1,108 → 1,079 | 883 → 861 |
+| 2 | 384 | float32 | 642 → 617 | 434 → 408 |
+| 2 | 384 | float64 | 1,883 → 1,854 | 1,374 → 1,346 |
+| 3 | 576 | float32 | 961 → 938 | 610 → 585 |
+| 3 | 576 | float64 | 2,802 → 2,784 | 2,085 → 2,055 |
+| 4 | 768 | float32 | 1,313 → 1,295 | 714 → 696 |
+| 4 | 768 | float64 | 3,415 → 3,398 | 2,578 → 2,551 |
+| 5 | 960 | float32 | 1,584 → 1,548 | 873 → 856 |
+| 5 | 960 | float64 | 4,185 → 4,173 | 3,309 → 3,279 |
+| 6 | 1,152 | float32 | 1,794 → 1,800 | 1,012 → 1,020 |
+| 6 | 1,152 | float64 | 5,009 → 5,039 | 3,881 → 3,871 |
+
+- With an se_e3 descriptor and the rows laid out on the device (42 cases)
+  an evaluation is 12 to 36 µs shorter, 22 in the middle. For the HAP
+  frames that is 6% to 14% of an evaluation in float32 (18 to 25 µs of 154
+  to 319) and 2% to 12% in float64 (17 to 27 µs of 228 to 922).
+- The model without se_e3 is the control: nothing on its path changed, and
+  it is within 0.5% (-1.0 to +1.6 µs). The passes of more than 1,024 atoms
+  go as before and are within 0.7%, which at their length is -30 to +10
+  µs: what a session scatters at a millisecond and more.
+- In batches the gain is the same up to 384 atoms (23 to 30 µs). From 576
+  to 960 atoms the numbers say 12 to 36 µs, which is within that scatter
+  for passes of 0.6 to 4 ms: such a pass waits for the device, not for the
+  host, and the layout kernel runs on one multiprocessor.
+- A first run of four rounds (`...-r1.json`) was made on a machine less
+  quiet: its control cases are up to 2.1% apart, and its gains on the HAP
+  frames 15 to 35 µs. The tables are from the second run, of six rounds.
+- Before the change a probe that left out the copy back alone (the counts
+  of the first evaluation used again, the count kernel and the upload
+  kept) had saved 18 to 30 µs on the HAP frames of 88 and 224 atoms.
+
+**Tests** (`native/tests/gpu_parity.rs`, on this machine; the GPU suites do
+not run in CI). The kernel against the sums it stands for, to the row: for
+1, 2, 31, 32, 33, 63, 64, 65, 500, 1,023 and 1,024 atoms, with atoms that
+hold nothing, atoms with every slot full, neighbors that are the atom 0, a
+type without slots, the slots of the water model, and 6,000 slots, whose
+rows pass thirty-two bits; 1,025 atoms are refused. Where the layout is
+made, by the count of the passes that came back: with nets, with tables,
+at the limit of atoms and one below it, in chunks one atom short of the
+frame, with room for the rows of full slots and for ten rows less, in
+batches of 1,000 and 1,125 atoms, for a frame that leaves the tables, in
+float32, for a hybrid of two se_e3 descriptors and a radial one, and for
+one whose se_e3 descriptors have five slots and 240; each time against the
+CPU reference or against the layout made on the host.
+The models of a committee, with every slot of every atom full, so that
+the rows of one end where those of the next begin, and with a row budget
+that holds one model's rows and not three.
+
+A mutation round on the layout kernel, on what the host takes for the rows
+and on when the layout is made on the device had 30 mutants. 27 were
+caught by the tests as first written; three showed gaps that now have
+checks:
+
+- A bound one row an atom short of full slots. The test of the committee
+  meant to have every slot of every atom full and did not: with two types
+  the nearest neighbors of any type are taken first, as many as there are
+  slots, and of those at most the slots of each type, which need not fill
+  them. Nothing was at the bound, then. The test has one type now.
+- The rows a chunk may hold, not shared among the models of a committee.
+- Every se_e3 descriptor of a hybrid given the bound of the first.
+
+With these all 30 are caught (the three, and the three next to them in the
+list, ran again). The 42 mutants of the same file from the round of this
+morning (the tables of a descriptor, the kernels that read them, the host
+side) ran again on the changed file: all caught.
+
+Locally: workspace 232, engine with `native-gpu` 93, GPU crates 186, each
+in release and debug; `cargo fmt --check` clean; the legacy `cuda` features
+compile.
+
+**Not done.** The nets path keeps the copy back: its embedding kernel is
+launched over the rows. So does the trainer. A pass of more than 1,024
+atoms has it too, where it is 20 µs of milliseconds. The layout kernel
+runs on one multiprocessor, with two barriers for every round of its scan;
+for passes near its limit with thousands of pairs an atom the gain is
+within what the timings scatter, and whether a faster scan would show
+there was not tried.
+
+Files: `hap-eval-se-e3-layout-rtx4090-2026-11-18.json` (and `-r1`, the
+first run); the probe of allocations by size is `allocation_costs_by_size`
+in `gpu/tests/costs.rs`.
+
 # Tables in pieces of uneven length for se_e2_a and se_e2_r, 2026-11-18
 
 `--compress` (`compress_min_distance` in the engine) now gives the nets of

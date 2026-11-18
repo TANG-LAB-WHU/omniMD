@@ -30,7 +30,7 @@ cargo test --release -p omnimd-gpu --test costs -- --ignored --nocapture
 
 | call | cost |
 |---|---:|
-| allocation and free (stream-ordered pool) | 0.4 |
+| allocation and free (stream-ordered pool), 8 KB to 256 MiB | 0.4 |
 | copy into a device buffer, 8 KB / 128 KB | 5 / 9 |
 | clearing a buffer | 5 to 6 |
 | kernel launch | 5 to 6 |
@@ -66,6 +66,18 @@ lane.
 
 What follows for the kernels:
 
+- Ask the device for nothing in the middle of an evaluation. A copy back to
+  the host waits for all that is queued before it, and the device then
+  stands still while the host queues the rest. An se_e3 model brought the
+  neighbor counts of its atoms back to lay out the rows of their pairs: 17
+  to 30 µs an evaluation, an eighth of a frame of 88 atoms in float32 with
+  tables (154 µs). Where the host needs such a number only for the size of
+  buffers, it can take the most the number can be (an allocation costs
+  the same at any size) and leave the number on the device: a kernel of
+  one block lays the rows of up to 1,024 atoms out with a scan over its
+  shared memory. A block has one multiprocessor, though, so keep what
+  each of its threads loads small (the neighbors of a type fill its first
+  slots: their number is found by halving, not by counting).
 - Divide once. Reciprocals of constants come from the host (`1 / dstd`,
   `1 / (rcut - rcut_smth)`) or are formed once per thread (`1 / slots`,
   `1 / r` per neighbor); neighbor distances are taken from the search, not
