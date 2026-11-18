@@ -346,12 +346,18 @@ fn compressed_embedding_matches_cpu_and_falls_back_outside_the_table() {
     let mut cpu = NativePotential::new(model.clone()).unwrap();
     let expected = cpu.eval(&frame).unwrap();
 
-    // Tables down to 0.8 Å cover this frame (nearest pair ~1.2 Å). Quintic
-    // interpolation at step 0.01 is good to ~1e-12; allow 1e-9.
+    // Tables down to 0.8 Å cover this frame (nearest pair ~1.2 Å). At the
+    // step 0.01 every piece is within 1e-13 of its net; allow 1e-9 of a
+    // force.
     let mut gpu = GpuPotential::<f64>::new(&model, device.clone()).unwrap();
     assert!(!gpu.is_compressed());
+    assert_eq!(gpu.table_size(), (0, 0));
     gpu.compress(0.8, 0.01).unwrap();
     assert!(gpu.is_compressed());
+    // Four nets (two types of centers and of neighbors), sixteen outputs.
+    let (bytes, pieces) = gpu.table_size();
+    assert!((200..100_000).contains(&pieces), "{pieces} pieces");
+    assert!(bytes >= pieces * 16 * 6 * 8, "{bytes} bytes");
     compare(
         "compressed",
         &gpu.eval(&frame).unwrap(),
@@ -367,9 +373,15 @@ fn compressed_embedding_matches_cpu_and_falls_back_outside_the_table() {
     );
     assert_eq!(gpu.table_fallbacks(), 0);
 
-    // A coarse table is visibly worse, so the fine one is really in use.
+    // A coarse step is a loose tolerance: fewer pieces, visibly worse. So
+    // the tables are what is evaluated.
     let mut coarse = GpuPotential::<f64>::new(&model, device.clone()).unwrap();
     coarse.compress(0.8, 0.5).unwrap();
+    assert!(
+        coarse.table_size().1 * 3 < pieces,
+        "{:?}",
+        coarse.table_size()
+    );
     let rough = coarse.eval(&frame).unwrap();
     let difference = rough
         .forces
@@ -380,18 +392,46 @@ fn compressed_embedding_matches_cpu_and_falls_back_outside_the_table() {
         .fold(0.0, f64::max);
     assert!(difference > 1e-9, "coarse table too accurate: {difference}");
 
-    // Fine tables that stop at 2 Å still cover this frame through the coarse
-    // tail (ten times the step, down to 0.4 Å): no fallback, lower accuracy.
+    // Tables asked for from 2 Å reach to a fifth of that, 0.4 Å, at the
+    // same tolerance all the way: this frame is within them.
     let mut short = GpuPotential::<f64>::new(&model, device.clone()).unwrap();
     short.compress(2.0, 0.01).unwrap();
     compare(
-        "tail",
+        "tables from 2 A",
         &short.eval(&frame).unwrap(),
         &expected,
-        (1e-9, 1e-6),
+        (1e-11, 1e-9),
     );
     assert_eq!(short.table_fallbacks(), 0);
-    // A pair at 0.3 Å is closer than the tail reaches: that frame is
+    // They reach to that distance for a center of either type, whatever
+    // power of two their pieces go to: a pair of atoms just beyond 0.4 Å is
+    // within the tables, one just inside is not and goes to the nets.
+    let mut fallbacks = 0;
+    for (a, b) in [("O", "O"), ("H", "H"), ("O", "H")] {
+        for (distance, outside) in [(0.4004, 0), (0.3996, 1)] {
+            let pair = Frame {
+                positions: vec![[0.0, 0.0, 0.0], [0.0, distance, 0.0]],
+                species: vec![a.into(), b.into()],
+                cell: None,
+                units: Units::EvAngstrom,
+            };
+            let exact = cpu.eval(&pair).unwrap();
+            assert!(exact.forces[0][1].abs() > 1e-3, "{:?}", exact.forces);
+            compare(
+                &format!("{a}-{b} at {distance} A"),
+                &short.eval(&pair).unwrap(),
+                &exact,
+                (1e-11, 1e-9),
+            );
+            fallbacks += outside;
+            assert_eq!(
+                short.table_fallbacks(),
+                fallbacks,
+                "{a}-{b} at {distance} A"
+            );
+        }
+    }
+    // A pair at 0.3 Å is closer than the tables reach: that frame is
     // evaluated with the exact networks, same answer as without compression.
     let mut close = frame.clone();
     close.positions[1] = [
@@ -406,9 +446,9 @@ fn compressed_embedding_matches_cpu_and_falls_back_outside_the_table() {
         &expected_close,
         FLOAT64,
     );
-    assert_eq!(short.table_fallbacks(), 1);
+    assert_eq!(short.table_fallbacks(), fallbacks + 1);
 
-    let mut single = GpuPotential::<f32>::new(&model, device).unwrap();
+    let mut single = GpuPotential::<f32>::new(&model, device.clone()).unwrap();
     single.compress(0.8, 0.01).unwrap();
     compare(
         "compressed float32",
@@ -419,6 +459,43 @@ fn compressed_embedding_matches_cpu_and_falls_back_outside_the_table() {
     assert_eq!(single.table_fallbacks(), 0);
     assert!(single.compress(0.0, 0.01).is_err());
     assert!(single.compress(0.8, 0.0).is_err());
+    assert!(single.is_compressed());
+
+    // A net that turns within a hundred-thousandth of a unit at the entry
+    // 11.8, twelve units from that of a neighbor at the cutoff, where a
+    // float32 has steps of 1e-6: too few for a piece. The potential says
+    // which net of which member and where, and goes on with its nets.
+    let mut sharp = model.clone();
+    let normalization = &sharp.descriptor.normalization[1];
+    let turn = -normalization.mean[0] / normalization.std[0] + 12.0;
+    assert!((turn - 11.8).abs() < 1e-12);
+    let first = &mut sharp.descriptor.embedding[1][0].layers[0];
+    first.weights[0][0] = 1e5;
+    first.bias[0] = -1e5 * turn;
+    let mut single = GpuPotential::<f32>::committee(&[&model, &sharp], device).unwrap();
+    let error = single.compress(0.8, 0.01).unwrap_err().to_string();
+    assert!(
+        error.contains("se_e2_a for a center of type 1 and neighbors of type 0")
+            && error.contains("turns too fast"),
+        "{error}"
+    );
+    let place: f64 = error
+        .split("near ")
+        .nth(1)
+        .and_then(|rest| rest.split(' ').next())
+        .and_then(|number| number.parse().ok())
+        .unwrap_or_else(|| panic!("no place in {error:?}"));
+    assert!((place - turn).abs() < 1e-3, "{error}");
+    assert!(!single.is_compressed());
+    assert_eq!(single.table_size(), (0, 0));
+    let of_members = single.eval_members(&[&frame]).unwrap().remove(0);
+    compare(
+        "a net too fast for float32 tables, the member before it",
+        &of_members[0],
+        &expected,
+        (1e-6, 1e-4),
+    );
+    assert_eq!(single.table_fallbacks(), 0);
 }
 
 /// Four frames that share nothing but the model: sizes, cells and boundary.
@@ -962,7 +1039,7 @@ fn se_e2_r_in_float32_compressed_in_batches_and_committees() {
             );
         }
     }
-    // The tables: quintic interpolation at step 0.01, as for se_e2_a.
+    // The tables, made as for se_e2_a.
     committee.compress(0.8, 0.01).unwrap();
     for (index, of_frame) in committee.eval_members(&batch).unwrap().iter().enumerate() {
         for (member, got) in of_frame.iter().enumerate() {
@@ -1592,11 +1669,11 @@ fn se_e3_tables_follow_the_nets_and_give_way_outside_their_range() {
     }
 
     // The ends of the tables. Tables from 2 Å reach to a fifth of that: the
-    // direction of a neighbor at 0.4 Å (inside the smoothing radius, where
-    // the entry is 1/r) over the narrowest width of a central type gives the
-    // largest θ, and a table ends at the power of two from there on. Two
-    // atoms of the type with that width have one pair each, a neighbor with
-    // itself, whose θ is the square of its direction.
+    // direction of a neighbor at 0.4 Å over the narrowest width of a central
+    // type gives the largest θ they take, whatever power of two their
+    // pieces go to. Two atoms of the type with that width have one pair
+    // each, a neighbor with itself, whose θ is the square of its direction:
+    // it is at the end of the tables when the two are 0.4 Å apart.
     let width = model
         .descriptor
         .normalization
@@ -1604,10 +1681,7 @@ fn se_e3_tables_follow_the_nets_and_give_way_outside_their_range() {
         .map(|n| n.std[1])
         .fold(f64::INFINITY, f64::min);
     assert_eq!(width, model.descriptor.normalization[0].std[1]);
-    let end = 2f64.powf((1.0 / (0.4 * width)).powi(2).log2().ceil());
-    // The distance at which θ is the end of the table.
-    let edge = 1.0 / (width * end.sqrt());
-    assert!(edge > 0.2 && edge < 0.4, "{edge}");
+    let edge: f64 = 0.4;
     let pair = |r: f64| Frame {
         positions: vec![[0.0, 0.0, 0.0], [r, 0.0, 0.0]],
         species: vec!["O".into(), "O".into()],
@@ -2299,9 +2373,9 @@ fn hybrid_in_float32_compressed_in_batches_and_committees() {
             }
         }
     }
-    // Tables for every descriptor, each over its own range: of one step for
-    // se_e2_a and se_e2_r, in pieces of uneven length for se_e3. Quintic
-    // interpolation at step 0.01 is good to ~1e-12 for these nets; allow 1e-9.
+    // Tables for every descriptor, each over its own range: over the radial
+    // entry for se_e2_a and se_e2_r, over θ for se_e3. At the step 0.01 a
+    // piece is within 1e-13 of its net; allow 1e-9 of a force.
     assert!(!committee.is_compressed());
     committee.compress(0.8, 0.01).unwrap();
     assert!(committee.is_compressed());
@@ -2552,4 +2626,86 @@ fn hybrid_in_float32_compressed_in_batches_and_committees() {
     // The GPU trainer takes a hybrid of the three descriptors (its tests
     // are in gpu_train.rs).
     assert!(omnimd_native::gpu_train::GpuTrainer::<f64>::new(&models[0], device).is_ok());
+}
+
+/// What the tables of each kind of descriptor are made of. A net that does
+/// not depend on its input is one piece wherever it is tabulated, so the
+/// pieces of such a model count its tables and their sides: one side for a
+/// net of se_e2_a or se_e2_r, whose input starts at the entry of a neighbor
+/// at the cutoff, and both for a net of se_e3, which serves the two orders
+/// of a pair of neighbor types.
+#[test]
+fn the_tables_of_a_descriptor_have_the_sides_its_nets_are_given() {
+    let Some(device) = device() else { return };
+    let flat = |seed: u64| {
+        let mut model = three_kinds(seed);
+        for part in &mut model.descriptor.list {
+            for net in part.embedding.iter_mut().flatten() {
+                for weight in net.layers[0].weights.iter_mut().flatten() {
+                    *weight = 0.0;
+                }
+            }
+        }
+        model
+    };
+    let models = [flat(311), flat(331)];
+    let triclinic = [[9.0, 0.0, 0.0], [1.5, 8.5, 0.0], [-1.0, 0.8, 9.2]];
+    let frame = frame(triclinic, 5, 2, true, 312);
+    let exact = NativePotential::new(models[0].clone())
+        .unwrap()
+        .eval(&frame)
+        .unwrap();
+    // The fitting nets still tell the atoms apart, by their environment
+    // rows: the comparison below is of forces that are there.
+    let largest = exact
+        .forces
+        .iter()
+        .flatten()
+        .fold(0.0f64, |m, f| m.max(f.abs()));
+    assert!(largest > 1e-3, "{largest}");
+    // Two types: four nets of se_e2_a, four of se_e2_r, three of se_e3.
+    let nets = [(4, 16), (4, 24), (3, 8)];
+    let pieces = 4 + 4 + 2 * 3;
+    let coefficients: usize = [nets[0], nets[1], (2 * nets[2].0, nets[2].1)]
+        .iter()
+        .map(|&(tables, width)| tables * width * 6)
+        .sum();
+    for single in [false, true] {
+        let (size, got) = match single {
+            false => {
+                let mut gpu = GpuPotential::<f64>::new(&models[0], device.clone()).unwrap();
+                gpu.compress(0.8, 0.01).unwrap();
+                (gpu.table_size(), gpu.eval(&frame).unwrap())
+            }
+            true => {
+                let mut gpu = GpuPotential::<f32>::new(&models[0], device.clone()).unwrap();
+                gpu.compress(0.8, 0.01).unwrap();
+                (gpu.table_size(), gpu.eval(&frame).unwrap())
+            }
+        };
+        assert_eq!(size.1, pieces, "float32: {single}");
+        // The quintics, and little else: the cells of a table of one piece
+        // on a side are two.
+        let scalar = if single { 4 } else { 8 };
+        assert!(
+            size.0 >= coefficients * scalar && size.0 < coefficients * scalar + 4096,
+            "{} bytes for {coefficients} coefficients, float32: {single}",
+            size.0
+        );
+        compare(
+            "flat nets from their tables",
+            &got,
+            &exact,
+            if single { (1e-6, 1e-4) } else { (1e-11, 1e-9) },
+        );
+    }
+    // The members of a committee have tables of their own.
+    let mut committee =
+        GpuPotential::<f64>::committee(&[&models[0], &models[1]], device.clone()).unwrap();
+    committee.compress(0.8, 0.01).unwrap();
+    assert_eq!(committee.table_size().1, 2 * pieces);
+    // Nets that do depend on their input take more pieces, of any kind.
+    let mut gpu = GpuPotential::<f64>::new(&three_kinds(311), device).unwrap();
+    gpu.compress(0.8, 0.01).unwrap();
+    assert!(gpu.table_size().1 > 20 * pieces, "{:?}", gpu.table_size());
 }

@@ -416,159 +416,6 @@ fn fused_scalar_network_matches_cpu_chain_and_its_derivative() {
     assert!(omnimd_gpu::ScalarNetwork::new(device, &[wide]).is_err());
 }
 
-#[test]
-fn scalar_table_interpolates_and_flags_inputs_outside_its_range() {
-    let Some(device) = device() else { return };
-    // f_m(x) = sin((m + 1) x) on [-1, 2], step 0.01.
-    let (lower, step, width, knots) = (-1.0, 0.01, 5, 301);
-    let sample = |order: usize| -> Vec<f64> {
-        (0..knots)
-            .flat_map(|i| {
-                let x = lower + i as f64 * step;
-                (0..width).map(move |m| {
-                    let k = (m + 1) as f64;
-                    match order {
-                        0 => (k * x).sin(),
-                        1 => k * (k * x).cos(),
-                        _ => -k * k * (k * x).sin(),
-                    }
-                })
-            })
-            .collect()
-    };
-    let coefficients =
-        omnimd_gpu::quintic_coefficients(step, width, &sample(0), &sample(1), &sample(2)).unwrap();
-    let table =
-        omnimd_gpu::ScalarTable::<f64>::new(device, lower, step, width, &coefficients).unwrap();
-    assert_eq!((table.output(), table.intervals()), (5, 300));
-
-    let rows = 777;
-    // Inside the range, including both ends exactly.
-    let mut x: Vec<f64> = values(rows, 900).iter().map(|v| 0.5 + 1.5 * v).collect();
-    (x[0], x[1]) = (-1.0, 2.0);
-    let expected = |x: &[f64], order: usize| -> Vec<f64> {
-        x.iter()
-            .flat_map(|&x| {
-                (0..width).map(move |m| {
-                    let k = (m + 1) as f64;
-                    if order == 0 {
-                        (k * x).sin()
-                    } else {
-                        k * (k * x).cos()
-                    }
-                })
-            })
-            .collect()
-    };
-    let run = |x: &[f64]| {
-        let (mut y, mut dy) = (
-            device.upload(&vec![f64::NAN; x.len() * width]).unwrap(),
-            device.upload(&vec![f64::NAN; x.len() * width]).unwrap(),
-        );
-        let mut flag = device.zeros::<i32>(1).unwrap();
-        table
-            .forward_tangent_into(
-                device,
-                &device.upload(x).unwrap(),
-                x.len(),
-                &mut y,
-                &mut dy,
-                &mut flag,
-            )
-            .unwrap();
-        (
-            device.download(&y).unwrap(),
-            device.download(&dy).unwrap(),
-            device.download(&flag).unwrap()[0],
-        )
-    };
-    let (y, dy, flag) = run(&x);
-    assert_eq!(flag, 0);
-    // Error ~ step^6 k^6 / 46080 with k up to 5.
-    assert!(max_error(y, &expected(&x, 0)) < 1e-11);
-    assert!(max_error(dy, &expected(&x, 1)) < 1e-8);
-
-    // One input past either end: flagged, and evaluated at that end.
-    for (outside, end) in [(2.5, 2.0), (-1.2, -1.0)] {
-        x[5] = outside;
-        let (y, _, flag) = run(&x);
-        assert_eq!(flag, 1, "input {outside}");
-        let at_end = expected(&[end], 0);
-        assert!(max_error(y[5 * width..6 * width].to_vec(), &at_end) < 1e-11);
-    }
-
-    // The same table continued to 5 by a tail with ten times the step.
-    let tail_sample = |order: usize| -> Vec<f64> {
-        (0..=30)
-            .flat_map(|i| {
-                let x = 2.0 + i as f64 * 0.1;
-                (0..width).map(move |m| {
-                    let k = (m + 1) as f64;
-                    match order {
-                        0 => (k * x).sin(),
-                        1 => k * (k * x).cos(),
-                        _ => -k * k * (k * x).sin(),
-                    }
-                })
-            })
-            .collect()
-    };
-    let tail = omnimd_gpu::quintic_coefficients(
-        0.1,
-        width,
-        &tail_sample(0),
-        &tail_sample(1),
-        &tail_sample(2),
-    )
-    .unwrap();
-    let table = omnimd_gpu::ScalarTable::<f64>::with_tail(
-        device,
-        lower,
-        step,
-        width,
-        &coefficients,
-        0.1,
-        &tail,
-    )
-    .unwrap();
-    assert_eq!((table.intervals(), table.tail_intervals()), (300, 30));
-    // Main part, the junction, inside the tail and its far end.
-    let x = [-0.3, 1.999, 2.0, 2.004, 3.21, 4.95, 5.0];
-    let (mut y, mut dy) = (
-        device.upload(&vec![f64::NAN; x.len() * width]).unwrap(),
-        device.upload(&vec![f64::NAN; x.len() * width]).unwrap(),
-    );
-    let mut flag = device.zeros::<i32>(1).unwrap();
-    let mut evaluate = |x: &[f64]| {
-        table
-            .forward_tangent_into(
-                device,
-                &device.upload(x).unwrap(),
-                x.len(),
-                &mut y,
-                &mut dy,
-                &mut flag,
-            )
-            .unwrap();
-        (
-            device.download(&y).unwrap(),
-            device.download(&dy).unwrap(),
-            device.download(&flag).unwrap()[0],
-        )
-    };
-    let (values, slopes, flagged) = evaluate(&x);
-    assert_eq!(flagged, 0);
-    // Tail error ~ 0.1^6 k^6 / 46080 = 3e-7 for k = 5.
-    assert!(max_error(values, &expected(&x, 0)) < 1e-6);
-    assert!(max_error(slopes, &expected(&x, 1)) < 1e-4);
-    // Past the tail: flagged and held at its end.
-    let mut beyond = x;
-    beyond[3] = 5.5;
-    let (values, _, flagged) = evaluate(&beyond);
-    assert_eq!(flagged, 1);
-    assert!(max_error(values[3 * width..4 * width].to_vec(), &expected(&[5.0], 0)) < 1e-6);
-}
-
 /// A table in pieces of uneven length laid out by hand, whose quintics say
 /// which piece an input was looked up in: output 0 is the place within the
 /// piece, output 2 the number of the piece, output 1 a quintic with all six
@@ -642,6 +489,7 @@ fn marked_cells(
     (
         omnimd_gpu::CellSegments {
             top,
+            reach: [2f64.powi(top); 2],
             lowest,
             cells: records,
             coefficients,
@@ -820,6 +668,71 @@ fn cell_table_finds_every_piece<T: omnimd_gpu::Scalar>(device: &Device) {
         // The other rows are what they were.
         assert_eq!(y[6 * width + 2].to_f64(), expected(ids[6], x[6].to_f64()).0);
     }
+
+    // A table that reaches less far than its pieces go, and not at all
+    // below zero: the cells of that side name the pieces of the other, and
+    // whatever is beyond the reach is reported and looked up within it.
+    let (mut one_sided, pieces) = marked_cells(width, bits, -2, 4);
+    let per_side = one_sided.cells.len() / 2;
+    one_sided.cells.copy_within(..per_side, per_side);
+    one_sided.reach = [10.0, 0.0];
+    let table =
+        omnimd_gpu::CellTable::<T>::new_set(device, width, bits, &[one_sided], &[0]).unwrap();
+    let piece_of = |value: f64| -> (f64, f64) {
+        let index = pieces[0]
+            .iter()
+            .position(|&(start, h)| start <= value && value < start + h)
+            .unwrap();
+        let (start, h) = pieces[0][index];
+        (index as f64, T::from_f64((value - start) / h).to_f64())
+    };
+    let run_one = |value: f64| {
+        let (mut y, mut dy) = (
+            device
+                .upload(&vec![T::from_f64(f64::NAN); 2 * width])
+                .unwrap(),
+            device
+                .upload(&vec![T::from_f64(f64::NAN); 2 * width])
+                .unwrap(),
+        );
+        let mut flag = device.zeros::<i32>(1).unwrap();
+        // A second row within the reach, which must not be touched by the
+        // first.
+        table
+            .forward_tangent_by_id(
+                device,
+                &device
+                    .upload(&[T::from_f64(value), T::from_f64(3.3)])
+                    .unwrap(),
+                &device.upload(&[0i32, 0]).unwrap(),
+                2,
+                &mut y,
+                &mut dy,
+                &mut flag,
+            )
+            .unwrap();
+        let y = device.download(&y).unwrap();
+        let within = piece_of(T::from_f64(3.3).to_f64());
+        assert_eq!((y[width + 2].to_f64(), y[width].to_f64()), within);
+        (
+            (y[2].to_f64(), y[0].to_f64()),
+            device.download(&flag).unwrap()[0],
+        )
+    };
+    // Within the reach, up to the last float below it.
+    for value in [0.0, 0.3, 7.5, below(10.0)] {
+        let value = T::from_f64(value).to_f64();
+        assert_eq!(run_one(value), (piece_of(value), 0), "input {value}");
+    }
+    // At the reach and beyond, where the table still has pieces, and past
+    // them: reported, and looked up at the last float within the reach.
+    for value in [10.0, 12.5, below(16.0), 16.0, 1e30, f64::INFINITY, f64::NAN] {
+        assert_eq!(run_one(value), (piece_of(below(10.0)), 1), "input {value}");
+    }
+    // Below zero the table has nothing: reported, and looked up at zero.
+    for value in [-1e-30, -0.3, -7.5, -40.0, f64::NEG_INFINITY] {
+        assert_eq!(run_one(value), ((0.0, 0.0), 1), "input {value}");
+    }
 }
 
 #[test]
@@ -855,6 +768,23 @@ fn cell_table_finds_the_piece_of_an_input_from_its_bits() {
     let mut bad = good.clone();
     bad.top = 400;
     assert!(set(&[bad], &[0]).is_err());
+    // A reach past the pieces, none above zero, or one that is no number.
+    for reach in [
+        [16.5, 16.0],
+        [0.0, 16.0],
+        [16.0, -1.0],
+        [f64::NAN, 16.0],
+        [16.0, 1e-40],
+    ] {
+        let mut bad = good.clone();
+        bad.reach = reach;
+        assert!(set(&[bad], &[0]).is_err(), "reach {reach:?}");
+    }
+    for reach in [[16.0, 0.0], [1e-3, 16.0], [9.0, 2.5]] {
+        let mut fine = good.clone();
+        fine.reach = reach;
+        assert!(set(&[fine], &[0]).is_ok(), "reach {reach:?}");
+    }
     assert!(omnimd_gpu::CellTable::<f64>::new_set(device, 3, 0, &[good], &[0]).is_err());
 }
 
@@ -944,78 +874,29 @@ fn fused_networks_select_one_of_a_set_per_row() {
     odd[1][2].residual = false;
     assert!(omnimd_gpu::ScalarNetwork::new_set(device, &odd).is_err());
 
-    // The same nets as tables: each row is looked up in its own table.
-    let (lower, step, knots) = (0.0, 0.01, 101);
-    let tables: Vec<omnimd_gpu::TableSegments> = nets
-        .iter()
-        .map(|net| {
-            // Value, slope and curvature at the knots by central differences
-            // of the CPU chain; accuracy is not the point of this check.
-            let h = 1e-4;
-            let at = |x: f64| cpu_chain(net, &[x], 1);
-            let (mut v, mut d, mut dd) = (Vec::new(), Vec::new(), Vec::new());
-            for k in 0..knots {
-                let x = lower + k as f64 * step;
-                let (m, c, p) = (at(x - h), at(x), at(x + h));
-                for j in 0..40 {
-                    v.push(c[j]);
-                    d.push((p[j] - m[j]) / (2.0 * h));
-                    dd.push((p[j] - 2.0 * c[j] + m[j]) / (h * h));
-                }
-            }
-            omnimd_gpu::TableSegments {
-                lower,
-                step,
-                coefficients: omnimd_gpu::quintic_coefficients(step, 40, &v, &d, &dd).unwrap(),
-                tail_step: step,
-                tail_coefficients: Vec::new(),
-            }
-        })
-        .collect();
-    let table = omnimd_gpu::ScalarTable::<f64>::new_set(device, 40, &tables).unwrap();
-    assert_eq!(table.tables(), 3);
-    let mut flag = device.zeros::<i32>(1).unwrap();
-    table
-        .forward_tangent_by_id(device, &xd, &idsd, rows, &mut y, &mut dy, &mut flag)
-        .unwrap();
-    assert_eq!(device.download(&flag).unwrap()[0], 0);
-    // Knot data from finite differences limits this to ~1e-6.
-    assert!(max_error(device.download(&y).unwrap(), &expected) < 1e-5);
-
-    // A negative id skips its row: networks and tables leave what was there.
+    // A negative id skips its row: what was there is left.
     let skipping: Vec<i32> = ids
         .iter()
         .enumerate()
         .map(|(r, &id)| if r % 3 == 1 { -1 } else { id })
         .collect();
     let skipping_d = device.upload(&skipping).unwrap();
-    for (by_table, tolerance) in [(false, 1e-12), (true, 1e-5)] {
-        let mut y = device.upload(&vec![7.0f64; rows * 40]).unwrap();
-        let mut dy = device.upload(&vec![-7.0f64; rows * 40]).unwrap();
-        if by_table {
-            table
-                .forward_tangent_by_id(device, &xd, &skipping_d, rows, &mut y, &mut dy, &mut flag)
-                .unwrap();
+    let mut y = device.upload(&vec![7.0f64; rows * 40]).unwrap();
+    let mut dy = device.upload(&vec![-7.0f64; rows * 40]).unwrap();
+    set.forward_tangent_by_id(device, &xd, &skipping_d, rows, &mut y, &mut dy)
+        .unwrap();
+    let (y, dy) = (device.download(&y).unwrap(), device.download(&dy).unwrap());
+    for r in 0..rows {
+        let (value, tangent) = (&y[r * 40..(r + 1) * 40], &dy[r * 40..(r + 1) * 40]);
+        if skipping[r] < 0 {
+            assert!(
+                value.iter().all(|&v| v == 7.0) && tangent.iter().all(|&v| v == -7.0),
+                "skipped row {r} was written"
+            );
         } else {
-            set.forward_tangent_by_id(device, &xd, &skipping_d, rows, &mut y, &mut dy)
-                .unwrap();
-        }
-        let (y, dy) = (device.download(&y).unwrap(), device.download(&dy).unwrap());
-        for r in 0..rows {
-            let (value, tangent) = (&y[r * 40..(r + 1) * 40], &dy[r * 40..(r + 1) * 40]);
-            if skipping[r] < 0 {
-                assert!(
-                    value.iter().all(|&v| v == 7.0) && tangent.iter().all(|&v| v == -7.0),
-                    "skipped row {r} was written (tables: {by_table})"
-                );
-            } else {
-                let error = max_error(value.iter().copied(), &expected[r * 40..(r + 1) * 40]);
-                assert!(
-                    error < tolerance,
-                    "row {r} error {error} (tables: {by_table})"
-                );
-                assert!(tangent.iter().all(|&v| v != -7.0), "row {r} has no tangent");
-            }
+            let error = max_error(value.iter().copied(), &expected[r * 40..(r + 1) * 40]);
+            assert!(error < 1e-12, "row {r} error {error}");
+            assert!(tangent.iter().all(|&v| v != -7.0), "row {r} has no tangent");
         }
     }
 }

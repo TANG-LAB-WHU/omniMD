@@ -1,4 +1,4 @@
-//! Tables of an embedding net whose input has a wide range (the θ of se_e3).
+//! Tables of an embedding net in pieces of uneven length.
 //!
 //! The two-body descriptors give their embedding nets a normalized radial
 //! entry of some tens of units at most, and their tables have a knot every
@@ -20,6 +20,16 @@
 //!   quarters of it: the value within the tolerance, as a fraction of the
 //!   largest value the net was seen to take, and the slope within
 //!   [`SLOPE_TOLERANCE`] times that fraction of its largest slope.
+//!
+//! A table counts from an origin of its own ([`TableSpan`]). The nets of
+//! se_e3 have theirs at θ = 0 and pieces on either side. Those of se_e2_a
+//! and se_e2_r have it at the entry of a neighbor at the cutoff, the lowest
+//! their input takes, and pieces above it only: the place in the table is
+//! then s(r) over the width of the radial entry, which the device has
+//! without a subtraction. (The pieces are for the same reason as for se_e3:
+//! a table with a knot every hundredth of a unit follows the nets of a
+//! trained HAP model to 2e-5 of their largest value at its worst place,
+//! where these follow them to a tolerance.)
 //!
 //! A net is not computed more exactly than its sums allow: a unit with a
 //! large weight and a large bias, which cancel where it turns, is exact to
@@ -71,7 +81,22 @@ pub(crate) struct TableOptions {
     pub resolution: u32,
 }
 
-/// A net as pieces of quintics over `|x| < 2^top`.
+/// What a table covers of the input of its net.
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct TableSpan {
+    /// The pieces reach `2^top` from the origin.
+    pub top: i32,
+    /// Where the table counts from: the place `x` of the table is the input
+    /// `origin + x` of the net.
+    pub origin: f64,
+    /// Whether the places below the origin have pieces too. Without, the
+    /// cells of that side name the pieces of the other (a lookup then stays
+    /// within the table whatever it is given), and whoever looks a place up
+    /// must not take one below the origin for good.
+    pub below: bool,
+}
+
+/// A net as pieces of quintics over the places `|x| < 2^top` of a table.
 // (The tests read all of it; the potential takes the cells and the pieces.)
 #[cfg_attr(not(test), allow(dead_code))]
 #[derive(Clone, Debug)]
@@ -79,12 +104,13 @@ pub(crate) struct NetTable {
     /// Outputs of the net.
     pub width: usize,
     pub top: i32,
-    /// Cell 0 of either sign holds the inputs below `2^lowest`; from there
+    pub origin: f64,
+    /// Cell 0 of either sign holds the places below `2^lowest`; from there
     /// on every exponent has `2^key_bits` cells.
     pub lowest: i32,
     pub key_bits: u32,
     /// `(base, e)` of every cell, those of `x >= 0` first, then as many of
-    /// `x < 0`: the pieces of the cell are `2^e` wide and an input is in
+    /// `x < 0`: the pieces of the cell are `2^e` wide and a place is in
     /// piece `base + floor(|x| / 2^e)`.
     pub cells: Vec<(i64, i32)>,
     /// `[pieces][width][6]`: the quintic of every output in the place within
@@ -186,7 +212,9 @@ fn restricted(c: &[f64], from: f64, part: f64) -> [f64; 6] {
 struct Builder<'a> {
     network: &'a Network,
     options: TableOptions,
-    /// Which side of zero the pieces are on.
+    /// Where the table counts from, and which side of that the pieces are
+    /// on.
+    origin: f64,
     sign: f64,
     value_scale: f64,
     slope_scale: f64,
@@ -197,12 +225,13 @@ struct Builder<'a> {
 
 impl Builder<'_> {
     fn jet(&mut self, a: f64) -> Result<Jet> {
-        let [value, slope, curvature] = self.network.scalar_jet(self.sign * a)?;
+        let input = self.origin + self.sign * a;
+        let [value, slope, curvature] = self.network.scalar_jet(input)?;
         for (v, d) in value.iter().zip(&slope) {
             self.value_scale = self.value_scale.max(v.abs());
             self.slope_scale = self.slope_scale.max(d.abs());
         }
-        let (value_rounding, slope_rounding) = self.network.scalar_rounding(self.sign * a)?;
+        let (value_rounding, slope_rounding) = self.network.scalar_rounding(input)?;
         let sign = self.sign;
         Ok(Jet {
             value,
@@ -252,8 +281,8 @@ impl Builder<'_> {
         let third = self.jet(start + 0.75 * h)?;
         let coefficients = quintic(h, from, to);
         let (lo, hi) = match self.sign > 0.0 {
-            true => (start, start + h),
-            false => (-(start + h), -start),
+            true => (self.origin + start, self.origin + start + h),
+            false => (self.origin - (start + h), self.origin - start),
         };
         // What the ends of the piece, which the quintic goes through, are
         // themselves off by.
@@ -273,7 +302,7 @@ impl Builder<'_> {
             });
             return Ok(());
         }
-        let near = self.sign * (start + 0.5 * h);
+        let near = self.origin + self.sign * (start + 0.5 * h);
         if 2 * index + 2 > 1u64 << self.options.resolution || level <= NARROWEST {
             return Err(Error(format!(
                 "the net turns too fast near {near} for a table in this precision: its pieces there would be narrower than {:e}",
@@ -382,25 +411,28 @@ fn directory(
 }
 
 impl NetTable {
-    /// `network` (of one input) as a table over `|x| < 2^top`.
-    pub(crate) fn build(network: &Network, top: i32, options: TableOptions) -> Result<Self> {
+    /// `network` (of one input) as a table over `span`.
+    pub(crate) fn build(network: &Network, span: TableSpan, options: TableOptions) -> Result<Self> {
+        let top = span.top;
         let inputs = network.layers.first().map(|layer| layer.weights.len());
         let width = network.layers.last().map_or(0, |layer| layer.bias.len());
         let usable = options.tolerance.is_finite()
             && options.tolerance > 0.0
+            && span.origin.is_finite()
             && (1..=12).contains(&options.key_bits)
             && (4..=28).contains(&options.resolution)
             && (NARROWEST + 1..=120).contains(&top);
         if !usable || width == 0 || inputs != Some(1) {
             return Err(Error(format!(
-                "a table needs a net of one input, a tolerance above zero and a range it can hold, got tolerance {:e} and 2^{top}",
-                options.tolerance
+                "a table needs a net of one input, a tolerance above zero and a range it can hold, got tolerance {:e} and 2^{top} from {}",
+                options.tolerance, span.origin
             )));
         }
         let most = (MOST_BYTES / (48 * width)).clamp(1, MOST_PIECES);
         let mut builder = Builder {
             network,
             options,
+            origin: span.origin,
             sign: 1.0,
             value_scale: 0.0,
             slope_scale: 0.0,
@@ -408,8 +440,13 @@ impl NetTable {
             most,
         };
         let positive = builder.side(1.0, top)?;
-        let negative = builder.side(-1.0, top)?;
-        let lowest = positive[0].level.min(negative[0].level);
+        let negative = match span.below {
+            true => Some(builder.side(-1.0, top)?),
+            false => None,
+        };
+        let lowest = negative
+            .as_ref()
+            .map_or(positive[0].level, |n| positive[0].level.min(n[0].level));
         let mut coefficients = Vec::new();
         let mut cells = directory(
             &positive,
@@ -420,21 +457,27 @@ impl NetTable {
             most,
             &mut coefficients,
         )?;
-        cells.extend(directory(
-            &negative,
-            lowest,
-            top,
-            options.key_bits,
-            width,
-            most,
-            &mut coefficients,
-        )?);
+        match &negative {
+            Some(negative) => cells.extend(directory(
+                negative,
+                lowest,
+                top,
+                options.key_bits,
+                width,
+                most,
+                &mut coefficients,
+            )?),
+            // No pieces below the origin: the cells of that side are those
+            // of the other.
+            None => cells.extend_from_within(..),
+        }
         if coefficients.iter().any(|c| !c.is_finite()) {
             return Err(Error("nonfinite table coefficient".into()));
         }
         Ok(Self {
             width,
             top,
+            origin: span.origin,
             lowest,
             key_bits: options.key_bits,
             cells,
@@ -523,7 +566,7 @@ impl NetTable {
 
 #[cfg(test)]
 mod tests {
-    use super::{NetTable, TableOptions, SLOPE_TOLERANCE};
+    use super::{NetTable, TableOptions, TableSpan, SLOPE_TOLERANCE};
     use crate::{Activation, Layer, Network, Residual};
 
     /// Numbers between -1 and 1 that depend on nothing but `seed`.
@@ -572,13 +615,23 @@ mod tests {
         resolution: 28,
     };
 
-    /// The largest difference between table and net over `points`, as
-    /// fractions of the scales of the table: (value, slope).
+    /// A table of `|x| < 2^top` about zero.
+    fn both(top: i32) -> TableSpan {
+        TableSpan {
+            top,
+            origin: 0.0,
+            below: true,
+        }
+    }
+
+    /// The largest difference between table and net over the places
+    /// `points` of the table, as fractions of the scales of the table:
+    /// (value, slope).
     fn worst(table: &NetTable, network: &Network, points: impl Iterator<Item = f64>) -> (f64, f64) {
         let mut worst = (0.0_f64, 0.0_f64);
         for x in points {
             let (value, slope) = table.evaluate(x).unwrap();
-            let [exact, exact_slope, _] = network.scalar_jet(x).unwrap();
+            let [exact, exact_slope, _] = network.scalar_jet(table.origin + x).unwrap();
             for m in 0..table.width {
                 worst.0 = worst.0.max((value[m] - exact[m]).abs() / table.value_scale);
                 worst.1 = worst
@@ -648,7 +701,7 @@ mod tests {
         // within a fraction of a unit of θ, others over hundreds.
         for (gain, seed) in [(4.5, 3), (0.02, 4), (60.0, 5)] {
             let network = embedding(gain, seed);
-            let table = NetTable::build(&network, 13, DOUBLE).unwrap();
+            let table = NetTable::build(&network, both(13), DOUBLE).unwrap();
             let (value, slope) = worst(&table, &network, spread(8192.0, 20_000, 17 + seed));
             // The checks of the builder are at three places of a piece; in
             // between a quintic strays a little further.
@@ -667,10 +720,10 @@ mod tests {
     #[test]
     fn a_looser_tolerance_takes_fewer_pieces_and_is_looser() {
         let network = embedding(4.5, 3);
-        let fine = NetTable::build(&network, 13, DOUBLE).unwrap();
+        let fine = NetTable::build(&network, both(13), DOUBLE).unwrap();
         let coarse = NetTable::build(
             &network,
-            13,
+            both(13),
             TableOptions {
                 tolerance: 1e-5,
                 ..DOUBLE
@@ -690,35 +743,36 @@ mod tests {
         // and of its halves the net is flat at zero, value, slope and
         // curvature: a builder that only compared values there would keep
         // one piece that is zero everywhere. On either side of zero in turn.
+        let feature = |side: f64| Network {
+            layers: vec![
+                Layer {
+                    weights: vec![vec![side * 0.01]],
+                    bias: vec![0.0],
+                    activation: Activation::Tanh,
+                    residual: Residual::None,
+                    timestep: None,
+                },
+                Layer {
+                    weights: vec![vec![1000.0, -1000.0]],
+                    bias: vec![-500.0, 520.0],
+                    activation: Activation::Tanh,
+                    residual: Residual::None,
+                    timestep: None,
+                },
+                Layer {
+                    weights: vec![vec![1.0], vec![1.0]],
+                    bias: vec![0.0],
+                    activation: Activation::Linear,
+                    residual: Residual::None,
+                    timestep: None,
+                },
+            ],
+        };
         for side in [1.0, -1.0] {
-            let network = Network {
-                layers: vec![
-                    Layer {
-                        weights: vec![vec![side * 0.01]],
-                        bias: vec![0.0],
-                        activation: Activation::Tanh,
-                        residual: Residual::None,
-                        timestep: None,
-                    },
-                    Layer {
-                        weights: vec![vec![1000.0, -1000.0]],
-                        bias: vec![-500.0, 520.0],
-                        activation: Activation::Tanh,
-                        residual: Residual::None,
-                        timestep: None,
-                    },
-                    Layer {
-                        weights: vec![vec![1.0], vec![1.0]],
-                        bias: vec![0.0],
-                        activation: Activation::Linear,
-                        residual: Residual::None,
-                        timestep: None,
-                    },
-                ],
-            };
+            let network = feature(side);
             assert!(network.scalar_jet(side * 256.0).unwrap()[0][0].abs() < 1e-15);
             assert!((network.scalar_jet(side * 56.0).unwrap()[0][0] - 2.0).abs() < 1e-6);
-            let table = NetTable::build(&network, 10, DOUBLE).unwrap();
+            let table = NetTable::build(&network, both(10), DOUBLE).unwrap();
             let (value, slope) = worst(
                 &table,
                 &network,
@@ -733,6 +787,34 @@ mod tests {
             let (value, _) = worst(&table, &network, (1..4000).map(|k| -side * k as f64 * 0.25));
             assert!(value <= 1.5 * DOUBLE.tolerance, "side {side}: {value:e}");
         }
+        // A table that counts from elsewhere follows the units over the
+        // inputs of a piece, not over its places. From -30 the feature is at
+        // the places 84.9 to 87.6, in the piece of the places 64 to 128,
+        // whose ends, middle and quarters are the inputs 34, 50, 66, 82 and
+        // 98: the net is flat at zero at all of them, and has nothing
+        // between the inputs 64 and 128.
+        let network = feature(1.0);
+        for input in [34.0, 50.0, 66.0, 82.0, 98.0] {
+            let jet = network.scalar_jet(input).unwrap();
+            assert!(jet.iter().all(|part| part[0].abs() < 1e-15), "{input}");
+        }
+        let span = TableSpan {
+            top: 10,
+            origin: -30.0,
+            below: false,
+        };
+        let table = NetTable::build(&network, span, DOUBLE).unwrap();
+        assert!((table.evaluate(86.0).unwrap().0[0] - 2.0).abs() < 1e-6);
+        let (value, slope) = worst(
+            &table,
+            &network,
+            (0..40_000).map(|k| 80.0 + k as f64 * 2.5e-4),
+        );
+        assert!(value <= 1.5 * DOUBLE.tolerance, "{value:e}");
+        assert!(
+            slope <= 1.5 * SLOPE_TOLERANCE * DOUBLE.tolerance,
+            "{slope:e}"
+        );
     }
 
     #[test]
@@ -756,7 +838,7 @@ mod tests {
         network.layers[2].timestep = Some(vec![0.5, -0.25, 1.5, 0.1]);
         // The input goes on through the residuals: the net does not level
         // off, and the units of the later layers move all over the range.
-        let table = NetTable::build(&network, 6, DOUBLE).unwrap();
+        let table = NetTable::build(&network, both(6), DOUBLE).unwrap();
         let (value, slope) = worst(&table, &network, spread(64.0, 20_000, 2));
         assert!(value <= 1.5 * DOUBLE.tolerance, "{value:e}");
         assert!(
@@ -768,7 +850,7 @@ mod tests {
     #[test]
     fn pieces_meet_with_value_and_slope_and_cells_name_them() {
         let network = embedding(4.5, 3);
-        let table = NetTable::build(&network, 13, DOUBLE).unwrap();
+        let table = NetTable::build(&network, both(13), DOUBLE).unwrap();
         let pieces = table.pieces();
         // The cells name every piece: here most cells lie within one piece,
         // and with cells sixteen times as wide many hold several.
@@ -778,7 +860,7 @@ mod tests {
             ..DOUBLE
         };
         for (gain, seed) in [(4.5, 3), (60.0, 5)] {
-            let table = NetTable::build(&embedding(gain, seed), 13, wide).unwrap();
+            let table = NetTable::build(&embedding(gain, seed), both(13), wide).unwrap();
             assert!(cells_of_several_pieces(&table) > 10, "gain {gain}");
         }
         // Every piece is some input's, on its own side of zero.
@@ -836,6 +918,65 @@ mod tests {
     }
 
     #[test]
+    fn a_table_counts_from_its_origin_and_may_have_one_side() {
+        // As for a net of se_e2_a: the table counts from the entry of a
+        // neighbor at the cutoff, -0.37 here, and has pieces above it only.
+        let network = embedding(4.5, 3);
+        let span = TableSpan {
+            top: 6,
+            origin: -0.37,
+            below: false,
+        };
+        let table = NetTable::build(&network, span, DOUBLE).unwrap();
+        let places = || spread(64.0, 20_000, 31).map(f64::abs);
+        let (value, slope) = worst(&table, &network, places());
+        assert!(value <= 1.5 * DOUBLE.tolerance, "{value:e}");
+        assert!(
+            slope <= 1.5 * SLOPE_TOLERANCE * DOUBLE.tolerance,
+            "{slope:e}"
+        );
+        // The place 1 is the input 0.63 of the net, not the input 1.
+        let (at_one, _) = table.evaluate(1.0).unwrap();
+        let shifted = network.scalar_jet(0.63).unwrap();
+        let unshifted = network.scalar_jet(1.0).unwrap();
+        assert!((at_one[0] - shifted[0][0]).abs() <= 1e-10);
+        assert!((at_one[0] - unshifted[0][0]).abs() > 1e-3);
+        // The cells below the origin name the pieces of the other side: a
+        // lookup there stays within the table. Every piece has its cell.
+        let per_side = table.cells.len() / 2;
+        assert_eq!(table.cells[..per_side], table.cells[per_side..]);
+        cells_of_several_pieces(&table);
+        // With pieces on both sides the table of the same span is larger,
+        // and the same above the origin.
+        let two = NetTable::build(
+            &network,
+            TableSpan {
+                below: true,
+                ..span
+            },
+            DOUBLE,
+        )
+        .unwrap();
+        assert!(two.pieces() > table.pieces());
+        assert_ne!(two.cells[..per_side], two.cells[two.cells.len() / 2..]);
+        for place in places().step_by(97) {
+            assert_eq!(table.evaluate(place), two.evaluate(place), "place {place}");
+        }
+        // Below the origin the two-sided table follows the net as well.
+        let (value, _) = worst(&two, &network, places().map(|x| -x));
+        assert!(value <= 1.5 * DOUBLE.tolerance, "{value:e}");
+        // An origin that is not a number is no table.
+        let nowhere = TableSpan {
+            origin: f64::NAN,
+            ..span
+        };
+        let error = NetTable::build(&network, nowhere, DOUBLE)
+            .unwrap_err()
+            .to_string();
+        assert!(error.contains("a range it can hold"), "{error}");
+    }
+
+    #[test]
     fn a_float32_lookup_finds_the_same_pieces() {
         // What a float32 potential does: the input, the cell, the place in
         // the piece and the quintic in float32. The table is as fine as
@@ -848,7 +989,7 @@ mod tests {
         };
         for (gain, seed) in [(4.5, 3), (60.0, 5)] {
             let network = embedding(gain, seed);
-            let table = NetTable::build(&network, 13, single).unwrap();
+            let table = NetTable::build(&network, both(13), single).unwrap();
             let mut worst = (0.0_f64, 0.0_f64);
             for x in spread(8192.0, 20_000, 23).chain(spread(1.0, 20_000, 24)) {
                 let x = x as f32;
@@ -892,7 +1033,7 @@ mod tests {
             key_bits: 4,
             resolution: 20,
         };
-        let error = NetTable::build(&network, 11, single)
+        let error = NetTable::build(&network, both(11), single)
             .unwrap_err()
             .to_string();
         assert!(error.contains("turns too fast near 999.9"), "{error}");
@@ -909,7 +1050,7 @@ mod tests {
         // wasteful for. The nets of a HAP model trained with se_e3 have
         // none such: in a prototype of the builder, cutting their cells
         // alike added 0.2% of pieces.)
-        let table = NetTable::build(&network, 11, DOUBLE).unwrap();
+        let table = NetTable::build(&network, both(11), DOUBLE).unwrap();
         let near = || (0..20_000).map(|k| 999.9 + k as f64 * 1e-5);
         let (value, _) = worst(&table, &network, near());
         assert!(value <= 2e-10, "{value:e}");
@@ -918,7 +1059,7 @@ mod tests {
             tolerance: 1e-9,
             ..DOUBLE
         };
-        let table = NetTable::build(&network, 11, coarser).unwrap();
+        let table = NetTable::build(&network, both(11), coarser).unwrap();
         let (value, _) = worst(&table, &network, near());
         assert!(value <= 1.5e-9, "{value:e}");
         // A tolerance far below the rounding of the net asks for what no
@@ -928,7 +1069,7 @@ mod tests {
             tolerance: 1e-14,
             ..DOUBLE
         };
-        let table = NetTable::build(&network, 11, finer).unwrap();
+        let table = NetTable::build(&network, both(11), finer).unwrap();
         let (value, _) = worst(&table, &network, near());
         assert!(value <= 2e-10, "{value:e}");
         assert!(table.pieces() < 300_000, "{}", table.pieces());
@@ -942,13 +1083,13 @@ mod tests {
                 timestep: None,
             }],
         };
-        assert!(NetTable::build(&two_inputs, 4, DOUBLE).is_err());
+        assert!(NetTable::build(&two_inputs, both(4), DOUBLE).is_err());
         for bad in [0.0, -1e-9, f64::NAN] {
             let options = TableOptions {
                 tolerance: bad,
                 ..DOUBLE
             };
-            assert!(NetTable::build(&network, 4, options).is_err());
+            assert!(NetTable::build(&network, both(4), options).is_err());
         }
     }
 }

@@ -165,12 +165,8 @@ fn evaluate<P: Scalar>(
     if gpu.is_compressed() {
         let (bytes, pieces) = gpu.table_size();
         eprintln!(
-            "tables: {:.1} MiB on the device{}, made in {build_seconds:.2} s",
-            bytes as f64 / (1 << 20) as f64,
-            match pieces {
-                0 => String::new(),
-                pieces => format!(", {pieces} pieces for the nets of se_e3"),
-            }
+            "tables: {:.1} MiB on the device, {pieces} pieces, made in {build_seconds:.2} s",
+            bytes as f64 / (1 << 20) as f64
         );
     }
     let input = std::io::stdin();

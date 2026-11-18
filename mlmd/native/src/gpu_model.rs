@@ -44,13 +44,12 @@
 //! neighbors than `sel`, this path selects neighbors like DeePMD-kit 3 (the
 //! nearest `sum(sel)` of any type, then at most `sel[t]` per type);
 //! [`GpuPotential::last_truncated`] reports when that dropped neighbors.
-use crate::adaptive_table::{NetTable, TableOptions};
+use crate::adaptive_table::{NetTable, TableOptions, TableSpan};
 use crate::{Activation, Descriptor, DescriptorKind, Model, Network, Residual, RADIAL_RESCALE};
 use omnimd_gpu::{
     Activation as DeviceActivation, Cell, CellSegments, CellTable, CudaFunction, CudaSlice,
     CudaViewMut, DenseLayer, DenseNetwork, Device, GradientNetwork, LaunchConfig, LayerParameters,
-    NeighborList, NeighborSearch, PushKernelArg, Scalar, ScalarNetwork, ScalarTable, TableSegments,
-    CELL_LOOKUP,
+    NeighborList, NeighborSearch, PushKernelArg, Scalar, ScalarNetwork, CELL_LOOKUP,
 };
 use omnimd_ml_contract::{
     Committee, Error, Evaluation, Frame, ModelMetadata, Potential, Result, Units,
@@ -115,12 +114,16 @@ __device__ long long slot_row(const int* rows, int ntypes, int count, int i, int
 // term. With `rows` the empty slots write the normalized zero to the row
 // they share. `one_side` names the embedding net of a row by its neighbor
 // type alone: the nets of a trainer whose model has one per neighbor type.
+// With `unshifted` the input of a neighbor's row is its radial entry over
+// the width alone, s/std, without the mean taken off: the place of the
+// neighbor in the tables of the nets, which count from the entry of a
+// neighbor at the cutoff. (The environment rows are normalized as always.)
 template <typename P, typename E>
 __device__ void env_impl(const int* index, const double* delta, const double* dist,
         const int* atype, const double* davg, const double* dstd_inv, const int* slot_type,
         const int* slot_local, const int* sel, const int* offset, int first, int count, int slots,
         int ntypes, double rmin, double inv_range, E* env, P* radial, int* network,
-        const int* rows, int one_side) {
+        const int* rows, int one_side, int unshifted) {
     long long idx = (long long)blockIdx.x * blockDim.x + threadIdx.x;
     if (idx >= (long long)count * slots) return;
     int model = blockIdx.y;
@@ -144,6 +147,7 @@ __device__ void env_impl(const int* index, const double* delta, const double* di
         r4[0] = sw;
         for (int a = 0; a < 3; ++a) r4[a + 1] = sw * (d[a] * inv);
     }
+    double place = r4[0] * dstd_inv[4 * c];
     // (A descriptor that takes the radial entry only has no use for the
     // rows: it passes no `env`.)
     for (int a = 0; a < 4; ++a) {
@@ -151,7 +155,7 @@ __device__ void env_impl(const int* index, const double* delta, const double* di
         if (env) env[4 * (base + idx) + a] = (E)r4[a];
     }
     // Every empty slot of a shared row writes the same two values there.
-    radial[row] = (P)r4[0];
+    radial[row] = (P)(unshifted ? place : r4[0]);
     // Embedding net of this row: (model, center type, neighbor type), or the
     // neighbor type when the nets are the same for every center.
     network[row] = one_side ? slot_type[s] : c * ntypes + slot_type[s];
@@ -1070,10 +1074,10 @@ extern "C" __global__ void se_e2_a_env_##S(const int* index, const double* delta
         const double* dist, const int* atype, const double* davg, const double* dstd_inv,         \
         const int* slot_type, const int* slot_local, const int* sel, const int* offset,           \
         int first, int count, int slots, int ntypes, double rmin, double inv_range, P* env,       \
-        P* radial, int* network) {                                                                \
+        P* radial, int* network, int unshifted) {                                                 \
     env_impl<P, P>(index, delta, dist, atype, davg, dstd_inv, slot_type, slot_local, sel,         \
                    offset, first, count, slots, ntypes, rmin, inv_range, env, radial, network,    \
-                   nullptr, 0);                                                                   \
+                   nullptr, 0, unshifted);                                                        \
 }                                                                                                 \
 extern "C" __global__ void se_e2_a_env_rows_##S(const int* index, const double* delta,            \
         const double* dist, const int* atype, const double* davg, const double* dstd_inv,         \
@@ -1082,7 +1086,7 @@ extern "C" __global__ void se_e2_a_env_rows_##S(const int* index, const double* 
         P* radial, int* network, const int* rows, int one_side) {                                 \
     env_impl<P, double>(index, delta, dist, atype, davg, dstd_inv, slot_type, slot_local, sel,    \
                         offset, first, count, slots, ntypes, rmin, inv_range, env, radial,        \
-                        network, rows, one_side);                                                 \
+                        network, rows, one_side, 0);                                              \
 }                                                                                                 \
 extern "C" __global__ void se_e2_a_descriptor_##S(const P* env, const P* g,                       \
         const int* slot_type, const int* slot_local, const int* sel, const int* offset,           \
@@ -1238,24 +1242,23 @@ INSTANTIATE(double, f64)
 const BLOCK: u32 = 128;
 /// Static shared-memory limit per block without opting in to more.
 const SHARED_LIMIT: usize = 48 * 1024;
-/// The embedding tables continue below `min_distance` down to
-/// `min_distance / TAIL_REACH` with `TAIL_STEP_FACTOR` times the step
-/// (DeePMD's defaults: extrapolate 5, stride ratio 10).
+/// The embedding tables reach from `min_distance` down to
+/// `min_distance / TAIL_REACH` (DeePMD's default for the part of its tables
+/// below the shortest distance of the training data: extrapolate 5).
 const TAIL_REACH: f64 = 5.0;
-const TAIL_STEP_FACTOR: f64 = 10.0;
-/// The tables of se_e3 (see [`GpuPotential::compress`]): how close a table is
-/// to its net at the step 0.01, as a fraction of the largest value of the
+/// The embedding tables (see [`GpuPotential::compress`]): how close a table
+/// is to its net at the step 0.01, as a fraction of the largest value of the
 /// net, and what the precision of the networks holds of that at best (a
 /// float32 rounds at 6e-8, the checks of a table in float64 at 1e-16).
-const PAIR_TABLE_TOLERANCE: f64 = 1e-13;
-const PAIR_TABLE_FLOOR_F32: f64 = 1.5e-8;
-const PAIR_TABLE_FLOOR_F64: f64 = 1e-14;
-/// The first bits of θ after its exponent that tell a cell of such a table,
-/// and the bits of θ that are left for the place within a piece: a piece is
-/// no narrower than its far end over two to that power.
-const PAIR_TABLE_KEY_BITS: u32 = 6;
-const PAIR_TABLE_RESOLUTION_F32: u32 = 20;
-const PAIR_TABLE_RESOLUTION_F64: u32 = 28;
+const TABLE_TOLERANCE: f64 = 1e-13;
+const TABLE_FLOOR_F32: f64 = 1.5e-8;
+const TABLE_FLOOR_F64: f64 = 1e-14;
+/// The first bits of an input after its exponent that tell a cell of its
+/// table, and the bits of the input that are left for the place within a
+/// piece: a piece is no narrower than its far end over two to that power.
+const TABLE_KEY_BITS: u32 = 6;
+const TABLE_RESOLUTION_F32: u32 = 20;
+const TABLE_RESOLUTION_F64: u32 = 28;
 /// Float32 chunks of at most this many atoms per center type and model run
 /// the fitting nets in the fused kernels instead of layer-by-layer cuBLAS,
 /// whose fixed cost (some twenty-five launches per type, 0.68 ms for five
@@ -1540,11 +1543,10 @@ struct Part<P: Scalar> {
     /// se_e3: the width the directions of a neighbor are divided by, per
     /// center type (of every model), for the range of θ.
     direction_width: Vec<f64>,
-    /// Tabulated embedding nets in the same order, when compressed: of
-    /// se_e2_a and se_e2_r over the radial entry of a slot, with one step.
-    tables: Option<ScalarTable<P>>,
-    /// se_e3: its embedding nets over θ, in pieces of uneven length.
-    pair_tables: Option<CellTable<P>>,
+    /// The embedding nets as tables in pieces of uneven length, when
+    /// compressed: of se_e2_a and se_e2_r over the radial entry of a slot
+    /// (in the order of the nets), of se_e3 over θ.
+    tables: Option<CellTable<P>>,
     davg: CudaSlice<f64>,
     /// Reciprocals of the normalization widths: the kernels multiply.
     dstd_inv: CudaSlice<f64>,
@@ -1933,7 +1935,6 @@ impl<P: Scalar> Part<P> {
             radial_normalization: normalization().map(|n| (n.mean[0], n.std[0])).collect(),
             direction_width: normalization().map(|n| n.std[1]).collect(),
             tables: None,
-            pair_tables: None,
             davg: device.upload(&davg)?,
             dstd_inv: device.upload(&dstd_inv)?,
             empty_row: device.upload(&empty_row)?,
@@ -2047,58 +2048,69 @@ impl<P: Scalar> Part<P> {
             .map_err(launch_error("slot table"))
     }
 
-    /// The embedding nets of this descriptor as tables: see
-    /// [`GpuPotential::compress`].
-    fn tabulate(&self, device: &Device, min_distance: f64, step: f64) -> Result<ScalarTable<P>> {
-        // s(r) = switch(r)/r, the unnormalized radial input at distance r.
-        let radial = |r: f64| {
-            let t = ((r - self.rcut_smth) / (self.rcut - self.rcut_smth)).max(0.0);
-            (t * t * t * (-6.0 * t * t + 15.0 * t - 10.0) + 1.0) / r
-        };
-        let width = self.width;
-        // Coefficients of `count` intervals of width `h` starting at `start`.
-        let segment = |network: &Network, start: f64, h: f64, count: usize| -> Result<Vec<f64>> {
-            let (mut values, mut first, mut second) = (Vec::new(), Vec::new(), Vec::new());
-            for knot in 0..=count {
-                let [v, d, dd] = network.scalar_jet(start + knot as f64 * h)?;
-                values.extend(v);
-                first.extend(d);
-                second.extend(dd);
-            }
-            omnimd_gpu::quintic_coefficients(h, width, &values, &first, &second)
-        };
-        // Every net with the range of its center type: (net, lower end,
-        // intervals, tail intervals).
+    /// The radial entry of a neighbor at the distance `r`, before it is
+    /// normalized: s(r) = switch(r)/r, which falls with r.
+    fn radial_entry(&self, r: f64) -> f64 {
+        let t = ((r - self.rcut_smth) / (self.rcut - self.rcut_smth)).max(0.0);
+        (t * t * t * (-6.0 * t * t + 15.0 * t - 10.0) + 1.0) / r
+    }
+
+    /// The embedding nets of an se_e2_a or se_e2_r descriptor as tables: see
+    /// [`GpuPotential::compress`]. A table counts from the entry of a
+    /// neighbor at the cutoff, the lowest its net is given, and has pieces
+    /// above that only: the place of a neighbor in it is s(r) over the width
+    /// of the radial entry of the central type, which the environment kernel
+    /// writes for the rows of a descriptor that runs from its tables.
+    fn tabulate(
+        &self,
+        device: &Device,
+        ntypes: usize,
+        min_distance: f64,
+        step: f64,
+    ) -> Result<CellTable<P>> {
+        let options = table_options::<P>(step);
+        let nearest = self.radial_entry(min_distance / TAIL_REACH);
+        // Every net with the origin and the reach of its central type.
         let mut nets = Vec::new();
-        for (row, &(mean, std)) in self.embedding_host.iter().zip(&self.radial_normalization) {
-            // Empty slots and the cutoff sit at s = 0, the lower end.
-            let lower = -mean / std;
-            let intervals = (((radial(min_distance) - mean) / std - lower) / step)
-                .ceil()
-                .max(1.0) as usize;
-            let upper = lower + intervals as f64 * step;
-            let tail_step = TAIL_STEP_FACTOR * step;
-            let tail = (((radial(min_distance / TAIL_REACH) - mean) / std - upper) / tail_step)
-                .ceil()
-                .max(1.0) as usize;
-            nets.extend(row.iter().map(|network| (network, lower, intervals, tail)));
+        for (center, (row, &(mean, std))) in self
+            .embedding_host
+            .iter()
+            .zip(&self.radial_normalization)
+            .enumerate()
+        {
+            let reach = nearest / std;
+            let span = TableSpan {
+                top: table_top(reach)?,
+                origin: -mean / std,
+                below: false,
+            };
+            nets.extend(
+                row.iter()
+                    .enumerate()
+                    .map(|(neighbor, network)| (network, span, reach, center % ntypes, neighbor)),
+            );
         }
-        // A table is a few thousand evaluations of its net with two
+        // A table is some thousands of evaluations of its net with two
         // derivatives, and the nets do not depend on each other: all cores.
-        let tables = in_parallel(&nets, |&(network, lower, intervals, tail)| {
-            let tail_step = TAIL_STEP_FACTOR * step;
-            let upper = lower + intervals as f64 * step;
-            Ok(TableSegments {
-                lower,
-                step,
-                coefficients: segment(network, lower, step, intervals)?,
-                tail_step,
-                tail_coefficients: segment(network, upper, tail_step, tail)?,
+        let segments = in_parallel(&nets, |&(network, span, reach, center, neighbor)| {
+            let table = NetTable::build(network, span, options).map_err(|e| {
+                Error(format!(
+                    "the embedding net of {} for a center of type {center} and neighbors of type {neighbor}: {e}",
+                    self.kind.name()
+                ))
+            })?;
+            Ok(CellSegments {
+                top: table.top,
+                reach: [reach, 0.0],
+                lowest: table.lowest,
+                cells: table.cells,
+                coefficients: table.coefficients,
             })
         })
         .into_iter()
         .collect::<Result<Vec<_>>>()?;
-        ScalarTable::new_set(device, width, &tables)
+        let of: Vec<usize> = (0..segments.len()).collect();
+        CellTable::new_set(device, self.width, options.key_bits, &segments, &of)
     }
 
     /// The embedding nets of an se_e3 descriptor as tables over θ: see
@@ -2111,23 +2123,10 @@ impl<P: Scalar> Part<P> {
         min_distance: f64,
         step: f64,
     ) -> Result<CellTable<P>> {
-        let single = std::mem::size_of::<P>() == 4;
-        let options = TableOptions {
-            tolerance: (PAIR_TABLE_TOLERANCE * (step / 0.01).powi(6)).max(match single {
-                true => PAIR_TABLE_FLOOR_F32,
-                false => PAIR_TABLE_FLOOR_F64,
-            }),
-            key_bits: PAIR_TABLE_KEY_BITS,
-            resolution: match single {
-                true => PAIR_TABLE_RESOLUTION_F32,
-                false => PAIR_TABLE_RESOLUTION_F64,
-            },
-        };
+        let options = table_options::<P>(step);
         // The longest direction entry a neighbor has at the distance the
-        // tables reach to: s(r) = switch(r)/r, which falls with r.
-        let nearest = min_distance / TAIL_REACH;
-        let t = ((nearest - self.rcut_smth) / (self.rcut - self.rcut_smth)).max(0.0);
-        let radial = (t * t * t * (-6.0 * t * t + 15.0 * t - 10.0) + 1.0) / nearest;
+        // tables reach to.
+        let nearest = self.radial_entry(min_distance / TAIL_REACH);
         // Every net once, with the range of θ = a_j·a_k its model has: the
         // directions are divided by the width of the center type, and a net
         // serves the centers of every type.
@@ -2139,31 +2138,31 @@ impl<P: Scalar> Part<P> {
                 .iter()
                 .copied()
                 .fold(f64::INFINITY, f64::min);
-            let reach = (radial / narrowest).powi(2);
-            let top = reach.log2().ceil();
-            if !(top.is_finite() && (-60.0..=100.0).contains(&top)) {
-                return Err(Error(format!(
-                    "the directions of se_e3 reach {reach:e} with neighbors from {nearest} Å: no table has that range"
-                )));
-            }
+            let reach = (nearest / narrowest).powi(2);
+            let span = TableSpan {
+                top: table_top(reach)?,
+                origin: 0.0,
+                below: true,
+            };
             for tj in 0..ntypes {
                 for tk in tj..ntypes {
                     let index = nets.len();
                     of[(model * ntypes + tj) * ntypes + tk] = index;
                     of[(model * ntypes + tk) * ntypes + tj] = index;
                     let network = &self.embedding_host[model * ntypes + tj][tk];
-                    nets.push((network, top as i32, tj, tk));
+                    nets.push((network, span, reach, tj, tk));
                 }
             }
         }
-        let segments = in_parallel(&nets, |&(network, top, tj, tk)| {
-            let table = NetTable::build(network, top, options).map_err(|e| {
+        let segments = in_parallel(&nets, |&(network, span, reach, tj, tk)| {
+            let table = NetTable::build(network, span, options).map_err(|e| {
                 Error(format!(
                     "the embedding net of se_e3 for neighbors of types {tj} and {tk}: {e}"
                 ))
             })?;
             Ok(CellSegments {
                 top: table.top,
+                reach: [reach; 2],
                 lowest: table.lowest,
                 cells: table.cells,
                 coefficients: table.coefficients,
@@ -2172,6 +2171,35 @@ impl<P: Scalar> Part<P> {
         .into_iter()
         .collect::<Result<Vec<_>>>()?;
         CellTable::new_set(device, self.width, options.key_bits, &segments, &of)
+    }
+}
+
+/// How the tables of a descriptor are made for the step asked for (see
+/// [`GpuPotential::compress`]), in the precision of the networks.
+fn table_options<P>(step: f64) -> TableOptions {
+    let single = std::mem::size_of::<P>() == 4;
+    TableOptions {
+        tolerance: (TABLE_TOLERANCE * (step / 0.01).powi(6)).max(match single {
+            true => TABLE_FLOOR_F32,
+            false => TABLE_FLOOR_F64,
+        }),
+        key_bits: TABLE_KEY_BITS,
+        resolution: match single {
+            true => TABLE_RESOLUTION_F32,
+            false => TABLE_RESOLUTION_F64,
+        },
+    }
+}
+
+/// The power of two from which on no input of a table reaches: its pieces
+/// go that far.
+fn table_top(reach: f64) -> Result<i32> {
+    let top = reach.log2().ceil();
+    match top.is_finite() && (-60.0..=100.0).contains(&top) {
+        true => Ok(top as i32),
+        false => Err(Error(format!(
+            "the inputs of the embedding nets reach {reach:e} at the distance the tables are asked to cover: no table has that range"
+        ))),
     }
 }
 
@@ -2388,38 +2416,38 @@ impl<P: Scalar> GpuPotential<P> {
     /// Model compression (DeePMD `dp compress`): replaces every embedding
     /// net by a piecewise quintic table.
     ///
-    /// The nets of se_e2_a and se_e2_r get knots every `step` in the
-    /// normalized radial input, covering neighbor distances from
-    /// `min_distance` out to the cutoff. With `step = 0.01` such a table
-    /// follows a smooth net to rounding level, and a trained one whose
-    /// weights have grown less closely: for the four models of iteration 4
-    /// of the HAP pipeline the forces of its sealed test frames are within
-    /// 3.9e-6 eV/Å of those of the nets (for one of them 2.4e-6, 1.4e-7 at
-    /// half the step and 2.8e-9 at a quarter). Like DeePMD's extrapolation
-    /// region, the tables continue with ten times the step down to a fifth
-    /// of `min_distance`. A frame with a pair closer than that is evaluated
-    /// with the exact networks instead (see [`Self::table_fallbacks`]), so
-    /// results never depend on the range. Empty neighbor slots do not go
-    /// through the tables: their row is the networks' own.
+    /// A trained net turns within a hundredth of a unit of its input in
+    /// some places and not at all in most, so a table has pieces of uneven
+    /// length and no step of its own: a piece is halved until its quintic
+    /// is within a tolerance of the net. `step` names that tolerance by the
+    /// table of one step it stands for: 1e-13 of the largest value of the
+    /// net at the step 0.01, which is where a table with a knot every 0.01
+    /// follows a smooth net, and (step / 0.01)⁶ times that at another
+    /// step, which is how the error of such a table goes with its step.
+    /// The slope is within a hundred times that fraction of the largest
+    /// slope. A float32 potential has 1.5e-8 at best, below what it rounds
+    /// at. A net that turns faster than the precision of its input can
+    /// follow is refused, with the place.
     ///
-    /// The nets of se_e3 take θ, the product of the normalized directions
-    /// of two neighbors, which spans thousands of units where the radial
-    /// entry spans tens, and a trained net turns within a hundredth of a
-    /// unit in some places and not at all in most. Their tables have pieces
-    /// of uneven length instead of one step: a piece is halved until its
-    /// quintic is within a tolerance of the net, 1e-13 of the largest value
-    /// of the net at the step 0.01 and (step / 0.01)⁶ times that at another
-    /// step, which is how the error of a table of one step goes with its
-    /// step; the slope is within a hundred times that fraction of the
-    /// largest slope. A float32 potential has 1.5e-8 at best, below what it
-    /// rounds at. These tables cover θ of neighbors down to a fifth of
-    /// `min_distance` at that tolerance (they have no coarser tail), and a
-    /// frame with a θ beyond is evaluated with the exact networks like one
-    /// that leaves the tables of the other descriptors. A net that turns
-    /// faster than the precision of θ can follow is refused, with the place.
-    /// With these tables the descriptor keeps no embedding rows: its
-    /// kernels read the tables where they would read the rows, and a chunk
-    /// holds as many times more pairs as a pair takes less memory.
+    /// The nets of se_e2_a and se_e2_r take the normalized radial entry of
+    /// a neighbor. Their tables count from the entry of a neighbor at the
+    /// cutoff and cover neighbors down to a fifth of `min_distance`. Empty
+    /// neighbor slots do not go through the tables: their row is the
+    /// networks' own. The nets of se_e3 take θ, the product of the
+    /// normalized directions of two neighbors, which spans thousands of
+    /// units where the radial entry spans tens; their tables cover θ of
+    /// either sign for neighbors down to the same distance. With them the
+    /// descriptor keeps no embedding rows: its kernels read the tables
+    /// where they would read the rows, and a chunk holds as many times more
+    /// pairs as a pair takes less memory.
+    ///
+    /// A table has its tolerance all the way: below `min_distance` it is no
+    /// coarser (DeePMD's tables take ten times the step there). A frame
+    /// with an input beyond a table (for se_e2_a and se_e2_r, a pair closer
+    /// than a fifth of `min_distance`; for se_e3, a θ larger than such a
+    /// pair has around a center of the type with the narrowest directions)
+    /// is evaluated with the exact networks instead (see
+    /// [`Self::table_fallbacks`]), so results never depend on the range.
     ///
     /// Every descriptor of a hybrid gets tables, each over the range of its
     /// own cutoff and statistics. When the nets of one cannot be tabulated
@@ -2447,39 +2475,31 @@ impl<P: Scalar> GpuPotential<P> {
         let mut tables = Vec::with_capacity(self.parts.len());
         for part in &self.parts {
             tables.push(match part.kind {
-                DescriptorKind::SeE3 => (
-                    None,
-                    Some(part.tabulate_pairs(&self.device, ntypes, min_distance, step)?),
-                ),
-                _ => (Some(part.tabulate(&self.device, min_distance, step)?), None),
+                DescriptorKind::SeE3 => {
+                    part.tabulate_pairs(&self.device, ntypes, min_distance, step)?
+                }
+                _ => part.tabulate(&self.device, ntypes, min_distance, step)?,
             });
         }
-        for (part, (table, pair_table)) in self.parts.iter_mut().zip(tables) {
-            part.tables = table;
-            part.pair_tables = pair_table;
+        for (part, table) in self.parts.iter_mut().zip(tables) {
+            part.tables = Some(table);
         }
         Ok(())
     }
 
     /// Whether embedding nets are tabulated (see [`Self::compress`]).
     pub fn is_compressed(&self) -> bool {
-        self.parts
-            .iter()
-            .any(|part| part.tables.is_some() || part.pair_tables.is_some())
+        self.parts.iter().any(|part| part.tables.is_some())
     }
 
-    /// Device bytes of the embedding tables, and the pieces the tables of
-    /// the se_e3 descriptors have between them (their number follows from
-    /// the nets, not from a step).
+    /// Device bytes of the embedding tables, and the pieces they have
+    /// between them (their number follows from the nets and the tolerance,
+    /// not from a step).
     pub fn table_size(&self) -> (usize, usize) {
-        let bytes = |part: &Part<P>| {
-            part.tables.as_ref().map_or(0, ScalarTable::bytes)
-                + part.pair_tables.as_ref().map_or(0, CellTable::bytes)
-        };
-        let pieces = |part: &Part<P>| part.pair_tables.as_ref().map_or(0, CellTable::pieces);
+        let tables = || self.parts.iter().filter_map(|part| part.tables.as_ref());
         (
-            self.parts.iter().map(bytes).sum(),
-            self.parts.iter().map(pieces).sum(),
+            tables().map(CellTable::bytes).sum(),
+            tables().map(CellTable::pieces).sum(),
         )
     }
 
@@ -2741,12 +2761,10 @@ impl<P: Scalar> GpuPotential<P> {
                 .parts
                 .iter()
                 .filter(|part| part.kind == DescriptorKind::SeE3)
-                .map(
-                    |part| match part.pair_tables.as_ref().filter(|_| compressed) {
-                        Some(_) => bytes_per_pair::<P>(part.width) / bytes_per_pair::<P>(0),
-                        None => 1,
-                    },
-                )
+                .map(|part| match part.tables.as_ref().filter(|_| compressed) {
+                    Some(_) => bytes_per_pair::<P>(part.width) / bytes_per_pair::<P>(0),
+                    None => 1,
+                })
                 .min()
                 .unwrap_or(1);
             let rows = (self.chunk_pairs / members).max(1).saturating_mul(fewer);
@@ -2776,9 +2794,10 @@ impl<P: Scalar> GpuPotential<P> {
             let all_rows = members * rows;
             let angular = part.kind == DescriptorKind::SeE2A;
             // se_e3 from its tables: no embedding rows are kept.
-            let kept = match part.pair_tables.as_ref().filter(|_| compressed) {
-                Some(_) => 1,
-                None => all_rows * part.width,
+            let from_tables = compressed && part.tables.is_some();
+            let kept = match from_tables && part.kind == DescriptorKind::SeE3 {
+                true => 1,
+                false => all_rows * part.width,
             };
             // SAFETY: each element a chunk reads was written earlier in the
             // same chunk.
@@ -2900,7 +2919,13 @@ impl<P: Scalar> GpuPotential<P> {
                         Some(env) => launch.arg(env),
                         None => launch.arg(&no_buffer),
                     };
-                    launch.arg(&mut work.input).arg(&mut work.network);
+                    // From its tables, the descriptor has the place of a
+                    // neighbor in them for the input of its rows.
+                    let unshifted_i = i32::from(compressed && part.tables.is_some());
+                    launch
+                        .arg(&mut work.input)
+                        .arg(&mut work.network)
+                        .arg(&unshifted_i);
                     let total = count * slots;
                     let config = LaunchConfig {
                         grid_dim: (total.div_ceil(BLOCK as usize) as u32, deep, 1),
@@ -2919,7 +2944,10 @@ impl<P: Scalar> GpuPotential<P> {
                 // and atoms without neighbors have no row).
                 // The tables of se_e3 are read by its descriptor and force
                 // kernels themselves: nothing is evaluated here for it.
-                let pair_tables = part.pair_tables.as_ref().filter(|_| compressed);
+                let pair_tables = part
+                    .tables
+                    .as_ref()
+                    .filter(|_| compressed && part.kind == DescriptorKind::SeE3);
                 if chunk_rows > 0 && pair_tables.is_none() {
                     let rows = members * chunk_rows;
                     let x = work.input.slice(0..rows);
@@ -3151,7 +3179,7 @@ impl<P: Scalar> GpuPotential<P> {
                         };
                         // dE/dθ of every pair first, by row: from the
                         // stored rows of the nets, or from their tables.
-                        let pair_tables = part.pair_tables.as_ref().filter(|_| compressed);
+                        let pair_tables = part.tables.as_ref().filter(|_| compressed);
                         let function = match pair_tables {
                             Some(_) => &part.kernels.table_dtheta,
                             None => &part.kernels.dtheta,
