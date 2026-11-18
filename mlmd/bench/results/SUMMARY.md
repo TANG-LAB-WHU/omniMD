@@ -223,9 +223,10 @@ message of a refusal. One mutant is left out as equivalent: pieces of a
 two-body table to the power of two beyond the next one, where no input is
 looked up. The first 76 ran before the last commit of the code, which
 changed comments and usage texts.
-Locally: workspace SUITE_WORKSPACE, engine with `native-gpu` SUITE_ENGINE,
-GPU crates SUITE_GPU, each in release and debug; `cargo fmt --check` clean;
-the legacy `cuda` features compile. The GPU suites do not run in CI.
+
+Locally: workspace 232, engine with `native-gpu` 93, GPU crates 182, each
+in release and debug; `cargo fmt --check` clean; the legacy `cuda` features
+compile. The GPU suites do not run in CI.
 
 **Removed.** `ScalarTable`, `TableSegments`, `quintic_coefficients` and the
 `scalar_table` kernel of the gpu crate, with their tests: nothing used them
