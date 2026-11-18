@@ -3027,6 +3027,30 @@ fn the_rows_of_se_e3_are_laid_out_where_the_host_need_not_see_them() {
         SAME,
     );
     assert_eq!(hybrid.count_downloads(), 1);
+    // Each se_e3 descriptor of a hybrid has room for its own rows: one of
+    // five slots before one of 240, whose atoms hold far more rows than
+    // the fifteen that five slots make. (The first drops neighbors, which
+    // the CPU reference refuses: against the layout made on the host.)
+    let uneven = common::hybrid_model(
+        &[
+            three_body(2, vec![2, 3], 3.2, 508),
+            three_body(2, vec![80, 160], 4.5, 509),
+        ],
+        510,
+    );
+    let mut hybrid = GpuPotential::<f64>::new(&uneven, device.clone()).unwrap();
+    hybrid.compress(0.8, 0.01).unwrap();
+    let got = hybrid.eval(&frame).unwrap();
+    assert!(hybrid.last_truncated());
+    assert_eq!(hybrid.count_downloads(), 0);
+    hybrid.set_layout_atoms(0);
+    compare(
+        "descriptors of few and of many slots",
+        &got,
+        &hybrid.eval(&frame).unwrap(),
+        SAME,
+    );
+    assert_eq!(hybrid.count_downloads(), 1);
     let mut plain = GpuPotential::<f64>::new(&radial(2, vec![80, 160], 4.5, 507), device).unwrap();
     plain.eval(&frame).unwrap();
     plain.compress(0.8, 0.01).unwrap();
@@ -3038,35 +3062,34 @@ fn the_rows_of_se_e3_are_laid_out_where_the_host_need_not_see_them() {
 /// the layout made on the device the host does not know how many rows a
 /// model has, and puts the next model where they would end if every slot of
 /// every atom were full. Here they are full, so that the rows of a model
-/// end where those of the next begin.
+/// end where those of the next begin: one type with five slots, and more
+/// than five neighbors within the cutoff for every atom. (With several
+/// types the nearest neighbors of any type are taken first, as many as
+/// there are slots, and of those at most the slots of each type: that
+/// need not fill them.)
 #[test]
 fn the_rows_of_the_models_of_a_committee_do_not_meet() {
     let Some(device) = device() else { return };
     let cubic = [[8.0, 0.0, 0.0], [0.0, 8.0, 0.0], [0.0, 0.0, 8.0]];
-    let frame = frame(cubic, 5, 2, true, 521);
-    let (natoms, rcut, sel) = (frame.positions.len(), 3.9, [2usize, 3]);
-    // Every atom has more neighbors of either type within the cutoff than
-    // slots for them (the nearest image is the only one within it).
+    let frame = frame(cubic, 5, 1, true, 521);
+    let (natoms, rcut, slots) = (frame.positions.len(), 3.9, 5usize);
+    // (The nearest image is the only one within the cutoff.)
     for i in 0..natoms {
-        let mut within = [0usize; 2];
-        for j in 0..natoms {
-            let squared: f64 = (0..3)
-                .map(|a| {
-                    let d = frame.positions[j][a] - frame.positions[i][a];
-                    (d - 8.0 * (d / 8.0).round()).powi(2)
-                })
-                .sum();
-            if j != i && squared < rcut * rcut {
-                within[usize::from(frame.species[j] == "H")] += 1;
-            }
-        }
-        assert!(
-            within[0] >= sel[0] && within[1] >= sel[1],
-            "atom {i}: {within:?}"
-        );
+        let within = (0..natoms)
+            .filter(|&j| {
+                let squared: f64 = (0..3)
+                    .map(|a| {
+                        let d = frame.positions[j][a] - frame.positions[i][a];
+                        (d - 8.0 * (d / 8.0).round()).powi(2)
+                    })
+                    .sum();
+                j != i && squared < rcut * rcut
+            })
+            .count();
+        assert!(within > slots, "atom {i}: {within}");
     }
     let models: Vec<Model> = (0..3)
-        .map(|member| three_body(2, sel.to_vec(), rcut, 522 + 10 * member))
+        .map(|member| three_body(1, vec![slots], rcut, 522 + 10 * member))
         .collect();
     let members: Vec<&Model> = models.iter().collect();
     // Each model alone, with its rows laid out on the host.
@@ -3088,34 +3111,54 @@ fn the_rows_of_the_models_of_a_committee_do_not_meet() {
         .flatten()
         .fold(0.0f64, |m, f| m.max(f.abs()));
     assert!(largest > 1e-3, "{largest}");
-    for single in [false, true] {
-        let of_members = match single {
-            false => {
-                let mut committee =
-                    GpuPotential::<f64>::committee(&members, device.clone()).unwrap();
-                committee.compress(0.8, 0.01).unwrap();
-                let got = committee.eval_members(&[&frame, &frame]).unwrap();
-                assert_eq!(committee.count_downloads(), 0);
-                got
-            }
-            true => {
-                let mut committee =
-                    GpuPotential::<f32>::committee(&members, device.clone()).unwrap();
-                committee.compress(0.8, 0.01).unwrap();
-                let got = committee.eval_members(&[&frame, &frame]).unwrap();
-                assert_eq!(committee.count_downloads(), 0);
-                got
-            }
-        };
+    let check = |of_members: &[Vec<Evaluation>], single: bool, what: &str| {
         for (index, of_frame) in of_members.iter().enumerate() {
             for (member, got) in of_frame.iter().enumerate() {
                 compare(
-                    &format!("frame {index}, member {member}, float32: {single}"),
+                    &format!("{what}: frame {index}, member {member}, float32: {single}"),
                     got,
                     &alone[member],
                     if single { (1e-6, 1e-4) } else { (1e-13, 1e-11) },
                 );
             }
         }
-    }
+    };
+    let pass = [&frame, &frame];
+    let mut committee = GpuPotential::<f64>::committee(&members, device.clone()).unwrap();
+    committee.compress(0.8, 0.01).unwrap();
+    check(
+        &committee.eval_members(&pass).unwrap(),
+        false,
+        "on the device",
+    );
+    assert_eq!(committee.count_downloads(), 0);
+    let mut single = GpuPotential::<f32>::committee(&members, device.clone()).unwrap();
+    single.compress(0.8, 0.01).unwrap();
+    check(&single.eval_members(&pass).unwrap(), true, "on the device");
+    assert_eq!(single.count_downloads(), 0);
+    // The models share what a chunk may hold of rows. The two frames are
+    // 250 atoms with 15 rows each at most, and with tables a chunk takes
+    // ten times its rows (see the test above): room for the 3,750 rows of
+    // one model is not room for those of three, which the host lays out
+    // then, and is room for those of a model alone.
+    committee.set_chunk_pairs(375);
+    check(
+        &committee.eval_members(&pass).unwrap(),
+        false,
+        "on the host",
+    );
+    assert_eq!(committee.count_downloads(), 1);
+    committee.set_chunk_pairs(3 * 375);
+    check(&committee.eval_members(&pass).unwrap(), false, "with room");
+    assert_eq!(committee.count_downloads(), 1);
+    let mut one = GpuPotential::<f64>::new(&models[0], device).unwrap();
+    one.compress(0.8, 0.01).unwrap();
+    one.set_chunk_pairs(375);
+    compare(
+        "a model alone",
+        &one.eval_batch(&pass).unwrap()[1],
+        &alone[0],
+        (1e-13, 1e-11),
+    );
+    assert_eq!(one.count_downloads(), 0);
 }
