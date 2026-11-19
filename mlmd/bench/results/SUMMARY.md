@@ -1,3 +1,325 @@
+# Where an evaluation of a small frame goes, 2026-11-19
+
+The pipeline's models evaluate frames of 54 to 224 atoms, and an evaluation
+of one of them is a dozen device calls. The cost model of the device crate
+said that twenty avoidable calls are a third of such a step, and the
+sections below removed calls one after the other. This one set out to find
+which calls of the production path (se_e2_a with tables, float32) are still
+avoidable. It found none: the calls are not what such an evaluation waits
+for. What it does wait for is named here stage by stage. Two things in it
+are shorter now; what else was tried is listed with its numbers.
+
+**Where the host is.** On a probe build of the code as it was (46a2f20) that
+read the host's clock after the calls of every stage and waited for nothing,
+an evaluation of the 88-atom frame took 166 µs: the host issued all its
+calls in 40 µs (sorting the atoms 2, the neighbor search with its packing
+and upload 13, the environment 6, the tables 3, the descriptor 3, the
+fitting nets 9, the forces 3) and then waited 120 µs in the copy back. Two
+rearrangements that have the host issue a kernel sooner left the evaluation
+within 2 µs of where it was: the search issued before the results are
+cleared instead of after, and the results copied back to pinned memory.
+
+**Stage times by the device.** `--profile` waited for the device after every
+stage, which times an evaluation that never runs otherwise: the device
+stands still after every stage while the host issues the next. It now issues
+a mark into the device's stream after the calls of each stage
+(`omnimd_gpu::Device::mark`, a CUDA event) and reads the marks when the
+results are back. `stages_ms.device` is the device's time between marks,
+`stages_ms.issue` the host's time to issue the calls of each stage and its
+mark, `wall` the whole. The 88-atom frame in float32 with tables, after the
+two changes below (means of 3,000 evaluations, µs):
+
+| | neighbors | environment | embedding | descriptor | fitting | forces | download | all |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|
+| `issue` | 21.7 | 10.2 | 7.0 | 13.6 | 25.2 | 8.0 | 87.0 | 172.8 |
+| `device` | 28.3 | 7.0 | 13.0 | 13.0 | 66.6 | 25.5 | 13.2 | 166.6 |
+| the device with one stage marked (a probe build) | 27.7 | 5.7 | 10.7 | 11.2 | 62.3 | 25.1 | 15.4 | 158.0 |
+
+The marks are not free, and in a pass this short they show. One costs the
+host 4.5 to 5 µs to issue on an idle device and the device 1.5
+(`device_times_by_marks` in `gpu/tests/costs.rs`). With eight of them the
+host issued for 86 µs before the copy back, where the probe build of the
+paragraph above issued in 40, and the evaluation took 180 µs where it takes
+151. The last row is the check: a probe build that issues two marks an
+evaluation, at the two ends of one stage, run seven times with a stage each.
+Those evaluations took 156 to 166 µs, and against them the stages of
+`--profile` are 1.3, 2.2, 1.8 and 4.3 µs longer for the environment, the
+embedding, the descriptor and the fitting nets, within a microsecond for the
+search and the forces, and 2 µs shorter for the copy back. For the same
+frame in float64 (388 µs) and the 224-atom frame in float32 (208 µs) the two
+ways agree within a microsecond for every stage. So in this session
+`--profile` was right to a microsecond a stage for those two passes of 208
+and 388 µs, and put up to 5 µs too many on a stage of the shortest.
+
+What the marks add goes by the pace of the host, and that is not the same
+from one session to the next on this machine. The profile of an earlier
+build of this change read 167 µs for the 88-atom frame on 2026-11-18; the
+same binary read 178 and 188 today, beside 179 to 186 for the final one.
+`device_times_by_marks` gave 4.9 µs to issue a mark on the 18th and 4.5,
+4.4 and 5.2 in three runs today. The plain evaluation, the least of seven
+rounds, was 150 µs in both runs of the record. A profile of a pass this
+short is to be read with the plain time of the same session beside it.
+
+Two of the device's numbers are not all its work. `device.neighbors` begins
+at the first device call, and the device has nothing to do while the host
+packs the input of the search: up to 22 µs of it, the host's
+`issue.neighbors`, is that wait. And `device.download` ends at a mark the
+host issues once it has the results, so it holds the host's return from its
+wait. `StageTimes` says how the two clocks bound the device's waiting in the
+other stages (here 3.7, 3.6, 4.3 and 16.5 µs at most for the environment,
+the embedding, the descriptor and the fitting nets; the probe says less).
+Stage times printed before today were taken with a wait after every stage
+and are not comparable. All three frames in both precisions are in the
+records.
+
+**What the neighbor search waited for.** Stopped after each of its steps on
+a probe build, by marks around the kernel on an idle device (which include
+its launch call), the search of 88 atoms took 6.4 µs to launch and return at
+once, 23.7 through the scan of the cells, 24.0 through the exact distances,
+24.7 through the clearing of the slots and 29.8 in all: 17 of its 30 µs were
+the scan. In the scan one warp walks the 27 cells of a center's stencil, and
+it had the cell and the periodic image of each from a division for every
+axis. A 32-bit division by a number the kernel is given takes a warp 27 ns,
+as long as fourteen float multiply-adds one after the other
+(`arithmetic_costs`), and a center waits for each. The scan now divides once
+for an axis and steps from there, and it takes the cells along the last
+axis, which lie one after the other in the grid with their atoms, as one run
+of atoms: fewer bounds to read and fuller batches of 32 for the lanes. The
+atoms come by in the order of the scan cell by cell, so the candidates, and
+with them the list, are the same; the serial path for centers with more
+neighbors than the buffer holds is as it was. By the same marks on probe
+builds, the kernel for 5,632 atoms took 166 µs with the divisions, 142.5
+with the steps and 116 with the runs too (to 4 Å: 87.7, 69.3 and 52.5), and
+the one for 88 atoms 29.0 and then 22.7. A search with its packing and a
+wait for the device, the kernel of 46a2f20 and this one alternated in five
+rounds, the least of each (`neighbor_search_costs`): 37.1 → 29.6 µs for 88
+atoms, 60.4 → 51.4 µs for 704 atoms, 313.0 → 279.9 µs for 5,632 atoms.
+
+**Wider blocks for the forces of few centers.** The force kernel of se_e2_a
+and se_e2_r is a block for a center, and one of its steps takes the neighbor
+slots of the center a warp each, the warps of the block in turns: with 256
+threads instead of 128, eight warps are through 212 slots in 27 turns
+instead of 53. Whether a pass is sooner done with them goes by how many
+blocks it has, by the precision and by the descriptor. One build with blocks
+of 128 threads for every pass against blocks of 256 for every pass
+(`--wide-forces 0` and `--wide-forces 1000000`), alternated in seven rounds,
+the least of each: what the wider blocks add to a whole evaluation or take
+off it. The centers are the atoms of the pass times its models, the blocks
+of the kernel; the frames are HAP frames of the sealed test, the batches
+copies of one frame:
+
+| centers | the pass | se_e2_a, float32 | se_e2_r, float32 | se_e2_a, float64 | se_e2_r, float64 |
+|---:|---|---:|---:|---:|---:|
+| 54 | a frame of 54 atoms | −4.5% | −4.3% | −0.4% | −2.9% |
+| 88 | a frame of 88 atoms | −4.8% | −3.9% | −0.3% | −3.0% |
+| 108 | two frames of 54 | −3.9% | −3.2% | 0.0% | −3.4% |
+| 162 | three frames of 54 | −2.1% | −1.0% | +0.6% | −0.7% |
+| 169 | a frame of 169 atoms | −3.0% | −1.6% | +0.3% | −1.1% |
+| 176 | two frames of 88 | −2.8% | −3.0% | +0.6% | −0.4% |
+| 192 | water, a frame of 192 atoms | −1.2% |  | +0.1% |  |
+| 216 | four frames of 54 | −1.6% | −0.6% | +0.6% | −0.5% |
+| 224 | a frame of 224 atoms | −2.8% | −2.7% | +0.2% | −0.1% |
+| 264 | three frames of 88 | +0.9% | −0.7% | +0.2% | +0.9% |
+| 270 | five frames of 54 | +1.5% | 0.0% | +0.3% | +0.8% |
+| 352 | four frames of 88 | +0.4% | −1.0% | +0.3% | +1.2% |
+| 352 | four models, a frame of 88 atoms | −1.1% |  | +0.1% |  |
+| 528 | six frames of 88 | +2.7% | +3.9% | +0.1% | +2.7% |
+| 896 | four models, a frame of 224 atoms | +3.2% |  | −1.4% |  |
+| 1,536 | water, a frame of 1,536 atoms | +0.9% |  | +0.4% |  |
+| 12,288 | water, a frame of 12,288 atoms | +2.4% |  | +0.2% |  |
+
+The narrow setting against itself is 0.3% apart in the middle and 1.7% at
+most (3 of 68 cases over 1%). The frame of 88 atoms timed again through
+`--bench-batches`: −4.9% and −4.8% in float32, −0.5% and −2.4% in float64.
+With an se_e3 descriptor beside the se_e2_a one, at 88, 169 and 224 atoms:
+−3.5%, −1.5% and −1.1% in float32 and −0.7%, +0.2% and +0.5% in float64.
+
+In float32 the wider blocks take 3% to 5% off an evaluation up to 108
+centers and 0.6% to 3% from 162 to 224. From 264 to 352 the two widths are
+within 1.5% of each other, the sign going either way, which is what one
+setting differs from itself by in the worst of these cases; from 528 on the
+wider blocks add 1% to 4%. In float64 they take 2.4% to 3.4% off an
+evaluation with se_e2_r up to 108 centers and less than 1.2% from 162 to
+224, and add 1% to 3% from 264 on. An evaluation with se_e2_a in float64 is
+within 0.6% either way at every size but one, the committee of 896 centers,
+1.4% shorter. Why the gain ends where it does was not measured.
+
+A float32 pass of at most 224 centers therefore takes the wider blocks, a
+float64 pass of at most 108, and every other pass the blocks of 128
+(`native::gpu_model::WIDE_FORCE_CENTERS_F32` and `WIDE_FORCE_CENTERS_F64`,
+`set_wide_force_centers`, the evaluator's `--wide-forces`; `force_threads`
+says which a pass took). The forces of the two widths differ by the rounding
+of a center's sums: at most 8e-14 eV/Å on the HAP frames, where two runs of
+one program differ by 3e-14, the forces being sums of atomic additions. The
+energies are the same to the last bit.
+
+**Measured.** The build before (46a2f20) and this one with `--compress 0.5`,
+alternated in seven rounds in one session, the least of each kept, before →
+after. Trained HAP models on frames of the sealed test, microseconds for
+energy, forces and virial (`--bench 3000`):
+
+| frame | precision | se_e2_a to 6 Å | se_e2_r to 6 Å | se_e3 to 4 Å | se_e2_a to 6 Å with se_e3 to 4 Å |
+|---|---|---:|---:|---:|---:|
+| 88 atoms | float32 | 165 → 150 | 126 → 113 | 136 → 128 | 227 → 214 |
+| 88 atoms | float64 | 396 → 385 | 197 → 183 | 215 → 206 | 502 → 494 |
+| 169 atoms | float32 | 203 → 188 | 157 → 143 | 174 → 165 | 284 → 270 |
+| 169 atoms | float64 | 698 → 689 | 293 → 285 | 334 → 323 | 854 → 844 |
+| 224 atoms | float32 | 220 → 209 | 175 → 164 | 198 → 189 | 303 → 292 |
+| 224 atoms | float64 | 728 → 719 | 319 → 312 | 379 → 368 | 906 → 899 |
+
+The two changes apart, for the models with a two-body force kernel and the
+passes that take the wider blocks: before → with the scan alone
+(`--wide-forces 0`) → with the wider blocks too:
+
+| frame | precision | se_e2_a to 6 Å | se_e2_r to 6 Å | se_e2_a to 6 Å with se_e3 to 4 Å |
+|---|---|---:|---:|---:|
+| 88 atoms | float32 | 165 → 157 → 150 | 126 → 118 → 113 | 227 → 221 → 214 |
+| 88 atoms | float64 | 396 → 388 → 385 | 197 → 189 → 183 | 502 → 495 → 494 |
+| 169 atoms | float32 | 203 → 192 → 188 | 157 → 147 → 143 | 284 → 275 → 270 |
+| 224 atoms | float32 | 220 → 213 → 209 | 175 → 168 → 164 | 303 → 294 → 292 |
+
+Other passes; where the blocks stay at 128 threads the scan is the one
+difference:
+
+| pass | centers | precision | threads of a force block | before → after |
+|---|---:|---|---:|---:|
+| four se_e2_a models, a frame of 88 atoms | 352 | float32 | 128 | 357 → 349 |
+| four se_e2_a models, a frame of 88 atoms | 352 | float64 | 128 | 1,055 → 1,046 |
+| four se_e2_a models, a frame of 224 atoms | 896 | float32 | 128 | 626 → 619 |
+| four se_e2_a models, a frame of 224 atoms | 896 | float64 | 128 | 2,635 → 2,626 |
+| se_e2_a, one frame of 88 atoms | 88 | float32 | 256 | 165 → 151 |
+| se_e2_a, two frames of 88 atoms | 176 | float32 | 256 | 199 → 188 |
+| se_e2_a, three frames of 88 atoms | 264 | float32 | 128 | 251 → 244 |
+| se_e2_a, four frames of 88 atoms | 352 | float32 | 128 | 289 → 279 |
+| se_e2_a, six frames of 88 atoms | 528 | float32 | 128 | 412 → 403 |
+| se_e2_a, one frame of 88 atoms | 88 | float64 | 256 | 396 → 385 |
+| se_e2_a, two frames of 88 atoms | 176 | float64 | 128 | 688 → 680 |
+| se_e2_a, three frames of 88 atoms | 264 | float64 | 128 | 995 → 986 |
+| se_e2_a, four frames of 88 atoms | 352 | float64 | 128 | 1,053 → 1,043 |
+| se_e2_a, six frames of 88 atoms | 528 | float64 | 128 | 1,644 → 1,633 |
+| se_e2_a, water, a frame of 192 atoms | 192 | float32 | 256 | 225 → 215 |
+| se_e2_a, water, a frame of 192 atoms | 192 | float64 | 128 | 721 → 715 |
+| se_e2_a, water, a frame of 1,536 atoms | 1,536 | float32 | 128 | 906 → 898 |
+| se_e2_a, water, a frame of 1,536 atoms | 1,536 | float64 | 128 | 4,376 → 4,367 |
+| se_e2_a, water, a frame of 12,288 atoms | 12,288 | float32 | 128 | 5,252 → 5,218 |
+| se_e2_a, water, a frame of 12,288 atoms | 12,288 | float64 | 128 | 33,299 → 33,269 |
+
+- The scan alone takes 6 to 11 µs off an evaluation of a HAP frame, for
+  every model in both precisions (24 cases: 6.4 to 11.1 µs), se_e3 included,
+  which has no two-body force kernel.
+- The wider blocks take another 2 to 7 µs off a float32 evaluation of at
+  most 224 centers (0.7% to 4.6%: most for the 88-atom frame, least beside
+  an se_e3 descriptor at 224 atoms), and 5.9 µs (3.1%) off the float64
+  evaluation of the 88-atom frame with se_e2_r. For se_e2_a in float64 at 88
+  atoms the numbers say 3.4 µs (0.9%) here and 0.3% to 0.5% in the
+  comparison of the widths above, which is what a setting differs from
+  itself by.
+- Together, for the pipeline's path (se_e2_a with tables in float32): 165 to
+  150 µs at 88 atoms (9%), 203 to 188 at 169 (8%) and 220 to 209 at 224
+  (5%). For se_e2_r: 126 to 113, 157 to 143 and 175 to 164 (10%, 9%, 7%).
+- Batches, committees and float64 passes past the limits gain 6 to 12 µs,
+  from the scan. The water frames of 1,536 and 12,288 atoms gain 8 to 9 and
+  30 to 33 µs (in the first run 2 to 10 and 59 to 112): a fraction of a
+  percent of 0.9 to 33 ms.
+- The build before against itself is 0.19% apart in the middle and 0.82% at
+  most; none of the 44 cases is over 1%. No frame left its tables.
+- A first run of seven rounds (`-r1`) was made with the build before float64
+  had a limit of its own. For the HAP frames in float32 its numbers are
+  within 3 µs of these before and within 1.3 µs after (165 → 150, 200 → 187
+  and 219 → 208 for se_e2_a), and its float64 numbers show the scan alone.
+
+**What gave nothing.** Each on a probe build, alternated with the build as
+it was, the least of four or five rounds, se_e2_a with tables, µs for the
+88-atom frame in float32 unless said otherwise:
+
+- The reads of a loop from global memory issued in groups of four or eight
+  ahead of the arithmetic that waits for them, the sums in the order they
+  had (the middle kernel of the fitting nets, the sums of the descriptor
+  kernel, the first step of the force kernel): 167.3 → 168.9 and 167.6; at
+  224 atoms 222.1 → 223.9 and 220.4. The same for the copies of the tile
+  kernels into shared memory: 167.3 → 167.3, at 224 atoms 222.1 → 222.9.
+- Two or four neighbor slots of a warp at a time in the force kernel, so
+  that their reads overlap: 167.3 → 168.1 and 164.0 in float32, and worse in
+  float64: 400 → 428 and 415 at 88 atoms, 731 → 784 and 765 at 224.
+- A first read of the lines of the search input by all lanes at once before
+  the scan: with the new scan 158.4 → 157.9.
+- Blocks of 256 threads for the descriptor kernel: 165.9 → 164.7. Blocks of
+  512 for the force kernel: 159.7 against 159.5 with 256, and at 224 atoms
+  229.6 against 218.1 with 128.
+
+**What this costs.**
+
+- A profile is of an evaluation with marks in it: 180 µs for the 88-atom
+  frame in float32 where a plain one takes 151, with up to 5 µs too many on
+  a stage of so short a pass. Its numbers are not those of profiles printed
+  before: `stages_ms` has `issue` and `device` where it had one number for a
+  stage, and `bench_omnimd_gpu.py` writes it down as it comes.
+- The force kernel has two widths, chosen by two numbers measured on one
+  card (an RTX 4090 with 144 multiprocessors) with the HAP models and one
+  water model; the evaluator's `--wide-forces` moves the limit.
+- Passes of more than 224 centers, and float64 passes of more than 108, gain
+  from the scan only.
+- The forces of a frame evaluated alone and in a batch past the limit now
+  differ by the rounding of the two widths (8e-14 eV/Å at most on the HAP
+  frames) on top of what two runs differ by anyway (3e-14).
+
+**Not done.** What an evaluation of the 88-atom frame still takes: the
+fitting nets 62 of 158 µs, the search 28, the forces 25, the copy back with
+the host's return 15, the descriptor 11, the tables 11 and the environment 6
+(the device's times with one stage marked). The fitting nets were not made
+shorter by reading their weights in groups (above); what they wait for was
+not found. The search is one warp's work for a center from end to end, scan
+and ranking; several warps for a center were not tried. A neighbor list kept
+over several steps would take the search out of most evaluations of a run;
+the engine has none. The widths were not tried between 108 and 162 centers
+in float64 or between 224 and 264 in float32, nor with fewer than 54. All
+times are of the evaluator's `--bench`: no run of the engine was timed. The
+trainer's stage times (`training.profile_stages`) still wait for the device
+after every stage.
+
+**Tests** (on this machine; the GPU suites do not run in CI).
+`neighbor_scan_takes_the_cells_of_any_grid_in_runs` (`gpu/tests/device.rs`)
+has the search against the reference for periodic boxes with one, two and
+five cells along the last axis, with one cell along the middle and along the
+first, and a skewed one, and for an open slab and an open rod, each by the
+warp path, by the serial path and with a buffer of seven;
+`systems_in_one_search_do_not_see_each_other` has two open clusters stored
+side by side. `marks_time_the_device_work_between_them` has the marks on a
+stream of its own. In `native/tests/gpu_parity.rs`,
+`few_centers_take_wider_blocks_in_the_two_body_force_kernels` has the width
+a pass takes at the limit and one center past it, for frames, batches,
+chunks and a committee, with the limit of each precision and for both
+descriptors, with the same energies and forces within 1e-11 either way, and
+`the_stages_of_an_evaluation_are_timed_by_the_device` has both clocks adding
+up, for a pass in chunks, for a frame that leaves its tables and for an
+evaluation that fails.
+
+A mutation round on the scan, the marks, the stage clock, the sums of the
+stage times and the choice of the block width had 85 mutants. 83 were caught
+by the tests as first written, and two showed gaps that have checks now: an
+open box that scans a cell too many (in the layout of a single system the
+cells past the end read as empty; two open clusters stored side by side
+catch it), and a setter that kept the limit at the default or below (a pass
+of four frames with a limit above the default). Five more came with the
+limit of float64 and were caught, and the eleven of the block width ran
+again on the changed file: all 90 are caught.
+
+Locally: workspace 234, engine with `native-gpu` 93, GPU crates 190, each in
+release and debug; `cargo fmt --check` clean; the legacy `cuda` features
+compile.
+
+Files: `hap-eval-small-pass-rtx4090-2026-11-19.json` (before and after; and
+`-r1`, the first run), `hap-eval-force-blocks-rtx4090-2026-11-19.json` (the
+two widths), `hap-eval-stages-rtx4090-2026-11-19.json` (the stage times of
+all three frames in both precisions),
+`hap-eval-stages-one-marked-rtx4090-2026-11-19.json` (the probe with one
+stage marked, beside a mark after every stage in the same session) and
+`neighbor-search-scan-rtx4090-2026-11-19.json` (the search alone). The
+probe builds are not in the repository, and neither are the numbers of the
+paragraphs that name one without a record; the probes
+`device_times_by_marks`, `arithmetic_costs` and `neighbor_search_costs` are
+in `gpu/tests/costs.rs`.
+
 # The rows of se_e3 laid out on the device, 2026-11-18
 
 An se_e3 descriptor has a row for every pair of an atom's neighbors, and

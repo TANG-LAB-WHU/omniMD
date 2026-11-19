@@ -1,0 +1,137 @@
+{
+ "date": "2026-11-19",
+ "device": "NVIDIA GeForce RTX 4090",
+ "what": "the probe neighbor_search_costs (gpu/tests/costs.rs, cargo test --release -- --ignored): atoms at the density of hydroxyapatite in a periodic cell, sought to 6 A with room for 212 neighbors; 3,000 searches back to back (`issued`: the host's time for one, the device left behind) and 3,000 with a wait for the device after each (`synced`). Two builds alternated in 5 rounds in one session, the least of each kept, every value beside it",
+ "builds": {
+  "before": "the costs binary of this change with gpu/src/nlist.rs of commit 46a2f20",
+  "after": "the costs binary of this change (the kernel of commit e3e07e8 before the numbers of this record went into its comment)"
+ },
+ "us_per_search": [
+  {
+   "atoms": 88,
+   "what": "issued",
+   "before": 23.3,
+   "after": 15.4,
+   "before_all": [
+    26.5,
+    24.2,
+    25.0,
+    23.3,
+    24.9
+   ],
+   "after_all": [
+    18.9,
+    16.8,
+    19.3,
+    16.7,
+    15.4
+   ]
+  },
+  {
+   "atoms": 88,
+   "what": "synced",
+   "before": 37.1,
+   "after": 29.6,
+   "before_all": [
+    41.6,
+    37.9,
+    37.7,
+    37.4,
+    37.1
+   ],
+   "after_all": [
+    29.6,
+    29.9,
+    30.7,
+    30.1,
+    29.6
+   ],
+   "most_neighbors_per_type": "[26, 24, 25, 26, 0]",
+   "same_neighbor_counts_in_both_builds": true
+  },
+  {
+   "atoms": 704,
+   "what": "issued",
+   "before": 49.4,
+   "after": 29.1,
+   "before_all": [
+    49.4,
+    51.7,
+    55.1,
+    57.4,
+    58.6
+   ],
+   "after_all": [
+    32.6,
+    33.7,
+    36.1,
+    29.1,
+    32.6
+   ]
+  },
+  {
+   "atoms": 704,
+   "what": "synced",
+   "before": 60.4,
+   "after": 51.4,
+   "before_all": [
+    62.4,
+    63.8,
+    61.0,
+    60.4,
+    60.5
+   ],
+   "after_all": [
+    52.5,
+    53.3,
+    54.4,
+    53.2,
+    51.4
+   ],
+   "most_neighbors_per_type": "[26, 28, 31, 30, 0]",
+   "same_neighbor_counts_in_both_builds": true
+  },
+  {
+   "atoms": 5632,
+   "what": "issued",
+   "before": 207.6,
+   "after": 170.6,
+   "before_all": [
+    208.0,
+    208.5,
+    210.2,
+    207.6,
+    207.6
+   ],
+   "after_all": [
+    179.4,
+    175.3,
+    172.4,
+    170.6,
+    172.1
+   ]
+  },
+  {
+   "atoms": 5632,
+   "what": "synced",
+   "before": 313.0,
+   "after": 279.9,
+   "before_all": [
+    321.5,
+    321.1,
+    320.6,
+    313.0,
+    313.4
+   ],
+   "after_all": [
+    289.1,
+    281.6,
+    285.9,
+    281.3,
+    279.9
+   ],
+   "most_neighbors_per_type": "[34, 36, 39, 35, 0]",
+   "same_neighbor_counts_in_both_builds": true
+  }
+ ]
+}

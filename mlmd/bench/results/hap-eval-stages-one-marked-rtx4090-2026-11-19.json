@@ -1,0 +1,181 @@
+{
+ "date": "2026-11-19",
+ "device": "NVIDIA GeForce RTX 4090",
+ "what": "a probe build of omnimd-native-gpu-eval (commit a798b12 with the stage clock changed): --bench 3000 --profile --compress 0.5 for the trained HAP se_e2_a model, with a mark after every stage as the evaluator has it (`every_stage`) and with two marks an evaluation, at the two ends of one stage (`one_stage`: seven runs, a stage each). Each setting ran 5 times in turn; the run with the least `wall` is kept. Milliseconds, means of 3,000 evaluations",
+ "cases": [
+  {
+   "frame": "88 atoms",
+   "precision": "float32",
+   "ms_per_eval_without_marks": 0.15092109999999997,
+   "every_stage": {
+    "chunks": 1,
+    "device": {
+     "descriptor": 0.012440373276049892,
+     "download": 0.013165418741603692,
+     "embedding": 0.012544586562241116,
+     "environment": 0.0071040106647027035,
+     "fitting": 0.06720071564614773,
+     "forces": 0.025296235141033928,
+     "neighbors": 0.028207839785143733
+    },
+    "host_finish": 0.005093033333333295,
+    "host_prepare": 0.0019755666666666444,
+    "issue": {
+     "descriptor": 0.01187739999999988,
+     "download": 0.08899306666666672,
+     "embedding": 0.006869766666666646,
+     "environment": 0.009991200000000191,
+     "fitting": 0.024560733333333327,
+     "forces": 0.008097266666666512,
+     "neighbors": 0.022177066666666603
+    },
+    "wall": 0.17963510000000038
+   },
+   "one_stage": {
+    "wall": {
+     "neighbors": 0.1580229000000001,
+     "environment": 0.15624663333333308,
+     "embedding": 0.16121506666666666,
+     "descriptor": 0.1558289333333334,
+     "fitting": 0.15991886666666627,
+     "forces": 0.15636743333333303,
+     "download": 0.16556493333333328
+    },
+    "device": {
+     "neighbors": 0.02771044247224927,
+     "environment": 0.005699989358894527,
+     "embedding": 0.010745450519646206,
+     "descriptor": 0.0111774719528233,
+     "fitting": 0.06226929180696606,
+     "forces": 0.025050304443885882,
+     "download": 0.015370037389298279
+    },
+    "issue_before_download": {
+     "neighbors": 0.05173249999999972,
+     "environment": 0.05733146666666641,
+     "embedding": 0.06347489999999975,
+     "descriptor": 0.061013633333332894,
+     "fitting": 0.06871303333333333,
+     "forces": 0.06671146666666684,
+     "download": 0.06515826666666631
+    }
+   }
+  },
+  {
+   "frame": "88 atoms",
+   "precision": "float64",
+   "ms_per_eval_without_marks": 0.3879563,
+   "every_stage": {
+    "chunks": 1,
+    "device": {
+     "descriptor": 0.017265098850553235,
+     "download": 0.01975081598572433,
+     "embedding": 0.034230048183351756,
+     "environment": 0.006057471994310617,
+     "fitting": 0.2182162597576777,
+     "forces": 0.06673107224951187,
+     "neighbors": 0.030131477228055398
+    },
+    "host_finish": 0.006179399999999938,
+    "host_prepare": 0.0023515999999999854,
+    "issue": {
+     "descriptor": 0.008732166666666546,
+     "download": 0.3282093999999996,
+     "embedding": 0.007387633333333324,
+     "environment": 0.010574066666666836,
+     "fitting": 0.007209199999999938,
+     "forces": 0.0074557999999999664,
+     "neighbors": 0.024910766666666712
+    },
+    "wall": 0.4030100333333333
+   },
+   "one_stage": {
+    "wall": {
+     "neighbors": 0.3944778333333341,
+     "environment": 0.3932599999999996,
+     "embedding": 0.3923369000000006,
+     "descriptor": 0.3910118000000006,
+     "fitting": 0.391568766666666,
+     "forces": 0.3913107333333337,
+     "download": 0.39330373333333357
+    },
+    "device": {
+     "neighbors": 0.029174709153051176,
+     "environment": 0.0059214293567153315,
+     "embedding": 0.033732042824228606,
+     "descriptor": 0.0173054402222236,
+     "fitting": 0.21787840293347835,
+     "forces": 0.06676792559027672,
+     "download": 0.02038227200383941
+    },
+    "issue_before_download": {
+     "neighbors": 0.04789099999999979,
+     "environment": 0.047960633333333294,
+     "embedding": 0.04709086666666648,
+     "descriptor": 0.04640996666666653,
+     "fitting": 0.047500066666666466,
+     "forces": 0.04714916666666646,
+     "download": 0.047236866666666336
+    }
+   }
+  },
+  {
+   "frame": "224 atoms",
+   "precision": "float32",
+   "ms_per_eval_without_marks": 0.20796630000000002,
+   "every_stage": {
+    "chunks": 1,
+    "device": {
+     "descriptor": 0.011859914852306246,
+     "download": 0.01800768001563847,
+     "embedding": 0.01838257102544109,
+     "environment": 0.007609781467976669,
+     "fitting": 0.09146858753760656,
+     "forces": 0.03358665618921319,
+     "neighbors": 0.02881156241521239
+    },
+    "host_finish": 0.007155333333333318,
+    "host_prepare": 0.0032111666666667024,
+    "issue": {
+     "descriptor": 0.006264566666666684,
+     "download": 0.1482486666666669,
+     "embedding": 0.005720333333333233,
+     "environment": 0.009742566666666785,
+     "fitting": 0.013190799999999944,
+     "forces": 0.006224199999999988,
+     "neighbors": 0.021572666666666615
+    },
+    "wall": 0.22133029999999945
+   },
+   "one_stage": {
+    "wall": {
+     "neighbors": 0.2130683666666664,
+     "environment": 0.2120765666666668,
+     "embedding": 0.21196849999999987,
+     "descriptor": 0.21135950000000028,
+     "fitting": 0.21280530000000003,
+     "forces": 0.211966366666667,
+     "download": 0.21008203333333347
+    },
+    "device": {
+     "neighbors": 0.02850668771689137,
+     "environment": 0.006809578794365128,
+     "embedding": 0.017742101684212683,
+     "descriptor": 0.011744064191977183,
+     "fitting": 0.09096676359325646,
+     "forces": 0.033641034882515665,
+     "download": 0.01812931201948474
+    },
+    "issue_before_download": {
+     "neighbors": 0.04933953333333371,
+     "environment": 0.048839133333333444,
+     "embedding": 0.04883030000000063,
+     "descriptor": 0.04852970000000036,
+     "fitting": 0.05044716666666667,
+     "forces": 0.049346600000000115,
+     "download": 0.04430190000000038
+    }
+   }
+  }
+ ]
+}

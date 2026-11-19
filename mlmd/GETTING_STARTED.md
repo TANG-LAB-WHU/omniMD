@@ -1496,8 +1496,25 @@ omnimd-native-gpu-eval MODEL.json [--precision float64|float32] [--compress RMIN
   with an even closer pair is evaluated with the exact networks instead, so the
   value affects speed only.
 - `--bench K` prints the mean time of K in-process evaluations per frame to
-  standard error; `--profile` adds per-stage times from one extra synchronized
-  evaluation. Model loading and JSON parsing are not included in either.
+  standard error; `--profile` adds the times of the stages (`stages_ms`),
+  means over as many further evaluations: the whole (`wall`), the host's
+  time to issue the calls of each stage (`issue`; for `download` with its
+  wait for the device) and the device's time over each stage (`device`),
+  taken between marks in the device's stream with nothing waited for. The
+  marks cost the host 5 microseconds each, which shows in the shortest
+  passes: where it was measured, a profiled evaluation of 88 atoms in
+  float32 took 180 microseconds where a plain one took 151, with up to 5
+  microseconds too many on a stage, and two passes of 208 and 388
+  microseconds had their stages right to a microsecond. Read a profile of
+  a short pass with the `--bench` time of the same run beside it: what the
+  marks add goes by the pace of the host. The device's time of the first
+  stage holds its wait while the host packs the input of the neighbor
+  search. Model loading and JSON parsing are not included in either. Stage
+  times printed before 2026-11-19 were taken with a wait for the device
+  after every stage and are not comparable.
+- `--fused-fitting`, `--tiled-fitting` and `--wide-forces` move limits that
+  were measured on an RTX 4090; the header of
+  `native/src/bin/omnimd-native-gpu-eval.rs` says what each is.
 - Frames larger than the device memory budget are processed in chunks of atoms
   automatically; `--chunk ATOMS` overrides the chunk size.
 - A warning is printed when an atom has more neighbors than `sel`. The runtime

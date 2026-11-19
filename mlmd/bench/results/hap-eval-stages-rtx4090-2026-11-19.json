@@ -1,0 +1,272 @@
+{
+ "date": "2026-11-19",
+ "device": "NVIDIA GeForce RTX 4090",
+ "what": "omnimd-native-gpu-eval --bench 3000 --profile --compress 0.5 for the trained HAP se_e2_a model: `stages_ms` are means over 3,000 evaluations with a mark in the device's stream after every stage (`issue`: the host's time to issue the calls of a stage and its mark, for `download` with its wait; `device`: the device's time between the marks); `ms_per_eval_without_marks` is the --bench line of the same run. Each case ran 5 times; the run with the least `wall` is kept whole",
+ "build": "omnimd-native-gpu-eval of commit a798b12",
+ "cases": [
+  {
+   "frame": "88 atoms",
+   "precision": "float32",
+   "ms_per_eval_without_marks": 0.1568911666666667,
+   "table_fallbacks": 0,
+   "stages_ms": {
+    "chunks": 1,
+    "device": {
+     "descriptor": 0.013022794626032312,
+     "download": 0.013246986748029788,
+     "embedding": 0.012966762555452684,
+     "environment": 0.007031306669581681,
+     "fitting": 0.0665849610157311,
+     "forces": 0.025453685763602456,
+     "neighbors": 0.028272277152165768
+    },
+    "host_finish": 0.005221733333333296,
+    "host_prepare": 0.0017610333333332748,
+    "issue": {
+     "descriptor": 0.013619266666666636,
+     "download": 0.08704423333333322,
+     "embedding": 0.006961699999999971,
+     "environment": 0.010217900000000208,
+     "fitting": 0.025236933333333288,
+     "forces": 0.007973833333333206,
+     "neighbors": 0.021741633333333267
+    },
+    "wall": 0.1797782666666663
+   },
+   "wall_of_every_run": [
+    0.18534856666666694,
+    0.18157173333333348,
+    0.18557273333333374,
+    0.1797782666666663,
+    0.1835370666666665
+   ],
+   "ms_per_eval_without_marks_of_every_run": [
+    0.1572469,
+    0.15691263333333333,
+    0.15175423333333332,
+    0.1568911666666667,
+    0.15130743333333332
+   ]
+  },
+  {
+   "frame": "88 atoms",
+   "precision": "float64",
+   "ms_per_eval_without_marks": 0.38742106666666665,
+   "table_fallbacks": 0,
+   "stages_ms": {
+    "chunks": 1,
+    "device": {
+     "descriptor": 0.017293482872347037,
+     "download": 0.018743296015386778,
+     "embedding": 0.03423818686107794,
+     "environment": 0.006271349322826912,
+     "fitting": 0.21859027568499245,
+     "forces": 0.06701014433801174,
+     "neighbors": 0.029414282495776812
+    },
+    "host_finish": 0.005541233333333278,
+    "host_prepare": 0.0018580333333333035,
+    "issue": {
+     "descriptor": 0.009936866666666492,
+     "download": 0.3279730666666667,
+     "embedding": 0.007015799999999981,
+     "environment": 0.010552933333333516,
+     "fitting": 0.007026699999999959,
+     "forces": 0.007237766666666651,
+     "neighbors": 0.022946200000000003
+    },
+    "wall": 0.40008860000000157
+   },
+   "wall_of_every_run": [
+    0.40008860000000157,
+    0.4044882000000005,
+    0.4023110000000008,
+    0.40041099999999885,
+    0.40739783333333424
+   ],
+   "ms_per_eval_without_marks_of_every_run": [
+    0.38742106666666665,
+    0.3895056666666667,
+    0.38792426666666663,
+    0.3898075666666666,
+    0.3903183
+   ]
+  },
+  {
+   "frame": "169 atoms",
+   "precision": "float32",
+   "ms_per_eval_without_marks": 0.19237599999999996,
+   "table_fallbacks": 0,
+   "stages_ms": {
+    "chunks": 1,
+    "device": {
+     "descriptor": 0.01184782950238635,
+     "download": 0.017092917362228035,
+     "embedding": 0.015000341352075338,
+     "environment": 0.007568266823887825,
+     "fitting": 0.08355496267229319,
+     "forces": 0.033342069408545894,
+     "neighbors": 0.029056298663218814
+    },
+    "host_finish": 0.006649700000000023,
+    "host_prepare": 0.0025774666666666638,
+    "issue": {
+     "descriptor": 0.00807399999999988,
+     "download": 0.12775413333333369,
+     "embedding": 0.007047633333333326,
+     "environment": 0.01053843333333345,
+     "fitting": 0.014381499999999969,
+     "forces": 0.009816166666666577,
+     "neighbors": 0.0232824666666666
+    },
+    "wall": 0.21012150000000024
+   },
+   "wall_of_every_run": [
+    0.21012150000000024,
+    0.21845683333333318,
+    0.21343550000000042,
+    0.21367326666666603,
+    0.21144683333333386
+   ],
+   "ms_per_eval_without_marks_of_every_run": [
+    0.19237599999999996,
+    0.18858570000000002,
+    0.19592263333333335,
+    0.19380863333333337,
+    0.19160193333333336
+   ]
+  },
+  {
+   "frame": "169 atoms",
+   "precision": "float64",
+   "ms_per_eval_without_marks": 0.6931762666666667,
+   "table_fallbacks": 0,
+   "stages_ms": {
+    "chunks": 1,
+    "device": {
+     "descriptor": 0.027078677209094165,
+     "download": 0.02036110932038476,
+     "embedding": 0.054396863696475825,
+     "environment": 0.007695573489957799,
+     "fitting": 0.42977438724040984,
+     "forces": 0.12229785311470429,
+     "neighbors": 0.030882602772365014
+    },
+    "host_finish": 0.007513166666666636,
+    "host_prepare": 0.0029234333333333293,
+    "issue": {
+     "descriptor": 0.008476666666666563,
+     "download": 0.6302601666666691,
+     "embedding": 0.007435033333333401,
+     "environment": 0.01050580000000015,
+     "fitting": 0.006595033333333255,
+     "forces": 0.00646236666666662,
+     "neighbors": 0.024823766666666643
+    },
+    "wall": 0.7049954333333357
+   },
+   "wall_of_every_run": [
+    0.7061108000000004,
+    0.7190629000000005,
+    0.7101191666666664,
+    0.7049954333333357,
+    0.7073349666666665
+   ],
+   "ms_per_eval_without_marks_of_every_run": [
+    0.6956367333333334,
+    0.6951713333333333,
+    0.7042396333333333,
+    0.6931762666666667,
+    0.6935056999999999
+   ]
+  },
+  {
+   "frame": "224 atoms",
+   "precision": "float32",
+   "ms_per_eval_without_marks": 0.21314286666666665,
+   "table_fallbacks": 0,
+   "stages_ms": {
+    "chunks": 1,
+    "device": {
+     "descriptor": 0.012196416202001273,
+     "download": 0.018651871964956324,
+     "embedding": 0.018339691039795675,
+     "environment": 0.007747029468417168,
+     "fitting": 0.09164710488915444,
+     "forces": 0.03365445353090763,
+     "neighbors": 0.0316197544572254
+    },
+    "host_finish": 0.007491899999999983,
+    "host_prepare": 0.0030836000000000006,
+    "issue": {
+     "descriptor": 0.008099199999999942,
+     "download": 0.14259746666666637,
+     "embedding": 0.0068144999999999656,
+     "environment": 0.010699433333333279,
+     "fitting": 0.015389299999999967,
+     "forces": 0.00791709999999988,
+     "neighbors": 0.024919866666666648
+    },
+    "wall": 0.2270123666666667
+   },
+   "wall_of_every_run": [
+    0.2313545000000002,
+    0.23339993333333356,
+    0.22884960000000065,
+    0.22783083333333332,
+    0.2270123666666667
+   ],
+   "ms_per_eval_without_marks_of_every_run": [
+    0.2108517,
+    0.21060586666666667,
+    0.21448096666666666,
+    0.21863166666666667,
+    0.21314286666666665
+   ]
+  },
+  {
+   "frame": "224 atoms",
+   "precision": "float64",
+   "ms_per_eval_without_marks": 0.7240503,
+   "table_fallbacks": 0,
+   "stages_ms": {
+    "chunks": 1,
+    "device": {
+     "descriptor": 0.02877442170555393,
+     "download": 0.022148565236479043,
+     "embedding": 0.07621816801031431,
+     "environment": 0.007657866789493709,
+     "fitting": 0.4303692367772261,
+     "forces": 0.12481634000937143,
+     "neighbors": 0.03425258646532893
+    },
+    "host_finish": 0.008579766666666629,
+    "host_prepare": 0.0035351333333333507,
+    "issue": {
+     "descriptor": 0.007663633333333255,
+     "download": 0.6572808666666655,
+     "embedding": 0.007238500000000032,
+     "environment": 0.01112790000000002,
+     "fitting": 0.0071056666666666195,
+     "forces": 0.007539799999999956,
+     "neighbors": 0.02774113333333336
+    },
+    "wall": 0.7378124000000015
+   },
+   "wall_of_every_run": [
+    0.7387244999999999,
+    0.7402356333333343,
+    0.7378124000000015,
+    0.740573900000001,
+    0.7424398666666662
+   ],
+   "ms_per_eval_without_marks_of_every_run": [
+    0.7245191666666666,
+    0.7254957666666666,
+    0.7240503,
+    0.7246556666666667,
+    0.7274934666666668
+   ]
+  }
+ ]
+}

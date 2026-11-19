@@ -37,11 +37,39 @@ cargo test --release -p omnimd-gpu --test costs -- --ignored --nocapture
 | copy back to the host, 8 KB / 128 KB (waits for the stream) | 10 / 20 |
 | each further copy back, pageable / pinned | 11 / 4 |
 | looking a kernel up in the cache (hashes its source) | about 8 |
+| a mark in the stream (`Device::mark`) | 4.5 to 5 |
 
-A molecular dynamics step of a hundred atoms takes a few hundred microseconds,
-so twenty avoidable calls are a third of it. Hence: one upload and one
-download per evaluation, buffers and kernel handles kept between evaluations,
-status flags written where the results already go.
+These are the host's costs, and an evaluation of a small frame does not
+wait for the host. One of 88 atoms (se_e2_a with tables, float32) took 166
+microseconds before 2026-11-19, read on a probe build with the host's clock
+after the calls of every stage and no wait: the host issued its dozen calls
+in 40 of them, one after the other, and for 120 it waited in the copy back
+while the device worked through what was queued. Two changes that had the
+host issue a kernel sooner left the evaluation within 2 microseconds of
+where it was (the neighbor search issued before the results are cleared
+instead of after; the results copied back to pinned memory). What a queued
+call takes the device is in `device_times_by_marks`: a kernel that does
+nothing 3.5 microseconds behind another, a mark 1.5. This page said until
+then that twenty avoidable calls are a third of a step of a hundred atoms;
+that was the host's side added up. The rules stand: one upload and one
+download per evaluation (a copy back makes the host wait for all that is
+queued, and while the host prepares its first upload the device has nothing
+to do), buffers and kernel handles kept between evaluations, status flags
+written where the results already go.
+
+So the stages of an evaluation are timed by the device. The host's clock
+says when a stage was issued, not how long the device took over it, and a
+wait for the device after every stage (how `--profile` worked until
+2026-11-19) times another evaluation than the one that runs otherwise. A
+mark is an event in the stream that the device stamps when its work gets
+there: the time between two marks is the device's over what was issued
+between them, with the host waiting for nothing
+(`native::gpu_model::StageTimes` says how to read the two clocks together).
+A mark is itself a call, though, and eight of them in an evaluation of 150
+microseconds double what the host issues: that evaluation took 180
+microseconds, and its stages came out up to 5 microseconds longer than
+with marks at the two ends of one stage alone. From 200 microseconds on
+the two agreed within a microsecond a stage.
 
 **Arithmetic** (nanoseconds per operation on a whole warp):
 
@@ -50,6 +78,7 @@ status flags written where the results already go.
 | float multiply-add, chained / independent sums | 2.0 / 0.65 | about 4 per ns in all |
 | double multiply-add, chained / independent sums | 20 / 7 | one per 8 ns in all |
 | double division | 450 to 500 | one per 150 ns in all |
+| 32-bit integer division by a number the kernel is given | 27 to 29 | one per 2.5 to 3 ns in all |
 | double square root | 290 | one per 90 ns in all |
 | float to double or back | 15 to 20 | |
 | one value from shared memory for the whole warp, with its multiply-add | 1.2 | about 4 per ns in all |
@@ -81,7 +110,31 @@ What follows for the kernels:
 - Divide once. Reciprocals of constants come from the host (`1 / dstd`,
   `1 / (rcut - rcut_smth)`) or are formed once per thread (`1 / slots`,
   `1 / r` per neighbor); neighbor distances are taken from the search, not
-  from another square root.
+  from another square root. Integers too: a division by the cells of an
+  axis takes a warp as long as fourteen float multiply-adds one after the
+  other, and where one warp does a center's work from end to end the center
+  waits for each. The neighbor search had the cell and the periodic image
+  of every cell of a center's stencil from a division for each axis, 81 for
+  a stencil of 27 cells. It divides once for an axis now and steps from
+  there, and it takes the cells along the last axis, which lie one after
+  the other in the grid with their atoms, as one run of atoms. A search of
+  88 atoms with its packing and a wait for the device went from 37 to 30
+  microseconds, one of 5,632 atoms from 313 to 280
+  (`neighbor_search_costs`).
+- Try a block for an atom with more warps where the blocks are few. The
+  force kernel of the two-body descriptors takes the neighbor slots of its
+  atom a warp each, the warps of the block in turns: eight warps are
+  through 212 slots in 27 turns where four take 53. With blocks of 256
+  threads instead of 128 a float32 evaluation was 3.5% to 5% shorter at 54
+  and 88 blocks and 0.6% to 3% at 162 to 224; from 264 to 352 blocks it was
+  within 1.5% either way, and from 528 on 1% to 4% longer. In float64 an
+  evaluation with se_e2_r was 2.4% to 3.4% shorter up to 108 blocks and
+  less than 1.2% from 162 to 224, and one with se_e2_a stayed within 0.6%
+  at every size but one. So the width goes by the centers of the pass and
+  the precision (`native::gpu_model::WIDE_FORCE_CENTERS_F32` and
+  `WIDE_FORCE_CENTERS_F64`). Blocks of 512 threads were no better than 256
+  at 88 atoms and worse at 224, and wider blocks for the descriptor kernel
+  changed nothing. Why the gain ends where it does was not measured.
 - Keep double precision for what needs it. The neighbor search scans in
   single precision with a margin that covers its rounding and measures only
   the surviving candidates in double; distances are ranked by their bit

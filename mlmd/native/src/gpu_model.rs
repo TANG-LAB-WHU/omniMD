@@ -1667,6 +1667,14 @@ type Stage = fn(&mut Stages) -> &mut f64;
 /// evaluation that is timed runs as it does otherwise but for the marks,
 /// each some 5 microseconds of the host and 1.5 of the device.
 ///
+/// For the shortest passes the marks tell in the times. An evaluation of 88
+/// atoms in float32 took 180 microseconds with them where it takes 151, the
+/// host issuing for twice as long, and its stages came out up to 5
+/// microseconds longer than with marks at the two ends of one stage alone
+/// (the fitting nets 67 against 62). For passes of 200 microseconds and more
+/// the two ways agreed within a microsecond a stage
+/// (`bench/results/SUMMARY.md`, 2026-11-19).
+///
 /// A stage's `device` time is the device's work on the stage and whatever
 /// time it had none of it to do yet. The device can only have waited
 /// between getting to the stage (the running sum of `device` up to the
