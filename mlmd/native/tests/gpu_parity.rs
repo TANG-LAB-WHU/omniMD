@@ -5,7 +5,9 @@
 mod common;
 use common::{device, frame, model};
 use omnimd_ml_contract::{Committee, Evaluation, Frame, Potential, Units};
-use omnimd_native::gpu_model::{GpuPotential, StageTimes, WIDE_FORCE_CENTERS};
+use omnimd_native::gpu_model::{
+    GpuPotential, StageTimes, WIDE_FORCE_CENTERS_F32, WIDE_FORCE_CENTERS_F64,
+};
 use omnimd_native::{Activation, Model, NativePotential, Residual};
 
 /// Tolerances: relative energy, then forces/virial relative to their scale.
@@ -3165,15 +3167,17 @@ fn the_rows_of_the_models_of_a_committee_do_not_meet() {
 
 /// A pass of few centers gives the force kernel of a two-body descriptor
 /// blocks of 256 threads and one of more its 128, counted by the centers of
-/// a chunk and the models of a committee: by default in float32 only. Either
-/// size gives the same forces to the rounding of a center's sums.
+/// a chunk and the models of a committee, with a limit for each precision.
+/// Either size gives the same forces to the rounding of a center's sums.
 #[test]
 fn few_centers_take_wider_blocks_in_the_two_body_force_kernels() {
     let Some(device) = device() else { return };
     let lattice = [[9.0, 0.0, 0.0], [1.5, 8.5, 0.0], [-1.0, 0.8, 9.2]];
     let frame = frame(lattice, 4, 2, true, 61);
     let natoms = frame.positions.len();
-    assert!(2 * natoms <= WIDE_FORCE_CENTERS, "{natoms} atoms");
+    // Two frames are within the limit of float32 and past that of float64.
+    assert!(2 * natoms <= WIDE_FORCE_CENTERS_F32, "{natoms} atoms");
+    assert!(natoms <= WIDE_FORCE_CENTERS_F64 && 2 * natoms > WIDE_FORCE_CENTERS_F64);
     let same = |label: &str, a: &Evaluation, b: &Evaluation| {
         assert_eq!(a.energy, b.energy, "{label}: the networks ran alike");
         compare(label, a, b, (1e-15, 1e-11));
@@ -3188,10 +3192,12 @@ fn few_centers_take_wider_blocks_in_the_two_body_force_kernels() {
             .eval(&frame)
             .unwrap();
         let mut gpu = GpuPotential::<f32>::new(model, device.clone()).unwrap();
-        assert_eq!(gpu.wide_force_centers(), WIDE_FORCE_CENTERS, "{kind}");
+        assert_eq!(gpu.wide_force_centers(), WIDE_FORCE_CENTERS_F32, "{kind}");
         assert_eq!(gpu.force_threads(), 0, "{kind}: before a pass");
         let wide = gpu.eval(&frame).unwrap();
         assert_eq!(gpu.force_threads(), 256, "{kind}");
+        gpu.evaluate_frames(&[&frame, &frame], 1).unwrap();
+        assert_eq!(gpu.force_threads(), 256, "{kind}: two frames as it comes");
         compare(
             &format!("{kind} float32, wide blocks"),
             &wide,
@@ -3218,7 +3224,7 @@ fn few_centers_take_wider_blocks_in_the_two_body_force_kernels() {
         // More centers than the default allows take the wider blocks when
         // told to.
         let four = [&frame; 4];
-        assert!(4 * natoms > WIDE_FORCE_CENTERS);
+        assert!(4 * natoms > WIDE_FORCE_CENTERS_F32);
         gpu.set_wide_force_centers(4 * natoms);
         let many = gpu.evaluate_frames(&four, 1).unwrap();
         assert_eq!(gpu.force_threads(), 256, "{kind}: four frames");
@@ -3229,16 +3235,24 @@ fn few_centers_take_wider_blocks_in_the_two_body_force_kernels() {
         assert_eq!(gpu.force_threads(), 256, "{kind}: two frames in chunks");
         same(&format!("{kind} float32, chunks"), &two[0][0], &wide);
 
-        // Float64 keeps the narrow blocks unless told otherwise.
+        // Float64 has a lower limit: the frame is within it and two are
+        // not.
         let mut double = GpuPotential::<f64>::new(model, device.clone()).unwrap();
-        assert_eq!(double.wide_force_centers(), 0, "{kind}");
-        let narrow = double.eval(&frame).unwrap();
-        assert_eq!(double.force_threads(), 128, "{kind} float64");
-        compare(&format!("{kind} float64"), &narrow, &reference, FLOAT64);
-        double.set_wide_force_centers(natoms);
+        assert_eq!(
+            double.wide_force_centers(),
+            WIDE_FORCE_CENTERS_F64,
+            "{kind}"
+        );
         let wide = double.eval(&frame).unwrap();
         assert_eq!(double.force_threads(), 256, "{kind} float64");
-        same(&format!("{kind} float64, either block"), &wide, &narrow);
+        compare(&format!("{kind} float64"), &wide, &reference, FLOAT64);
+        let two = double.evaluate_frames(&[&frame, &frame], 1).unwrap();
+        assert_eq!(double.force_threads(), 128, "{kind} float64: two frames");
+        same(&format!("{kind} float64, two frames"), &two[1][0], &wide);
+        double.set_wide_force_centers(0);
+        let narrow = double.eval(&frame).unwrap();
+        assert_eq!(double.force_threads(), 128, "{kind} float64: none");
+        same(&format!("{kind} float64, either block"), &narrow, &wide);
     }
 
     // The models of a committee are centers each.

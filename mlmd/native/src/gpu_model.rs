@@ -1290,25 +1290,28 @@ INSTANTIATE(double, f64)
 
 const BLOCK: u32 = 128;
 /// Threads of a block of the force kernel of a two-body descriptor in a pass
-/// of few centers (see [`WIDE_FORCE_CENTERS`]).
+/// of few centers (see [`WIDE_FORCE_CENTERS_F32`]).
 const WIDE_BLOCK: u32 = 256;
 /// Float32 passes of at most this many centers (the atoms of a chunk times
 /// the models) give the force kernel of an se_e2_a or se_e2_r descriptor
 /// blocks of [`WIDE_BLOCK`] threads instead of [`BLOCK`].
 ///
-/// That kernel is a block per center, and its longest step takes the
+/// That kernel is a block per center, and one of its steps takes the
 /// neighbor slots of the center a warp each, the warps of the block in
 /// turns: with eight warps a center with 212 slots is through in 27 turns
-/// instead of 53. While the blocks of a pass are few, the multiprocessors
-/// have room for the warps and the pass is that much sooner done; with more
-/// blocks the wider ones are in each other's way and the pass takes longer.
-/// Measured on an RTX 4090 with the HAP models, whole evaluations in
-/// float32: 6 microseconds less at 88 centers (4%), 4 less at 176 (2%) and
-/// at one frame of 224 (2%); 2% more at 264 centers and 3% more at 528, both
-/// batches of a frame of 88. In float64 the step is bound by the double
-/// precision units, which more warps do not add to: se_e2_a gained nothing
-/// at any size, and float64 keeps [`BLOCK`].
-pub const WIDE_FORCE_CENTERS: usize = 224;
+/// instead of 53. Whether a pass is sooner done for it goes by the number of
+/// its blocks. Measured on an RTX 4090 with the HAP models and tables, whole
+/// evaluations with the wider blocks against the narrower
+/// (`bench/results/hap-eval-force-blocks-rtx4090-2026-11-19.json`): 3.5% to
+/// 5% shorter at 54 and 88 centers, 0.6% to 3% shorter at 162 to 224, within
+/// 1.5% either way at 264 to 352, and 1% to 4% longer from 528 on.
+pub const WIDE_FORCE_CENTERS_F32: usize = 224;
+/// The same for float64 passes. There the wider blocks took 2.4% to 3.4% off
+/// an evaluation with se_e2_r at 54, 88 and 108 centers and less than 1.2%
+/// from 162 to 224 (from 264 on it was 1% to 3% longer), and they left one
+/// with se_e2_a within 0.6% at every size but one (a committee of 896
+/// centers, 1.4% shorter).
+pub const WIDE_FORCE_CENTERS_F64: usize = 108;
 /// Static shared-memory limit per block without opting in to more.
 const SHARED_LIMIT: usize = 48 * 1024;
 /// The embedding tables reach from `min_distance` down to
@@ -1656,20 +1659,25 @@ type Stage = fn(&mut Stages) -> &mut f64;
 /// waiting and one copy back that waits for all of it, so the host's clock
 /// alone says nothing of a stage: the host is done issuing long before the
 /// device is done. The stages are therefore timed twice. `issue` is the
-/// host's time to issue the calls of a stage (for `download`, with its wait
-/// for the device). `device` is the device's time between marks in its
-/// stream, one after the calls of each stage ([`omnimd_gpu::Mark`]). Nothing
-/// is waited for in between, so the evaluation that is timed runs as it
-/// does otherwise but for the marks, each some 5 microseconds of the host
-/// and 1.5 of the device.
+/// host's time to issue the calls of a stage and the mark after them (for
+/// the first stage with the mark where the device calls begin, for
+/// `download` with its wait for the device). `device` is the device's time
+/// between marks in its stream, one after the calls of each stage
+/// ([`omnimd_gpu::Mark`]). Nothing is waited for in between, so the
+/// evaluation that is timed runs as it does otherwise but for the marks,
+/// each some 5 microseconds of the host and 1.5 of the device.
 ///
-/// A stage's `device` time is what the stage took on the device as long as
-/// the device was behind the host: then the running sum of `device` stays
-/// above that of `issue`. Where it does not, the device waited for the host
-/// and the time is the host's. It is so at the start: the time of the first
-/// stage runs from the first device call of the pass, and the device has
-/// nothing to do while the host packs the input of the neighbor search, so
-/// `device.neighbors` holds that packing.
+/// A stage's `device` time is the device's work on the stage and whatever
+/// time it had none of it to do yet. The device can only have waited
+/// between getting to the stage (the running sum of `device` up to the
+/// stage before) and the host's last call of the stage (the running sum of
+/// `issue` through the stage): where the first is the later, the time is
+/// all the device's own, and otherwise their difference is the most that it
+/// waited. (The sums of a pass of several chunks do not tell: the chunks
+/// come one after the other, each with its own stages.) The device waits at
+/// the start: the time of the first stage runs from the first device call
+/// of the pass, and the device has nothing to do while the host packs the
+/// input of the neighbor search, so `device.neighbors` holds that packing.
 ///
 /// Both sets cover the same stretch, from the first device call to the
 /// results on the host; `host_prepare` and `host_finish` are the host's work
@@ -2678,9 +2686,9 @@ impl<P: Scalar> GpuPotential<P> {
             layout_atoms: LAYOUT_ATOMS,
             count_downloads: 0,
             wide_force_centers: if std::mem::size_of::<P>() == 4 {
-                WIDE_FORCE_CENTERS
+                WIDE_FORCE_CENTERS_F32
             } else {
-                0
+                WIDE_FORCE_CENTERS_F64
             },
             force_threads: 0,
             search: NeighborSearch::new(d.rcut, &d.sel)?,
@@ -2772,10 +2780,10 @@ impl<P: Scalar> GpuPotential<P> {
 
     /// Passes of at most this many centers (the atoms of a chunk times the
     /// models) give the force kernel of an se_e2_a or se_e2_r descriptor
-    /// wider blocks: [`WIDE_FORCE_CENTERS`] in float32, none in float64,
-    /// where they gain nothing. The forces are the same to rounding either
-    /// way: the block of a center sums what its neighbors give in another
-    /// order.
+    /// wider blocks: [`WIDE_FORCE_CENTERS_F32`] in float32 and
+    /// [`WIDE_FORCE_CENTERS_F64`] in float64. The forces are the same to
+    /// rounding either way: the block of a center sums what its neighbors
+    /// give in another order.
     pub fn wide_force_centers(&self) -> usize {
         self.wide_force_centers
     }
@@ -3720,8 +3728,9 @@ impl<P: Scalar> GpuPotential<P> {
                             .arg(&natoms_i)
                             .arg(&stride_i)
                             .arg(&add_i);
-                        // A block per center and model: few of them have
-                        // room for wider ones (see `WIDE_FORCE_CENTERS`).
+                        // A block per center and model: a pass of few is
+                        // sooner done with wider ones (see
+                        // `WIDE_FORCE_CENTERS_F32`).
                         self.force_threads = match members * count <= self.wide_force_centers {
                             true => WIDE_BLOCK,
                             false => BLOCK,
