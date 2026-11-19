@@ -355,7 +355,7 @@ fn device_times_by_marks() {
         shared_mem_bytes: 0,
     };
     let mut wide = device.zeros::<f64>(8192 * 256).unwrap();
-    let wide_n = (8192 * 256) as i32;
+    let wide_n: i32 = 8192 * 256;
     let mut sums = [0.0; 5];
     let nothing = LaunchConfig {
         grid_dim: (88, 1, 1),
