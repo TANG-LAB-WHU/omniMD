@@ -25,6 +25,30 @@ pub use table::{CellBuffers, CellSegments, CellTable, CELL_LOOKUP};
 pub use train::{TrainLayer, TrainNetwork, TrainTape};
 pub use train_set::{SetTape, TrainSet};
 
+/// A point in the device's stream of work ([`Device::mark`]). The device
+/// stamps it with its own clock when its work gets there, so two marks tell
+/// how long the device took over what was issued between them, without the
+/// host waiting in between as it must to time a stage with its own clock.
+/// A mark is a call like any other: about 5 microseconds of the host to
+/// issue and 1.5 of the device where it was measured (`device_times_by_marks`
+/// in `tests/costs.rs`).
+pub struct Mark(cudarc::driver::CudaEvent);
+
+impl Mark {
+    /// Milliseconds on the device's clock from this mark to `later`, a mark
+    /// of the same device. Waits for the device to reach both.
+    ///
+    /// The time is that of the work issued between the two marks only while
+    /// the device had work to do: if it was idle when work was issued after
+    /// this mark, its wait for the host is part of the time.
+    pub fn ms_until(&self, later: &Mark) -> Result<f64> {
+        self.0
+            .elapsed_ms(&later.0)
+            .map(f64::from)
+            .map_err(cuda_error("event time"))
+    }
+}
+
 use cudarc::cublas::{CudaBlas, Gemm, GemmConfig, StridedBatchedConfig};
 use cudarc::driver::{CudaContext, DeviceRepr, ValidAsZeroBits};
 use omnimd_ml_contract::{Error, Result};
@@ -312,6 +336,15 @@ impl Device {
         self.stream
             .synchronize()
             .map_err(cuda_error("stream synchronize"))
+    }
+
+    /// A mark at this point of the stream: after everything issued so far,
+    /// before anything issued later. Issuing it does not wait for the device.
+    pub fn mark(&self) -> Result<Mark> {
+        self.stream
+            .record_event(Some(cudarc::driver::sys::CUevent_flags::CU_EVENT_DEFAULT))
+            .map(Mark)
+            .map_err(cuda_error("event"))
     }
 
     /// Row-major `c = a·b`, or `c += a·b` when `accumulate`. Full-precision

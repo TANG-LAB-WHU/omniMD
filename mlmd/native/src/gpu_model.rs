@@ -51,7 +51,7 @@ use crate::{Activation, Descriptor, DescriptorKind, Model, Network, Residual, RA
 use omnimd_gpu::{
     Activation as DeviceActivation, Cell, CellSegments, CellTable, CudaFunction, CudaSlice,
     CudaViewMut, DenseLayer, DenseNetwork, Device, GradientNetwork, LaunchConfig, LayerParameters,
-    NeighborList, NeighborSearch, PushKernelArg, Scalar, ScalarNetwork, CELL_LOOKUP,
+    Mark, NeighborList, NeighborSearch, PushKernelArg, Scalar, ScalarNetwork, CELL_LOOKUP,
 };
 use omnimd_ml_contract::{
     Committee, Error, Evaluation, Frame, ModelMetadata, Potential, Result, Units,
@@ -1289,6 +1289,26 @@ INSTANTIATE(double, f64)
 "#;
 
 const BLOCK: u32 = 128;
+/// Threads of a block of the force kernel of a two-body descriptor in a pass
+/// of few centers (see [`WIDE_FORCE_CENTERS`]).
+const WIDE_BLOCK: u32 = 256;
+/// Float32 passes of at most this many centers (the atoms of a chunk times
+/// the models) give the force kernel of an se_e2_a or se_e2_r descriptor
+/// blocks of [`WIDE_BLOCK`] threads instead of [`BLOCK`].
+///
+/// That kernel is a block per center, and its longest step takes the
+/// neighbor slots of the center a warp each, the warps of the block in
+/// turns: with eight warps a center with 212 slots is through in 27 turns
+/// instead of 53. While the blocks of a pass are few, the multiprocessors
+/// have room for the warps and the pass is that much sooner done; with more
+/// blocks the wider ones are in each other's way and the pass takes longer.
+/// Measured on an RTX 4090 with the HAP models, whole evaluations in
+/// float32: 6 microseconds less at 88 centers (4%), 4 less at 176 (2%) and
+/// at one frame of 224 (2%); 2% more at 264 centers and 3% more at 528, both
+/// batches of a frame of 88. In float64 the step is bound by the double
+/// precision units, which more warps do not add to: se_e2_a gained nothing
+/// at any size, and float64 keeps [`BLOCK`].
+pub const WIDE_FORCE_CENTERS: usize = 224;
 /// Static shared-memory limit per block without opting in to more.
 const SHARED_LIMIT: usize = 48 * 1024;
 /// The embedding tables reach from `min_distance` down to
@@ -1578,12 +1598,10 @@ pub(crate) fn pair_shared(slots: usize, ntypes: usize) -> usize {
     3 * slots * 8 + (4 * (slots + ntypes + 1)).next_multiple_of(8)
 }
 
-/// Wall-clock milliseconds per stage of the last evaluation (summed over
-/// chunks), measured with a device synchronization after each stage, so only
-/// when profiling is on.
+/// Milliseconds for each stage of an evaluation that has device calls
+/// (summed over chunks).
 #[derive(Clone, Debug, Default, serde::Serialize)]
-pub struct StageTimes {
-    pub host_prepare: f64,
+pub struct Stages {
     pub neighbors: f64,
     pub environment: f64,
     pub embedding: f64,
@@ -1591,37 +1609,103 @@ pub struct StageTimes {
     pub fitting: f64,
     pub forces: f64,
     pub download: f64,
+}
+
+impl Stages {
+    const ALL: [Stage; 7] = [
+        |s| &mut s.neighbors,
+        |s| &mut s.environment,
+        |s| &mut s.embedding,
+        |s| &mut s.descriptor,
+        |s| &mut s.fitting,
+        |s| &mut s.forces,
+        |s| &mut s.download,
+    ];
+
+    /// The stages together.
+    pub fn sum(&self) -> f64 {
+        self.neighbors
+            + self.environment
+            + self.embedding
+            + self.descriptor
+            + self.fitting
+            + self.forces
+            + self.download
+    }
+
+    fn add(&mut self, other: &Self) {
+        let mut other = other.clone();
+        for stage in Self::ALL {
+            *stage(self) += *stage(&mut other);
+        }
+    }
+
+    fn scale(&mut self, factor: f64) {
+        for stage in Self::ALL {
+            *stage(self) *= factor;
+        }
+    }
+}
+
+/// One of the numbers of [`Stages`].
+type Stage = fn(&mut Stages) -> &mut f64;
+
+/// Milliseconds of the last evaluation, taken only when profiling is on.
+///
+/// An evaluation is one chain of device calls that the host issues without
+/// waiting and one copy back that waits for all of it, so the host's clock
+/// alone says nothing of a stage: the host is done issuing long before the
+/// device is done. The stages are therefore timed twice. `issue` is the
+/// host's time to issue the calls of a stage (for `download`, with its wait
+/// for the device). `device` is the device's time between marks in its
+/// stream, one after the calls of each stage ([`omnimd_gpu::Mark`]). Nothing
+/// is waited for in between, so the evaluation that is timed runs as it
+/// does otherwise but for the marks, each some 5 microseconds of the host
+/// and 1.5 of the device.
+///
+/// A stage's `device` time is what the stage took on the device as long as
+/// the device was behind the host: then the running sum of `device` stays
+/// above that of `issue`. Where it does not, the device waited for the host
+/// and the time is the host's. It is so at the start: the time of the first
+/// stage runs from the first device call of the pass, and the device has
+/// nothing to do while the host packs the input of the neighbor search, so
+/// `device.neighbors` holds that packing.
+///
+/// Both sets cover the same stretch, from the first device call to the
+/// results on the host; `host_prepare` and `host_finish` are the host's work
+/// before and after it, and `wall` is all of it.
+#[derive(Clone, Debug, Default, serde::Serialize)]
+pub struct StageTimes {
+    pub wall: f64,
+    pub host_prepare: f64,
+    pub issue: Stages,
+    pub device: Stages,
+    pub host_finish: f64,
     pub chunks: usize,
 }
 
 impl StageTimes {
     /// Adds the times of another evaluation.
     pub fn add(&mut self, other: &Self) {
+        self.wall += other.wall;
         self.host_prepare += other.host_prepare;
-        self.neighbors += other.neighbors;
-        self.environment += other.environment;
-        self.embedding += other.embedding;
-        self.descriptor += other.descriptor;
-        self.fitting += other.fitting;
-        self.forces += other.forces;
-        self.download += other.download;
+        self.issue.add(&other.issue);
+        self.device.add(&other.device);
+        self.host_finish += other.host_finish;
         self.chunks += other.chunks;
     }
 
     /// The mean over `evaluations` added times.
     pub fn mean(&self, evaluations: usize) -> Self {
-        let n = evaluations.max(1) as f64;
-        Self {
-            host_prepare: self.host_prepare / n,
-            neighbors: self.neighbors / n,
-            environment: self.environment / n,
-            embedding: self.embedding / n,
-            descriptor: self.descriptor / n,
-            fitting: self.fitting / n,
-            forces: self.forces / n,
-            download: self.download / n,
-            chunks: self.chunks / evaluations.max(1),
-        }
+        let n = 1.0 / evaluations.max(1) as f64;
+        let mut mean = self.clone();
+        mean.wall *= n;
+        mean.host_prepare *= n;
+        mean.issue.scale(n);
+        mean.device.scale(n);
+        mean.host_finish *= n;
+        mean.chunks = self.chunks / evaluations.max(1);
+        mean
     }
 }
 
@@ -1663,6 +1747,11 @@ pub struct GpuPotential<P: Scalar> {
     /// host instead.
     layout_atoms: usize,
     count_downloads: usize,
+    /// Passes of at most this many centers give the force kernel of a
+    /// two-body descriptor its wider blocks, and the threads of a block of
+    /// that kernel at its last launch (zero before the first).
+    wide_force_centers: usize,
+    force_threads: u32,
     /// Neighbor search with its device buffers, kept between evaluations.
     search: NeighborSearch,
     last_truncated: bool,
@@ -1848,22 +1937,78 @@ pub(crate) fn copy_error(e: omnimd_gpu::DriverError) -> Error {
     Error(format!("CUDA copy failed: {e:?}"))
 }
 
-/// Stage clock: a no-op unless profiling, so production runs never sync.
+/// Stage clock: nothing unless profiling, so that an evaluation issues no
+/// marks. It never waits for the device before the results are back.
 struct Clock<'a> {
     device: &'a Device,
     times: Option<StageTimes>,
+    start: Instant,
     last: Instant,
+    /// A mark after the calls of each stage; one without a stage where the
+    /// device calls of a pass begin.
+    marks: Vec<(Option<Stage>, Mark)>,
 }
 
-impl Clock<'_> {
-    fn lap(&mut self, stage: impl FnOnce(&mut StageTimes) -> &mut f64) -> Result<()> {
-        if let Some(times) = &mut self.times {
-            self.device.synchronize()?;
-            let now = Instant::now();
-            *stage(times) += (now - self.last).as_secs_f64() * 1e3;
-            self.last = now;
+impl<'a> Clock<'a> {
+    fn new(device: &'a Device, profiling: bool) -> Self {
+        let now = Instant::now();
+        Self {
+            device,
+            times: profiling.then(StageTimes::default),
+            start: now,
+            last: now,
+            marks: Vec::new(),
+        }
+    }
+
+    /// The host's milliseconds since it was last asked.
+    fn host_ms(&mut self) -> f64 {
+        let now = Instant::now();
+        let ms = (now - self.last).as_secs_f64() * 1e3;
+        self.last = now;
+        ms
+    }
+
+    /// The device calls of a pass begin: the time up to here was the host's
+    /// alone.
+    fn begin(&mut self) -> Result<()> {
+        if self.times.is_some() {
+            let ms = self.host_ms();
+            self.marks.push((None, self.device.mark()?));
+            if let Some(times) = &mut self.times {
+                times.host_prepare += ms;
+            }
         }
         Ok(())
+    }
+
+    /// The calls of `stage` are issued.
+    fn lap(&mut self, stage: Stage) -> Result<()> {
+        if self.times.is_some() {
+            self.marks.push((Some(stage), self.device.mark()?));
+            let ms = self.host_ms();
+            if let Some(times) = &mut self.times {
+                *stage(&mut times.issue) += ms;
+            }
+        }
+        Ok(())
+    }
+
+    /// The results are on the host: the device's time from each mark to the
+    /// next goes to the stage of the later one, and the rest of the host's
+    /// time was its own.
+    fn finish(mut self) -> Result<Option<StageTimes>> {
+        let Some(mut times) = self.times.take() else {
+            return Ok(None);
+        };
+        times.host_finish = self.host_ms();
+        times.wall = (self.last - self.start).as_secs_f64() * 1e3;
+        for pair in self.marks.windows(2) {
+            if let Some(stage) = pair[1].0 {
+                *stage(&mut times.device) += pair[0].1.ms_until(&pair[1].1)?;
+            }
+        }
+        Ok(Some(times))
     }
 }
 
@@ -2532,6 +2677,12 @@ impl<P: Scalar> GpuPotential<P> {
             chunk_pairs,
             layout_atoms: LAYOUT_ATOMS,
             count_downloads: 0,
+            wide_force_centers: if std::mem::size_of::<P>() == 4 {
+                WIDE_FORCE_CENTERS
+            } else {
+                0
+            },
+            force_threads: 0,
             search: NeighborSearch::new(d.rcut, &d.sel)?,
             last_truncated: false,
             profile: None,
@@ -2617,6 +2768,30 @@ impl<P: Scalar> GpuPotential<P> {
     /// [`Self::layout_atoms`]). None for a model without such a descriptor.
     pub fn count_downloads(&self) -> usize {
         self.count_downloads
+    }
+
+    /// Passes of at most this many centers (the atoms of a chunk times the
+    /// models) give the force kernel of an se_e2_a or se_e2_r descriptor
+    /// wider blocks: [`WIDE_FORCE_CENTERS`] in float32, none in float64,
+    /// where they gain nothing. The forces are the same to rounding either
+    /// way: the block of a center sums what its neighbors give in another
+    /// order.
+    pub fn wide_force_centers(&self) -> usize {
+        self.wide_force_centers
+    }
+
+    /// Override [`Self::wide_force_centers`]; zero keeps every pass to the
+    /// narrower blocks.
+    pub fn set_wide_force_centers(&mut self, centers: usize) {
+        self.wide_force_centers = centers;
+    }
+
+    /// Threads of a block of the force kernel of a two-body descriptor at
+    /// its last launch: which of the two sizes the last pass (its last
+    /// chunk) took. Zero before the first launch and for a model without
+    /// such a descriptor.
+    pub fn force_threads(&self) -> u32 {
+        self.force_threads
     }
 
     /// Model compression (DeePMD `dp compress`): replaces every embedding
@@ -2731,12 +2906,15 @@ impl<P: Scalar> GpuPotential<P> {
         self.table_fallbacks
     }
 
-    /// Turn per-stage timing on (adds a device sync per stage) or off.
+    /// Turn per-stage timing on or off. On, an evaluation issues a mark in
+    /// the device's stream after each stage and reads their times when the
+    /// results are back; it waits for nothing it would not wait for anyway.
     pub fn set_profiling(&mut self, on: bool) {
         self.profile = on.then(StageTimes::default);
     }
 
-    /// Stage times of the last evaluation, when profiling.
+    /// Stage times of the last evaluation, when profiling (see
+    /// [`StageTimes`]). Those of an evaluation that failed are empty.
     pub fn stage_times(&self) -> Option<&StageTimes> {
         self.profile.as_ref()
     }
@@ -2775,15 +2953,13 @@ impl<P: Scalar> GpuPotential<P> {
             return Ok(Vec::new());
         }
         let device = Arc::clone(&self.device);
-        let mut clock = Clock {
-            device: &device,
-            times: self.profile.take().map(|_| StageTimes::default()),
-            last: Instant::now(),
-        };
+        let profiling = self.profile.is_some();
+        let mut clock = Clock::new(&device, profiling);
         let mut result = self.run(&device, frames, members, &mut clock, self.is_compressed());
         if matches!(result, Ok(None)) {
             if frames.len() > 1 {
-                self.profile = clock.times;
+                // Each frame is an evaluation with times of its own: those
+                // of the last are kept.
                 let mut all = Vec::with_capacity(frames.len());
                 for (index, frame) in frames.iter().enumerate() {
                     let one = self
@@ -2797,7 +2973,10 @@ impl<P: Scalar> GpuPotential<P> {
             self.table_fallbacks += 1;
             result = self.run(&device, frames, members, &mut clock, false);
         }
-        self.profile = clock.times;
+        self.profile = match &result {
+            Ok(_) => clock.finish()?,
+            Err(_) => profiling.then(StageTimes::default),
+        };
         result?.ok_or_else(|| Error("exact evaluation reported a table range".into()))
     }
 
@@ -2862,7 +3041,7 @@ impl<P: Scalar> GpuPotential<P> {
             .map(|frame| frame.cell.map_or(Cell::Open, Cell::Periodic))
             .collect();
         let stream = device.stream();
-        clock.lap(|t| &mut t.host_prepare)?;
+        clock.begin()?;
 
         // Everything that goes back to the host, in one buffer for a single
         // copy: the forces of each model [members][natoms][3] and the
@@ -3541,7 +3720,13 @@ impl<P: Scalar> GpuPotential<P> {
                             .arg(&natoms_i)
                             .arg(&stride_i)
                             .arg(&add_i);
-                        BLOCK
+                        // A block per center and model: few of them have
+                        // room for wider ones (see `WIDE_FORCE_CENTERS`).
+                        self.force_threads = match members * count <= self.wide_force_centers {
+                            true => WIDE_BLOCK,
+                            false => BLOCK,
+                        };
+                        self.force_threads
                     }
                 };
                 let config = LaunchConfig {

@@ -54,6 +54,15 @@ __device__ bool stencil_cell(const int* ci, const int* o, const int* n, int peri
     return true;
 }
 
+// The next stencil offset along an axis of `n` cells: the next cell, or in a
+// periodic box the first cell of the next image.
+__device__ void next_offset(int* c, int* q, int n, int periodic) {
+    if (++*c == n && periodic) {
+        *c = 0;
+        ++*q;
+    }
+}
+
 __device__ void image_delta(const double* pos, const double* lattice, const double* pi, int j,
         const int* q, double* d) {
     for (int a = 0; a < 3; ++a) {
@@ -182,8 +191,8 @@ __device__ __noinline__ void break_ties(int e, int total, const long long* key, 
     }
 }
 
-// One warp per center, in three steps. The lanes first scan each stencil
-// cell together in single precision and append every atom within the cutoff
+// One warp per center, in three steps. The lanes first scan the stencil's
+// cells together in single precision and append every atom within the cutoff
 // plus a margin (which covers the rounding of that arithmetic, so no
 // neighbor is lost) to a per-warp shared buffer (ballot + popc). The few
 // candidates are then measured in double precision, which decides exactly as
@@ -196,6 +205,21 @@ __device__ __noinline__ void break_ties(int e, int total, const long long* key, 
 // Double precision is scarce on the device (about 1/64 of the single
 // precision rate), so it is kept to the candidates, and distances are ranked
 // by their bit patterns: positive doubles order like integers.
+//
+// The scan is one warp's work from end to end, so a center waits for every
+// operation of it, and a division by the cells of an axis takes a warp as
+// long as fourteen multiply-adds (`arithmetic_costs` in `tests/costs.rs`).
+// The stencil is therefore walked without one for each of its cells: along
+// an axis the cell and the image of the first offset come from one division
+// and those of the others by steps (`next_offset`). Along the last axis the
+// cells of one image lie one after the other in the grid, and so do their
+// atoms, so they are scanned as one run of atoms: fewer bounds to read and
+// fuller batches for the lanes. The atoms still come by in the order of a
+// scan cell by cell, so the buffer is filled as that scan fills it. (On an
+// RTX 4090 a search of 88 atoms to 6 A, with its packing and a wait for the
+// device, took 37 microseconds with a division for every axis of every cell
+// and takes 30; one of 5,632 atoms took 313 and takes 280:
+// `neighbor_search_costs` in `tests/costs.rs`.)
 //
 // The atoms may belong to several systems that do not see each other (a
 // batch of frames): every system has a cell and a grid of its own, and a
@@ -259,38 +283,57 @@ extern "C" __global__ void neighbor_search(
     const double* pi = pos + 3 * (long long)i;
     float pi_f[3] = {(float)pi[0], (float)pi[1], (float)pi[2]};
     int ci[3] = {cell_of[3 * i], cell_of[3 * i + 1], cell_of[3 * i + 2]};
+    // The cell and the image of the first offset along each axis.
+    int c0[3], q0[3];
+    for (int a = 0; a < 3; ++a) {
+        int raw = ci[a] - reach[a];
+        q0[a] = periodic ? floor_div(raw, n[a]) : 0;
+        c0[a] = raw - q0[a] * n[a];
+    }
     int total = 0;
-    for (int ox = -sx; ox <= sx; ++ox)
-    for (int oy = -sy; oy <= sy; ++oy)
-    for (int oz = -sz; oz <= sz; ++oz) {
-        int o[3] = {ox, oy, oz}, q[3], cell;
-        if (!stencil_cell(ci, o, n, periodic, &cell, q)) continue;
-        bool self_image = q[0] == 0 && q[1] == 0 && q[2] == 0;
-        int image = pack_image(q);
-        float shift[3];
-        for (int a = 0; a < 3; ++a)
-            shift[a] = q[0] * lattice_f[a] + q[1] * lattice_f[3 + a] + q[2] * lattice_f[6 + a]
-                       - pi_f[a];
-        int end = cell_start[cell + 1];
-        for (int k0 = cell_start[cell]; k0 < end; k0 += 32) {
-            int k = k0 + lane, j = -1;
-            bool near = false;
-            if (k < end) {
-                j = cell_atoms[k];
-                const float* pj = pos_f + 3 * (long long)k;
-                float dx = pj[0] + shift[0], dy = pj[1] + shift[1], dz = pj[2] + shift[2];
-                // Negated, so a sum that is not a number goes on to the exact pass.
-                near = !(j == i && self_image) && !(dx * dx + dy * dy + dz * dz >= wide2);
+    for (int ox = -sx, cx = c0[0], qx = q0[0]; ox <= sx; ++ox, next_offset(&cx, &qx, n[0], periodic))
+    for (int oy = -sy, cy = c0[1], qy = q0[1]; oy <= sy; ++oy, next_offset(&cy, &qy, n[1], periodic)) {
+        // Outside an open box.
+        if (cx < 0 || cx >= n[0] || cy < 0 || cy >= n[1]) continue;
+        // Along the last axis: `left` offsets to go from cell `cz` of image
+        // `qz`, a run of `cells` of them at a time.
+        int cz = c0[2], qz = q0[2];
+        for (int left = 2 * sz + 1, cells = 1; left > 0; left -= cells, cz += cells) {
+            if (cz == n[2] && periodic) {
+                cz = 0;
+                ++qz;
             }
-            unsigned mask = __ballot_sync(FULL_MASK, near);
-            if (near) {
-                int at = total + __popc(mask & ((1u << lane) - 1u));
-                if (at < room) {
-                    cj[at] = j;
-                    cimg[at] = image;
+            cells = 1;
+            if (cz < 0 || cz >= n[2]) continue;
+            cells = min(left, n[2] - cz);
+            int q[3] = {qx, qy, qz}, cell = (cx * n[1] + cy) * n[2] + cz;
+            bool self_image = q[0] == 0 && q[1] == 0 && q[2] == 0;
+            int image = pack_image(q);
+            float shift[3];
+            for (int a = 0; a < 3; ++a)
+                shift[a] = q[0] * lattice_f[a] + q[1] * lattice_f[3 + a] + q[2] * lattice_f[6 + a]
+                           - pi_f[a];
+            int end = cell_start[cell + cells];
+            for (int k0 = cell_start[cell]; k0 < end; k0 += 32) {
+                int k = k0 + lane, j = -1;
+                bool near = false;
+                if (k < end) {
+                    j = cell_atoms[k];
+                    const float* pj = pos_f + 3 * (long long)k;
+                    float dx = pj[0] + shift[0], dy = pj[1] + shift[1], dz = pj[2] + shift[2];
+                    // Negated, so a sum that is not a number goes on to the exact pass.
+                    near = !(j == i && self_image) && !(dx * dx + dy * dy + dz * dz >= wide2);
                 }
+                unsigned mask = __ballot_sync(FULL_MASK, near);
+                if (near) {
+                    int at = total + __popc(mask & ((1u << lane) - 1u));
+                    if (at < room) {
+                        cj[at] = j;
+                        cimg[at] = image;
+                    }
+                }
+                total += __popc(mask);
             }
-            total += __popc(mask);
         }
     }
     __syncwarp();
@@ -383,7 +426,7 @@ extern "C" __global__ void neighbor_search(
 }
 "#;
 
-/// Simulation cell: rows are lattice vectors (脜), as in `Frame::cell`.
+/// Simulation cell: rows are lattice vectors (Å), as in `Frame::cell`.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum Cell {
     Open,
@@ -422,7 +465,7 @@ pub struct NeighborList {
     flags: CudaSlice<i32>,
 }
 
-/// Status bit of a center with another atom within 1e-12 脜.
+/// Status bit of a center with another atom within 1e-12 Å.
 pub const COINCIDENT: i32 = 1;
 /// Status bit of a center with more neighbors of some type than `sel`.
 pub const TRUNCATED: i32 = 2;
@@ -1183,7 +1226,7 @@ mod tests {
 
     #[test]
     fn stencil_reaches_cutoff_on_small_and_large_axes() {
-        // 12.43 脜 box, 6 脜 cutoff: 2 cells, one neighbor cell each way.
+        // 12.43 Å box, 6 Å cutoff: 2 cells, one neighbor cell each way.
         assert_eq!(grid_axis(12.43, 6.0), (2, 1));
         // Box narrower than the cutoff: one cell, stencil over two images.
         assert_eq!(grid_axis(4.0, 6.0), (1, 2));

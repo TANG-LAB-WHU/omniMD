@@ -5,7 +5,7 @@
 mod common;
 use common::{device, frame, model};
 use omnimd_ml_contract::{Committee, Evaluation, Frame, Potential, Units};
-use omnimd_native::gpu_model::GpuPotential;
+use omnimd_native::gpu_model::{GpuPotential, StageTimes, WIDE_FORCE_CENTERS};
 use omnimd_native::{Activation, Model, NativePotential, Residual};
 
 /// Tolerances: relative energy, then forces/virial relative to their scale.
@@ -3161,4 +3161,263 @@ fn the_rows_of_the_models_of_a_committee_do_not_meet() {
         (1e-13, 1e-11),
     );
     assert_eq!(one.count_downloads(), 0);
+}
+
+/// A pass of few centers gives the force kernel of a two-body descriptor
+/// blocks of 256 threads and one of more its 128, counted by the centers of
+/// a chunk and the models of a committee: by default in float32 only. Either
+/// size gives the same forces to the rounding of a center's sums.
+#[test]
+fn few_centers_take_wider_blocks_in_the_two_body_force_kernels() {
+    let Some(device) = device() else { return };
+    let lattice = [[9.0, 0.0, 0.0], [1.5, 8.5, 0.0], [-1.0, 0.8, 9.2]];
+    let frame = frame(lattice, 4, 2, true, 61);
+    let natoms = frame.positions.len();
+    assert!(2 * natoms <= WIDE_FORCE_CENTERS, "{natoms} atoms");
+    let same = |label: &str, a: &Evaluation, b: &Evaluation| {
+        assert_eq!(a.energy, b.energy, "{label}: the networks ran alike");
+        compare(label, a, b, (1e-15, 1e-11));
+    };
+    let kinds = [
+        ("se_e2_a", model(2, vec![80, 160], 4.5, 62)),
+        ("se_e2_r", radial(2, vec![80, 160], 4.5, 63)),
+    ];
+    for (kind, model) in &kinds {
+        let reference = NativePotential::new(model.clone())
+            .unwrap()
+            .eval(&frame)
+            .unwrap();
+        let mut gpu = GpuPotential::<f32>::new(model, device.clone()).unwrap();
+        assert_eq!(gpu.wide_force_centers(), WIDE_FORCE_CENTERS, "{kind}");
+        assert_eq!(gpu.force_threads(), 0, "{kind}: before a pass");
+        let wide = gpu.eval(&frame).unwrap();
+        assert_eq!(gpu.force_threads(), 256, "{kind}");
+        compare(
+            &format!("{kind} float32, wide blocks"),
+            &wide,
+            &reference,
+            (1e-6, 1e-4),
+        );
+        // One center fewer than the pass has, then as many as it has.
+        gpu.set_wide_force_centers(natoms - 1);
+        let narrow = gpu.eval(&frame).unwrap();
+        assert_eq!(gpu.force_threads(), 128, "{kind}");
+        same(&format!("{kind} float32, either block"), &narrow, &wide);
+        gpu.set_wide_force_centers(natoms);
+        same(
+            &format!("{kind} float32, wide again"),
+            &gpu.eval(&frame).unwrap(),
+            &wide,
+        );
+        assert_eq!(gpu.force_threads(), 256, "{kind}");
+        // Two frames in a pass are twice the centers; in chunks of one
+        // frame's atoms they are few centers at a time again.
+        let two = gpu.evaluate_frames(&[&frame, &frame], 1).unwrap();
+        assert_eq!(gpu.force_threads(), 128, "{kind}: two frames");
+        same(&format!("{kind} float32, two frames"), &two[1][0], &wide);
+        // More centers than the default allows take the wider blocks when
+        // told to.
+        let four = [&frame; 4];
+        assert!(4 * natoms > WIDE_FORCE_CENTERS);
+        gpu.set_wide_force_centers(4 * natoms);
+        let many = gpu.evaluate_frames(&four, 1).unwrap();
+        assert_eq!(gpu.force_threads(), 256, "{kind}: four frames");
+        same(&format!("{kind} float32, four frames"), &many[3][0], &wide);
+        gpu.set_wide_force_centers(natoms);
+        gpu.set_chunk_atoms(natoms);
+        let two = gpu.evaluate_frames(&[&frame, &frame], 1).unwrap();
+        assert_eq!(gpu.force_threads(), 256, "{kind}: two frames in chunks");
+        same(&format!("{kind} float32, chunks"), &two[0][0], &wide);
+
+        // Float64 keeps the narrow blocks unless told otherwise.
+        let mut double = GpuPotential::<f64>::new(model, device.clone()).unwrap();
+        assert_eq!(double.wide_force_centers(), 0, "{kind}");
+        let narrow = double.eval(&frame).unwrap();
+        assert_eq!(double.force_threads(), 128, "{kind} float64");
+        compare(&format!("{kind} float64"), &narrow, &reference, FLOAT64);
+        double.set_wide_force_centers(natoms);
+        let wide = double.eval(&frame).unwrap();
+        assert_eq!(double.force_threads(), 256, "{kind} float64");
+        same(&format!("{kind} float64, either block"), &wide, &narrow);
+    }
+
+    // The models of a committee are centers each.
+    let models = committee_models(2);
+    let members: Vec<&Model> = models.iter().collect();
+    let mut committee = GpuPotential::<f32>::committee(&members, device.clone()).unwrap();
+    let wide = committee.evaluate_frames(&[&frame], 2).unwrap();
+    assert_eq!(committee.force_threads(), 256);
+    committee.set_wide_force_centers(2 * natoms - 1);
+    let narrow = committee.evaluate_frames(&[&frame], 2).unwrap();
+    assert_eq!(committee.force_threads(), 128);
+    for member in 0..2 {
+        same(
+            &format!("committee member {member}"),
+            &narrow[0][member],
+            &wide[0][member],
+        );
+    }
+    // One of its models alone is half the centers.
+    committee.evaluate_frames(&[&frame], 1).unwrap();
+    assert_eq!(committee.force_threads(), 256);
+
+    // se_e3 has force kernels of its own.
+    let mut pairs =
+        GpuPotential::<f32>::new(&three_body(2, vec![20, 40], 3.0, 64), device).unwrap();
+    pairs.eval(&frame).unwrap();
+    assert_eq!(pairs.force_threads(), 0);
+}
+
+/// Profiling times the stages of an evaluation by marks in the device's
+/// stream and waits for nothing between them: the evaluation is the one it
+/// is otherwise, the host's times add up to the whole of it, the device's
+/// times cover the stretch the host's issuing covers, and every stage took
+/// the device and the host some time.
+#[test]
+fn the_stages_of_an_evaluation_are_timed_by_the_device() {
+    let Some(device) = device() else { return };
+    let lattice = [[9.0, 0.0, 0.0], [1.5, 8.5, 0.0], [-1.0, 0.8, 9.2]];
+    let model = model(2, vec![80, 160], 4.5, 71);
+    let frame = frame(lattice, 5, 2, true, 72);
+    let mut gpu = GpuPotential::<f32>::new(&model, device).unwrap();
+    gpu.compress(2.0, 0.01).unwrap();
+    let plain = gpu.eval(&frame).unwrap();
+    assert!(gpu.stage_times().is_none());
+
+    let checked = |label: &str, times: &StageTimes, chunks: usize| {
+        assert_eq!(times.chunks, chunks, "{label}");
+        let stages = |s: &omnimd_native::gpu_model::Stages| {
+            [
+                ("neighbors", s.neighbors),
+                ("environment", s.environment),
+                ("embedding", s.embedding),
+                ("descriptor", s.descriptor),
+                ("fitting", s.fitting),
+                ("forces", s.forces),
+                ("download", s.download),
+            ]
+        };
+        for (clock, of) in [("issue", &times.issue), ("device", &times.device)] {
+            let mut sum = 0.0;
+            for (stage, ms) in stages(of) {
+                // Some time, and none that a wait of a second would explain.
+                assert!(ms > 0.0 && ms < 1e3, "{label}: {clock} {stage} {ms} ms");
+                sum += ms;
+            }
+            assert!(
+                (sum - of.sum()).abs() <= 1e-12 * sum,
+                "{label}: {clock} {sum}"
+            );
+        }
+        // The host's clock was read at every step from the start to the end.
+        let host = times.host_prepare + times.issue.sum() + times.host_finish;
+        assert!(
+            times.host_prepare > 0.0 && times.host_finish > 0.0,
+            "{label}"
+        );
+        assert!(
+            (host - times.wall).abs() <= 1e-9 * times.wall,
+            "{label}: {host} ms of the host in {} ms",
+            times.wall
+        );
+        // The device's times are of the stretch the host's issuing covers:
+        // no longer than it (a mark is read a moment after it is issued),
+        // and most of it, since the host waits for the device at its end.
+        let (issue, on_device) = (times.issue.sum(), times.device.sum());
+        assert!(
+            on_device <= issue + 0.05 && on_device > 0.5 * issue,
+            "{label}: {on_device} ms on the device, {issue} ms issuing"
+        );
+    };
+
+    gpu.set_profiling(true);
+    let timed = gpu.eval(&frame).unwrap();
+    let whole = gpu.stage_times().unwrap().clone();
+    checked("one chunk", &whole, 1);
+    assert_eq!(timed.energy, plain.energy);
+    compare("profiled", &timed, &plain, (1e-15, 1e-11));
+
+    // Chunks add to the stages; the times are those of the last evaluation
+    // only.
+    gpu.set_chunk_atoms(40);
+    let chunks = frame.positions.len().div_ceil(40);
+    for round in 0..2 {
+        gpu.eval(&frame).unwrap();
+        checked(
+            &format!("chunks, evaluation {round}"),
+            gpu.stage_times().unwrap(),
+            chunks,
+        );
+    }
+    let chunked = gpu.stage_times().unwrap().clone();
+
+    // A frame outside the tables is evaluated twice in one evaluation, by
+    // the tables and then by the nets: both passes are in the times, and
+    // the host's work between them is the host's.
+    let pair = Frame {
+        positions: vec![[0.0, 0.0, 0.0], [0.0, 0.3996, 0.0]],
+        species: vec!["O".into(), "H".into()],
+        cell: None,
+        units: Units::EvAngstrom,
+    };
+    assert_eq!(gpu.table_fallbacks(), 0);
+    gpu.eval(&pair).unwrap();
+    assert_eq!(gpu.table_fallbacks(), 1);
+    checked("outside the tables", gpu.stage_times().unwrap(), 2);
+
+    // Sums and means of times, as the evaluator prints them.
+    let mut sum = StageTimes::default();
+    sum.add(&whole);
+    sum.add(&chunked);
+    let mean = sum.mean(2);
+    let close = |a: f64, b: f64| (a - b).abs() <= 1e-12 * b.abs();
+    assert!(close(mean.wall, (whole.wall + chunked.wall) / 2.0));
+    assert!(close(
+        mean.host_prepare,
+        (whole.host_prepare + chunked.host_prepare) / 2.0
+    ));
+    assert!(close(
+        mean.host_finish,
+        (whole.host_finish + chunked.host_finish) / 2.0
+    ));
+    assert!(close(
+        mean.issue.neighbors,
+        (whole.issue.neighbors + chunked.issue.neighbors) / 2.0
+    ));
+    assert!(close(
+        mean.device.sum(),
+        (whole.device.sum() + chunked.device.sum()) / 2.0
+    ));
+    assert!(close(
+        mean.issue.sum(),
+        (whole.issue.sum() + chunked.issue.sum()) / 2.0
+    ));
+    assert!(close(
+        mean.device.download,
+        (whole.device.download + chunked.device.download) / 2.0
+    ));
+    assert_eq!(mean.chunks, (1 + chunks) / 2);
+
+    // A batch with a frame outside the tables is evaluated frame by frame:
+    // the times are those of its last frame, which went to the nets.
+    gpu.evaluate_frames(&[&frame, &pair], 1).unwrap();
+    assert_eq!(gpu.table_fallbacks(), 2);
+    checked("a batch outside the tables", gpu.stage_times().unwrap(), 2);
+
+    // An evaluation that fails leaves profiling on and no times of its own.
+    let coincident = Frame {
+        positions: vec![[0.0; 3], [0.0; 3]],
+        species: vec!["O".into(), "H".into()],
+        cell: None,
+        units: Units::EvAngstrom,
+    };
+    assert!(gpu.eval(&coincident).is_err());
+    let after = gpu.stage_times().unwrap();
+    assert_eq!((after.wall, after.chunks), (0.0, 0));
+    gpu.eval(&frame).unwrap();
+    checked("after a failure", gpu.stage_times().unwrap(), chunks);
+
+    gpu.set_profiling(false);
+    gpu.eval(&frame).unwrap();
+    assert!(gpu.stage_times().is_none());
 }

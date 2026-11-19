@@ -76,6 +76,58 @@ fn roundtrip_is_bit_exact() {
     assert_eq!(zeros, vec![0.0f32; 17]);
 }
 
+/// Two marks tell how long the device took over what was issued between
+/// them: a batch of products takes it some time, and no longer than the
+/// host took from the first mark to the last; marks with nothing between
+/// them are close together. The other tests keep the device and the
+/// processor busy meanwhile, so nothing here is held against a time measured
+/// at another moment.
+#[test]
+fn marks_time_the_device_work_between_them() {
+    let Some(device) = device() else { return };
+    // A stream of its own: nothing of the tests beside this one is in it.
+    let device = device.sibling().unwrap();
+    let n = 384;
+    let a = device.upload(&values(n * n, 30)).unwrap();
+    let b = device.upload(&values(n * n, 31)).unwrap();
+    let mut c = device.zeros::<f64>(n * n).unwrap();
+    let shape = MatmulShape { m: n, k: n, n };
+    let mut products = |count: usize| {
+        for _ in 0..count {
+            device.matmul(&a, &b, &mut c, shape, false).unwrap();
+        }
+    };
+    products(4);
+    device.synchronize().unwrap();
+
+    let start = std::time::Instant::now();
+    let marks = [device.mark().unwrap(), device.mark().unwrap()];
+    products(64);
+    let after = [device.mark().unwrap(), device.mark().unwrap()];
+    // Waits for the device to get to the marks.
+    let work = marks[1].ms_until(&after[0]).unwrap();
+    let wall = start.elapsed().as_secs_f64() * 1e3;
+    assert!(
+        work > 0.0 && work <= wall + 0.05,
+        "{work} ms by the marks in {wall} ms of the host"
+    );
+    for (place, pair) in [("before", &marks), ("after", &after)] {
+        let nothing = pair[0].ms_until(&pair[1]).unwrap();
+        assert!(
+            (0.0..0.5 * work).contains(&nothing),
+            "{nothing} ms between two marks {place} the work, {work} ms for the work"
+        );
+    }
+    // Marks further apart are as far apart as the marks between them say.
+    let whole = marks[0].ms_until(&after[1]).unwrap();
+    let parts =
+        marks[0].ms_until(&marks[1]).unwrap() + work + after[0].ms_until(&after[1]).unwrap();
+    assert!(
+        (whole - parts).abs() < 0.01 + 1e-3 * whole,
+        "{whole} ms against {parts} in three parts"
+    );
+}
+
 #[test]
 fn kernel_cache_hits_memory_then_disk() {
     let Some(device) = device() else { return };
@@ -1607,6 +1659,74 @@ fn neighbor_list_matches_brute_force() {
     check_neighbors("truncated", &p, &t, Cell::Periodic(cubic), 4.0, &[5, 9]);
 }
 
+/// The scan steps through the cells and images of a stencil and takes the
+/// cells along the last axis a run at a time. Boxes with one, two and several
+/// cells along each axis, and open ones that end inside a stencil, against
+/// the reference that knows of no cells.
+#[test]
+fn neighbor_scan_takes_the_cells_of_any_grid_in_runs() {
+    if device().is_none() {
+        return;
+    }
+    let boxes: [(&str, [[f64; 3]; 3], usize, f64); 6] = [
+        // One cell along the last axis and two images of it either way:
+        // every run is a cell.
+        (
+            "one cell along the last axis",
+            [[9.0, 0.0, 0.0], [0.0, 9.0, 0.0], [0.0, 0.0, 3.5]],
+            60,
+            5.0,
+        ),
+        // Two cells along every axis: a run of three offsets ends an image
+        // and starts the next.
+        (
+            "two cells along every axis",
+            [[9.0, 0.0, 0.0], [0.0, 9.0, 0.0], [0.0, 0.0, 8.5]],
+            150,
+            4.0,
+        ),
+        // Five cells along the last axis: runs of three cells inside the
+        // box, cut in two at its ends.
+        (
+            "five cells along the last axis",
+            [[8.5, 0.0, 0.0], [0.0, 4.2, 0.0], [0.0, 0.0, 21.0]],
+            250,
+            4.0,
+        ),
+        // One cell and two images either way along the middle axis.
+        (
+            "one cell along the middle axis",
+            [[9.0, 0.0, 0.0], [0.0, 3.5, 0.0], [0.0, 0.0, 13.0]],
+            110,
+            5.0,
+        ),
+        (
+            "one cell along the first axis",
+            [[3.5, 0.0, 0.0], [0.0, 13.0, 0.0], [0.0, 0.0, 9.0]],
+            110,
+            5.0,
+        ),
+        (
+            "skewed, two cells along every axis",
+            [[10.0, 0.0, 0.0], [2.0, 9.0, 0.0], [3.0, -2.5, 8.6]],
+            200,
+            4.2,
+        ),
+    ];
+    for (k, (label, lattice, natoms, rcut)) in boxes.into_iter().enumerate() {
+        let (p, t) = random_frame(natoms, lattice, 710 + k as u64);
+        check_neighbors(label, &p, &t, Cell::Periodic(lattice), rcut, &[90, 180]);
+    }
+    // Open boxes: a stencil ends where the cells do. A slab of one cell
+    // along the last axis, and a rod of many along it.
+    let slab = [[12.0, 0.0, 0.0], [0.0, 12.0, 0.0], [0.0, 0.0, 1.9]];
+    let (p, t) = random_frame(220, slab, 720);
+    check_neighbors("open slab", &p, &t, Cell::Open, 4.0, &[60, 120]);
+    let rod = [[2.0, 0.0, 0.0], [0.0, 4.5, 0.0], [0.0, 0.0, 20.0]];
+    let (p, t) = random_frame(220, rod, 721);
+    check_neighbors("open rod", &p, &t, Cell::Open, 4.0, &[60, 120]);
+}
+
 #[test]
 fn neighbor_search_gives_a_fresh_list_for_every_frame() {
     let Some(device) = device() else { return };
@@ -1759,12 +1879,18 @@ fn systems_in_one_search_do_not_see_each_other() {
     // form of the warp path, so these centers take the serial one while
     // those of the other systems do not.
     let thin = [[0.008, 0.0, 0.0], [0.0, 9.0, 0.0], [0.0, 0.0, 9.0]];
+    // Two open clusters of one cell each in the same place: the stencil of
+    // either ends at its own cell, next to which the cells of the other
+    // system are stored.
+    let cluster = [[2.0, 0.0, 0.0], [0.0, 2.0, 0.0], [0.0, 0.0, 2.0]];
     let parts: Vec<(Vec<[f64; 3]>, Vec<i32>, Cell)> = [
         (150, cubic, 810, true),
         (90, skewed, 811, true),
         (60, cubic, 812, false),
         (12, narrow, 813, true),
         (2, thin, 814, true),
+        (16, cluster, 816, false),
+        (16, cluster, 817, false),
     ]
     .into_iter()
     .map(|(atoms, lattice, seed, periodic)| {

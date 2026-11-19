@@ -217,6 +217,12 @@ extern "C" __global__ void burn(double* x, int iters, int active, int mode) {
         for (int k = 0; k < iters; ++k) v += (u + k < v) ? 3 : 5;
         acc = (double)v;
     }
+    if (mode == 8) {
+        // By a number the compiler does not know (4 here): a real division.
+        int n = (int)(a * 8.0), v = 0;
+        for (int k = 0; k < iters; ++k) v = (v + 7 * k + 11) / n;
+        acc = (double)v;
+    }
     x[at] = acc;
 }
 "#;
@@ -237,6 +243,7 @@ fn arithmetic_costs() {
         "float fma, 4 chains",
         "double->float->double",
         "64-bit integer compare-add",
+        "32-bit integer division chain",
     ];
     println!("ns per operation and warp ({iters} operations per thread)");
     for (blocks, threads, active) in [
@@ -279,6 +286,105 @@ fn arithmetic_costs() {
     for (k, name) in names.iter().enumerate() {
         println!("column {k}: {name}");
     }
+}
+
+/// What marks cost the host, and what the device takes over single calls
+/// by them. The device is idle before each call here, so a time is from the
+/// call to the end of its work: for a kernel that does nothing, the call
+/// itself and the start of a kernel.
+#[test]
+#[ignore]
+fn device_times_by_marks() {
+    let device = Device::new(0).unwrap();
+    let stream = device.stream().clone();
+    let function = device.kernels().function(SOURCE, "touch").unwrap();
+    let n = 1024usize;
+    let host = vec![1.0f64; n];
+    let mut held = device.upload(&host).unwrap();
+    let mut back = vec![0.0f64; n];
+    micros("a new mark", 2000, &device, || {
+        drop(device.mark().unwrap());
+    });
+    let by_marks = |label: &str, body: &mut dyn FnMut()| {
+        for _ in 0..200 {
+            body();
+        }
+        let mut sum = 0.0;
+        for _ in 0..2000 {
+            device.synchronize().unwrap();
+            let before = device.mark().unwrap();
+            body();
+            let after = device.mark().unwrap();
+            sum += before.ms_until(&after).unwrap() * 1e3;
+        }
+        println!("{label:<44} {:8.2} us between marks", sum / 2000.0);
+    };
+    by_marks("nothing", &mut || {});
+    for (label, blocks, threads, count) in [
+        ("a kernel that does nothing, 1 block", 1u32, 32u32, 0i32),
+        ("a kernel that does nothing, 88 blocks", 88, 32, 0),
+        ("a kernel that does nothing, 88 x 256", 88, 256, 0),
+        ("a kernel that does nothing, 5632 blocks", 5632, 32, 0),
+        ("a kernel over 1024 doubles", 4, 256, 1024),
+    ] {
+        let config = LaunchConfig {
+            grid_dim: (blocks, 1, 1),
+            block_dim: (threads, 1, 1),
+            shared_mem_bytes: 0,
+        };
+        by_marks(label, &mut || {
+            let mut launch = stream.launch_builder(&function);
+            launch.arg(&mut held).arg(&count);
+            unsafe { launch.launch(config) }.map(drop).unwrap();
+        });
+    }
+    by_marks("copy of 1024 doubles to the device", &mut || {
+        stream.memcpy_htod(&host, &mut held).unwrap();
+    });
+    by_marks("memset of 1024 doubles", &mut || {
+        stream.memset_zeros(&mut held).unwrap();
+    });
+    by_marks("copy of 1024 doubles to the host", &mut || {
+        stream.memcpy_dtoh(&held, &mut back).unwrap();
+    });
+    // Behind a kernel that keeps the device busy, the calls are issued
+    // before the device gets to them: what is left is the device's own time.
+    let busy = LaunchConfig {
+        grid_dim: (8192, 1, 1),
+        block_dim: (256, 1, 1),
+        shared_mem_bytes: 0,
+    };
+    let mut wide = device.zeros::<f64>(8192 * 256).unwrap();
+    let wide_n = (8192 * 256) as i32;
+    let mut sums = [0.0; 5];
+    let nothing = LaunchConfig {
+        grid_dim: (88, 1, 1),
+        block_dim: (32, 1, 1),
+        shared_mem_bytes: 0,
+    };
+    let zero = 0i32;
+    for round in 0..1200 {
+        device.synchronize().unwrap();
+        let mut launch = stream.launch_builder(&function);
+        launch.arg(&mut wide).arg(&wide_n);
+        unsafe { launch.launch(busy) }.map(drop).unwrap();
+        let mut marks = vec![device.mark().unwrap()];
+        for _ in 0..5 {
+            let mut launch = stream.launch_builder(&function);
+            launch.arg(&mut held).arg(&zero);
+            unsafe { launch.launch(nothing) }.map(drop).unwrap();
+            marks.push(device.mark().unwrap());
+        }
+        if round >= 200 {
+            for (k, sum) in sums.iter_mut().enumerate() {
+                *sum += marks[k].ms_until(&marks[k + 1]).unwrap() * 1e3;
+            }
+        }
+    }
+    println!(
+        "kernels that do nothing behind a busy device  {:?} us each, in turn",
+        sums.map(|sum| (sum / 10.0).round() / 100.0)
+    );
 }
 
 #[test]

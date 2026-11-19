@@ -9,8 +9,10 @@
 //! `--precision float32` runs the networks in float32 (geometry, reductions,
 //! forces and virial stay float64). `--bench K` times K in-process
 //! evaluations of each frame after one warmup and prints one JSON line per
-//! frame to stderr; `--profile` adds per-stage times from one extra,
-//! synchronized evaluation. `--chunk` overrides the per-chunk atom count.
+//! frame to stderr; `--profile` adds the times of the stages, means over as
+//! many further evaluations: the host's time to issue each stage and the
+//! device's time over it, between marks in its stream (see `StageTimes`).
+//! `--chunk` overrides the per-chunk atom count.
 //! `--compress RMIN` replaces the embedding nets by tables in pieces of
 //! uneven length, each within a tolerance of its net (that of a table with
 //! a knot every 0.01 on a smooth net, or of another step if `:STEP` is
@@ -19,7 +21,10 @@
 //! networks, and the size of the tables is printed. `--fused-fitting ATOMS`
 //! sets the largest
 //! chunk whose fitting nets run in the single fused kernel instead of cuBLAS
-//! (0 disables it); the default suits an RTX 4090.
+//! (0 disables it); the default suits an RTX 4090. `--wide-forces CENTERS`
+//! sets the most centers (atoms of a chunk times models) of a pass whose
+//! two-body force kernel gets its wider blocks (0: none); the default suits
+//! that card too.
 //!
 //! `--member` adds a model of the same architecture: the models are then
 //! evaluated together as a committee, and each output line is the array of
@@ -42,8 +47,9 @@ use std::time::Instant;
 
 const USAGE: &str = "usage: omnimd-native-gpu-eval MODEL.json [--precision float64|float32] \
                      [--bench K] [--profile] [--chunk ATOMS] [--compress RMIN[:STEP]] \
-                     [--fused-fitting ATOMS] [--tiled-fitting on|off] [--member MODEL.json]... \
-                     [--batch FRAMES] [--bench-batches N,N,...] < frames.jsonl";
+                     [--fused-fitting ATOMS] [--tiled-fitting on|off] [--wide-forces CENTERS] \
+                     [--member MODEL.json]... [--batch FRAMES] [--bench-batches N,N,...] \
+                     < frames.jsonl";
 
 struct Options {
     model: String,
@@ -57,6 +63,7 @@ struct Options {
     compress: Option<(f64, f64)>,
     fused_fitting: Option<usize>,
     tiled_fitting: Option<bool>,
+    wide_forces: Option<usize>,
 }
 
 fn options() -> Result<Options, Box<dyn std::error::Error>> {
@@ -73,6 +80,7 @@ fn options() -> Result<Options, Box<dyn std::error::Error>> {
         compress: None,
         fused_fitting: None,
         tiled_fitting: None,
+        wide_forces: None,
     };
     while let Some(flag) = args.next() {
         let mut value = || args.next().ok_or(USAGE);
@@ -102,6 +110,7 @@ fn options() -> Result<Options, Box<dyn std::error::Error>> {
                 }
             }
             "--fused-fitting" => options.fused_fitting = Some(value()?.parse()?),
+            "--wide-forces" => options.wide_forces = Some(value()?.parse()?),
             "--tiled-fitting" => {
                 options.tiled_fitting = Some(match value()?.as_str() {
                     "on" => true,
@@ -138,6 +147,9 @@ fn evaluate<P: Scalar>(
     }
     if let Some(atoms) = options.fused_fitting {
         gpu.set_fused_fitting_max_atoms(atoms);
+    }
+    if let Some(centers) = options.wide_forces {
+        gpu.set_wide_force_centers(centers);
     }
     let mut build_seconds = 0.0;
     if let Some((min_distance, step)) = options.compress {
@@ -267,8 +279,9 @@ fn evaluate<P: Scalar>(
             eprintln!("{record}");
         }
         if options.profile {
-            // Mean over as many evaluations as the benchmark, each stage
-            // timed up to a device sync of its own.
+            // Means over as many evaluations as the benchmark: each as it
+            // runs otherwise, with a mark in the device's stream after every
+            // stage.
             let rounds = options.bench.max(1);
             let mut sum = StageTimes::default();
             for _ in 0..rounds {
