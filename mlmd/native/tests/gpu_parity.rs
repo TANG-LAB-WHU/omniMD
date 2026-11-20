@@ -9,6 +9,7 @@ use omnimd_native::gpu_model::{
     GpuPotential, StageTimes, BLOCK_SUMS_CENTERS, WIDE_FORCE_CENTERS_F32, WIDE_FORCE_CENTERS_F64,
 };
 use omnimd_native::{Activation, Model, NativePotential, Residual};
+use std::time::Instant;
 
 /// Tolerances: relative energy, then forces/virial relative to their scale.
 fn compare(label: &str, gpu: &Evaluation, cpu: &Evaluation, tolerance: (f64, f64)) {
@@ -3296,8 +3297,8 @@ fn few_centers_take_wider_blocks_in_the_two_body_force_kernels() {
 /// limit, and warp by warp otherwise: the same forces and virial to rounding
 /// for every descriptor, in both precisions and with both widths of the
 /// two-body blocks, counted by the centers of a pass like the wider blocks.
-/// The second descriptor of a hybrid adds to the virial of the first either
-/// way.
+/// The later descriptors of a hybrid add to the virial of the first either
+/// way, se_e2_a among them.
 #[test]
 fn the_sums_of_a_force_block_are_formed_either_way() {
     let Some(device) = device() else { return };
@@ -3320,6 +3321,17 @@ fn the_sums_of_a_force_block_are_formed_either_way() {
         ("se_e2_r", radial(2, vec![80, 160], 4.5, 83)),
         ("se_e3", three_body(2, vec![20, 40], 3.0, 84)),
         ("hybrid", three_kinds(85)),
+        // se_e2_a after another descriptor, so that it adds to the virial.
+        (
+            "hybrid ending with se_e2_a",
+            common::hybrid_model(
+                &[
+                    three_body(2, vec![20, 40], 3.0, 87),
+                    model(2, vec![80, 160], 4.5, 88),
+                ],
+                89,
+            ),
+        ),
     ];
     for (kind, model) in &kinds {
         let reference = NativePotential::new(model.clone())
@@ -3407,8 +3419,8 @@ fn the_sums_of_a_force_block_are_formed_either_way() {
         assert!(!single.block_sums_shared(), "{kind} float32: none");
         same(&format!("{kind} float32, either way"), &by_warp, &across);
         // As a potential starts: the kernel of se_e2_a within its limit of
-        // centers, the others in any pass (the hybrid ends with one of
-        // them).
+        // centers, the others in any pass (`block_sums_shared` tells how the
+        // last descriptor of a hybrid went).
         single.set_block_sums_centers(None);
         assert!(5 * natoms <= BLOCK_SUMS_CENTERS && 6 * natoms > BLOCK_SUMS_CENTERS);
         let five = single.evaluate_frames(&[&frame; 5], 1).unwrap();
@@ -3421,7 +3433,7 @@ fn the_sums_of_a_force_block_are_formed_either_way() {
         let six = single.evaluate_frames(&[&frame; 6], 1).unwrap();
         assert_eq!(
             single.block_sums_shared(),
-            *kind != "se_e2_a",
+            !kind.ends_with("se_e2_a"),
             "{kind} float32: six frames"
         );
         same(&format!("{kind} float32, six frames"), &six[5][0], &across);
@@ -3469,8 +3481,8 @@ fn the_sums_of_a_force_block_are_formed_either_way() {
 /// Profiling times the stages of an evaluation by marks in the device's
 /// stream and waits for nothing between them: the evaluation is the one it
 /// is otherwise, the host's times add up to the whole of it, the device's
-/// times cover the stretch the host's issuing covers, and every stage took
-/// the device and the host some time.
+/// times lie within the call and cover most of the host's issuing, and every
+/// stage took the device and the host some time.
 #[test]
 fn the_stages_of_an_evaluation_are_timed_by_the_device() {
     let Some(device) = device() else { return };
@@ -3482,7 +3494,8 @@ fn the_stages_of_an_evaluation_are_timed_by_the_device() {
     let plain = gpu.eval(&frame).unwrap();
     assert!(gpu.stage_times().is_none());
 
-    let checked = |label: &str, times: &StageTimes, chunks: usize| {
+    let ms_since = |started: Instant| started.elapsed().as_secs_f64() * 1e3;
+    let checked = |label: &str, times: &StageTimes, chunks: usize, call: f64| {
         assert_eq!(times.chunks, chunks, "{label}");
         let stages = |s: &omnimd_native::gpu_model::Stages| {
             [
@@ -3518,20 +3531,26 @@ fn the_stages_of_an_evaluation_are_timed_by_the_device() {
             "{label}: {host} ms of the host in {} ms",
             times.wall
         );
-        // The device's times are of the stretch the host's issuing covers:
-        // no longer than it (a mark is read a moment after it is issued),
-        // and most of it, since the host waits for the device at its end.
+        // The device's times run from the first mark of the call to its
+        // last, which the call waits for: no longer than the call. They may
+        // be longer than the host's issuing, for the last mark can reach the
+        // device a while after the host issued it (0.88 ms on the device
+        // against 0.37 of issuing, once in a mutation round, under a mutant
+        // that this test does not reach). And they are most of the issuing,
+        // since the host waits for the device at its end.
         let (issue, on_device) = (times.issue.sum(), times.device.sum());
         assert!(
-            on_device <= issue + 0.05 && on_device > 0.5 * issue,
-            "{label}: {on_device} ms on the device, {issue} ms issuing"
+            on_device <= call && on_device > 0.5 * issue,
+            "{label}: {on_device} ms on the device, {issue} ms issuing, a call of {call} ms"
         );
     };
 
     gpu.set_profiling(true);
+    let started = Instant::now();
     let timed = gpu.eval(&frame).unwrap();
+    let call = ms_since(started);
     let whole = gpu.stage_times().unwrap().clone();
-    checked("one chunk", &whole, 1);
+    checked("one chunk", &whole, 1, call);
     assert_eq!(timed.energy, plain.energy);
     compare("profiled", &timed, &plain, (1e-15, 1e-11));
 
@@ -3540,11 +3559,13 @@ fn the_stages_of_an_evaluation_are_timed_by_the_device() {
     gpu.set_chunk_atoms(40);
     let chunks = frame.positions.len().div_ceil(40);
     for round in 0..2 {
+        let started = Instant::now();
         gpu.eval(&frame).unwrap();
         checked(
             &format!("chunks, evaluation {round}"),
             gpu.stage_times().unwrap(),
             chunks,
+            ms_since(started),
         );
     }
     let chunked = gpu.stage_times().unwrap().clone();
@@ -3559,9 +3580,11 @@ fn the_stages_of_an_evaluation_are_timed_by_the_device() {
         units: Units::EvAngstrom,
     };
     assert_eq!(gpu.table_fallbacks(), 0);
+    let started = Instant::now();
     gpu.eval(&pair).unwrap();
+    let call = ms_since(started);
     assert_eq!(gpu.table_fallbacks(), 1);
-    checked("outside the tables", gpu.stage_times().unwrap(), 2);
+    checked("outside the tables", gpu.stage_times().unwrap(), 2, call);
 
     // Sums and means of times, as the evaluator prints them.
     let mut sum = StageTimes::default();
@@ -3598,9 +3621,16 @@ fn the_stages_of_an_evaluation_are_timed_by_the_device() {
 
     // A batch with a frame outside the tables is evaluated frame by frame:
     // the times are those of its last frame, which went to the nets.
+    let started = Instant::now();
     gpu.evaluate_frames(&[&frame, &pair], 1).unwrap();
+    let call = ms_since(started);
     assert_eq!(gpu.table_fallbacks(), 2);
-    checked("a batch outside the tables", gpu.stage_times().unwrap(), 2);
+    checked(
+        "a batch outside the tables",
+        gpu.stage_times().unwrap(),
+        2,
+        call,
+    );
 
     // An evaluation that fails leaves profiling on and no times of its own.
     let coincident = Frame {
@@ -3612,8 +3642,14 @@ fn the_stages_of_an_evaluation_are_timed_by_the_device() {
     assert!(gpu.eval(&coincident).is_err());
     let after = gpu.stage_times().unwrap();
     assert_eq!((after.wall, after.chunks), (0.0, 0));
+    let started = Instant::now();
     gpu.eval(&frame).unwrap();
-    checked("after a failure", gpu.stage_times().unwrap(), chunks);
+    checked(
+        "after a failure",
+        gpu.stage_times().unwrap(),
+        chunks,
+        ms_since(started),
+    );
 
     gpu.set_profiling(false);
     gpu.eval(&frame).unwrap();
