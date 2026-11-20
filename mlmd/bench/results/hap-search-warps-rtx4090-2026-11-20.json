@@ -272,7 +272,7 @@
  ],
  "water_12288": {
   "rounds": 9,
-  "note": "The same probe build with one, two and four warps per center on the water frame of 12,288 atoms with the water model in float64 (60 evaluations a process), nine rounds, later in the same session, after the builds before and after the change had differed there by more than the build before differed from itself (water_rerun in hap-eval-search-warps-rtx4090-2026-11-20.json).",
+  "note": "The same probe build with one, two and four warps per center on the water frame of 12,288 atoms with the water model in float64 (60 evaluations a process), nine rounds, later in the same session, after the builds before and after the change had differed there by more than the build before differed from itself (water_rerun in hap-eval-search-warps-rtx4090-2026-11-20.json). No configuration was run twice, so nothing here separates the scatter of the machine from the differences; each configuration spread over 280 to 300 us from its least to its most, and two warps have the highest median.",
   "rows": [
    {
     "case": "water 12288 f64",

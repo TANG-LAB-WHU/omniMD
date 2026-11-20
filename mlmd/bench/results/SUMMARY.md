@@ -156,15 +156,17 @@ before differed from itself, and 27.9 slower by the medians (66,175 →
 the record; every time about 8% below those of the first run, which is why
 builds are compared within a run only) gave 7,818.2, 7,814.3 and 7,807.1 µs
 for 1,536 waters (before, after, before again) and 60,592.6, 60,757.0 and
-60,730.6 for 12,288, the build after the slowest again (by the medians
-60,868, 60,898 and 60,876). The probe evaluator, one build with one, two
-and four warps, nine rounds on 12,288 waters: 60,635.5, 60,667.7 and
-60,676.9 µs (medians 60,785, 60,891 and 60,863; `water_12288` in
-`hap-search-warps-rtx4090-2026-11-20.json`). So four warps cost an
-evaluation of 12,288 waters 41 µs by the least and 78 by the medians
-against one (0.07% and 0.13%), where they spared the kernel 7 µs for 5,632
-HAP atoms; where between the two the cost sets in was not measured. The
-224-atom frame in float64 reads 757.1 → 750.6 µs by the medians. The same two builds again later in the
+60,730.6 for 12,288, where the build before differed from itself by 138.0
+(by the medians 60,868, 60,898 and 60,876). The probe evaluator, one build
+with one, two and four warps, nine rounds on 12,288 waters and no
+configuration run twice: 60,635.5, 60,667.7 and 60,676.9 µs (medians
+60,785, 60,891 and 60,863; `water_12288` in
+`hap-search-warps-rtx4090-2026-11-20.json`), each spread over 280 to 300 µs
+from its least to its most. So by the least four warps came out slowest in
+all three runs at 12,288 waters, but by how much is not established: 26 to
+164 µs depending on the run and the reference (0.04% to 0.27%), against
+runs of the build before that differed by 41 and 138. The 224-atom frame in
+float64 reads 757.1 → 750.6 µs by the medians. The same two builds again later in the
 session, nine rounds on the HAP cases only, gave less for 88 atoms (µs;
 `second_run` in the record):
 

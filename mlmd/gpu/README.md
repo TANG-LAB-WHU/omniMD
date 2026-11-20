@@ -155,10 +155,10 @@ What follows for the kernels:
   tables are 2 to 7 µs shorter (two runs: 155.0 → 149.8 µs and 152.5 →
   150.3 for 88 atoms, less than the kernel's 7 µs), and an MD step of 88
   atoms 2.4 to 4.7 µs shorter. From 1,536 atoms on the differences are a
-  fraction of a percent, but an evaluation of 12,288 waters in float64 is
-  41 to 78 µs longer with four warps than with one in the same build
-  (0.1%); where between 5,632 HAP atoms and 12,288 waters that sets in was
-  not measured. Two warps were up to 7 µs an evaluation slower
+  fraction of a percent. For 12,288 waters in float64 four warps came out
+  slowest by the least in three runs, by 26 to 164 µs (0.04% to 0.27%),
+  while the runs of the build before differed by 41 and 138, so the size of
+  that is not established. Two warps were up to 7 µs an evaluation slower
   than four below a thousand atoms, and eight were within the scatter of
   four up to 224 atoms and slower from 704 on, the kernel a third longer for
   5,632 atoms (`WARPS_PER_CENTER` in `src/nlist.rs`).
