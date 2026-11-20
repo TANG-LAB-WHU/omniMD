@@ -125,16 +125,19 @@ What follows for the kernels:
   force kernel of the two-body descriptors takes the neighbor slots of its
   atom a warp each, the warps of the block in turns: eight warps are
   through 212 slots in 27 turns where four take 53. With blocks of 256
-  threads instead of 128 a float32 evaluation was 3.5% to 5% shorter at 54
-  and 88 blocks and 0.6% to 3% at 162 to 224; from 264 to 352 blocks it was
-  within 1.5% either way, and from 528 on 1% to 4% longer. In float64 an
-  evaluation with se_e2_r was 2.4% to 3.4% shorter up to 108 blocks and
-  less than 1.2% from 162 to 224, and one with se_e2_a stayed within 0.6%
-  at every size but one. So the width goes by the centers of the pass and
-  the precision (`native::gpu_model::WIDE_FORCE_CENTERS_F32` and
-  `WIDE_FORCE_CENTERS_F64`). Blocks of 512 threads were no better than 256
-  at 88 atoms and worse at 224, and wider blocks for the descriptor kernel
-  changed nothing. Why the gain ends where it does was not measured.
+  threads instead of 128 a float32 evaluation is 4% to 6% shorter at 54 to
+  108 blocks and 1.2% to 5% at 162 to 352, and 1.6% to 3.2% longer at 528,
+  896 and 12,288. In float64 an evaluation with se_e2_r is 1.6% to 4.4%
+  shorter up to 224 blocks and within 1% at 264 to 352, and one with
+  se_e2_a stays within 1.7% at every size but one. So the width goes by the
+  centers of the pass and the precision
+  (`native::gpu_model::WIDE_FORCE_CENTERS_F32` and
+  `WIDE_FORCE_CENTERS_F64`). While every warp of a block reduced its own
+  sums in double precision (see below), a block of eight warps did twice
+  the reductions of one of four, and the gain ended at 224 blocks in
+  float32 and at 108 in float64. Blocks of 512 threads were no better than
+  256 at 88 atoms and worse at 224, and wider blocks for the descriptor
+  kernel changed nothing. Why the gain ends where it does was not measured.
 - Keep double precision for what needs it. The neighbor search scans in
   single precision with a margin that covers its rounding and measures only
   the surviving candidates in double; distances are ranked by their bit
@@ -160,6 +163,41 @@ What follows for the kernels:
   lanes cost as much as busy ones. In single precision the same kernels are
   bound by their loads, and a warp that reads the six numbers of every
   output of a row together is as fast or faster.
+  The force kernels had two such places even in float32. In those of the
+  two-body descriptors a warp summed what a neighbor slot gives over the
+  outputs of the embedding, and its first lane turned the sums into double
+  and scaled them while the other warps of the block waited. And in all of
+  them every warp reduced the twelve sums of its block (the force on its
+  atom and the virial) over its lanes, five additions each with half the
+  lanes at work, then a quarter: sixty a warp. The sums of a slot now go to
+  shared memory as they are and the thread that has the slot in the next
+  step turns them into double, and the threads put down what they hold for
+  the block in shared memory, where a warp for each of the twelve adds up
+  the warps lane by lane and reduces once. In place in an evaluation in
+  float32 the force kernel of se_e2_a went from 23 to 19 µs for 88 atoms
+  and from 33 to 25 for 224. The room for the block's sums, twelve doubles
+  a thread, is not free: with se_e2_a an evaluation of 528 centers was 2.8%
+  to 3.7% longer with it, so such passes go without
+  (`native::gpu_model::BLOCK_SUMS_CENTERS`).
+- Reduce over a block only after a barrier of the block. Where an atom has
+  more neighbors than its block has threads, the threads leave the loop
+  over the slots at different times. The force kernel of se_e3 (blocks of
+  256 threads) had the warps reduce their sums as they came out of it, and
+  the force on an atom with 257 to 300 neighbors came out 4e-9 to 1.5e-8
+  eV/Å off, in every run alike; a barrier of the block before the
+  reductions set it right. Why was not found: a barrier of the warp in that
+  place set it right for one model and not for another (`block_sums` in
+  `native/src/gpu_model.rs` says what else was tried).
+- Give a launch the shared memory its kernel lays out, exactly, for nothing
+  reports a shortfall. On this card a block wrote up to 1,088 bytes past
+  the size it was launched with and no test failed, and compute-sanitizer's
+  memcheck reported only the accesses from 1,024 bytes past it on. Mutants
+  that left a region out of the size of a force kernel's shared memory (96
+  bytes, up to 320, and 1,088) passed every test, and memcheck found only
+  the last. The size functions beside the kernels (`angular_force_shared`,
+  `radial_force_shared` and the others in `native/src/gpu_model.rs`) are
+  the one place each layout is counted, for the potential and the trainer
+  alike.
 - Past the arithmetic stands the memory. With many atoms the stages that
   write the embedding rows or read them (100 values a neighbor) move at its
   rate: the descriptor reads 3.5 GB in 5.6 ms for 98,304 atoms, and nothing

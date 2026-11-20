@@ -1512,8 +1512,8 @@ omnimd-native-gpu-eval MODEL.json [--precision float64|float32] [--compress RMIN
   search. Model loading and JSON parsing are not included in either. Stage
   times printed before 2026-11-19 were taken with a wait for the device
   after every stage and are not comparable.
-- `--fused-fitting`, `--tiled-fitting` and `--wide-forces` move limits that
-  were measured on an RTX 4090; the header of
+- `--fused-fitting`, `--tiled-fitting`, `--wide-forces` and `--block-sums`
+  move limits that were measured on an RTX 4090; the header of
   `native/src/bin/omnimd-native-gpu-eval.rs` says what each is.
 - Frames larger than the device memory budget are processed in chunks of atoms
   automatically; `--chunk ATOMS` overrides the chunk size.

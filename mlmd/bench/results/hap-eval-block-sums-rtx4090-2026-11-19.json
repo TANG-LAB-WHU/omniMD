@@ -1,0 +1,761 @@
+{
+ "date": "2026-11-19",
+ "device": "NVIDIA GeForce RTX 4090",
+ "what": "The sums of a force block with the limits of the widths as the change has them: every warp reducing its own in every pass (by_warp) against the sums formed across the warps in shared memory in every pass that has room (across). omnimd-native-gpu-eval --bench with --compress 0.5 (step 0.01), one build with two settings: `by_warp` (--block-sums 0) and `across` (--block-sums 1000000), alternated in 5 rounds in one session, the least of each kept; `by_warp` twice a round, so that `by_warp_again` against `by_warp` shows what the machine adds. `centers` are the atoms of a pass times its models",
+ "build": "omnimd-native-gpu-eval of commit 2fe6da9, built before a comment in the source of its kernels was reworded",
+ "frames_outside_the_tables": 0,
+ "ms_per_evaluation": [
+  {
+   "case": "se_e2_a to 6 A, 88 atoms",
+   "precision": "float32",
+   "centers": 88,
+   "by_warp": 0.14881426666666667,
+   "across": 0.14617840000000001,
+   "by_warp_again": 0.1483586
+  },
+  {
+   "case": "se_e2_a to 6 A, 88 atoms",
+   "precision": "float64",
+   "centers": 88,
+   "by_warp": 0.38613553333333334,
+   "across": 0.38262879999999994,
+   "by_warp_again": 0.3845
+  },
+  {
+   "case": "se_e2_a to 6 A, 169 atoms",
+   "precision": "float32",
+   "centers": 169,
+   "by_warp": 0.1859520666666667,
+   "across": 0.1790850333333333,
+   "by_warp_again": 0.1858622666666667
+  },
+  {
+   "case": "se_e2_a to 6 A, 169 atoms",
+   "precision": "float64",
+   "centers": 169,
+   "by_warp": 0.6885857,
+   "across": 0.6831945333333334,
+   "by_warp_again": 0.6873735
+  },
+  {
+   "case": "se_e2_a to 6 A, 224 atoms",
+   "precision": "float32",
+   "centers": 224,
+   "by_warp": 0.207479,
+   "across": 0.2023839,
+   "by_warp_again": 0.2078092
+  },
+  {
+   "case": "se_e2_a to 6 A, 224 atoms",
+   "precision": "float64",
+   "centers": 224,
+   "by_warp": 0.720771,
+   "across": 0.7148653,
+   "by_warp_again": 0.7223819333333334
+  },
+  {
+   "case": "se_e2_r to 6 A, 88 atoms",
+   "precision": "float32",
+   "centers": 88,
+   "by_warp": 0.1152144,
+   "across": 0.11316333333333334,
+   "by_warp_again": 0.1149997
+  },
+  {
+   "case": "se_e2_r to 6 A, 88 atoms",
+   "precision": "float64",
+   "centers": 88,
+   "by_warp": 0.1837687,
+   "across": 0.18067313333333335,
+   "by_warp_again": 0.18156873333333337
+  },
+  {
+   "case": "se_e2_r to 6 A, 169 atoms",
+   "precision": "float32",
+   "centers": 169,
+   "by_warp": 0.1444325,
+   "across": 0.13854346666666667,
+   "by_warp_again": 0.14314513333333334
+  },
+  {
+   "case": "se_e2_r to 6 A, 169 atoms",
+   "precision": "float64",
+   "centers": 169,
+   "by_warp": 0.2834737666666667,
+   "across": 0.27472046666666666,
+   "by_warp_again": 0.2797105333333333
+  },
+  {
+   "case": "se_e2_r to 6 A, 224 atoms",
+   "precision": "float32",
+   "centers": 224,
+   "by_warp": 0.16618793333333334,
+   "across": 0.16051073333333335,
+   "by_warp_again": 0.16644343333333333
+  },
+  {
+   "case": "se_e2_r to 6 A, 224 atoms",
+   "precision": "float64",
+   "centers": 224,
+   "by_warp": 0.3085540666666667,
+   "across": 0.30357433333333333,
+   "by_warp_again": 0.3092745333333333
+  },
+  {
+   "case": "se_e3 to 4 A, 88 atoms",
+   "precision": "float32",
+   "centers": 88,
+   "by_warp": 0.1298163,
+   "across": 0.12625246666666667,
+   "by_warp_again": 0.12953686666666667
+  },
+  {
+   "case": "se_e3 to 4 A, 88 atoms",
+   "precision": "float64",
+   "centers": 88,
+   "by_warp": 0.2058228,
+   "across": 0.21213379999999998,
+   "by_warp_again": 0.20777963333333335
+  },
+  {
+   "case": "se_e3 to 4 A, 169 atoms",
+   "precision": "float32",
+   "centers": 169,
+   "by_warp": 0.16347956666666666,
+   "across": 0.1601138,
+   "by_warp_again": 0.1648458
+  },
+  {
+   "case": "se_e3 to 4 A, 169 atoms",
+   "precision": "float64",
+   "centers": 169,
+   "by_warp": 0.3240242,
+   "across": 0.31973613333333334,
+   "by_warp_again": 0.32478683333333336
+  },
+  {
+   "case": "se_e3 to 4 A, 224 atoms",
+   "precision": "float32",
+   "centers": 224,
+   "by_warp": 0.19025383333333334,
+   "across": 0.18506319999999998,
+   "by_warp_again": 0.1898682666666667
+  },
+  {
+   "case": "se_e3 to 4 A, 224 atoms",
+   "precision": "float64",
+   "centers": 224,
+   "by_warp": 0.3743846,
+   "across": 0.36900406666666663,
+   "by_warp_again": 0.3738638
+  },
+  {
+   "case": "se_e2_a to 6 A with se_e3 to 4 A, 88 atoms",
+   "precision": "float32",
+   "centers": 88,
+   "by_warp": 0.2091006333333333,
+   "across": 0.2055281,
+   "by_warp_again": 0.2100476
+  },
+  {
+   "case": "se_e2_a to 6 A with se_e3 to 4 A, 88 atoms",
+   "precision": "float64",
+   "centers": 88,
+   "by_warp": 0.4952151666666666,
+   "across": 0.49257613333333333,
+   "by_warp_again": 0.49669363333333333
+  },
+  {
+   "case": "se_e2_a to 6 A with se_e3 to 4 A, 169 atoms",
+   "precision": "float32",
+   "centers": 169,
+   "by_warp": 0.2671692666666667,
+   "across": 0.2570535333333333,
+   "by_warp_again": 0.26752946666666666
+  },
+  {
+   "case": "se_e2_a to 6 A with se_e3 to 4 A, 169 atoms",
+   "precision": "float64",
+   "centers": 169,
+   "by_warp": 0.8433203333333334,
+   "across": 0.8237106333333333,
+   "by_warp_again": 0.8425127333333333
+  },
+  {
+   "case": "se_e2_a to 6 A with se_e3 to 4 A, 224 atoms",
+   "precision": "float32",
+   "centers": 224,
+   "by_warp": 0.28885593333333337,
+   "across": 0.27838576666666665,
+   "by_warp_again": 0.28757289999999996
+  },
+  {
+   "case": "se_e2_a to 6 A with se_e3 to 4 A, 224 atoms",
+   "precision": "float64",
+   "centers": 224,
+   "by_warp": 0.8906622666666667,
+   "across": 0.8822270666666665,
+   "by_warp_again": 0.8934052333333332
+  },
+  {
+   "case": "committee of four se_e2_a, 88 atoms",
+   "precision": "float32",
+   "centers": 352,
+   "by_warp": 0.3456452,
+   "across": 0.33797706666666666,
+   "by_warp_again": 0.3473017333333333
+  },
+  {
+   "case": "committee of four se_e2_a, 88 atoms",
+   "precision": "float64",
+   "centers": 352,
+   "by_warp": 1.0401287333333333,
+   "across": 1.0334206000000001,
+   "by_warp_again": 1.0383432666666668
+  },
+  {
+   "case": "committee of four se_e2_a, 224 atoms",
+   "precision": "float32",
+   "centers": 896,
+   "by_warp": 0.6124443333333334,
+   "across": 0.6256942,
+   "by_warp_again": 0.6178190666666666
+  },
+  {
+   "case": "committee of four se_e2_a, 224 atoms",
+   "precision": "float64",
+   "centers": 896,
+   "by_warp": 2.6021878,
+   "across": 2.6030776666666666,
+   "by_warp_again": 2.6087496666666667
+  },
+  {
+   "case": "se_e2_a to 6 A, 1 frames of 88 atoms",
+   "precision": "float32",
+   "centers": 88,
+   "by_warp": 0.14858216666666665,
+   "across": 0.1455072666666667,
+   "by_warp_again": 0.14887843333333334
+  },
+  {
+   "case": "se_e2_a to 6 A, 2 frames of 88 atoms",
+   "precision": "float32",
+   "centers": 176,
+   "by_warp": 0.18546193333333333,
+   "across": 0.17945153333333333,
+   "by_warp_again": 0.18549753333333335
+  },
+  {
+   "case": "se_e2_a to 6 A, 3 frames of 88 atoms",
+   "precision": "float32",
+   "centers": 264,
+   "by_warp": 0.2381002,
+   "across": 0.2293041,
+   "by_warp_again": 0.2398911
+  },
+  {
+   "case": "se_e2_a to 6 A, 4 frames of 88 atoms",
+   "precision": "float32",
+   "centers": 352,
+   "by_warp": 0.27771266666666666,
+   "across": 0.2691298666666667,
+   "by_warp_again": 0.27671733333333337
+  },
+  {
+   "case": "se_e2_a to 6 A, 6 frames of 88 atoms",
+   "precision": "float32",
+   "centers": 528,
+   "by_warp": 0.3980052,
+   "across": 0.412928,
+   "by_warp_again": 0.3994318
+  },
+  {
+   "case": "se_e2_a to 6 A, 1 frames of 88 atoms",
+   "precision": "float64",
+   "centers": 88,
+   "by_warp": 0.385859,
+   "across": 0.3830952666666666,
+   "by_warp_again": 0.3854435666666667
+  },
+  {
+   "case": "se_e2_a to 6 A, 2 frames of 88 atoms",
+   "precision": "float64",
+   "centers": 176,
+   "by_warp": 0.6776911999999999,
+   "across": 0.6705034,
+   "by_warp_again": 0.6778133333333334
+  },
+  {
+   "case": "se_e2_a to 6 A, 3 frames of 88 atoms",
+   "precision": "float64",
+   "centers": 264,
+   "by_warp": 0.9779369,
+   "across": 0.9748251,
+   "by_warp_again": 0.9778111
+  },
+  {
+   "case": "se_e2_a to 6 A, 4 frames of 88 atoms",
+   "precision": "float64",
+   "centers": 352,
+   "by_warp": 1.0354736,
+   "across": 1.0291147999999999,
+   "by_warp_again": 1.0369840000000001
+  },
+  {
+   "case": "se_e2_a to 6 A, 6 frames of 88 atoms",
+   "precision": "float64",
+   "centers": 528,
+   "by_warp": 1.6207364,
+   "across": 1.6659232,
+   "by_warp_again": 1.6184932
+  },
+  {
+   "case": "se_e2_r to 6 A, 1 frames of 88 atoms",
+   "precision": "float32",
+   "centers": 88,
+   "by_warp": 0.11529596666666667,
+   "across": 0.1133075,
+   "by_warp_again": 0.11466446666666667
+  },
+  {
+   "case": "se_e2_r to 6 A, 2 frames of 88 atoms",
+   "precision": "float32",
+   "centers": 176,
+   "by_warp": 0.14990033333333333,
+   "across": 0.14491173333333332,
+   "by_warp_again": 0.14922313333333334
+  },
+  {
+   "case": "se_e2_r to 6 A, 3 frames of 88 atoms",
+   "precision": "float32",
+   "centers": 264,
+   "by_warp": 0.1786671,
+   "across": 0.1715574,
+   "by_warp_again": 0.1794284
+  },
+  {
+   "case": "se_e2_r to 6 A, 4 frames of 88 atoms",
+   "precision": "float32",
+   "centers": 352,
+   "by_warp": 0.1913193333333333,
+   "across": 0.18225053333333335,
+   "by_warp_again": 0.1911688
+  },
+  {
+   "case": "se_e2_r to 6 A, 6 frames of 88 atoms",
+   "precision": "float32",
+   "centers": 528,
+   "by_warp": 0.2663728,
+   "across": 0.2598592,
+   "by_warp_again": 0.2667794
+  },
+  {
+   "case": "se_e2_r to 6 A, 1 frames of 88 atoms",
+   "precision": "float64",
+   "centers": 88,
+   "by_warp": 0.183079,
+   "across": 0.17991426666666666,
+   "by_warp_again": 0.1840838
+  },
+  {
+   "case": "se_e2_r to 6 A, 2 frames of 88 atoms",
+   "precision": "float64",
+   "centers": 176,
+   "by_warp": 0.2853617333333333,
+   "across": 0.27989359999999996,
+   "by_warp_again": 0.28558426666666664
+  },
+  {
+   "case": "se_e2_r to 6 A, 3 frames of 88 atoms",
+   "precision": "float64",
+   "centers": 264,
+   "by_warp": 0.3892138,
+   "across": 0.3866276,
+   "by_warp_again": 0.3925396
+  },
+  {
+   "case": "se_e2_r to 6 A, 4 frames of 88 atoms",
+   "precision": "float64",
+   "centers": 352,
+   "by_warp": 0.42487,
+   "across": 0.42238373333333334,
+   "by_warp_again": 0.42610546666666665
+  },
+  {
+   "case": "se_e2_r to 6 A, 6 frames of 88 atoms",
+   "precision": "float64",
+   "centers": 528,
+   "by_warp": 0.649755,
+   "across": 0.6444906,
+   "by_warp_again": 0.650136
+  },
+  {
+   "case": "se_e3 to 4 A, 1 frames of 88 atoms",
+   "precision": "float32",
+   "centers": 88,
+   "by_warp": 0.12971843333333333,
+   "across": 0.12593493333333333,
+   "by_warp_again": 0.12888603333333332
+  },
+  {
+   "case": "se_e3 to 4 A, 2 frames of 88 atoms",
+   "precision": "float32",
+   "centers": 176,
+   "by_warp": 0.16813233333333333,
+   "across": 0.16451293333333333,
+   "by_warp_again": 0.16757193333333334
+  },
+  {
+   "case": "se_e3 to 4 A, 3 frames of 88 atoms",
+   "precision": "float32",
+   "centers": 264,
+   "by_warp": 0.2035008,
+   "across": 0.1969696,
+   "by_warp_again": 0.2050832
+  },
+  {
+   "case": "se_e3 to 4 A, 4 frames of 88 atoms",
+   "precision": "float32",
+   "centers": 352,
+   "by_warp": 0.21250933333333333,
+   "across": 0.20726146666666667,
+   "by_warp_again": 0.21451933333333334
+  },
+  {
+   "case": "se_e3 to 4 A, 6 frames of 88 atoms",
+   "precision": "float32",
+   "centers": 528,
+   "by_warp": 0.3138532,
+   "across": 0.301492,
+   "by_warp_again": 0.312595
+  },
+  {
+   "case": "se_e3 to 4 A, 1 frames of 88 atoms",
+   "precision": "float64",
+   "centers": 88,
+   "by_warp": 0.20894233333333334,
+   "across": 0.21176773333333332,
+   "by_warp_again": 0.20768493333333332
+  },
+  {
+   "case": "se_e3 to 4 A, 2 frames of 88 atoms",
+   "precision": "float64",
+   "centers": 176,
+   "by_warp": 0.32554313333333335,
+   "across": 0.32208013333333335,
+   "by_warp_again": 0.3256465333333333
+  },
+  {
+   "case": "se_e3 to 4 A, 3 frames of 88 atoms",
+   "precision": "float64",
+   "centers": 264,
+   "by_warp": 0.4620822,
+   "across": 0.4562129,
+   "by_warp_again": 0.4606128
+  },
+  {
+   "case": "se_e3 to 4 A, 4 frames of 88 atoms",
+   "precision": "float64",
+   "centers": 352,
+   "by_warp": 0.49850693333333335,
+   "across": 0.48990093333333334,
+   "by_warp_again": 0.5001589333333333
+  },
+  {
+   "case": "se_e3 to 4 A, 6 frames of 88 atoms",
+   "precision": "float64",
+   "centers": 528,
+   "by_warp": 0.744334,
+   "across": 0.735098,
+   "by_warp_again": 0.745805
+  },
+  {
+   "case": "se_e2_a to 6 A, 1 frames of 54 atoms",
+   "precision": "float32",
+   "centers": 54,
+   "by_warp": 0.13667003333333333,
+   "across": 0.1341376,
+   "by_warp_again": 0.13760903333333335
+  },
+  {
+   "case": "se_e2_a to 6 A, 2 frames of 54 atoms",
+   "precision": "float32",
+   "centers": 108,
+   "by_warp": 0.15715533333333334,
+   "across": 0.1543362,
+   "by_warp_again": 0.15777766666666668
+  },
+  {
+   "case": "se_e2_a to 6 A, 3 frames of 54 atoms",
+   "precision": "float32",
+   "centers": 162,
+   "by_warp": 0.1824177,
+   "across": 0.1759257,
+   "by_warp_again": 0.181167
+  },
+  {
+   "case": "se_e2_a to 6 A, 4 frames of 54 atoms",
+   "precision": "float32",
+   "centers": 216,
+   "by_warp": 0.20331626666666666,
+   "across": 0.19741533333333336,
+   "by_warp_again": 0.20427786666666664
+  },
+  {
+   "case": "se_e2_a to 6 A, 5 frames of 54 atoms",
+   "precision": "float32",
+   "centers": 270,
+   "by_warp": 0.24582549999999997,
+   "across": 0.239237,
+   "by_warp_again": 0.2472828333333333
+  },
+  {
+   "case": "se_e2_a to 6 A, 1 frames of 54 atoms",
+   "precision": "float64",
+   "centers": 54,
+   "by_warp": 0.3730297000000001,
+   "across": 0.3693284333333334,
+   "by_warp_again": 0.3721517666666666
+  },
+  {
+   "case": "se_e2_a to 6 A, 2 frames of 54 atoms",
+   "precision": "float64",
+   "centers": 108,
+   "by_warp": 0.4022946666666667,
+   "across": 0.3998455333333334,
+   "by_warp_again": 0.4010542666666667
+  },
+  {
+   "case": "se_e2_a to 6 A, 3 frames of 54 atoms",
+   "precision": "float64",
+   "centers": 162,
+   "by_warp": 0.676952,
+   "across": 0.6711659,
+   "by_warp_again": 0.6754861
+  },
+  {
+   "case": "se_e2_a to 6 A, 4 frames of 54 atoms",
+   "precision": "float64",
+   "centers": 216,
+   "by_warp": 0.6984112,
+   "across": 0.6941513333333332,
+   "by_warp_again": 0.7027171999999999
+  },
+  {
+   "case": "se_e2_a to 6 A, 5 frames of 54 atoms",
+   "precision": "float64",
+   "centers": 270,
+   "by_warp": 0.9984478333333334,
+   "across": 0.9959956666666666,
+   "by_warp_again": 0.9990248333333334
+  },
+  {
+   "case": "se_e2_r to 6 A, 1 frames of 54 atoms",
+   "precision": "float32",
+   "centers": 54,
+   "by_warp": 0.1083944,
+   "across": 0.1062015,
+   "by_warp_again": 0.1091162
+  },
+  {
+   "case": "se_e2_r to 6 A, 2 frames of 54 atoms",
+   "precision": "float32",
+   "centers": 108,
+   "by_warp": 0.12175506666666666,
+   "across": 0.120039,
+   "by_warp_again": 0.12192453333333333
+  },
+  {
+   "case": "se_e2_r to 6 A, 3 frames of 54 atoms",
+   "precision": "float32",
+   "centers": 162,
+   "by_warp": 0.1462328,
+   "across": 0.1416927,
+   "by_warp_again": 0.1468573
+  },
+  {
+   "case": "se_e2_r to 6 A, 4 frames of 54 atoms",
+   "precision": "float32",
+   "centers": 216,
+   "by_warp": 0.16373973333333333,
+   "across": 0.15826653333333332,
+   "by_warp_again": 0.16427
+  },
+  {
+   "case": "se_e2_r to 6 A, 5 frames of 54 atoms",
+   "precision": "float32",
+   "centers": 270,
+   "by_warp": 0.18988016666666666,
+   "across": 0.18300899999999998,
+   "by_warp_again": 0.19075033333333333
+  },
+  {
+   "case": "se_e2_r to 6 A, 1 frames of 54 atoms",
+   "precision": "float64",
+   "centers": 54,
+   "by_warp": 0.17525613333333334,
+   "across": 0.17308496666666665,
+   "by_warp_again": 0.17538603333333333
+  },
+  {
+   "case": "se_e2_r to 6 A, 2 frames of 54 atoms",
+   "precision": "float64",
+   "centers": 108,
+   "by_warp": 0.1941096,
+   "across": 0.19073126666666668,
+   "by_warp_again": 0.1941937333333333
+  },
+  {
+   "case": "se_e2_r to 6 A, 3 frames of 54 atoms",
+   "precision": "float64",
+   "centers": 162,
+   "by_warp": 0.2833993,
+   "across": 0.278551,
+   "by_warp_again": 0.2821367
+  },
+  {
+   "case": "se_e2_r to 6 A, 4 frames of 54 atoms",
+   "precision": "float64",
+   "centers": 216,
+   "by_warp": 0.3074024,
+   "across": 0.3009784,
+   "by_warp_again": 0.3049984
+  },
+  {
+   "case": "se_e2_r to 6 A, 5 frames of 54 atoms",
+   "precision": "float64",
+   "centers": 270,
+   "by_warp": 0.4039526666666667,
+   "across": 0.39971566666666664,
+   "by_warp_again": 0.39948666666666666
+  },
+  {
+   "case": "water se_e2_a, 192 atoms",
+   "precision": "float32",
+   "centers": 192,
+   "by_warp": 0.2119452,
+   "across": 0.20649735,
+   "by_warp_again": 0.21262785
+  },
+  {
+   "case": "water se_e2_a, 192 atoms",
+   "precision": "float64",
+   "centers": 192,
+   "by_warp": 0.71109455,
+   "across": 0.7013436,
+   "by_warp_again": 0.70605135
+  },
+  {
+   "case": "water se_e2_a, 1,536 atoms",
+   "precision": "float32",
+   "centers": 1536,
+   "by_warp": 0.8972370000000001,
+   "across": 0.9015931666666668,
+   "by_warp_again": 0.8966233333333332
+  },
+  {
+   "case": "water se_e2_a, 1,536 atoms",
+   "precision": "float64",
+   "centers": 1536,
+   "by_warp": 4.3205455,
+   "across": 4.278718166666667,
+   "by_warp_again": 4.318551666666666
+  },
+  {
+   "case": "water se_e2_a, 12,288 atoms",
+   "precision": "float32",
+   "centers": 12288,
+   "by_warp": 5.129441666666667,
+   "across": 5.136001666666667,
+   "by_warp_again": 5.111071666666667
+  },
+  {
+   "case": "water se_e2_a, 12,288 atoms",
+   "precision": "float64",
+   "centers": 12288,
+   "by_warp": 32.612610833333335,
+   "across": 32.6217275,
+   "by_warp_again": 32.5780475
+  },
+  {
+   "case": "water se_e2_r, 192 atoms",
+   "precision": "float32",
+   "centers": 192,
+   "by_warp": 0.17421915,
+   "across": 0.167173,
+   "by_warp_again": 0.1736956
+  },
+  {
+   "case": "water se_e2_r, 192 atoms",
+   "precision": "float64",
+   "centers": 192,
+   "by_warp": 0.31406035,
+   "across": 0.3085004,
+   "by_warp_again": 0.3151524
+  },
+  {
+   "case": "water se_e2_r, 1,536 atoms",
+   "precision": "float32",
+   "centers": 1536,
+   "by_warp": 0.7383748333333333,
+   "across": 0.715079,
+   "by_warp_again": 0.730651
+  },
+  {
+   "case": "water se_e2_r, 1,536 atoms",
+   "precision": "float64",
+   "centers": 1536,
+   "by_warp": 1.8125336666666665,
+   "across": 1.8113335000000002,
+   "by_warp_again": 1.8331733333333333
+  },
+  {
+   "case": "water se_e2_r, 12,288 atoms",
+   "precision": "float32",
+   "centers": 12288,
+   "by_warp": 3.9153716666666667,
+   "across": 3.9165566666666662,
+   "by_warp_again": 3.917823333333333
+  },
+  {
+   "case": "water se_e2_r, 12,288 atoms",
+   "precision": "float64",
+   "centers": 12288,
+   "by_warp": 13.463583333333332,
+   "across": 13.440309166666669,
+   "by_warp_again": 13.510211666666669
+  },
+  {
+   "case": "water se_e3, 192 atoms",
+   "precision": "float32",
+   "centers": 192,
+   "by_warp": 0.41936925,
+   "across": 0.41534355,
+   "by_warp_again": 0.4209046
+  },
+  {
+   "case": "water se_e3, 192 atoms",
+   "precision": "float64",
+   "centers": 192,
+   "by_warp": 1.09327165,
+   "across": 1.07648755,
+   "by_warp_again": 1.0938152
+  },
+  {
+   "case": "water se_e3, 1,536 atoms",
+   "precision": "float32",
+   "centers": 1536,
+   "by_warp": 2.2531018333333335,
+   "across": 2.189169166666667,
+   "by_warp_again": 2.234732166666667
+  },
+  {
+   "case": "water se_e3, 1,536 atoms",
+   "precision": "float64",
+   "centers": 1536,
+   "by_warp": 6.404269500000001,
+   "across": 6.357643833333334,
+   "by_warp_again": 6.4054746666666675
+  }
+ ]
+}

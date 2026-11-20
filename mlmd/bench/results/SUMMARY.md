@@ -1,3 +1,417 @@
+# The sums of the force kernels, and what the fitting nets wait for, 2026-11-20
+
+The section below left the device's time over an evaluation of the 88-atom
+frame by stage: the fitting nets 62 of 158 µs, the search 28, the forces 25.
+This one takes the fitting nets and the force kernel apart, kernel by kernel
+and step by step. The fitting nets gave nothing worth changing, and what was
+tried there is here with its numbers. The force kernels did work in double
+precision for one lane of a warp in two places, which is gone, and the sums
+of their blocks had a fault that no model in use can meet, which is mended.
+The engine's step was timed beside an evaluation of the same frame, and the
+trainer, which shares the force kernels, beside the build before.
+
+**A kernel taken apart in place.** A probe build gives a kernel one more
+argument, the number of its steps after which it returns, and launches it
+four more times with that argument before its own launch. The results of the
+pass stay what they are, the kernels after it read what they read otherwise,
+and the time added is four times the kernel's up to that step, with the
+device behind the host as in any pass. (A stop fixed at compile time would
+not do: the compiler drops the loops whose results nothing reads.) The least
+of five or seven rounds; a step is the difference of two stops, and one
+under a microsecond is within what the rounds scatter.
+
+**The fitting nets.** 1,600 inputs, three hidden layers of 240 and an
+output, in float32: three kernels a pass, the first hidden layer forward in
+tiles, the other layers forward and backward with two rows a block, the
+first layer backward in tiles. By the rows of a pass (the HAP frames of 54,
+88, 169 and 224 atoms; the nets alone, 400 passes one after the other, µs):
+
+| step | 54 rows | 88 rows | 169 rows | 224 rows |
+|---|---:|---:|---:|---:|
+| first layer forward, in tiles: launched and returning at once | 2.2 | 2.5 | 2.4 | 2.0 |
+| its weights and inputs to shared memory | 2.0 | 2.7 | 4.0 | 4.2 |
+| its sums | 3.7 | 6.3 | 10.1 | 13.3 |
+| the other layers, two rows a block: launched and returning at once | 2.4 | 2.4 | 1.9 | 1.9 |
+| the first layer from its partial sums | 4.4 | 4.5 | 4.7 | 4.8 |
+| second hidden layer forward | 5.8 | 5.8 | 6.1 | 7.2 |
+| third hidden layer forward | 5.5 | 5.5 | 5.9 | 6.7 |
+| output layer and seeds | 0.6 | 0.7 | 0.7 | 0.8 |
+| third hidden layer backward | 5.1 | 5.0 | 5.4 | 6.3 |
+| second hidden layer backward, and the end of the kernel | 5.2 | 5.4 | 5.2 | 5.8 |
+| first layer backward, in tiles: launched and returning at once | 2.4 | 2.6 | 2.8 | 2.5 |
+| its weights and adjoints to shared memory | 3.5 | 5.8 | 8.6 | 10.0 |
+| its sums | 8.2 | 10.5 | 19.4 | 25.1 |
+| the three kernels | 51.0 | 59.7 | 77.3 | 90.7 |
+| a pass of the nets | 49.4 | 57.8 | 77.9 | 90.5 |
+
+- The kernel of the other layers takes 29 to 34 µs whatever the rows. Its
+  block reads the weights of the second and third hidden layers once going
+  forward and once going backward, 230 KB each time, at 5 to 7 µs a time.
+- The two kernels of the first layer grow with the rows: 22 µs for 54 rows
+  and 57 for 224, 45% of the pass and 63%.
+- Launching the three kernels is 6 to 8 µs of a pass: 2 to 3 µs for each, as
+  long as a kernel that returns at once takes.
+
+Three things were tried there on probe builds, and none was taken, each
+being worth less than 3 µs of an evaluation of 150:
+
+- The sums of the middle kernel split among two, three or four sets of
+  threads in a block (512 to 1,024 threads), each set a share of the inputs
+  of every neuron, the shares added up through shared memory. With two sets
+  a pass of 54 rows took 47.8 µs where it takes 49.9, one of 88 rows 56.3
+  where it takes 58.3, and one of 224 rows 91.8 where it takes 91.0; three
+  and four sets were no better than two, and a hidden layer still took 5 µs
+  with a quarter of the reads to a thread. (The same code with one set took
+  1.2 to 1.9 µs longer than the kernel as it is.)
+- Four rows a warp in the forward tile kernel instead of two, so that a
+  weight read from shared memory serves four products: the kernel went from
+  11.6 to 9.8 µs at 88 rows, from 16.5 to 15.3 at 169 and from 19.7 to 17.2
+  at 224, and stayed at 8.1 to 8.2 at 54; a pass of 88 rows from 58.3 to
+  56.7 µs and one of 224 from 90.8 to 88.7. With chunks of 64 rows instead
+  of 32 the kernel took 15.9 µs at 224 rows but 12.9 at 88.
+- Loads of 16 bytes a lane, for a quarter of the load instructions over the
+  same weights: a warp alone took 35 ns for such a load where one of 4 bytes
+  takes 11.5, so 8.8 ns a weight instead of 11.5 (a probe of `load_costs` in
+  `gpu/tests/costs.rs`; its modes were not kept). The first layer copies its
+  weights in 2 to 10 µs a kernel, so less than a quarter of that was to be
+  had.
+
+**The force kernel of se_e2_a.** In place in an evaluation in float32,
+before → after the two changes below (probe builds, µs):
+
+| step | 88 atoms | 169 atoms | 224 atoms |
+|---|---:|---:|---:|
+| launched and returning at once | 2.0 → 2.1 | 2.2 → 2.5 | 2.3 → 2.4 |
+| B of the atom to shared memory, and its adjoint | 2.0 → 3.1 | 2.4 → 2.1 | 2.8 → 2.0 |
+| the sums of the slots, a warp a slot | 13.4 → 9.6 | 16.5 → 14.0 | 16.5 → 13.4 |
+| the Jacobians and the forces on the neighbors, a thread a slot | 1.4 → 2.5 | 3.4 → 2.9 | 2.9 → 4.8 |
+| the sums of the block | 4.3 → 1.5 | 7.9 → 2.6 | 8.8 → 2.3 |
+| the kernel | 23.2 → 18.7 | 32.4 → 24.1 | 33.3 → 24.9 |
+
+- *The sums of the slots.* A warp sums dE/d(env row) of one neighbor slot
+  over the outputs of the embedding in the precision of the networks. Its
+  first lane then turned the five sums into double and scaled them: eleven
+  instructions in double precision a slot for one lane's numbers, and an
+  instruction in double precision takes the multiprocessor as long with one
+  lane at work as with thirty-two. The five sums now go to shared memory as
+  they are, and the thread that has the slot in the next step, where every
+  lane has one, turns them into double with the same operations; that step
+  took up to 2 µs more for it. The force kernel of se_e2_r did the same with
+  one sum a slot.
+- *The sums of a block.* Every thread holds what its slots gave to the force
+  on the block's atom and to the nine entries of its virial, in double.
+  Every warp reduced its twelve over its lanes, five additions each with
+  half the lanes at work, then a quarter, and so on: sixty additions in
+  double precision a warp, 480 for a block of eight warps. The threads now
+  put down what they hold in shared memory (twelve doubles a thread), and a
+  warp for each sum adds up the warps lane by lane and reduces its lanes
+  once: 156 additions for a block of eight warps. This is in the force
+  kernels of all three descriptors, for the passes named below.
+
+What is left of the slots' step, 10 to 14 µs, was not taken apart further.
+
+**A fault in the sums of a block, mended.** With these changes the trainer,
+which still has every warp reduce its own sums, no longer agreed with the
+potential on one of its tests: a frame whose first atom has 260 neighbors,
+under se_e3, whose force kernel has blocks of 256 threads and so gives four
+of them two neighbors each. Against the CPU reference the sums across the
+warps were right and those of every warp alone were not: the force on that
+atom was 4e-9 to 1.5e-8 eV/Å off for 257, 260 and 300 neighbors, the virial
+about 1e-8 eV, in every run alike, and the forces of the frame added up to
+that much instead of to nothing, so what the block gave its neighbors was
+right and its own sums were not. A barrier of the block before the warps
+reduce their sums sets it right; the sums across the warps have one where
+the threads have put theirs down. The cause was not found: a barrier of the
+warp in that place set it right for one model and not for another, and a
+barrier of the block between the reductions and the atomics that add them up
+did not. The force kernels of se_e2_a and se_e2_r summed rightly without a
+barrier in the three cases tried (shells of 130, 137 and 200 neighbors,
+blocks of 128 and 256 threads), and the float64 forces of the HAP models,
+whose 212 slots are more than a block of 128 has threads, are within 7.8e-11
+eV/Å of DeePMD-kit's on the 83 frames of the sealed test (with tables, the
+section of 2026-11-18). No model on disk has an se_e3 descriptor with more
+than 138 slots, so none could give a thread of that kernel two neighbors.
+Every force kernel now has the barrier, the trainer's too.
+
+**Which passes take the sums across the warps.** The room for them is twelve
+doubles a thread, 12 KB for a block of 128 threads and 24 KB for one of 256,
+beside what a block had. One build with every warp reducing its own in every
+pass against the sums across the warps in every pass that has room for them
+(`--block-sums 0` and `--block-sums 1000000`), the widths of the blocks as
+they are below, alternated in five rounds, the least of each: what the sums
+across the warps add to a whole evaluation or take off it, by the centers of
+the pass (its atoms times its models):
+
+| centers | the pass | se_e2_a, float32 | se_e2_r, float32 | se_e3, float32 | se_e2_a, float64 | se_e2_r, float64 | se_e3, float64 |
+|---:|---|---:|---:|---:|---:|---:|---:|
+| 54 | a frame of 54 atoms | −1.9% | −2.0% |  | −1.0% | −1.2% |  |
+| 88 | a frame of 88 atoms | −1.8% | −1.8% | −2.7% | −0.9% | −1.7% | +3.1% |
+| 108 | two frames of 54 | −1.8% | −1.4% |  | −0.6% | −1.7% |  |
+| 162 | three frames of 54 | −3.6% | −3.1% |  | −0.9% | −1.7% |  |
+| 169 | a frame of 169 atoms | −3.7% | −4.1% | −2.1% | −0.8% | −3.1% | −1.3% |
+| 176 | two frames of 88 | −3.2% | −3.3% | −2.2% | −1.1% | −1.9% | −1.1% |
+| 192 | water, a frame of 192 atoms | −2.6% | −4.0% | −1.0% | −1.4% | −1.8% | −1.5% |
+| 216 | four frames of 54 | −2.9% | −3.3% |  | −0.6% | −2.1% |  |
+| 224 | a frame of 224 atoms | −2.5% | −3.4% | −2.7% | −0.8% | −1.6% | −1.4% |
+| 264 | three frames of 88 | −3.7% | −4.0% | −3.2% | −0.3% | −0.7% | −1.3% |
+| 270 | five frames of 54 | −2.7% | −3.6% |  | −0.2% | −1.0% |  |
+| 352 | four frames of 88 | −3.1% | −4.7% | −2.5% | −0.6% | −0.6% | −1.7% |
+| 352 | four models, a frame of 88 atoms | −2.2% |  |  | −0.6% |  |  |
+| 528 | six frames of 88 | +3.7% | −2.4% | −3.9% | +2.8% | −0.8% | −1.2% |
+| 896 | four models, a frame of 224 atoms | +2.2% |  |  | 0.0% |  |  |
+| 1,536 | water, a frame of 1,536 atoms | +0.5% | −3.2% | −2.8% | −1.0% | −0.1% | −0.7% |
+| 12,288 | water, a frame of 12,288 atoms | +0.1% | 0.0% |  | 0.0% | −0.2% |  |
+
+A setting against itself is 0.3% apart in the middle and 1.3% at most (5 of
+94 cases over 1%). With an se_e3 descriptor beside the se_e2_a one, at 88,
+169 and 224 atoms: −1.7%, −3.8%, −3.6% in float32 and −0.5%, −2.3%, −0.9% in
+float64.
+
+In float32 the sums across the warps take 1.0% to 4.7% off every evaluation
+of up to 352 centers, whatever the descriptor. Past that the descriptors
+part: with se_e2_a an evaluation of 528 centers takes 3.7% longer and a
+committee of 896 2.2% (at 1,536 and 12,288 within 0.5%), with se_e2_r or
+se_e3 one of 528 or 1,536 centers 2.4% to 3.9% shorter. In float64 the gain
+is smaller: 0.2% to 1.4% with se_e2_a up to 352 centers and 2.8% more at
+528, 0.6% to 3.1% with se_e2_r up to 528, and 0.7% to 1.7% with se_e3 from
+169 centers on. At 88 centers an evaluation with se_e3 in float64 took 3.1%
+longer with them, and 1.4% as a batch of one frame. So a pass with an
+se_e2_a descriptor forms the sums across the warps up to 352 centers
+(`native::gpu_model::BLOCK_SUMS_CENTERS`), passes with se_e2_r and se_e3 at
+any size, and every pass only where its block has room within 48 KB
+(`set_block_sums_centers` and the evaluator's `--block-sums` move the limit
+for every descriptor; `block_sums_shared` says which way a pass took).
+Nothing was measured between 352 and 528 centers, so the limit lies
+somewhere in between.
+
+**The widths of the blocks again.** The limits of the wider blocks of the
+two-body force kernels (the section below) were found while every warp
+reduced its own sums, which a block of eight warps did twice as much of as
+one of four. With the sums as they are now, blocks of 128 threads for every
+pass against blocks of 256 for every pass, in five rounds:
+
+| centers | the pass | se_e2_a, float32 | se_e2_r, float32 | se_e2_a, float64 | se_e2_r, float64 |
+|---:|---|---:|---:|---:|---:|
+| 54 | a frame of 54 atoms | −4.9% | −5.6% | −0.9% | −4.2% |
+| 88 | a frame of 88 atoms | −5.0% | −5.0% | −0.7% | −4.4% |
+| 108 | two frames of 54 | −4.3% | −4.3% | −0.7% | −3.5% |
+| 162 | three frames of 54 | −1.7% | −4.9% | −0.3% | −2.5% |
+| 169 | a frame of 169 atoms | −3.2% | −4.5% | −0.3% | −2.7% |
+| 176 | two frames of 88 | −2.6% | −4.4% | −1.1% | −1.6% |
+| 192 | water, a frame of 192 atoms | −2.7% | −4.2% | −0.1% | −2.1% |
+| 216 | four frames of 54 | −1.2% | −3.6% | +0.5% | −2.5% |
+| 224 | a frame of 224 atoms | −3.1% | −4.2% | −0.2% | −1.8% |
+| 264 | three frames of 88 | −1.3% | −3.9% | −1.0% | −0.5% |
+| 270 | five frames of 54 | −2.8% | −3.9% | +0.2% | +0.2% |
+| 352 | four frames of 88 | −2.0% | −2.2% | −0.3% | −0.8% |
+| 352 | four models, a frame of 88 atoms | −2.1% |  | +4.0% |  |
+| 528 | six frames of 88 | +2.9% | +1.6% | −0.7% | +1.7% |
+| 896 | four models, a frame of 224 atoms | +2.9% |  | −1.5% |  |
+| 1,536 | water, a frame of 1,536 atoms | −0.4% | +1.2% | +0.5% | +0.6% |
+| 12,288 | water, a frame of 12,288 atoms | +2.8% | +3.2% | +0.6% | +0.1% |
+
+A setting against itself is 0.3% apart in the middle and 2.3% at most (9 of
+74 cases over 1%). With an se_e3 descriptor beside the se_e2_a one, at 88,
+169 and 224 atoms: −4.0%, −1.8%, −2.4% in float32 and −0.7%, +0.2%, +0.9% in
+float64.
+
+In float32 the wider blocks take 4% to 6% off an evaluation at 54 to 108
+centers and 1.2% to 5% from 162 to 352, where the gain had ended at 224; at
+528, 896 and 12,288 centers they add 1.6% to 3.2%, at 1,536 they are within
+1.2%. In float64 they take 1.6% to 4.4% off an evaluation with se_e2_r up to
+224 centers (up to 108 before), less than 1% at 264 to 352, and add 1.7% at
+528; one with se_e2_a stays within 1.7% at every size but one, a committee
+of 352 centers, 4.0% longer. The wider blocks therefore go to float32 passes
+of up to 352 centers and float64 passes of up to 224
+(`WIDE_FORCE_CENTERS_F32` and `WIDE_FORCE_CENTERS_F64`, 224 and 108 before).
+Both limits of 352 come from the same grid of passes, with nothing between
+352 and 528. This comparison was run before the barrier of the section
+above: in its se_e2_a passes of more than 352 centers every warp reduced its
+own sums without it, in both widths.
+
+**Measured.** The build before (a798b12) and this one with `--compress 0.5`,
+alternated in seven rounds in one session, the least of each kept, before →
+after. Trained HAP models on frames of the sealed test, microseconds for
+energy, forces and virial (`--bench 3000`):
+
+| frame | precision | se_e2_a to 6 Å | se_e2_r to 6 Å | se_e3 to 4 Å | se_e2_a to 6 Å with se_e3 to 4 Å |
+|---|---|---:|---:|---:|---:|
+| 88 atoms | float32 | 150 → 145 | 113 → 111 | 128 → 127 | 212 → 205 |
+| 88 atoms | float64 | 382 → 378 | 181 → 179 | 207 → 208 | 498 → 494 |
+| 169 atoms | float32 | 185 → 177 | 142 → 136 | 163 → 158 | 270 → 253 |
+| 169 atoms | float64 | 678 → 669 | 281 → 271 | 320 → 315 | 835 → 824 |
+| 224 atoms | float32 | 208 → 200 | 165 → 158 | 188 → 183 | 290 → 276 |
+| 224 atoms | float64 | 709 → 701 | 309 → 301 | 368 → 365 | 893 → 883 |
+
+Other passes:
+
+| pass | centers | float32 | float64 |
+|---|---:|---:|---:|
+| four se_e2_a models, a frame of 88 atoms | 352 | 346 → 334 | 1,042 → 1,028 |
+| four se_e2_a models, a frame of 224 atoms | 896 | 612 → 611 | 2,602 → 2,578 |
+| se_e2_a, one frame of 88 atoms | 88 | 151 → 146 | 383 → 379 |
+| se_e2_a, two frames of 88 atoms | 176 | 187 → 178 | 674 → 664 |
+| se_e2_a, three frames of 88 atoms | 264 | 240 → 228 | 986 → 975 |
+| se_e2_a, four frames of 88 atoms | 352 | 277 → 266 | 1,043 → 1,026 |
+| se_e2_a, six frames of 88 atoms | 528 | 398 → 394 | 1,623 → 1,608 |
+| se_e3, one frame of 88 atoms | 88 | 127 → 128 | 206 → 207 |
+| se_e3, two frames of 88 atoms | 176 | 166 → 161 | 324 → 320 |
+| se_e3, three frames of 88 atoms | 264 | 202 → 193 | 463 → 455 |
+| se_e3, four frames of 88 atoms | 352 | 212 → 203 | 491 → 482 |
+| se_e3, six frames of 88 atoms | 528 | 312 → 294 | 732 → 721 |
+| se_e2_a, water, a frame of 192 atoms | 192 | 212 → 205 | 704 → 697 |
+| se_e2_a, water, a frame of 1,536 atoms | 1,536 | 891 → 883 | 4,279 → 4,243 |
+| se_e2_a, water, a frame of 12,288 atoms | 12,288 | 5,115 → 5,005 | 32,516 → 32,261 |
+| se_e2_r, water, a frame of 192 atoms | 192 | 172 → 167 | 315 → 305 |
+| se_e2_r, water, a frame of 1,536 atoms | 1,536 | 733 → 714 | 1,802 → 1,777 |
+| se_e2_r, water, a frame of 12,288 atoms | 12,288 | 3,929 → 3,863 | 13,218 → 13,103 |
+| se_e3, water, a frame of 192 atoms | 192 | 419 → 413 | 1,075 → 1,071 |
+| se_e3, water, a frame of 1,536 atoms | 1,536 | 2,201 → 2,164 | 6,275 → 6,253 |
+
+The build before against itself: 0.21% apart in the middle and 0.97% at
+most, none of the 64 cases over 1%. In float32 the passes are 3.4% shorter
+in the middle and up to 6.4%; the pipeline's path, se_e2_a with tables, went
+from 150 to 145 µs at 88 atoms (3.3%), from 185 to 177 at 169 (4.7%) and
+from 208 to 200 at 224 (3.9%). se_e3 on the 88-atom frame came out 1.2%
+shorter alone and 0.6% longer as a batch of one, where the build before
+differed from itself by 1.0% and 0.3% there: no change that this run can
+tell. In float64 the passes are 1.1% shorter in the middle and up to 3.3%,
+and se_e3 at 88 atoms came out 0.9% longer alone (0.1% as a batch of one),
+what the sums across the warps cost it there (above). Past the limits a pass
+keeps the sums of the slots, the barrier and, with se_e2_r or se_e3, the
+sums across the warps: a committee of 896 centers in float32 is 0.1%
+shorter, six frames of 88 atoms with se_e2_a 1.1%, the water frames of 1,536
+and 12,288 atoms 0.9% to 2.5% in float32 and 0.3% to 1.4% in float64. The
+build after with the limits of the build before (`--block-sums 0`,
+`--wide-forces 224` in float32 and `108` in float64; the third column of the
+record) has the sums of the slots in the precision of the networks and the
+barrier as its only differences: it took 1.0% off a float32 evaluation in
+the middle (from 1.0% longer, with se_e2_r at 88 atoms, to 2.0% shorter) and
+0.3% off a float64 one (from 0.7% longer to 1.4% shorter). Most of the gain
+is the sums across the warps and the wider blocks up to the new limits. No
+frame left its tables.
+
+**The engine's step.** `omnimd-mlmd run` with the trained se_e2_a model of
+the evaluator's benchmarks in float32 with tables (`compress_min_distance`
+0.5): NVT (CSVR, 300 K, τ 50 fs) of a frame of the sealed test, 20,000 steps
+of 0.5 fs, a sample every 50 steps; the engine prints the time of its steps,
+model loading not included. The engine of a61ca3e (the evaluation code of
+a798b12) and this one, alternated in five rounds with the two evaluators
+beside them on the same frames and model (`--bench 3000`), the least of
+each, µs:
+
+| frame | a step | an evaluation |
+|---|---:|---:|
+| 88 atoms | 161.0 → 157.4 | 152.5 → 146.6 |
+| 169 atoms | 216.2 → 199.2 | 186.7 → 178.5 |
+| 224 atoms | 222.6 → 217.4 | 210.6 → 200.9 |
+
+The engine before against itself came out 0.4% to 1.1% apart, the evaluator
+0.2% to 0.6%. At 88 and 224 atoms a step took 8 to 17 µs more than an
+evaluation of its frame (the integrator, the thermostat, the samples), and
+the steps gained 3.6 and 5.2 µs where the evaluations gained 5.9 and 9.7. At
+169 atoms a step took 30 µs more than an evaluation before and 21 after, so
+the step went 17 µs shorter where the evaluation went 8 µs shorter; that was
+not looked into.
+
+**The trainer.** omnimd-native-gpu-train launches the same force kernels: it
+has the sums of the slots in the precision of the networks and the barrier,
+and every warp still reduces its own sums. 10,000 steps of the first-pass
+dataset of HAP iteration 0 (171 frames of 54 to 224 atoms, a frame a step)
+in float32, the two builds alternated in three rounds, the best rate of
+each: with the se_e2_a pipeline model 588.1 → 594.4 steps a second (1.1%
+more, where the build before differed from itself by 0.3%), with an se_e3
+model to 4 Å 1,405.5 → 1,406.0 (the same; 0.1%). The losses at the end of a
+run differ from run to run within either build (the forces are added up by
+atomics in no fixed order), so they say nothing of the change.
+
+**Host memory that kernels read and write.** An evaluation uploads a few
+kilobytes before its first kernel and copies a few back after its last. A
+probe (not kept) had a kernel read its input from host memory that is pinned
+and mapped to the device, and write its output there, with about 30 µs of
+device work between as in an evaluation: a cycle of 8 KB each way took 51.7
+µs with the two copies, 51.7 with the input read from host memory, 49.2 with
+the output written to it and a wait for the stream, 46.4 with both; with 32
+KB each way 55.9, 58.4, 50.8 and 52.4. (With no work between, 22.3 against
+11.1 µs.) The force kernels add to their results with atomics, which such
+memory is not for, so the results would need a kernel of their own to carry
+them over: not done.
+
+**What this costs.**
+
+- A float64 se_e2_a model needs 40 bytes of shared memory a neighbor slot in
+  the force kernel where it needed 32: at an embedding width of 100 the
+  check at load refuses one from 1,067 slots, where it did from 1,334. No
+  model on disk is refused for it (all 150 files checked in float64 with
+  both builds; three of them are empty and refused by both). A float32 model
+  needs 20 bytes a slot where it needed 32.
+- The sums across the warps take 12 or 24 KB of shared memory a block more,
+  which costs a pass with many blocks: with se_e2_a they add 2.8% to 3.7% at
+  528 centers, and so stop at 352, a limit measured on one card with nothing
+  measured between 352 and 528.
+- se_e3 in float64 at 88 centers: 1.4% to 3.1% longer with the sums across
+  the warps, which it takes at every size.
+- The barrier is in every force kernel, also where every warp reduces its
+  own sums: se_e2_a passes past 352 centers, blocks without room, the
+  trainer. The third column of the record (`after_by_warp`) and the
+  trainer's runs above are what it costs.
+- The forces and the virial of a pass formed either way differ by the
+  rounding of a block's sums, which are added in another order.
+
+**Not done.** The levers of the fitting nets above, each under 3 µs; the 10
+to 14 µs of the slots' step; the cause of the fault; a lower limit for se_e3
+in float64; host memory mapped to the device; a check in every kernel that
+its shared memory fits the size it is launched with, which would find what
+memcheck does not (below).
+
+**Tests** (on this machine; the GPU suites do not run in CI).
+`the_sums_of_a_force_block_are_formed_either_way`
+(`native/tests/gpu_parity.rs`) has every descriptor and a hybrid of three,
+in both precisions, by both ways and with both widths, at the limit of
+centers and one past it, as a potential starts and with one number for all,
+for batches (also in chunks of a frame's atoms, which count a chunk's
+centers) and a committee, a pass of one center with a limit of none and of
+one, and a model whose 600 slots leave room for the sums of a block of 128
+threads and not for those of one of 256; each against the CPU reference or
+with the same energies and forces within 1e-11.
+`an_atom_with_more_neighbors_than_a_force_block_has_threads` has frames like
+the one that showed the fault, for all three descriptors, by both ways and
+both widths, against the CPU reference.
+`few_centers_take_wider_blocks_in_the_two_body_force_kernels` has the new
+limits. The trainer's test of an se_e3 atom with more neighbors than a
+kernel has threads passes again.
+
+**Mutation rounds.** 63 mutants of this change (the kernels, the launches
+and the trainer), each against the GPU parity tests or the trainer's: 56
+were caught at once. Two more, a pass in chunks counted by all its atoms and
+a limit of none read as one, were caught once the checks of a pass in chunks
+and of a pass of one center were added to the test above. Three were caught
+only by the bound on the device's time in
+`the_stages_of_an_evaluation_are_timed_by_the_device`: two that have a
+kernel take the other of its two ways, both right, and one that gives the
+se_e2_a force kernel 96 bytes of shared memory too few. Two were not caught
+by the tests: the se_e2_r force kernel given too little shared memory by its
+dE/dD, in the potential and in the trainer. compute-sanitizer's memcheck
+over the force kernels' tests finds the first, where the shortfall is 1,088
+bytes (an embedding of 136 in float64; 306 errors), and neither the second
+(at most 320 bytes in the trainer's tests) nor the 96 bytes of se_e2_a: on
+this card it reported accesses from 1,024 bytes past the size a block is
+launched with on, and none before. Over the same tests of this change it
+finds no error. The 50 mutants of the earlier rounds on the wider blocks and
+the clock of the stages that touch this code were run again, and all were
+caught.
+
+Locally: the workspace 234 tests, the engine with `native-gpu` 93, the GPU
+crates 192, each in release and debug; `cargo fmt --check` clean; the legacy
+`cuda` features compile.
+
+Files: `hap-eval-force-sums-rtx4090-2026-11-20.json` (before and after),
+`hap-eval-block-sums-rtx4090-2026-11-19.json` (the two ways of the sums),
+`hap-eval-force-blocks-rtx4090-2026-11-19-r2.json` (the two widths, with the
+sums as they are now), `hap-md-step-rtx4090-2026-11-20.json` (the engine's
+step) and `hap-train-force-sums-rtx4090-2026-11-20.json` (the trainer). The
+probe builds and their outputs are not in the repository.
+
 # Where an evaluation of a small frame goes, 2026-11-19
 
 The pipeline's models evaluate frames of 54 to 224 atoms, and an evaluation
@@ -151,7 +565,9 @@ float64 pass of at most 108, and every other pass the blocks of 128
 says which a pass took). The forces of the two widths differ by the rounding
 of a center's sums: at most 8e-14 eV/Å on the HAP frames, where two runs of
 one program differ by 3e-14, the forces being sums of atomic additions. The
-energies are the same to the last bit.
+energies are the same to the last bit. (Since the section of 2026-11-20
+above the limits are 352 and 224, measured again with the sums of a block
+formed across its warps.)
 
 **Measured.** The build before (46a2f20) and this one with `--compress 0.5`,
 alternated in seven rounds in one session, the least of each kept, before →
