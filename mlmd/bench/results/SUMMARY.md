@@ -366,46 +366,65 @@ memcheck does not (below).
 
 **Tests** (on this machine; the GPU suites do not run in CI).
 `the_sums_of_a_force_block_are_formed_either_way`
-(`native/tests/gpu_parity.rs`) has every descriptor and a hybrid of three,
-in both precisions, by both ways and with both widths, at the limit of
-centers and one past it, as a potential starts and with one number for all,
-for batches (also in chunks of a frame's atoms, which count a chunk's
-centers) and a committee, a pass of one center with a limit of none and of
-one, and a model whose 600 slots leave room for the sums of a block of 128
-threads and not for those of one of 256; each against the CPU reference or
-with the same energies and forces within 1e-11.
+(`native/tests/gpu_parity.rs`) has every descriptor, a hybrid of three and
+one that ends with se_e2_a (whose force kernel then adds to the virial of
+the first), in both precisions, by both ways and with both widths, at the
+limit of centers and one past it, as a potential starts and with one number
+for all, for batches (also in chunks of a frame's atoms, which count a
+chunk's centers) and a committee, a pass of one center with a limit of none
+and of one, and a model whose 600 slots leave room for the sums of a block
+of 128 threads and not for those of one of 256; each against the CPU
+reference or with the same energies and forces within 1e-11.
 `an_atom_with_more_neighbors_than_a_force_block_has_threads` has frames like
 the one that showed the fault, for all three descriptors, by both ways and
 both widths, against the CPU reference.
 `few_centers_take_wider_blocks_in_the_two_body_force_kernels` has the new
 limits. The trainer's test of an se_e3 atom with more neighbors than a
 kernel has threads passes again.
+`the_stages_of_an_evaluation_are_timed_by_the_device` bounds the device's
+time of an evaluation by the time of the call, which waits for the last
+mark, where it bounded it by the host's issuing: the last mark can reach the
+device a while after the host issued it, and that bound failed now and then
+in the mutation rounds under mutants that do not reach the test (once 0.88
+ms on the device against 0.37 of issuing).
 
 **Mutation rounds.** 63 mutants of this change (the kernels, the launches
 and the trainer), each against the GPU parity tests or the trainer's: 56
-were caught at once. Two more, a pass in chunks counted by all its atoms and
-a limit of none read as one, were caught once the checks of a pass in chunks
-and of a pass of one center were added to the test above. Three were caught
-only by the bound on the device's time in
-`the_stages_of_an_evaluation_are_timed_by_the_device`: two that have a
-kernel take the other of its two ways, both right, and one that gives the
-se_e2_a force kernel 96 bytes of shared memory too few. Two were not caught
-by the tests: the se_e2_r force kernel given too little shared memory by its
-dE/dD, in the potential and in the trainer. compute-sanitizer's memcheck
-over the force kernels' tests finds the first, where the shortfall is 1,088
-bytes (an embedding of 136 in float64; 306 errors), and neither the second
-(at most 320 bytes in the trainer's tests) nor the 96 bytes of se_e2_a: on
-this card it reported accesses from 1,024 bytes past the size a block is
-launched with on, and none before. Over the same tests of this change it
-finds no error. The 50 mutants of the earlier rounds on the wider blocks and
-the clock of the stages that touch this code were run again, and all were
-caught.
+were caught at once. Three more were caught once the test above had a pass
+in chunks, a pass of one center and a hybrid ending with se_e2_a: a pass in
+chunks counted by all its atoms, a limit of none read as one, and an
+se_e2_a force kernel that forms its sums across the warps whenever it adds
+to the virial, room or not (it wrote up to 24 KB past its block's shared
+memory, and the device stopped on an illegal address). One gives the same
+forces and no test can tell it: a launch that makes room for the sums and
+leaves the kernel reducing warp by warp. Three were not caught by the
+tests: the se_e2_a force kernel given 96 bytes of shared memory too few,
+and the se_e2_r one given too little by its dE/dD, in the potential and in
+the trainer. compute-sanitizer's memcheck over the force kernels' tests
+finds the second, where the shortfall is 1,088 bytes (an embedding of 136
+in float64; 306 errors), and neither the third (at most 320 bytes in the
+trainer's tests) nor the 96 bytes of se_e2_a: on this card it reported
+accesses from 1,024 bytes past the size a block is launched with on, and
+none before. Over the same tests of this change it finds no error. The
+first round had counted three of these as caught by the old bound of the
+stages test, which failed now and then under mutants that cannot reach it;
+run twice again with the new bound, they came out as told here. The 50
+mutants of the earlier rounds on the wider blocks and the clock of the
+stages that touch this code were run again, and all were caught. The 34 of
+the clock, which only the stages test catches, were run once more with the
+new bound and caught again: 33 by checks that the code as it is meets
+exactly (a stage with no time, host times that do not add up to the call,
+means that are not the means, times that are missing) and one by a device
+time of less than half the issuing; none by the bound by the call.
 
 Locally: the workspace 234 tests, the engine with `native-gpu` 93, the GPU
 crates 192, each in release and debug; `cargo fmt --check` clean; the legacy
 `cuda` features compile.
 
-Files: `hap-eval-force-sums-rtx4090-2026-11-20.json` (before and after),
+Files: `hap-eval-force-sums-rtx4090-2026-11-20.json` (before and after;
+and `-r1`, a first run of five rounds an hour and a half earlier, every case
+in it 8% to 14% longer for a reason not found, the cases bound by the device
+too, and what the change takes off alike: 3.3% and 1.2% in the middle),
 `hap-eval-block-sums-rtx4090-2026-11-19.json` (the two ways of the sums),
 `hap-eval-force-blocks-rtx4090-2026-11-19-r2.json` (the two widths, with the
 sums as they are now), `hap-md-step-rtx4090-2026-11-20.json` (the engine's

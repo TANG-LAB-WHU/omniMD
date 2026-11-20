@@ -522,5 +522,5 @@
    "before_again": 7.031600833333332
   }
  ],
- "note": "A first run of the same comparison in five rounds while other programs kept the machine busy: the build before against itself 0.46% apart in the middle and 2.38% at most, 12 of 64 cases over 1%, and every time about 10% longer than in the run of seven rounds that the summary uses (hap-eval-force-sums-rtx4090-2026-11-20.json). Kept for what it showed alike."
+ "note": "A first run of the same comparison in five rounds, earlier the same day: the build before against itself 0.46% apart in the middle and 2.38% at most, 12 of 64 cases over 1%, and every case 8% to 14% longer than in the run of seven rounds that the summary uses (hap-eval-force-sums-rtx4090-2026-11-20.json), the cases bound by the device too; why was not found. What the change takes off came out alike: 3.3% in the middle in float32 and 1.2% in float64 (3.4% and 1.1% in the run of seven rounds), 60 of the 64 cases on the same side, none more than 2.5 points apart."
 }

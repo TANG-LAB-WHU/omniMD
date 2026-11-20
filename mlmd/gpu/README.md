@@ -189,15 +189,16 @@ What follows for the kernels:
   place set it right for one model and not for another (`block_sums` in
   `native/src/gpu_model.rs` says what else was tried).
 - Give a launch the shared memory its kernel lays out, exactly, for nothing
-  reports a shortfall. On this card a block wrote up to 1,088 bytes past
-  the size it was launched with and no test failed, and compute-sanitizer's
-  memcheck reported only the accesses from 1,024 bytes past it on. Mutants
-  that left a region out of the size of a force kernel's shared memory (96
-  bytes, up to 320, and 1,088) passed every test, and memcheck found only
-  the last. The size functions beside the kernels (`angular_force_shared`,
-  `radial_force_shared` and the others in `native/src/gpu_model.rs`) are
-  the one place each layout is counted, for the potential and the trainer
-  alike.
+  reports a small shortfall. On this card a block wrote up to 1,088 bytes
+  past the size it was launched with and no test failed, and
+  compute-sanitizer's memcheck reported only the accesses from 1,024 bytes
+  past it on; a block that wrote up to 24 KB past it stopped the device on
+  an illegal address. Mutants that left a region out of the size of a force
+  kernel's shared memory (96 bytes, up to 320, and 1,088) passed every test,
+  and memcheck found only the last. The size functions beside the kernels
+  (`angular_force_shared`, `radial_force_shared` and the others in
+  `native/src/gpu_model.rs`) are the one place each layout is counted, for
+  the potential and the trainer alike.
 - Past the arithmetic stands the memory. With many atoms the stages that
   write the embedding rows or read them (100 values a neighbor) move at its
   rate: the descriptor reads 3.5 GB in 5.6 ms for 98,304 atoms, and nothing
