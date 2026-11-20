@@ -146,11 +146,16 @@ with the medians):
 | water 1,536, float64 | 8,482.0 | 8,494.6 | 8,490.0 | +12.6 |
 | water 12,288, float64 | 66,071.3 | 66,165.2 | 66,112.5 | +93.9 |
 
-From 1,536 atoms on the differences are within what `before again` differs
-from `before` (the medians: 2,836 → 2,819 µs for 5,632 atoms, 8,500 → 8,499
-for 1,536 waters). The 224-atom frame in float64 reads 757.1 → 750.6 µs by
-the medians. The same two builds again later in the session, nine rounds on
-the HAP cases only, gave less for 88 atoms (µs; `second_run` in the record):
+From 1,536 atoms on the differences are a fraction of a percent either way.
+For 5,632 HAP atoms and 1,536 waters they are about what `before again`
+differs from `before` (+13.1 against 13.6 µs, +12.6 against 8.0; the
+medians: 2,836 → 2,819 µs and 8,500 → 8,499). For 12,288 waters the build
+after was 93.9 µs (0.14%) slower, more than the 41.2 by which the build
+before differed from itself, and 27.9 slower by the medians (66,175 →
+66,202); that was not measured further. The 224-atom frame in float64 reads
+757.1 → 750.6 µs by the medians. The same two builds again later in the
+session, nine rounds on the HAP cases only, gave less for 88 atoms (µs;
+`second_run` in the record):
 
 | case | before | after | before again | after − before |
 |---|---:|---:|---:|---:|

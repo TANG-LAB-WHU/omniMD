@@ -154,8 +154,10 @@ What follows for the kernels:
   device. Evaluations of the HAP frames of 88 to 704 atoms in float32 with
   tables are 2 to 7 µs shorter (two runs: 155.0 → 149.8 µs and 152.5 →
   150.3 for 88 atoms, less than the kernel's 7 µs), and an MD step of 88
-  atoms 2.4 to 4.7 µs shorter; from 1,536 atoms on the difference is within
-  the scatter of the runs. Two warps were up to 7 µs an evaluation slower
+  atoms 2.4 to 4.7 µs shorter. From 1,536 atoms on the differences are a
+  fraction of a percent either way, though 12,288 waters in float64 were
+  0.14% slower, more than the build before differed from itself (not
+  measured further). Two warps were up to 7 µs an evaluation slower
   than four below a thousand atoms, and eight were within the scatter of
   four up to 224 atoms and slower from 704 on, the kernel a third longer for
   5,632 atoms (`WARPS_PER_CENTER` in `src/nlist.rs`).
