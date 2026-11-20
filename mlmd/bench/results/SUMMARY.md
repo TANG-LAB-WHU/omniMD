@@ -276,20 +276,21 @@ from 208 to 200 at 224 (3.9%). se_e3 on the 88-atom frame came out 1.2%
 shorter alone and 0.6% longer as a batch of one, where the build before
 differed from itself by 1.0% and 0.3% there: no change that this run can
 tell. In float64 the passes are 1.1% shorter in the middle and up to 3.3%,
-and se_e3 at 88 atoms came out 0.9% longer alone (0.1% as a batch of one),
-what the sums across the warps cost it there (above). Past the limits a pass
-keeps the sums of the slots, the barrier and, with se_e2_r or se_e3, the
-sums across the warps: a committee of 896 centers in float32 is 0.1%
-shorter, six frames of 88 atoms with se_e2_a 1.1%, the water frames of 1,536
-and 12,288 atoms 0.9% to 2.5% in float32 and 0.3% to 1.4% in float64. The
-build after with the limits of the build before (`--block-sums 0`,
-`--wide-forces 224` in float32 and `108` in float64; the third column of the
-record) has the sums of the slots in the precision of the networks and the
-barrier as its only differences: it took 1.0% off a float32 evaluation in
-the middle (from 1.0% longer, with se_e2_r at 88 atoms, to 2.0% shorter) and
-0.3% off a float64 one (from 0.7% longer to 1.4% shorter). Most of the gain
-is the sums across the warps and the wider blocks up to the new limits. No
-frame left its tables.
+and se_e3 at 88 atoms came out 0.9% longer alone, where the build before
+differed from itself by 0.6% (0.1% longer as a batch of one); the sums
+across the warps cost it 1.4% to 3.1% there in the comparison of the two
+ways (above). Past the limits a pass keeps the sums of the slots, the
+barrier and, with se_e2_r or se_e3, the sums across the warps: a committee
+of 896 centers in float32 is 0.1% shorter, six frames of 88 atoms with
+se_e2_a 1.1%, the water frames of 1,536 and 12,288 atoms 0.9% to 2.5% in
+float32 and 0.3% to 1.4% in float64. The build after with the limits of the
+build before (`--block-sums 0`, `--wide-forces 224` in float32 and `108` in
+float64; the third column of the record) has the sums of the slots in the
+precision of the networks and the barrier as its only differences: it took
+1.0% off a float32 evaluation in the middle (from 1.0% longer, with se_e2_r
+at 88 atoms, to 2.0% shorter) and 0.3% off a float64 one (from 0.7% longer
+to 1.4% shorter). Most of the gain is the sums across the warps and the
+wider blocks up to the new limits. No frame left its tables.
 
 **The engine's step.** `omnimd-mlmd run` with the trained se_e2_a model of
 the evaluator's benchmarks in float32 with tables (`compress_min_distance`
@@ -392,30 +393,31 @@ ms on the device against 0.37 of issuing).
 and the trainer), each against the GPU parity tests or the trainer's: 56
 were caught at once. Three more were caught once the test above had a pass
 in chunks, a pass of one center and a hybrid ending with se_e2_a: a pass in
-chunks counted by all its atoms, a limit of none read as one, and an
-se_e2_a force kernel that forms its sums across the warps whenever it adds
-to the virial, room or not (it wrote up to 24 KB past its block's shared
-memory, and the device stopped on an illegal address). One gives the same
-forces and no test can tell it: a launch that makes room for the sums and
-leaves the kernel reducing warp by warp. Three were not caught by the
-tests: the se_e2_a force kernel given 96 bytes of shared memory too few,
-and the se_e2_r one given too little by its dE/dD, in the potential and in
-the trainer. compute-sanitizer's memcheck over the force kernels' tests
-finds the second, where the shortfall is 1,088 bytes (an embedding of 136
-in float64; 306 errors), and neither the third (at most 320 bytes in the
+chunks counted by all its atoms, a limit of none read as one, and an se_e2_a
+force kernel that forms its sums across the warps whenever it adds to the
+virial, room or not (it wrote up to 24 KB past its block's shared memory,
+and the device stopped on an illegal address). One gives the same forces and
+no test can tell it: a launch that makes room for the sums and leaves the
+kernel reducing warp by warp. Three were not caught by the tests: the
+se_e2_a force kernel given 96 bytes of shared memory too few, and the
+se_e2_r one given too little by its dE/dD, in the potential and in the
+trainer. compute-sanitizer's memcheck over the force kernels' tests finds
+the second, where the shortfall is 1,088 bytes (an embedding of 136 in
+float64; 306 errors), and neither the third (at most 320 bytes in the
 trainer's tests) nor the 96 bytes of se_e2_a: on this card it reported
 accesses from 1,024 bytes past the size a block is launched with on, and
-none before. Over the same tests of this change it finds no error. The
-first round had counted three of these as caught by the old bound of the
-stages test, which failed now and then under mutants that cannot reach it;
-run twice again with the new bound, they came out as told here. The 50
-mutants of the earlier rounds on the wider blocks and the clock of the
-stages that touch this code were run again, and all were caught. The 34 of
-the clock, which only the stages test catches, were run once more with the
-new bound and caught again: 33 by checks that the code as it is meets
-exactly (a stage with no time, host times that do not add up to the call,
-means that are not the means, times that are missing) and one by a device
-time of less than half the issuing; none by the bound by the call.
+none before. Over the same tests of this change it finds no error. The first
+round had counted three of these as caught by the old bound of the stages
+test, which failed now and then under mutants that cannot reach it; run
+twice again with the new bound, they came out as told here. The 50 mutants
+of the earlier rounds on the wider blocks and the clock of the stages that
+touch this code were run again, and all were caught. The 34 of the clock,
+which only the stages test catches, were run once more with the new bound
+and caught again: 33 by checks that the code as it is meets exactly (a stage
+with no time, host times that do not add up to the call, means that are not
+the means, times that are missing) and one by a device time of less than
+half the issuing (in 20 runs of 20, at 0.30 to 0.41 of it); none by the
+bound by the call.
 
 Locally: the workspace 234 tests, the engine with `native-gpu` 93, the GPU
 crates 192, each in release and debug; `cargo fmt --check` clean; the legacy
