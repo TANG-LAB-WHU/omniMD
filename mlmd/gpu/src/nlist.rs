@@ -913,7 +913,8 @@ fn max_capacity(ntypes: usize, warps: usize) -> usize {
 /// Two kept up only for thousands of atoms; eight were within the scatter
 /// of four up to 224 atoms, slower from 704 on, and cost the kernel a third
 /// more time for 5,632. Against one warp, an evaluation of 88 to 704 atoms
-/// is 2 to 7 microseconds shorter (`bench/results/SUMMARY.md`).
+/// is 2 to 7 microseconds shorter, and one of 12,288 waters 41 to 78 longer,
+/// of 60,000 (`bench/results/SUMMARY.md`).
 const WARPS_PER_CENTER: usize = 4;
 
 /// Most warps per center. Within a multiprocessor's 65,536 registers up to

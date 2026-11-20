@@ -152,8 +152,19 @@ differs from `before` (+13.1 against 13.6 µs, +12.6 against 8.0; the
 medians: 2,836 → 2,819 µs and 8,500 → 8,499). For 12,288 waters the build
 after was 93.9 µs (0.14%) slower, more than the 41.2 by which the build
 before differed from itself, and 27.9 slower by the medians (66,175 →
-66,202); that was not measured further. The 224-atom frame in float64 reads
-757.1 → 750.6 µs by the medians. The same two builds again later in the
+66,202). Nine more rounds of the two water frames later (`water_rerun` in
+the record; every time about 8% below those of the first run, which is why
+builds are compared within a run only) gave 7,818.2, 7,814.3 and 7,807.1 µs
+for 1,536 waters (before, after, before again) and 60,592.6, 60,757.0 and
+60,730.6 for 12,288, the build after the slowest again (by the medians
+60,868, 60,898 and 60,876). The probe evaluator, one build with one, two
+and four warps, nine rounds on 12,288 waters: 60,635.5, 60,667.7 and
+60,676.9 µs (medians 60,785, 60,891 and 60,863; `water_12288` in
+`hap-search-warps-rtx4090-2026-11-20.json`). So four warps cost an
+evaluation of 12,288 waters 41 µs by the least and 78 by the medians
+against one (0.07% and 0.13%), where they spared the kernel 7 µs for 5,632
+HAP atoms; where between the two the cost sets in was not measured. The
+224-atom frame in float64 reads 757.1 → 750.6 µs by the medians. The same two builds again later in the
 session, nine rounds on the HAP cases only, gave less for 88 atoms (µs;
 `second_run` in the record):
 

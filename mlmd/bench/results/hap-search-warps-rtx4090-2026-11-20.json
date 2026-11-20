@@ -269,5 +269,29 @@
     "worst_us": 8487.28
    }
   }
- ]
+ ],
+ "water_12288": {
+  "rounds": 9,
+  "note": "The same probe build with one, two and four warps per center on the water frame of 12,288 atoms with the water model in float64 (60 evaluations a process), nine rounds, later in the same session, after the builds before and after the change had differed there by more than the build before differed from itself (water_rerun in hap-eval-search-warps-rtx4090-2026-11-20.json).",
+  "rows": [
+   {
+    "case": "water 12288 f64",
+    "1": {
+     "best_us": 60635.53,
+     "median_us": 60785.01,
+     "worst_us": 60912.06
+    },
+    "2": {
+     "best_us": 60667.73,
+     "median_us": 60891.32,
+     "worst_us": 60952.92
+    },
+    "4": {
+     "best_us": 60676.89,
+     "median_us": 60862.51,
+     "worst_us": 60978.95
+    }
+   }
+  ]
+ }
 }
