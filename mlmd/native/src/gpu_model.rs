@@ -269,18 +269,54 @@ __device__ T warp_sum(T v) {
 
 // The end of a force kernel. Each thread holds what its slots gave to the
 // force on the center `i` (`fi`) and to the virial of the block (`vir`);
-// they are summed over the block in `red` ([12], cleared before) and only
-// then go to global memory: the force with an atomic, since other blocks add
-// to it for their neighbors, the virial as the block's own. With `add` the
-// virial is added to what is there: the kernels of the descriptors of a
-// hybrid run one after the other, and all but the first add.
-__device__ void block_sums(double* fi, double* vir, double* red, double* force, double* virial,
-        int i, int add) {
-    for (int c = 0; c < 3; ++c) fi[c] = warp_sum(fi[c]);
-    for (int e = 0; e < 9; ++e) vir[e] = warp_sum(vir[e]);
-    if ((threadIdx.x & 31) == 0) {
-        for (int c = 0; c < 3; ++c) atomicAdd(&red[c], fi[c]);
-        for (int e = 0; e < 9; ++e) atomicAdd(&red[3 + e], vir[e]);
+// they are summed over the block in `red` ([12]) and only then go to global
+// memory: the force with an atomic, since other blocks add to it for their
+// neighbors, the virial as the block's own. With `add` the virial is added
+// to what is there: the kernels of the descriptors of a hybrid run one after
+// the other, and all but the first add.
+//
+// The twelve sums are in double precision, where an instruction takes a
+// warp as long with one lane at work as with all, and the reduction of a
+// warp's lanes is five of them with half the lanes at work, then a quarter,
+// and so on. With `all` ([12][threads] of shared memory) the threads
+// therefore put down what they hold, and a warp for each sum adds up the
+// warps lane by lane and reduces its lanes once: twelve reductions a block
+// instead of twelve a warp. Without it every warp reduces its own twelve and
+// adds them to `red` (cleared before) with atomics.
+//
+// Either way a barrier of the block comes before the first reduction. The
+// threads leave the loop over their slots at different times when an atom
+// has more neighbors than the block has threads, and without the barrier
+// the sums of such a block came out wrong in the force kernel of se_e3: the
+// force on an atom with 257 to 300 neighbors was 4e-9 to 1.5e-8 eV/A off, in
+// every run alike, and the forces of the frame added up to that much instead
+// of to nothing (what the block gave its neighbors was right). Found
+// 2026-11-19 and not explained: a barrier of the warp in that place set it
+// right for one model and not for another, a barrier of the block between
+// the reductions and the atomics did not, and the two-body kernels summed
+// rightly without any in the three cases that were tried.
+__device__ void block_sums(double* fi, double* vir, double* red, double* all, double* force,
+        double* virial, int i, int add) {
+    int threads = blockDim.x, lane = threadIdx.x & 31;
+    if (all) {
+        for (int c = 0; c < 3; ++c) all[c * threads + threadIdx.x] = fi[c];
+        for (int e = 0; e < 9; ++e) all[(3 + e) * threads + threadIdx.x] = vir[e];
+        __syncthreads();
+        int warps = threads >> 5;
+        for (int v = threadIdx.x >> 5; v < 12; v += warps) {
+            double sum = 0.0;
+            for (int w = 0; w < warps; ++w) sum += all[v * threads + 32 * w + lane];
+            sum = warp_sum(sum);
+            if (lane == 0) red[v] = sum;
+        }
+    } else {
+        __syncthreads();
+        for (int c = 0; c < 3; ++c) fi[c] = warp_sum(fi[c]);
+        for (int e = 0; e < 9; ++e) vir[e] = warp_sum(vir[e]);
+        if (lane == 0) {
+            for (int c = 0; c < 3; ++c) atomicAdd(&red[c], fi[c]);
+            for (int e = 0; e < 9; ++e) atomicAdd(&red[3 + e], vir[e]);
+        }
     }
     __syncthreads();
     for (int c = threadIdx.x; c < 3; c += blockDim.x) atomicAdd(&force[3 * i + c], red[c]);
@@ -296,10 +332,13 @@ __device__ void block_sums(double* fi, double* vir, double* red, double* force, 
 //     bank conflicts;
 //  2. one warp per neighbor slot (lanes over the embedding width, so G rows
 //     are read coalesced) contracts dB with G and dG/dr in the network
-//     precision into dE/d(env row), kept in shared memory as float64;
-//  3. one thread per slot applies the float64 environment Jacobian; only the
-//     neighbor's force needs a global atomic, the center force and the
-//     virial are reduced over the block first.
+//     precision into dE/d(env row), which goes to shared memory as it is,
+//     five sums a slot: a warp has one slot here, and what its first lane
+//     did in double precision took every other warp of the block as long;
+//  3. one thread per slot turns the five into float64 and applies the
+//     float64 environment Jacobian; only the neighbor's force needs a global
+//     atomic, the center force and the virial are reduced over the block
+//     first (`block_sums`, with room for it when bit 1 of `add` is set).
 template <typename P, typename E>
 __device__ void backward_impl(const E* env, const P* g, const P* dg, const E* b_in,
         const P* dd_in, const int* index, const double* delta, const double* dist,
@@ -308,10 +347,13 @@ __device__ void backward_impl(const E* env, const P* g, const P* dg, const E* b_
         double rmin, double inv_range, double* force, double* virial, const int* rows,
         int ntypes, int natoms, int stride, int add) {
     extern __shared__ double shared[];
-    double* dr_all = shared;             // [slots][4]
-    double* red = dr_all + 4 * slots;    // [12]: center force, virial
+    P* dr_all = (P*)shared;              // [slots][5]: dE/d(env row), the tangent term
+    double* red = shared + (5 * slots * sizeof(P) + 7) / 8;  // [12]: center force, virial
     E* b = (E*)(red + 12);               // [width][4]
     P* db = (P*)(b + 4 * width);         // [4][width]
+    // [12][threads], what every thread adds to the block's sums.
+    double* all = (add & 2) ? (double*)(db + 4 * width) : nullptr;
+    add &= 1;
     int li = blockIdx.x, i = first + li, model = blockIdx.y;
     // This model's work rows and its place among the centers; its forces
     // and virials follow those of the models before it.
@@ -364,8 +406,9 @@ __device__ void backward_impl(const E* env, const P* g, const P* dg, const E* b_
         for (int a = 0; a < 4; ++a) dr[a] = warp_sum(dr[a]);
         tangent = warp_sum(tangent);
         if (lane == 0) {
-            for (int a = 0; a < 4; ++a) dr_all[4 * s + a] = (double)dr[a] * inv_slots;
-            dr_all[4 * s] += (double)tangent * inv_slots;
+            P* mine = dr_all + 5 * s;
+            for (int a = 0; a < 4; ++a) mine[a] = dr[a];
+            mine[4] = tangent;
         }
     }
     __syncthreads();
@@ -385,8 +428,11 @@ __device__ void backward_impl(const E* env, const P* g, const P* dg, const E* b_
         // the normalization, that is u_c [e_0 dsw + (dsw - sw / r)(e · u)]
         // + (sw / r) e_c.
         double sw = q * inv, dsw = (dq - sw) * inv, across = sw * inv;
+        const P* mine = dr_all + 5 * s;
         double adj[4];
-        for (int a = 0; a < 4; ++a) adj[a] = dr_all[4 * s + a] * inv_std[a];
+        for (int a = 0; a < 4; ++a) adj[a] = (double)mine[a] * inv_slots;
+        adj[0] += (double)mine[4] * inv_slots;
+        for (int a = 0; a < 4; ++a) adj[a] *= inv_std[a];
         double along = adj[0] * dsw + (dsw - across) * (adj[1] * u[0] + adj[2] * u[1] + adj[3] * u[2]);
         for (int c = 0; c < 3; ++c) {
             double grad = u[c] * along + across * adj[c + 1];
@@ -395,7 +441,7 @@ __device__ void backward_impl(const E* env, const P* g, const P* dg, const E* b_
             for (int a = 0; a < 3; ++a) vir[3 * a + c] -= d[a] * grad;
         }
     }
-    block_sums(fi, vir, red, force, virial, i, add);
+    block_sums(fi, vir, red, all, force, virial, i, add);
 }
 
 // se_e2_r: the descriptor is a mean of embedding rows, D[m] = scale · sum
@@ -459,9 +505,12 @@ __device__ void radial_backward_impl(const P* dg, const P* dd_in, const int* ind
         double* force, double* virial, int ntypes, int natoms, const int* rows, int stride,
         int add) {
     extern __shared__ double radial_shared[];
-    double* ds_all = radial_shared;      // [slots]: dE/d(radial entry)
-    double* red = ds_all + slots;        // [12]: center force, virial
+    P* ds_all = (P*)radial_shared;       // [slots]: dE/d(radial entry) before its scale
+    double* red = radial_shared + (slots * sizeof(P) + 7) / 8;  // [12]: center force, virial
     P* dd = (P*)(red + 12);              // [width]: dE/dD of this atom
+    // [12][threads], what every thread adds to the block's sums.
+    double* all = (add & 2) ? red + 12 + (width * sizeof(P) + 7) / 8 : nullptr;
+    add &= 1;
     int li = blockIdx.x, i = first + li, model = blockIdx.y;
     dg += (long long)model * count * slots * width;
     long long center = (long long)model * count + li;
@@ -478,7 +527,8 @@ __device__ void radial_backward_impl(const P* dg, const P* dd_in, const int* ind
         P sum = 0;
         for (int m = lane; m < width; m += 32) sum += dd[m] * dg[row + m];
         sum = warp_sum(sum);
-        if (lane == 0) ds_all[s] = (double)sum * scale;
+        // As it is: the thread that has the slot below turns it into double.
+        if (lane == 0) ds_all[s] = sum;
     }
     __syncthreads();
     const double inv_std = dstd_inv[4 * (model * ntypes + atype[i])];
@@ -491,7 +541,7 @@ __device__ void radial_backward_impl(const P* dg, const P* dd_in, const int* ind
         double rr = dist[slot], inv = 1.0 / rr, q, dq;
         switch_fn(rr, rmin, inv_range, &q, &dq);
         double sw = q * inv, dsw = (dq - sw) * inv;
-        double along = ds_all[s] * inv_std * dsw;
+        double along = (double)ds_all[s] * scale * inv_std * dsw;
         for (int c = 0; c < 3; ++c) {
             double grad = d[c] * inv * along;
             atomicAdd(&force[3 * (long long)j + c], -grad);
@@ -499,7 +549,7 @@ __device__ void radial_backward_impl(const P* dg, const P* dd_in, const int* ind
             for (int a = 0; a < 3; ++a) vir[3 * a + c] -= d[a] * grad;
         }
     }
-    block_sums(fi, vir, red, force, virial, i, add);
+    block_sums(fi, vir, red, all, force, virial, i, add);
 }
 
 // se_e3, DeePMD-kit's three-body descriptor. With a = sw·d / (r·std) the
@@ -968,6 +1018,9 @@ __device__ void three_body_backward_impl(const P* dtheta, const int* index, cons
     double* red = a + 3 * slots;         // [12]: center force, virial
     int* list = (int*)(red + 12);        // [slots]
     int* first_of = list + slots;        // [ntypes + 1]
+    // [12][threads], what every thread adds to the block's sums.
+    double* all = (add & 2) ? red + 12 + (slots + ntypes + 2) / 2 : nullptr;
+    add &= 1;
     int i = first + blockIdx.x, model = blockIdx.y;
     long long at = (long long)i * slots;
     const double inv_std = dstd_inv[4 * (model * ntypes + atype[i]) + 1];
@@ -1030,7 +1083,7 @@ __device__ void three_body_backward_impl(const P* dtheta, const int* index, cons
             for (int e = 0; e < 3; ++e) vir[3 * e + c] -= d[e] * grad;
         }
     }
-    block_sums(fi, vir, red, force, virial, i, add);
+    block_sums(fi, vir, red, all, force, virial, i, add);
 }
 
 // The trainer's: the adjoints of every embedding row of an se_e3 descriptor
@@ -1301,17 +1354,33 @@ const WIDE_BLOCK: u32 = 256;
 /// turns: with eight warps a center with 212 slots is through in 27 turns
 /// instead of 53. Whether a pass is sooner done for it goes by the number of
 /// its blocks. Measured on an RTX 4090 with the HAP models and tables, whole
-/// evaluations with the wider blocks against the narrower
-/// (`bench/results/hap-eval-force-blocks-rtx4090-2026-11-19.json`): 3.5% to
-/// 5% shorter at 54 and 88 centers, 0.6% to 3% shorter at 162 to 224, within
-/// 1.5% either way at 264 to 352, and 1% to 4% longer from 528 on.
-pub const WIDE_FORCE_CENTERS_F32: usize = 224;
-/// The same for float64 passes. There the wider blocks took 2.4% to 3.4% off
-/// an evaluation with se_e2_r at 54, 88 and 108 centers and less than 1.2%
-/// from 162 to 224 (from 264 on it was 1% to 3% longer), and they left one
-/// with se_e2_a within 0.6% at every size but one (a committee of 896
-/// centers, 1.4% shorter).
-pub const WIDE_FORCE_CENTERS_F64: usize = 108;
+/// evaluations with the wider blocks against the narrower, the sums of a
+/// block formed as they are since the afternoon of 2026-11-19
+/// (`bench/results/hap-eval-force-blocks-rtx4090-2026-11-19-r2.json`): 4% to
+/// 6% shorter at 54 to 108 centers, 1.2% to 5% shorter at 162 to 352, and
+/// 1.6% to 3.2% longer at 528, 896 and 12,288 (within 1.2% at 1,536). While
+/// every warp of a block reduced its own sums (sixty additions in double
+/// precision a warp, so twice as many for a block of eight warps as for one
+/// of four), the gain ended at 224 centers.
+pub const WIDE_FORCE_CENTERS_F32: usize = 352;
+/// The same for float64 passes. There the wider blocks took 1.6% to 4.4% off
+/// an evaluation with se_e2_r up to 224 centers, less than 1% from 264 to
+/// 352, and added 1.7% at 528. They left one with se_e2_a within 1.7% at
+/// every size but one: a committee of 352 centers, 4% longer.
+pub const WIDE_FORCE_CENTERS_F64: usize = 224;
+/// Passes of at most this many centers give the force kernel of an se_e2_a
+/// descriptor room in shared memory for the sums of a block across its warps
+/// (twelve doubles a thread, see `block_sums` in the kernels). The force
+/// kernels of se_e2_r and se_e3 have it in a pass of any size.
+///
+/// Measured on an RTX 4090 with the HAP models and tables, whole evaluations
+/// with the sums across the warps against every warp reducing its own
+/// (`bench/results/hap-eval-block-sums-rtx4090-2026-11-19.json`): with
+/// se_e2_a 1.8% to 3.7% shorter in float32 up to 352 centers and 0.2% to
+/// 1.4% in float64, and 2.8% to 3.7% longer at 528; with se_e2_r up to 4.7%
+/// shorter and never longer; with se_e3 up to 3.9% shorter, and longer only
+/// in float64 at 88 centers (1.4% and 3.1% in two cases).
+pub const BLOCK_SUMS_CENTERS: usize = 352;
 /// Static shared-memory limit per block without opting in to more.
 const SHARED_LIMIT: usize = 48 * 1024;
 /// The embedding tables reach from `min_distance` down to
@@ -1566,6 +1635,30 @@ pub(crate) fn pair_force_shared(slots: usize, ntypes: usize) -> usize {
     (3 * slots + 12) * 8 + (4 * (slots + ntypes + 1)).next_multiple_of(8)
 }
 
+/// Shared memory of the se_e2_a force kernel per block: five sums a slot in
+/// the precision of the networks, the block's sums in double, B in `b_size`
+/// bytes a number (those of the networks for the potential, double for the
+/// trainer) and its adjoint in the precision of the networks.
+pub(crate) fn angular_force_shared<P>(slots: usize, width: usize, b_size: usize) -> usize {
+    let size = std::mem::size_of::<P>();
+    (5 * slots * size).next_multiple_of(8) + 12 * 8 + 4 * width * (b_size + size)
+}
+
+/// Shared memory of the se_e2_r force kernel per block: dE/d(radial entry)
+/// of every slot and dE/dD in the precision of the networks, the block's
+/// sums in double.
+pub(crate) fn radial_force_shared<P>(slots: usize, width: usize) -> usize {
+    let size = std::mem::size_of::<P>();
+    (slots * size).next_multiple_of(8) + 12 * 8 + (width * size).next_multiple_of(8)
+}
+
+/// Shared memory a force kernel needs on top of its own to form the sums of
+/// a block of `threads` across its warps: twelve doubles a thread (see
+/// `block_sums` in the kernels).
+pub(crate) fn block_sums_shared(threads: u32) -> usize {
+    12 * 8 * threads as usize
+}
+
 /// Warps per block of the se_e3 descriptor kernel, which share the rows of
 /// an atom: as many as have their sums (`width` each) in shared memory, at
 /// most eight.
@@ -1768,6 +1861,8 @@ pub struct GpuPotential<P: Scalar> {
     /// that kernel at its last launch (zero before the first).
     wide_force_centers: usize,
     force_threads: u32,
+    block_sums_centers: Option<usize>,
+    block_sums_shared: bool,
     /// Neighbor search with its device buffers, kept between evaluations.
     search: NeighborSearch,
     last_truncated: bool,
@@ -2094,14 +2189,13 @@ impl<P: Scalar> Part<P> {
             .ok_or_else(|| Error(format!("no kernels for the descriptor {:?}", d.kind)))?;
         let width = d.width();
         let slots: usize = d.sel.iter().sum();
-        // Of the force kernel: dE/d(env row) and the block's sums in double,
-        // B and its adjoint in the precision of the networks; for se_e2_r
-        // dE/d(radial entry) and the sums in double, dE/dD in that precision.
+        // Of the force kernel, without the room for the sums of a block
+        // across its warps: a pass has that where it fits.
         let backward_shared = match kind {
-            DescriptorKind::SeE2A => (4 * slots + 12) * 8 + 8 * width * std::mem::size_of::<P>(),
-            DescriptorKind::SeE2R => {
-                (slots + 12) * 8 + (width * std::mem::size_of::<P>()).next_multiple_of(8)
+            DescriptorKind::SeE2A => {
+                angular_force_shared::<P>(slots, width, std::mem::size_of::<P>())
             }
+            DescriptorKind::SeE2R => radial_force_shared::<P>(slots, width),
             DescriptorKind::SeE3 => pair_force_shared(slots, ntypes),
         };
         // se_e3 has a kernel before the force kernel, with dE/dD of the atom.
@@ -2699,6 +2793,8 @@ impl<P: Scalar> GpuPotential<P> {
                 WIDE_FORCE_CENTERS_F64
             },
             force_threads: 0,
+            block_sums_centers: None,
+            block_sums_shared: false,
             search: NeighborSearch::new(d.rcut, &d.sel)?,
             last_truncated: false,
             profile: None,
@@ -2808,6 +2904,31 @@ impl<P: Scalar> GpuPotential<P> {
     /// such a descriptor.
     pub fn force_threads(&self) -> u32 {
         self.force_threads
+    }
+
+    /// The most centers of a pass (the atoms of a chunk times the models)
+    /// whose force kernels form the sums of a block across its warps in
+    /// shared memory, when one number was set for every descriptor. `None`
+    /// is how a potential starts: the kernel of se_e2_a up to
+    /// [`BLOCK_SUMS_CENTERS`], those of se_e2_r and se_e3 in any pass. A
+    /// kernel whose block has no room for the sums within the limit of
+    /// shared memory goes without at any number. The forces and the virial
+    /// are the same to rounding either way: the sums of a block are formed
+    /// in another order.
+    pub fn block_sums_centers(&self) -> Option<usize> {
+        self.block_sums_centers
+    }
+
+    /// Override [`Self::block_sums_centers`] for every descriptor; zero has
+    /// every warp reduce its own sums, as all did before 2026-11-19.
+    pub fn set_block_sums_centers(&mut self, centers: Option<usize>) {
+        self.block_sums_centers = centers;
+    }
+
+    /// Whether the force kernel launched last formed the sums of its blocks
+    /// across their warps in shared memory. False before the first launch.
+    pub fn block_sums_shared(&self) -> bool {
+        self.block_sums_shared
     }
 
     /// Model compression (DeePMD `dp compress`): replaces every embedding
@@ -3601,7 +3722,7 @@ impl<P: Scalar> GpuPotential<P> {
                 let (slots, width) = (part.slots, part.width);
                 let (slots_i, w_i, axis_i) = (slots as i32, width as i32, part.axis as i32);
                 let radial_scale = RADIAL_RESCALE / slots as f64;
-                let add_i = i32::from(number > 0);
+                let add = i32::from(number > 0);
                 let chunk_rows = match &work.pairs {
                     Some(pairs) => pairs.rows(first, end),
                     None => count * slots,
@@ -3697,8 +3818,7 @@ impl<P: Scalar> GpuPotential<P> {
                             .arg(&part.inv_range)
                             .arg(&mut force)
                             .arg(&mut virial)
-                            .arg(&natoms_i)
-                            .arg(&add_i);
+                            .arg(&natoms_i);
                         PAIR_FORCE_BLOCK
                     }
                     DescriptorKind::SeE2A | DescriptorKind::SeE2R => {
@@ -3734,8 +3854,7 @@ impl<P: Scalar> GpuPotential<P> {
                             .arg(&mut virial)
                             .arg(&ntypes_i)
                             .arg(&natoms_i)
-                            .arg(&stride_i)
-                            .arg(&add_i);
+                            .arg(&stride_i);
                         // A block per center and model: a pass of few is
                         // sooner done with wider ones (see
                         // `WIDE_FORCE_CENTERS_F32`).
@@ -3746,10 +3865,24 @@ impl<P: Scalar> GpuPotential<P> {
                         self.force_threads
                     }
                 };
+                // The last argument of every force kernel: bit 0 has it add
+                // to the virial, bit 1 says that its blocks have room for
+                // their sums across the warps.
+                let with_sums = part.backward_shared + block_sums_shared(block_dim);
+                let limit = self.block_sums_centers.unwrap_or(match part.kind {
+                    DescriptorKind::SeE2A => BLOCK_SUMS_CENTERS,
+                    DescriptorKind::SeE2R | DescriptorKind::SeE3 => usize::MAX,
+                });
+                self.block_sums_shared = members * count <= limit && with_sums <= SHARED_LIMIT;
+                let (shared, add_i) = match self.block_sums_shared {
+                    true => (with_sums, add | 2),
+                    false => (part.backward_shared, add),
+                };
+                launch.arg(&add_i);
                 let config = LaunchConfig {
                     grid_dim: (count as u32, deep, 1),
                     block_dim: (block_dim, 1, 1),
-                    shared_mem_bytes: part.backward_shared as u32,
+                    shared_mem_bytes: shared as u32,
                 };
                 unsafe { launch.launch(config) }
                     .map(drop)

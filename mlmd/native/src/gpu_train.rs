@@ -57,8 +57,8 @@
 //! nearest neighbors in its slots, none at or beyond its cutoff), which is
 //! kept with the frame like the list itself.
 use crate::gpu_model::{
-    descriptor_warps, launch_error, pair_dtheta_shared, pair_force_shared, pair_shared,
-    source as model_source, PAIR_BLOCK, PAIR_FORCE_BLOCK,
+    angular_force_shared, descriptor_warps, launch_error, pair_dtheta_shared, pair_force_shared,
+    pair_shared, radial_force_shared, source as model_source, PAIR_BLOCK, PAIR_FORCE_BLOCK,
 };
 use crate::{
     Activation, Descriptor, DescriptorKind, Layer, Model, Network, Residual, RADIAL_RESCALE,
@@ -905,12 +905,6 @@ fn pair_rows(
     Ok((start, nets, next))
 }
 
-/// Shared memory of the se_e2_r force kernel per block: dE/d(radial entry)
-/// of every slot and the block's sums in double, dE/dD in `P`.
-fn radial_force_shared<P>(slots: usize, width: usize) -> usize {
-    (slots + 12) * 8 + (width * std::mem::size_of::<P>()).next_multiple_of(8)
-}
-
 /// Shared memory of the kernel of the tangent of θ per block: the directions
 /// of the neighbors and their tangents in double, the neighbors' slots and
 /// the first neighbor of each type.
@@ -975,7 +969,9 @@ impl<P: Scalar> Part<P> {
         // The most shared memory a kernel of the descriptor takes per block.
         let real = std::mem::size_of::<P>();
         let shared = match kind {
-            DescriptorKind::SeE2A => (16 * width + 12 + 4 * slots) * 8 + 4 * width * real,
+            // The force kernel has B in double here.
+            DescriptorKind::SeE2A => ((16 * width + 12 + 4 * slots) * 8 + 4 * width * real)
+                .max(angular_force_shared::<P>(slots, width, 8)),
             DescriptorKind::SeE2R => radial_force_shared::<P>(slots, width),
             // The forces, the tangent of θ, the rows of the pairs, the
             // adjoints of D and of its tangent of an atom, and the sums of
@@ -1598,8 +1594,7 @@ impl<P: Scalar> Part<P> {
         let shared = match (&rows.env, b) {
             (Some(env), Some(b)) => {
                 launch.arg(env).arg(g).arg(dg).arg(b);
-                (4 * self.width + 4 * self.slots + 12) * 8
-                    + 4 * self.width * std::mem::size_of::<P>()
+                angular_force_shared::<P>(self.slots, self.width, 8)
             }
             _ => {
                 launch.arg(dg);

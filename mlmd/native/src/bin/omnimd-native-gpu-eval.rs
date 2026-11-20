@@ -24,7 +24,10 @@
 //! (0 disables it); the default suits an RTX 4090. `--wide-forces CENTERS`
 //! sets the most centers (atoms of a chunk times models) of a pass whose
 //! two-body force kernel gets its wider blocks (0: none); the default suits
-//! that card too.
+//! that card too. `--block-sums CENTERS` sets, for every descriptor, the
+//! most centers of a pass whose force kernel forms the sums of a block
+//! across its warps in shared memory (0: every warp reduces its own, as
+//! before 2026-11-19); without it se_e2_a has a limit and the others none.
 //!
 //! `--member` adds a model of the same architecture: the models are then
 //! evaluated together as a committee, and each output line is the array of
@@ -48,8 +51,8 @@ use std::time::Instant;
 const USAGE: &str = "usage: omnimd-native-gpu-eval MODEL.json [--precision float64|float32] \
                      [--bench K] [--profile] [--chunk ATOMS] [--compress RMIN[:STEP]] \
                      [--fused-fitting ATOMS] [--tiled-fitting on|off] [--wide-forces CENTERS] \
-                     [--member MODEL.json]... [--batch FRAMES] [--bench-batches N,N,...] \
-                     < frames.jsonl";
+                     [--block-sums CENTERS] [--member MODEL.json]... [--batch FRAMES] \
+                     [--bench-batches N,N,...] < frames.jsonl";
 
 struct Options {
     model: String,
@@ -64,6 +67,7 @@ struct Options {
     fused_fitting: Option<usize>,
     tiled_fitting: Option<bool>,
     wide_forces: Option<usize>,
+    block_sums: Option<usize>,
 }
 
 fn options() -> Result<Options, Box<dyn std::error::Error>> {
@@ -81,6 +85,7 @@ fn options() -> Result<Options, Box<dyn std::error::Error>> {
         fused_fitting: None,
         tiled_fitting: None,
         wide_forces: None,
+        block_sums: None,
     };
     while let Some(flag) = args.next() {
         let mut value = || args.next().ok_or(USAGE);
@@ -111,6 +116,7 @@ fn options() -> Result<Options, Box<dyn std::error::Error>> {
             }
             "--fused-fitting" => options.fused_fitting = Some(value()?.parse()?),
             "--wide-forces" => options.wide_forces = Some(value()?.parse()?),
+            "--block-sums" => options.block_sums = Some(value()?.parse()?),
             "--tiled-fitting" => {
                 options.tiled_fitting = Some(match value()?.as_str() {
                     "on" => true,
@@ -150,6 +156,9 @@ fn evaluate<P: Scalar>(
     }
     if let Some(centers) = options.wide_forces {
         gpu.set_wide_force_centers(centers);
+    }
+    if let Some(centers) = options.block_sums {
+        gpu.set_block_sums_centers(Some(centers));
     }
     let mut build_seconds = 0.0;
     if let Some((min_distance, step)) = options.compress {
