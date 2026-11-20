@@ -3304,6 +3304,13 @@ fn the_sums_of_a_force_block_are_formed_either_way() {
     let lattice = [[9.0, 0.0, 0.0], [1.5, 8.5, 0.0], [-1.0, 0.8, 9.2]];
     let frame = frame(lattice, 4, 2, true, 81);
     let natoms = frame.positions.len();
+    // A pass of one center.
+    let lone = Frame {
+        species: vec![frame.species[0].clone()],
+        positions: vec![[0.0; 3]],
+        cell: None,
+        units: Units::EvAngstrom,
+    };
     let same = |label: &str, a: &Evaluation, b: &Evaluation| {
         assert_eq!(a.energy, b.energy, "{label}: the networks ran alike");
         compare(label, a, b, (1e-15, 1e-11));
@@ -3352,6 +3359,18 @@ fn the_sums_of_a_force_block_are_formed_either_way() {
         let two = double.evaluate_frames(&[&frame, &frame], 1).unwrap();
         assert!(!double.block_sums_shared(), "{kind}: two frames");
         same(&format!("{kind}, two frames"), &two[1][0], &across);
+        // In chunks of one frame's atoms they are few centers at a time
+        // again.
+        let chunk = double.chunk_atoms();
+        double.set_chunk_atoms(natoms);
+        let two = double.evaluate_frames(&[&frame, &frame], 1).unwrap();
+        assert!(double.block_sums_shared(), "{kind}: two frames in chunks");
+        same(
+            &format!("{kind}, two frames in chunks"),
+            &two[1][0],
+            &across,
+        );
+        double.set_chunk_atoms(chunk);
         // The two-body kernels with their narrower blocks.
         double.set_wide_force_centers(0);
         same(
@@ -3367,6 +3386,12 @@ fn the_sums_of_a_force_block_are_formed_either_way() {
             &across,
         );
         assert!(!double.block_sums_shared(), "{kind}: none");
+        // None is none, also for a pass of one center.
+        double.eval(&lone).unwrap();
+        assert!(!double.block_sums_shared(), "{kind}: one atom, none");
+        double.set_block_sums_centers(Some(1));
+        double.eval(&lone).unwrap();
+        assert!(double.block_sums_shared(), "{kind}: one atom, one center");
 
         let mut single = GpuPotential::<f32>::new(model, device.clone()).unwrap();
         let across = single.eval(&frame).unwrap();
