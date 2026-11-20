@@ -1,15 +1,15 @@
 //! Cell-list neighbor search with DeePMD semantics (plan I-1).
 //!
 //! Atoms are binned on the host (counting sort over a grid whose cells are at
-//! least `rcut` wide); one GPU warp per center then scans the stencil of
-//! cells, including periodic images, into shared memory and selects like
-//! DeePMD-kit 3 (`build_neighbor_list`): the `sum(sel)` nearest neighbors of
-//! any type, then at most `sel[type]` of each type, ordered by (distance,
-//! atom, delta). Centers with more neighbors than the shared buffer holds
-//! fall back to one thread with insertion into the slots, which gives the
-//! same result. Neighbors
-//! beyond `sel` are dropped like DeePMD's `format_nlist`, and the full per-type
-//! counts and the minimum distance are kept for `dp neighbor-stat`.
+//! least `rcut` wide); a GPU block of a few warps per center then scans the
+//! stencil of cells, including periodic images, into shared memory and
+//! selects like DeePMD-kit 3 (`build_neighbor_list`): the `sum(sel)` nearest
+//! neighbors of any type, then at most `sel[type]` of each type, ordered by
+//! (distance, atom, delta). Centers with more neighbors than the shared
+//! buffer holds fall back to one thread with insertion into the slots, which
+//! gives the same result. Neighbors beyond `sel` are dropped like DeePMD's
+//! `format_nlist`, and the full per-type counts and the minimum distance are
+//! kept for `dp neighbor-stat`.
 //!
 //! Small periodic boxes are handled by widening the stencil: offsets map to
 //! distinct (cell, image) pairs, so every image within the cutoff is visited
@@ -84,7 +84,7 @@ __device__ void unpack_image(int packed, int* q) {
 // arrays; its last entry is the selection threshold. The second starts over
 // and inserts the neighbors at or inside the threshold into the sorted
 // per-type segments, at most sel[t] each. Used when a center has more
-// neighbors than the shared buffer of the warp path holds.
+// neighbors than the shared buffer of its block holds.
 __device__ void serial_center(int i,
         const double* pos, const int* types, const int* cell_of, const int* cell_start,
         const int* cell_atoms, const double* lattice, int ntypes, const int* n,
@@ -191,35 +191,44 @@ __device__ __noinline__ void break_ties(int e, int total, const long long* key, 
     }
 }
 
-// One warp per center, in three steps. The lanes first scan the stencil's
-// cells together in single precision and append every atom within the cutoff
-// plus a margin (which covers the rounding of that arithmetic, so no
-// neighbor is lost) to a per-warp shared buffer (ballot + popc). The few
+// One block of a few warps per center, in three steps. The warps first scan
+// the stencil's cells in single precision, each warp a share of its columns
+// (the cells along the last axis at one pair of offsets along the first
+// two), and append every atom within the cutoff plus a margin (which covers
+// the rounding of that arithmetic, so no neighbor is lost) to the block's
+// shared buffer: a ballot and popc place a batch of 32 atoms, and one atomic
+// add on the count of candidates gives the batch its place. The few
 // candidates are then measured in double precision, which decides exactly as
-// a scan in double precision would. Last, each lane ranks its neighbors by
+// a scan in double precision would. Last, each thread ranks candidates by
 // (distance, atom, delta), overall and within their type, and writes those
 // among the `slots` nearest overall and the sel[t] nearest of their type
-// straight to their slots. Same result as `serial_center`, which takes over
-// when the buffer would overflow.
+// straight to their slots. A slot follows from the ranks alone, so the order
+// in which the warps filled the buffer does not matter: every count of warps
+// gives the same list, bit for bit. Same result as `serial_center`, which
+// takes over when the buffer would overflow.
 //
 // Double precision is scarce on the device (about 1/64 of the single
 // precision rate), so it is kept to the candidates, and distances are ranked
 // by their bit patterns: positive doubles order like integers.
 //
-// The scan is one warp's work from end to end, so a center waits for every
-// operation of it, and a division by the cells of an axis takes a warp as
-// long as fourteen multiply-adds (`arithmetic_costs` in `tests/costs.rs`).
-// The stencil is therefore walked without one for each of its cells: along
-// an axis the cell and the image of the first offset come from one division
-// and those of the others by steps (`next_offset`). Along the last axis the
-// cells of one image lie one after the other in the grid, and so do their
-// atoms, so they are scanned as one run of atoms: fewer bounds to read and
-// fuller batches for the lanes. The atoms still come by in the order of a
-// scan cell by cell, so the buffer is filled as that scan fills it. (On an
-// RTX 4090 a search of 88 atoms to 6 A, with its packing and a wait for the
-// device, took 37 microseconds with a division for every axis of every cell
-// and takes 30; one of 5,632 atoms took 313 and takes 280:
-// `neighbor_search_costs` in `tests/costs.rs`.)
+// A warp's share of the scan is its work from end to end, so a center waits
+// for every operation of the longest share. Hence the several warps: few
+// centers leave most of the device idle, and the blocks of many still fit
+// it side by side. (On an RTX 4090, launched back to back, the kernel took
+// 19.7 microseconds for 88 atoms to 6 A with one warp per center and takes
+// 12.8 with four; 114 and 108 for 5,632 atoms. See `WARPS_PER_CENTER`.)
+// A division by the cells of an axis takes a warp as long as fourteen
+// multiply-adds (`arithmetic_costs` in `tests/costs.rs`), so the stencil is
+// also walked without one for each of its cells: along an axis the cell and
+// the image of the first offset come from one division and those of the
+// others by steps (`next_offset`). Along the last axis the cells of one
+// image lie one after the other in the grid, and so do their atoms, so they
+// are scanned as one run of atoms: fewer bounds to read and fuller batches
+// for the lanes. (On an RTX 4090 a search of 88 atoms to 6 A, with its
+// packing and a wait for the device, took 37 microseconds with a division
+// for every axis of every cell and 30 without, one warp per center; one of
+// 5,632 atoms took 313 and 280: `neighbor_search_costs` in
+// `tests/costs.rs`.)
 //
 // The atoms may belong to several systems that do not see each other (a
 // batch of frames): every system has a cell and a grid of its own, and a
@@ -247,7 +256,8 @@ extern "C" __global__ void neighbor_search(
         int* mirror) {
     extern __shared__ double smem[];
     int warps = blockDim.x >> 5, warp = threadIdx.x >> 5, lane = threadIdx.x & 31;
-    int i = blockIdx.x * warps + warp;
+    int tid = threadIdx.x, threads = blockDim.x;
+    int i = blockIdx.x;
     if (i >= natoms) return;
     const double* pos = packed + 9 * (long long)systems;
     const int* headers = (const int*)(pos + 3 * (long long)natoms);
@@ -270,16 +280,19 @@ extern "C" __global__ void neighbor_search(
     int room = header[18] ? capacity : 0;
     const int* sel = tables;
     const int* offset = tables + ntypes;
-    // Per warp: r[capacity] doubles, then j, packed image, type [capacity]
-    // ints, then the per-type counts.
-    int per_warp = capacity + (3 * capacity + ntypes + 1) / 2;
-    double* cr = smem + (long long)warp * per_warp;
-    int* cj = (int*)(cr + capacity);
+    // Per block: r[capacity] and the nearest distance each warp found
+    // [warps] as doubles, then as ints j, packed image and type [capacity],
+    // the per-type counts [ntypes] and the candidates found so far.
+    double* cr = smem;
+    double* nearest = cr + capacity;
+    int* cj = (int*)(nearest + warps);
     int* cimg = cj + capacity;
     int* ctype = cimg + capacity;
     int* cnt = ctype + capacity;
-    for (int t = lane; t < ntypes; t += 32) cnt[t] = 0;
-    __syncwarp();
+    int* found = cnt + ntypes;
+    for (int t = tid; t < ntypes; t += threads) cnt[t] = 0;
+    if (tid == 0) *found = 0;
+    __syncthreads();
     const double* pi = pos + 3 * (long long)i;
     float pi_f[3] = {(float)pi[0], (float)pi[1], (float)pi[2]};
     int ci[3] = {cell_of[3 * i], cell_of[3 * i + 1], cell_of[3 * i + 2]};
@@ -290,9 +303,11 @@ extern "C" __global__ void neighbor_search(
         q0[a] = periodic ? floor_div(raw, n[a]) : 0;
         c0[a] = raw - q0[a] * n[a];
     }
-    int total = 0;
+    // The warps take the columns of the stencil in turn.
+    int column = 0;
     for (int ox = -sx, cx = c0[0], qx = q0[0]; ox <= sx; ++ox, next_offset(&cx, &qx, n[0], periodic))
     for (int oy = -sy, cy = c0[1], qy = q0[1]; oy <= sy; ++oy, next_offset(&cy, &qy, n[1], periodic)) {
+        if (column++ % warps != warp) continue;
         // Outside an open box.
         if (cx < 0 || cx >= n[0] || cy < 0 || cy >= n[1]) continue;
         // Along the last axis: `left` offsets to go from cell `cz` of image
@@ -325,20 +340,23 @@ extern "C" __global__ void neighbor_search(
                     near = !(j == i && self_image) && !(dx * dx + dy * dy + dz * dz >= wide2);
                 }
                 unsigned mask = __ballot_sync(FULL_MASK, near);
+                int start = 0;
+                if (lane == 0 && mask) start = atomicAdd(found, __popc(mask));
+                start = __shfl_sync(FULL_MASK, start, 0);
                 if (near) {
-                    int at = total + __popc(mask & ((1u << lane) - 1u));
+                    int at = start + __popc(mask & ((1u << lane) - 1u));
                     if (at < room) {
                         cj[at] = j;
                         cimg[at] = image;
                     }
                 }
-                total += __popc(mask);
             }
         }
     }
-    __syncwarp();
+    __syncthreads();
+    int total = *found;
     if (total > room) {
-        if (lane == 0)
+        if (tid == 0)
             serial_center(i, pos, types, cell_of, cell_start, cell_atoms, lattice, ntypes, n, reach,
                           periodic, rcut, sel, offset, slots, index, delta, dist, count, min_dist,
                           flags, mirror);
@@ -349,7 +367,7 @@ extern "C" __global__ void neighbor_search(
     const double infinity = __longlong_as_double(0x7ff0000000000000LL);
     double best = infinity;
     bool touching = false;
-    for (int e = lane; e < total; e += 32) {
+    for (int e = tid; e < total; e += threads) {
         int j = cj[e], q[3], t = -1;
         double d[3], r = infinity;
         unpack_image(cimg[e], q);
@@ -370,34 +388,36 @@ extern "C" __global__ void neighbor_search(
     }
     for (int offset_ = 16; offset_ > 0; offset_ >>= 1)
         best = fmin(best, __shfl_down_sync(FULL_MASK, best, offset_));
-    bool coincident = __any_sync(FULL_MASK, touching);
-    __syncwarp();
+    if (lane == 0) nearest[warp] = best;
+    // A barrier: the counts, distances and types are all in.
+    bool coincident = __syncthreads_or(touching);
     long long base = (long long)i * slots;
-    for (int s = lane; s < slots; s += 32) {
+    for (int s = tid; s < slots; s += threads) {
         index[base + s] = -1;
         dist[base + s] = infinity;
         for (int a = 0; a < 3; ++a) delta[(base + s) * 3 + a] = 0.0;
     }
     bool over = false;
-    for (int t = lane; t < ntypes; t += 32) {
+    for (int t = tid; t < ntypes; t += threads) {
         count[(long long)i * ntypes + t] = cnt[t];
         over |= cnt[t] > sel[t];
     }
-    bool truncated = __any_sync(FULL_MASK, over);
-    if (lane == 0) {
+    // A barrier too: every slot is emptied before any is filled.
+    bool truncated = __syncthreads_or(over);
+    if (tid == 0) {
+        for (int w = 1; w < warps; ++w) best = fmin(best, nearest[w]);
         int status = (coincident ? COINCIDENT : 0) | (truncated ? TRUNCATED : 0);
         min_dist[i] = best;
         flags[i] = status;
         if (mirror) mirror[i] = status;
     }
-    __syncwarp();
     // Distances as integers: for positive doubles the order is the same.
     // Candidates at exactly the distance of `e` are only counted here; the
     // rare ties are decided afterwards, in a function of their own, so that
     // their double precision arithmetic stays out of this loop (inlined, the
     // compiler runs it for every pair and discards the result).
     const long long* key = (const long long*)cr;
-    for (int e = lane; e < total; e += 32) {
+    for (int e = tid; e < total; e += threads) {
         int t = ctype[e];
         if (t < 0 || sel[t] == 0) continue;
         long long ke = key[e];
@@ -481,6 +501,8 @@ pub struct NeighborSearch {
     /// four-byte entries while they are put together.
     words: Vec<u64>,
     halves: Vec<u32>,
+    /// Warps of the block of a center.
+    warps: usize,
     state: Option<State>,
 }
 
@@ -873,10 +895,30 @@ fn bin(positions: &[[f64; 3]], cell: &Cell, rcut: f64) -> Result<Grid> {
 /// Shared memory one block may use without opting in to more.
 const SHARED_LIMIT: usize = 48 * 1024;
 
-/// Doubles of shared memory per warp for a buffer of `capacity` neighbors.
-fn warp_doubles(capacity: usize, ntypes: usize) -> usize {
-    capacity + (3 * capacity + ntypes + 1) / 2
+/// Doubles of shared memory of a block of `warps` warps for a buffer of
+/// `capacity` neighbors.
+fn block_doubles(capacity: usize, ntypes: usize, warps: usize) -> usize {
+    capacity + warps + (3 * capacity + ntypes + 2) / 2
 }
+
+/// The largest buffer whose block fits [`SHARED_LIMIT`].
+fn max_capacity(ntypes: usize, warps: usize) -> usize {
+    (2 * (SHARED_LIMIT / 8) - 2 * warps - ntypes - 2) / 5
+}
+
+/// Warps that work on one center by default. Timed on an RTX 4090 with one,
+/// two, four and eight, in evaluations of the HAP model (float32 with
+/// tables; 88 to 5,632 atoms) and of a water model (float64; 192 and 1,536):
+/// four were the fastest or within the scatter of the fastest throughout.
+/// Two kept up only for thousands of atoms; eight were within the scatter
+/// of four up to 224 atoms, slower from 704 on, and cost the kernel a third
+/// more time for 5,632. Against one warp, an evaluation of 88 to 704 atoms
+/// is 2 to 7 microseconds shorter (`bench/results/SUMMARY.md`).
+const WARPS_PER_CENTER: usize = 4;
+
+/// Most warps per center. Within a multiprocessor's 65,536 registers up to
+/// 128 a thread (the kernel takes 80).
+const MAX_WARPS_PER_CENTER: usize = 16;
 
 impl NeighborSearch {
     pub fn new(rcut: f64, sel: &[usize]) -> Result<Self> {
@@ -895,8 +937,16 @@ impl NeighborSearch {
             slots,
             words: Vec::new(),
             halves: Vec::new(),
+            warps: WARPS_PER_CENTER,
             state: None,
         })
+    }
+
+    /// The warps that work on one center, 1 to `MAX_WARPS_PER_CENTER` (16).
+    /// Every count gives the same list. For tests and probes.
+    #[doc(hidden)]
+    pub fn set_warps_per_center(&mut self, warps: usize) {
+        self.warps = warps.clamp(1, MAX_WARPS_PER_CENTER);
     }
 
     /// Neighbors of every atom. The list is overwritten by the next search.
@@ -1087,13 +1137,15 @@ impl NeighborSearch {
 
         let scalars = [natoms as i32, ntypes as i32, systems as i32];
         let slots_i = slots as i32;
-        let max_capacity = (2 * (SHARED_LIMIT / 8) - ntypes - 1) / 5;
-        let capacity = capacity.unwrap_or(slots + slots / 2 + 32).min(max_capacity);
-        let warp_bytes = warp_doubles(capacity, ntypes) * 8;
-        // One center per block: blocks spread over the multiprocessors, each
-        // with its own few double precision units. (Measured: 4 centers per
-        // block cost 15% more time for 88 atoms and the same for thousands.)
-        let warps = 1;
+        // One center per block, of `self.warps` warps: blocks spread over the
+        // multiprocessors, each with its own few double precision units.
+        // (Measured with a warp per center: 4 centers per block cost 15% more
+        // time for 88 atoms and the same for thousands.)
+        let warps = self.warps;
+        let capacity = capacity
+            .unwrap_or(slots + slots / 2 + 32)
+            .min(max_capacity(ntypes, warps));
+        let block_bytes = block_doubles(capacity, ntypes, warps) * 8;
         let capacity_i = capacity as i32;
         {
             let list = &mut state.list;
@@ -1128,9 +1180,9 @@ impl NeighborSearch {
             }
             launch.arg(&mirror_pointer);
             let config = LaunchConfig {
-                grid_dim: (natoms.div_ceil(warps) as u32, 1, 1),
+                grid_dim: (natoms as u32, 1, 1),
                 block_dim: (32 * warps as u32, 1, 1),
-                shared_mem_bytes: (warps * warp_bytes) as u32,
+                shared_mem_bytes: block_bytes as u32,
             };
             unsafe { launch.launch(config) }
                 .map(drop)
@@ -1351,6 +1403,29 @@ mod tests {
         assert!(wide > 5.0 + 1.1 && wide < 5.0 + 1.2, "{wide}");
         // Out of the range of floats, everything passes the scan.
         assert_eq!(scan_radius2(1e30, &[0.0; 9], &far, false), f32::INFINITY);
+    }
+
+    #[test]
+    fn the_largest_buffer_fits_the_shared_memory_of_a_block() {
+        let fits =
+            |capacity, ntypes, warps| block_doubles(capacity, ntypes, warps) * 8 <= SHARED_LIMIT;
+        for warps in 1..=MAX_WARPS_PER_CENTER {
+            for ntypes in 1..=40 {
+                let capacity = max_capacity(ntypes, warps);
+                assert!(
+                    fits(capacity, ntypes, warps),
+                    "{ntypes} types, {warps} warps"
+                );
+                // At most one neighbor short of the most that fit.
+                assert!(
+                    !fits(capacity + 2, ntypes, warps),
+                    "{ntypes} types, {warps} warps"
+                );
+            }
+        }
+        // The block holds what the default capacity asks for at the selection
+        // of the HAP models.
+        assert!(max_capacity(5, WARPS_PER_CENTER) >= 212 + 212 / 2 + 32);
     }
 
     #[test]

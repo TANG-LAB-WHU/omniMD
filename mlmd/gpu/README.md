@@ -138,6 +138,46 @@ What follows for the kernels:
   float32 and at 108 in float64. Blocks of 512 threads were no better than
   256 at 88 atoms and worse at 224, and wider blocks for the descriptor
   kernel changed nothing. Why the gain ends where it does was not measured.
+- Give a chain of one center's work to several warps. The neighbor search
+  had a warp for a center, which walked the columns of the center's stencil
+  one after the other (27 cells in 9 columns for the 88-atom frame).
+  Stopped after each of its steps on a probe build, the kernel for 88 atoms
+  took 5.3 µs to launch and return at once (back to back, the host's pace),
+  14.8 through the scan and 19.7 in all. It has a block of four warps for a
+  center now: the warps take the columns in turns and append to one buffer
+  of candidates through a count in shared memory, and the double precision
+  pass and the ranking take the candidates 128 at a time. A slot follows
+  from the ranks alone, so the order in which the warps fill the buffer does
+  not matter and the list is the same, bit for bit, with any count of warps.
+  The kernel for 88 atoms went to 12.8 µs (8.0 through the scan), the one
+  for 5,632 from 114 to 108, where the blocks of one warp already filled the
+  device. Evaluations of the HAP frames of 88 to 704 atoms in float32 with
+  tables are 2 to 7 µs shorter (two runs: 155.0 → 149.8 µs and 152.5 →
+  150.3 for 88 atoms, less than the kernel's 7 µs), and an MD step of 88
+  atoms 2.4 to 4.7 µs shorter; from 1,536 atoms on the difference is within
+  the scatter of the runs. Two warps were up to 7 µs an evaluation slower
+  than four below a thousand atoms, and eight were within the scatter of
+  four up to 224 atoms and slower from 704 on, the kernel a third longer for
+  5,632 atoms (`WARPS_PER_CENTER` in `src/nlist.rs`).
+- Price a list kept across steps before keeping one. With a Verlet skin a
+  search would take its candidates to rcut + skin, and until the two atoms
+  that have moved most since have moved more than the skin between them,
+  each step would measure those candidates again instead of scanning. In
+  NVT runs of the three HAP frames with the trained model (0.5 fs steps,
+  2,000 of them, at 300 and 500 K) such a list lasted 9 to 24 steps with a
+  skin of 0.5 Å, 21 to 125 with 1 Å and 59 to 2,000 with 2 Å. A step would
+  save less than the scan, though, and with four warps a center the scan is
+  short. Read back instead of scanned, the 71 to 78 candidates within the
+  cutoff itself take about 3 to 4.5 µs less than a fresh search (12.3 to
+  13.2 µs), and the 112 to 124 candidates of a 1 Å skin take 11.9 to 14.3
+  µs, within the scatter of the probe of a fresh search; that against
+  evaluations of 150 to 210 µs. A skin would also spare most of the host's
+  packing of the search input, 2 to 6 µs at these sizes. So for the HAP
+  frames the search runs afresh every step. Thousands of atoms are another
+  case: for 5,632 the packing takes 125 to 167 µs, more than the kernel's
+  108, and a 1 Å skin reads back in 100, so a skin or a faster packing
+  could save about 5% of an evaluation of 2,770 µs. The packing is the part
+  of the search to look at next.
 - Keep double precision for what needs it. The neighbor search scans in
   single precision with a margin that covers its rounding and measures only
   the surviving candidates in double; distances are ranked by their bit
@@ -296,6 +336,9 @@ against loops, networks against chains with finite-difference tangents and
 gradients, the neighbor search against brute force over images (random and
 skewed cells, boxes narrower than the cutoff, open systems, truncation, exact
 ties on a lattice, pairs a part in 1e9 from the cutoff at coordinates where
-single precision cannot tell them apart), and a search over several systems
-against each system searched alone. The tests skip without a CUDA
-driver; `OMNIMD_REQUIRE_GPU=1` turns a missing device into a failure.
+single precision cannot tell them apart), a search over several systems
+against each system searched alone, and searches with 2 to 16 warps per
+center against one warp, bit for bit and with the status of every center
+(also for forty atom types, more than a warp has lanes). The tests skip
+without a CUDA driver; `OMNIMD_REQUIRE_GPU=1` turns a missing device into a
+failure.

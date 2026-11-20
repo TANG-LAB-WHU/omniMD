@@ -1,3 +1,215 @@
+# The neighbor search with four warps a center, and a skin priced, 2026-11-20
+
+The request was to keep the neighbor list across MD steps with a Verlet
+skin. Before building one, this section priced it: how many steps a list
+with a skin lasts in MD of the HAP frames, and what a step that measures the
+stored candidates again, instead of scanning the stencil, would save. The
+scan was most of the search kernel, because one warp walked the whole
+stencil of its center. With a block of four warps a center the scan is
+short, and for the HAP frames a skin would then save at most about 3 to 4.5
+µs of an evaluation of 150 to 210 µs, and about nothing with a skin wide
+enough to last. The four warps are in; the skin is not built for these
+sizes. For thousands of atoms the host's packing of the search input is
+the larger part (below).
+
+**How long a list with a skin lasts.** NVT molecular dynamics (CSVR, τ 50
+fs, 0.5 fs steps, 2,000 steps) of the three HAP frames of the engine
+benchmarks with the trained se_e2_a model in float32 with tables, at 300 and
+500 K, by the engine of 475cafb. From each build of the list, the steps
+until the two atoms that have moved most since then have together moved
+more than the skin (the cell is fixed); steps per build, the first build
+counted (`hap-skin-intervals-rtx4090-2026-11-20.json`):
+
+| frame | K | largest step of an atom (Å) | skin 0.5 Å | skin 1 Å | skin 2 Å |
+|---|---:|---:|---:|---:|---:|
+| 88 atoms | 300 | 0.029 | 23.5 | 125.0 | 2000 |
+| 88 atoms | 500 | 0.040 | 17.7 | 58.8 | 2000 |
+| 169 atoms | 300 | 0.037 | 11.9 | 27.4 | 111 |
+| 169 atoms | 500 | 0.052 | 9.6 | 21.3 | 59 |
+| 224 atoms | 300 | 0.035 | 12.0 | 69.0 | 2000 |
+| 224 atoms | 500 | 0.046 | 9.4 | 27.8 | 2000 |
+
+**Where the time of the search kernel goes.** A probe build stops the
+kernel after each of its steps; marks around 3,000 launches back to back
+(500 for 5,632 atoms) after 20 to warm up, so a launch that returns at once
+takes the host's pace. Cutoff 6 Å, sel [44, 16, 60, 72, 20]; 704 and 5,632
+atoms are the 88-atom frame replicated 2 and 4 times along each axis (µs a
+launch; the stops scatter by a microsecond or two, so a later stop can read
+less than an earlier one; `hap-search-stages-rtx4090-2026-11-20.json`):
+
+| atoms | warps | launch and return | through the scan | through exact distances | all | candidates a center |
+|---:|---:|---:|---:|---:|---:|---:|
+| 88 | 1 | 5.3 | 14.8 | 17.2 | 19.7 | 74 |
+| 88 | 2 | 4.8 | 11.2 | 13.1 | 14.5 | 74 |
+| 88 | 4 | 4.7 | 8.0 | 9.4 | 12.8 | 74 |
+| 88 | 8 | 8.7 | 9.2 | 8.6 | 12.2 | 74 |
+| 169 | 1 | 5.4 | 13.6 | 14.9 | 18.6 | 71 |
+| 169 | 2 | 7.1 | 10.7 | 12.7 | 14.3 | 71 |
+| 169 | 4 | 6.5 | 10.1 | 9.1 | 12.3 | 71 |
+| 169 | 8 | 5.4 | 8.4 | 10.9 | 12.7 | 71 |
+| 224 | 1 | 5.6 | 15.8 | 14.7 | 19.1 | 78 |
+| 224 | 2 | 6.9 | 10.2 | 12.2 | 14.7 | 78 |
+| 224 | 4 | 6.7 | 9.4 | 9.1 | 13.2 | 78 |
+| 224 | 8 | 6.4 | 8.3 | 8.8 | 13.2 | 78 |
+| 704 | 1 | 6.9 | 15.2 | 19.7 | 25.8 | 74 |
+| 704 | 2 | 5.0 | 12.5 | 15.5 | 21.7 | 74 |
+| 704 | 4 | 5.0 | 12.6 | 14.3 | 19.4 | 74 |
+| 704 | 8 | 6.3 | 13.1 | 18.7 | 25.7 | 74 |
+| 5,632 | 1 | 7.0 | 50.8 | 73.8 | 114.5 | 74 |
+| 5,632 | 2 | 7.4 | 35.8 | 61.9 | 104.5 | 74 |
+| 5,632 | 4 | 8.1 | 42.8 | 74.1 | 107.8 | 74 |
+| 5,632 | 8 | 7.5 | 67.8 | 111.4 | 143.1 | 74 |
+
+With one warp a center, the scan was about 9.5 of the 19.7 µs for 88 atoms:
+the warp walks the 27 cells of the stencil, 9 columns of 3, one after the
+other, and a center waits for every step of it. With four warps the
+columns go to the warps in turns (3, 2, 2 and 2 of them) and the scan takes
+about 3.3 µs. For 5,632 atoms the blocks already fill the device, and the
+double precision pass and the ranking take most of the kernel. The kernel
+in four warps: every warp appends its batches of 32 atoms to the one buffer
+of candidates of the block through a count in shared memory (an atomic add
+a batch), the double precision pass and the ranking take the candidates 128
+at a time, and the nearest distance and the status bits of a center come
+from the warps through shared memory and two barriers that also reduce. A
+slot follows from the ranks alone, so the order in which the warps fill the
+buffer does not matter: in this probe 2, 3, 4, 8, 9 and 16 warps gave the
+list of one warp, bit for bit, on all five frames.
+
+**What a skin would save.** On the same probe, the candidates stored by a
+search with a scan radius of rcut + s are what the refresh of a list with a
+skin of s reads back; the refresh moves each image by the shifts of its two
+atoms, measures the candidates in double precision and ranks them as a
+search does. Four warps a center (µs a launch, and the host's packing of
+the input of a search, binning included):
+
+| atoms | fresh search to rcut | read back: rcut | rcut + 1 Å | rcut + 2 Å | candidates: rcut | + 1 Å | + 2 Å | host packing |
+|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| 88 | 12.8 | 8.3 | 11.9 | 13.4 | 74 | 119 | 177 | 1.7 |
+| 169 | 12.3 | 9.4 | 13.1 | 14.9 | 71 | 112 | 163 | 3.5 |
+| 224 | 13.2 | 10.4 | 14.3 | 15.3 | 78 | 124 | 187 | 5.9 |
+| 704 | 19.4 | 15.7 | 18.6 | 28.6 | 74 | 119 | 177 | 16.2 |
+| 5,632 | 107.8 | 82.5 | 100.4 | 157.9 | 74 | 119 | 177 | 153.9 |
+
+A skin of zero is the bound: about 3 to 4.5 µs a step for the frames of the
+runs (one pass of the probe, whose stops scatter by a microsecond or two). A
+skin that lasts (1 Å: 21 to 125 steps) reads back 112 to 124 candidates
+where a search keeps 71 to 78, and that takes 11.9 to 14.3 µs against 12.3
+to 13.2 for a fresh search, within the scatter of the probe. A skin would
+also spare most of the host's packing, 1.7 to 5.9 µs at these sizes (a
+refresh still needs the positions on the device). Thousands of atoms are
+another case: for 5,632 atoms a 1 Å skin reads back in 100.4 µs against
+107.8 for a fresh search, and the packing is 154 µs here (125 to 167 over
+the runs of the probe), more than the kernel. There a skin, or a faster
+packing, could save about 5% of an evaluation of 2,770 µs: the host part of
+the search is what to look at for large systems.
+
+**Warps per center.** A probe evaluator whose search takes its warps per
+center from the environment, and the ranking loop unrolled by 4 or 8
+(`WARPS:UNROLL`). The HAP frames with the trained se_e2_a model in float32
+with tables, the 88-atom frame replicated, and the water frames with the
+water model in float64; the least of five rounds, the order of the
+configurations reversed every other round (µs an evaluation;
+`hap-search-warps-rtx4090-2026-11-20.json`, with the medians):
+
+| case | 1 | 2 | 4 | 8 | 4:4 | 2:4 | 4:8 |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| HAP 88 | 156.0 | 149.7 | 149.3 | 147.4 | 150.9 | 150.3 | 150.3 |
+| HAP 169 | 193.2 | 187.0 | 185.1 | 185.3 | 184.6 | 186.7 | 185.9 |
+| HAP 224 | 215.7 | 210.3 | 209.3 | 208.5 | 207.9 | 211.8 | 209.1 |
+| HAP 704 | 527.1 | 522.2 | 518.0 | 523.8 | 516.3 | 517.3 | 516.8 |
+| HAP 5632 | 2776.2 | 2763.0 | 2768.4 | 2778.7 | 2778.8 | 2762.0 | 2762.8 |
+| water 192 f64 | 1255.9 | 1239.5 | 1232.6 | 1236.9 | 1238.7 | 1242.7 | 1238.5 |
+| water 1536 f64 | 8435.3 | 8462.7 | 8440.8 | 8445.7 | 8431.9 | 8449.4 | 8440.4 |
+
+Four warps were the fastest or within the scatter of the fastest
+throughout; eight were within the scatter of four up to 224 atoms and for
+the water frames, slower from 704 HAP atoms on, and cost the kernel a third
+more for 5,632 atoms. Unrolling the ranking loop changed nothing beyond the
+scatter, and is not done.
+
+**Before and after.** The evaluator of 475cafb and of this change, the one
+before twice a round (`before again`: what the machine adds), five rounds,
+the least of each (µs an evaluation; `hap-eval-search-warps-rtx4090-2026-11-20.json`,
+with the medians):
+
+| case | before | after | before again | after − before |
+|---|---:|---:|---:|---:|
+| HAP 88, float32 with tables | 155.0 | 149.8 | 157.4 | -5.3 |
+| HAP 169, float32 with tables | 192.6 | 188.2 | 193.3 | -4.5 |
+| HAP 224, float32 with tables | 217.4 | 210.2 | 216.1 | -7.3 |
+| HAP 88, float64 with tables | 411.8 | 407.4 | 413.3 | -4.4 |
+| HAP 169, float64 with tables | 720.3 | 715.5 | 720.1 | -4.7 |
+| HAP 224, float64 with tables | 748.6 | 749.1 | 752.4 | +0.5 |
+| HAP 704, float32 with tables | 524.8 | 521.4 | 525.9 | -3.4 |
+| HAP 5,632, float32 with tables | 2,797.8 | 2,810.9 | 2,784.2 | +13.1 |
+| water 192, float64 | 1,259.9 | 1,243.1 | 1,258.7 | -16.8 |
+| water 1,536, float64 | 8,482.0 | 8,494.6 | 8,490.0 | +12.6 |
+| water 12,288, float64 | 66,071.3 | 66,165.2 | 66,112.5 | +93.9 |
+
+From 1,536 atoms on the differences are within what `before again` differs
+from `before` (the medians: 2,836 → 2,819 µs for 5,632 atoms, 8,500 → 8,499
+for 1,536 waters). The 224-atom frame in float64 reads 757.1 → 750.6 µs by
+the medians. The same two builds again later in the session, nine rounds on
+the HAP cases only, gave less for 88 atoms (µs; `second_run` in the record):
+
+| case | before | after | before again | after − before |
+|---|---:|---:|---:|---:|
+| HAP 88, float32 with tables | 152.5 | 150.3 | 152.5 | -2.3 |
+| HAP 169, float32 with tables | 189.7 | 186.1 | 190.8 | -3.7 |
+| HAP 224, float32 with tables | 213.8 | 208.9 | 214.2 | -4.9 |
+| HAP 88, float64 with tables | 403.9 | 400.1 | 407.9 | -3.8 |
+| HAP 704, float32 with tables | 522.6 | 517.2 | 522.8 | -5.4 |
+| HAP 5,632, float32 with tables | 2,769.3 | 2,766.6 | 2,770.9 | -2.7 |
+
+So an evaluation of 88 to 704 atoms is 2 to 7 µs shorter, less than the 7
+µs the kernel lost for 88 atoms; why the evaluation keeps less of it was
+not measured.
+
+The engine: NVT molecular dynamics (CSVR, 300 K, τ 50 fs) of the three
+frames, 20,000 steps of 0.5 fs, the same model in float32 with tables, the
+engines of 475cafb and of this change alternated in five rounds, the least
+of each, beside evaluations of the same frames by the two evaluators (µs;
+`hap-md-step-search-warps-rtx4090-2026-11-20.json`):
+
+| frame | per | before | after | before again |
+|---|---|---:|---:|---:|
+| 88 atoms | step | 170.5 | 165.8 | 170.4 |
+| 88 atoms | evaluation | 155.6 | 154.7 | 154.6 |
+| 169 atoms | step | 241.7 | 232.2 | 222.9 |
+| 169 atoms | evaluation | 193.2 | 188.7 | 193.2 |
+| 224 atoms | step | 239.4 | 234.3 | 238.3 |
+| 224 atoms | evaluation | 214.4 | 209.4 | 217.4 |
+| 169 atoms, again in seven rounds | step | 243.8 | 221.7 | 239.8 |
+| 169 atoms, again in seven rounds | evaluation | 191.5 | 187.0 | 192.7 |
+| 88 atoms, again in seven rounds | step | 162.2 | 159.8 | 163.4 |
+| 88 atoms, again in seven rounds | evaluation | 152.2 | 150.2 | 152.7 |
+
+A step of 88 atoms is 2.4 to 4.7 µs shorter and one of 224 atoms 5.1. The
+step of the 169-atom frame sits near 222 or near 240 µs from run to run with
+either build (the build before: 241.7 and 222.9 in the first run), so its
+steps are not compared here; why it has two levels was not looked into. The
+evaluations of 88 atoms beside the steps of the first run differed by
+nothing, those of the rerun by 2 µs.
+
+**Tests and mutants.** `every_count_of_warps_gives_the_list_of_one`
+(`gpu/tests/device.rs`) searches seven frames (cubic, skewed, narrower than
+the cutoff, 392 cells, truncated, open, and open with a buffer of seven so
+that some centers take the serial path) with 1, 2, 3, 4, 5, 8 and 16 warps,
+and asks for the list of one warp bit for bit; then systems searched
+together with a tight selection, coincident pairs among centers whose
+candidates take more than one warp, and the status of every center; then
+forty atom types, more than a warp has lanes, of which only the last eight,
+counted by other warps, are truncated. A unit test bounds the shared memory
+of a block at its largest buffer for 1 to 16 warps and 1 to 40 types. Of 14
+mutants of the kernel and its launch (the columns dealt by four whatever the
+warps, the coincident bit or the truncation bit or the nearest distance from
+warp 0 only, no broadcast of a batch's place, no barrier before the count of
+candidates, the double precision pass a warp's own, counts not atomic, a
+block for several centers, warps clamped to 32 or from 0, shared memory
+without the warps' minima, the capacity bound for one warp), all 14 fail a
+test; the truncation bit from warp 0 only failed none until the case of forty
+types was added.
+
 # The sums of the force kernels, and what the fitting nets wait for, 2026-11-20
 
 The section below left the device's time over an evaluation of the 88-atom

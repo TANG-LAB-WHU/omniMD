@@ -1490,7 +1490,7 @@ fn check_neighbors(
     rcut: f64,
     sel: &[usize],
 ) {
-    // Default warp path, all-serial fallback, and a mix of both.
+    // Default block path, all-serial fallback, and a mix of both.
     for capacity in [None, Some(0), Some(7)] {
         let label = format!("{label} (capacity {capacity:?})");
         check_neighbors_with(&label, positions, types, cell, rcut, sel, capacity);
@@ -1876,7 +1876,7 @@ fn systems_in_one_search_do_not_see_each_other() {
     // Narrower than the cutoff: several images of each atom are neighbors.
     let narrow = [[3.5, 0.0, 0.0], [0.0, 9.0, 0.0], [0.0, 0.0, 9.0]];
     // One axis far thinner still: its image offsets do not fit the packed
-    // form of the warp path, so these centers take the serial one while
+    // form of the block path, so these centers take the serial one while
     // those of the other systems do not.
     let thin = [[0.008, 0.0, 0.0], [0.0, 9.0, 0.0], [0.0, 0.0, 9.0]];
     // Two open clusters of one cell each in the same place: the stencil of
@@ -1931,7 +1931,7 @@ fn systems_in_one_search_do_not_see_each_other() {
     // The thin system has far more neighbors than slots.
     assert!(list.check(device).unwrap());
     let rows = list_rows(list);
-    agree("warp path", &rows, &positions);
+    agree("block path", &rows, &positions);
     // The systems really are apart: atoms of the open one have neighbors,
     // though fewer than in the box it overlaps.
     let seen = |s: i32| -> i32 {
@@ -1952,7 +1952,7 @@ fn systems_in_one_search_do_not_see_each_other() {
 
     // A cell so thin that the image offsets of its atom's neighbors do not
     // fit the packed form, searched with a buffer that would hold all of
-    // them: only the mark of its system keeps that center off the warp path.
+    // them: only the mark of its system keeps that center off the block path.
     let thinner = [[0.006, 0.0, 0.0], [0.0, 9.0, 0.0], [0.0, 0.0, 9.0]];
     let both: Vec<[f64; 3]> = parts[0]
         .0
@@ -2050,6 +2050,184 @@ fn systems_in_one_search_do_not_see_each_other() {
         rcut,
         &sel,
     );
+}
+
+/// Rows of two searches, bit for bit.
+fn same_rows(label: &str, rows: &ListRows, expected: &ListRows) {
+    let bits = |values: &[f64]| values.iter().map(|v| v.to_bits()).collect::<Vec<_>>();
+    assert_eq!(rows.index, expected.index, "{label}: neighbors");
+    assert_eq!(bits(&rows.dist), bits(&expected.dist), "{label}: distances");
+    assert_eq!(bits(&rows.delta), bits(&expected.delta), "{label}: deltas");
+    assert_eq!(rows.count, expected.count, "{label}: counts");
+    assert_eq!(
+        bits(&rows.nearest),
+        bits(&expected.nearest),
+        "{label}: nearest"
+    );
+}
+
+/// The warps of a center share the columns of its stencil and fill one
+/// buffer in whatever order their timing gives; a slot follows from the
+/// ranks alone, so every count of warps gives the list of one warp, bit for
+/// bit, on either path, and the same status of every center.
+#[test]
+fn every_count_of_warps_gives_the_list_of_one() {
+    let Some(device) = device() else { return };
+    // Counts that share the columns evenly and not; 0 and 64 are taken as 1
+    // and 16.
+    let counts = [0, 2, 3, 4, 5, 8, 16, 64];
+    let cubic = [[12.0, 0.0, 0.0], [0.0, 12.0, 0.0], [0.0, 0.0, 12.0]];
+    let skewed = [[11.0, 0.0, 0.0], [3.0, 10.0, 0.0], [-2.0, 1.5, 9.5]];
+    let narrow = [[3.5, 0.0, 0.0], [0.0, 9.0, 0.0], [0.0, 0.0, 9.0]];
+    // 392 cells.
+    let wide = [[31.0, 0.0, 0.0], [4.0, 29.0, 0.0], [-3.0, 2.0, 33.0]];
+    type Frame = (
+        &'static str,
+        usize,
+        [[f64; 3]; 3],
+        bool,
+        f64,
+        [usize; 2],
+        Option<usize>,
+    );
+    let frames: [Frame; 7] = [
+        ("cubic", 300, cubic, true, 4.0, [40, 80], None),
+        ("skewed", 250, skewed, true, 4.5, [60, 120], None),
+        ("narrow", 60, narrow, true, 5.0, [80, 160], None),
+        ("many cells", 300, wide, true, 4.0, [40, 80], None),
+        ("truncated", 300, cubic, true, 4.0, [5, 9], None),
+        ("open", 200, cubic, false, 4.0, [60, 120], None),
+        // Room for seven candidates: the crowded centers take the serial
+        // path, the others their blocks.
+        (
+            "open, both paths",
+            200,
+            cubic,
+            false,
+            4.0,
+            [60, 120],
+            Some(7),
+        ),
+    ];
+    for (k, (label, natoms, lattice, periodic, rcut, sel, capacity)) in
+        frames.into_iter().enumerate()
+    {
+        let (positions, types) = random_frame(natoms, lattice, 900 + k as u64);
+        let cell = if periodic {
+            Cell::Periodic(lattice)
+        } else {
+            Cell::Open
+        };
+        let rows = |warps: usize| {
+            let mut search = NeighborSearch::new(rcut, &sel).unwrap();
+            search.set_warps_per_center(warps);
+            let list = search
+                .run_with_capacity(device, &positions, &types, &cell, capacity)
+                .unwrap();
+            list_rows(list)
+        };
+        let one = rows(1);
+        if capacity.is_some() {
+            let crowd = |atom: usize| one.count[2 * atom] + one.count[2 * atom + 1];
+            assert!(
+                (0..natoms).any(|a| crowd(a) > 7),
+                "{label}: no serial center"
+            );
+            assert!(
+                (0..natoms).any(|a| crowd(a) < 4),
+                "{label}: no center in a block"
+            );
+        }
+        for warps in counts {
+            same_rows(&format!("{label}, {warps} warps"), &rows(warps), &one);
+        }
+    }
+
+    // Systems searched together: one crowded past the packed form of image
+    // offsets (serial), a tight selection that truncates some centers and not
+    // others, and a coincident pair.
+    let (rcut, sel) = (4.0, [12usize, 24]);
+    let thin = [[0.008, 0.0, 0.0], [0.0, 9.0, 0.0], [0.0, 0.0, 9.0]];
+    let cluster = [[2.0, 0.0, 0.0], [0.0, 2.0, 0.0], [0.0, 0.0, 2.0]];
+    let (mut positions, mut types, mut system, mut cells) = (vec![], vec![], vec![], vec![]);
+    let parts = [
+        (150, cubic, true),
+        (60, narrow, true),
+        (2, thin, true),
+        (16, cluster, false),
+    ];
+    for (s, (natoms, lattice, periodic)) in parts.into_iter().enumerate() {
+        let (p, t) = random_frame(natoms, lattice, 920 + s as u64);
+        positions.extend(p);
+        types.extend(t);
+        system.resize(system.len() + natoms, s as i32);
+        cells.push(if periodic {
+            Cell::Periodic(lattice)
+        } else {
+            Cell::Open
+        });
+    }
+    // Coincident pairs: one in the open cluster, and five among the crowded
+    // centers of the narrow box, whose candidates take more than one warp.
+    let natoms = positions.len();
+    let pairs: Vec<(usize, usize)> = (0..5)
+        .map(|m| (150 + 2 * m, 151 + 2 * m))
+        .chain([(natoms - 2, natoms - 1)])
+        .collect();
+    for &(a, b) in &pairs {
+        positions[b] = positions[a];
+    }
+    let rows = |warps: usize| {
+        let mut search = NeighborSearch::new(rcut, &sel).unwrap();
+        search.set_warps_per_center(warps);
+        let mut status = device.upload(&vec![-1i32; natoms]).unwrap();
+        let list = search
+            .run_systems_mirrored(device, &positions, &types, &system, &cells, &mut status)
+            .unwrap();
+        (list_rows(list), device.download(&status).unwrap())
+    };
+    let (one, status) = rows(1);
+    let truncated: Vec<bool> = status.iter().map(|bits| bits & TRUNCATED != 0).collect();
+    assert!(truncated[..150].contains(&true) && truncated[..150].contains(&false));
+    for &(a, b) in &pairs {
+        assert!(status[a] & status[b] & COINCIDENT != 0, "atoms {a} and {b}");
+    }
+    for warps in counts {
+        let label = format!("systems, {warps} warps");
+        let (rows, bits) = rows(warps);
+        same_rows(&label, &rows, &one);
+        assert_eq!(bits, status, "{label}: status");
+    }
+
+    // More types than a warp has lanes, and only the last eight, which other
+    // warps count, truncated.
+    let (positions, _) = random_frame(300, cubic, 930);
+    let types: Vec<i32> = (0..300).map(|atom| atom % 40).collect();
+    let sel: Vec<usize> = (0..40).map(|t| if t < 32 { 12 } else { 1 }).collect();
+    let cells = [Cell::Periodic(cubic)];
+    let rows = |warps: usize| {
+        let mut search = NeighborSearch::new(4.0, &sel).unwrap();
+        search.set_warps_per_center(warps);
+        let mut status = device.upload(&vec![-1i32; 300]).unwrap();
+        let list = search
+            .run_systems_mirrored(device, &positions, &types, &[], &cells, &mut status)
+            .unwrap();
+        (list_rows(list), device.download(&status).unwrap())
+    };
+    let (one, status) = rows(1);
+    let over = |atom: usize, t: usize| one.count[40 * atom + t] as usize > sel[t];
+    for (atom, bits) in status.iter().enumerate() {
+        assert!((0..32).all(|t| !over(atom, t)), "atom {atom}");
+        let truncated = (32..40).any(|t| over(atom, t));
+        assert_eq!(bits & TRUNCATED != 0, truncated, "atom {atom}");
+    }
+    assert!(status.iter().any(|bits| bits & TRUNCATED != 0));
+    for warps in counts {
+        let label = format!("forty types, {warps} warps");
+        let (rows, bits) = rows(warps);
+        same_rows(&label, &rows, &one);
+        assert_eq!(bits, status, "{label}: status");
+    }
 }
 
 #[test]

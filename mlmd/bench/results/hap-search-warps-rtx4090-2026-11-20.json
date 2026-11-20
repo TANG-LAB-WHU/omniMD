@@ -1,0 +1,273 @@
+{
+ "date": "2026-11-20",
+ "device": "NVIDIA GeForce RTX 4090",
+ "what": "omnimd-native-gpu-eval --bench on a probe build of this change whose neighbor search takes its warps per center from OMNIMD_SEARCH_WARPS and unrolls its ranking loop by OMNIMD_RANK_UNROLL. A config is WARPS or WARPS:UNROLL. Cases: the HAP frames with the trained se_e2_a model (hap-iter0-pre/ens4-f32-0) in float32 with tables (--compress 0.5), the 88-atom frame replicated to 704 and 5,632 atoms, and the water frames of 192 and 1,536 atoms with the water model in float64. Every round ran every config on every case, the order of the configs reversed every other round; 5 rounds, the least, the median and the most of each, in microseconds an evaluation.",
+ "rows": [
+  {
+   "case": "HAP 88",
+   "1": {
+    "best_us": 156.04,
+    "median_us": 157.6,
+    "worst_us": 163.33
+   },
+   "2": {
+    "best_us": 149.74,
+    "median_us": 151.91,
+    "worst_us": 152.29
+   },
+   "4": {
+    "best_us": 149.28,
+    "median_us": 152.35,
+    "worst_us": 157.29
+   },
+   "8": {
+    "best_us": 147.4,
+    "median_us": 150.03,
+    "worst_us": 151.05
+   },
+   "4:4": {
+    "best_us": 150.87,
+    "median_us": 151.5,
+    "worst_us": 156.09
+   },
+   "2:4": {
+    "best_us": 150.33,
+    "median_us": 150.91,
+    "worst_us": 152.0
+   },
+   "4:8": {
+    "best_us": 150.33,
+    "median_us": 152.18,
+    "worst_us": 156.43
+   }
+  },
+  {
+   "case": "HAP 169",
+   "1": {
+    "best_us": 193.22,
+    "median_us": 193.8,
+    "worst_us": 194.75
+   },
+   "2": {
+    "best_us": 186.98,
+    "median_us": 189.5,
+    "worst_us": 191.58
+   },
+   "4": {
+    "best_us": 185.06,
+    "median_us": 186.27,
+    "worst_us": 188.15
+   },
+   "8": {
+    "best_us": 185.35,
+    "median_us": 186.68,
+    "worst_us": 187.19
+   },
+   "4:4": {
+    "best_us": 184.59,
+    "median_us": 187.18,
+    "worst_us": 188.08
+   },
+   "2:4": {
+    "best_us": 186.71,
+    "median_us": 188.48,
+    "worst_us": 190.09
+   },
+   "4:8": {
+    "best_us": 185.88,
+    "median_us": 186.99,
+    "worst_us": 187.63
+   }
+  },
+  {
+   "case": "HAP 224",
+   "1": {
+    "best_us": 215.72,
+    "median_us": 217.34,
+    "worst_us": 219.56
+   },
+   "2": {
+    "best_us": 210.26,
+    "median_us": 212.13,
+    "worst_us": 213.39
+   },
+   "4": {
+    "best_us": 209.31,
+    "median_us": 210.0,
+    "worst_us": 210.67
+   },
+   "8": {
+    "best_us": 208.49,
+    "median_us": 209.25,
+    "worst_us": 210.53
+   },
+   "4:4": {
+    "best_us": 207.93,
+    "median_us": 209.26,
+    "worst_us": 214.34
+   },
+   "2:4": {
+    "best_us": 211.8,
+    "median_us": 212.85,
+    "worst_us": 214.11
+   },
+   "4:8": {
+    "best_us": 209.07,
+    "median_us": 209.58,
+    "worst_us": 210.62
+   }
+  },
+  {
+   "case": "HAP 704",
+   "1": {
+    "best_us": 527.15,
+    "median_us": 527.93,
+    "worst_us": 530.28
+   },
+   "2": {
+    "best_us": 522.2,
+    "median_us": 523.68,
+    "worst_us": 524.64
+   },
+   "4": {
+    "best_us": 517.95,
+    "median_us": 519.31,
+    "worst_us": 520.91
+   },
+   "8": {
+    "best_us": 523.82,
+    "median_us": 527.02,
+    "worst_us": 527.95
+   },
+   "4:4": {
+    "best_us": 516.32,
+    "median_us": 519.57,
+    "worst_us": 521.16
+   },
+   "2:4": {
+    "best_us": 517.27,
+    "median_us": 522.75,
+    "worst_us": 523.46
+   },
+   "4:8": {
+    "best_us": 516.83,
+    "median_us": 518.64,
+    "worst_us": 521.19
+   }
+  },
+  {
+   "case": "HAP 5632",
+   "1": {
+    "best_us": 2776.22,
+    "median_us": 2780.65,
+    "worst_us": 2808.52
+   },
+   "2": {
+    "best_us": 2762.99,
+    "median_us": 2770.27,
+    "worst_us": 2777.16
+   },
+   "4": {
+    "best_us": 2768.36,
+    "median_us": 2778.43,
+    "worst_us": 2791.93
+   },
+   "8": {
+    "best_us": 2778.65,
+    "median_us": 2791.18,
+    "worst_us": 2815.18
+   },
+   "4:4": {
+    "best_us": 2778.75,
+    "median_us": 2781.17,
+    "worst_us": 2787.07
+   },
+   "2:4": {
+    "best_us": 2761.98,
+    "median_us": 2775.08,
+    "worst_us": 2803.4
+   },
+   "4:8": {
+    "best_us": 2762.79,
+    "median_us": 2776.23,
+    "worst_us": 2852.65
+   }
+  },
+  {
+   "case": "water 192 f64",
+   "1": {
+    "best_us": 1255.91,
+    "median_us": 1259.35,
+    "worst_us": 1261.86
+   },
+   "2": {
+    "best_us": 1239.48,
+    "median_us": 1247.45,
+    "worst_us": 1250.06
+   },
+   "4": {
+    "best_us": 1232.63,
+    "median_us": 1239.33,
+    "worst_us": 1241.59
+   },
+   "8": {
+    "best_us": 1236.93,
+    "median_us": 1239.44,
+    "worst_us": 1241.37
+   },
+   "4:4": {
+    "best_us": 1238.67,
+    "median_us": 1239.2,
+    "worst_us": 1241.97
+   },
+   "2:4": {
+    "best_us": 1242.7,
+    "median_us": 1247.8,
+    "worst_us": 1251.58
+   },
+   "4:8": {
+    "best_us": 1238.51,
+    "median_us": 1240.57,
+    "worst_us": 1243.02
+   }
+  },
+  {
+   "case": "water 1536 f64",
+   "1": {
+    "best_us": 8435.31,
+    "median_us": 8463.23,
+    "worst_us": 8493.28
+   },
+   "2": {
+    "best_us": 8462.69,
+    "median_us": 8472.68,
+    "worst_us": 8500.45
+   },
+   "4": {
+    "best_us": 8440.81,
+    "median_us": 8451.66,
+    "worst_us": 8485.87
+   },
+   "8": {
+    "best_us": 8445.72,
+    "median_us": 8456.57,
+    "worst_us": 8470.71
+   },
+   "4:4": {
+    "best_us": 8431.91,
+    "median_us": 8452.52,
+    "worst_us": 8483.74
+   },
+   "2:4": {
+    "best_us": 8449.43,
+    "median_us": 8469.82,
+    "worst_us": 8478.79
+   },
+   "4:8": {
+    "best_us": 8440.35,
+    "median_us": 8451.99,
+    "worst_us": 8487.28
+   }
+  }
+ ]
+}

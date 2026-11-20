@@ -1,0 +1,93 @@
+{
+ "date": "2026-11-20",
+ "device": "NVIDIA GeForce RTX 4090",
+ "what": "omnimd-mlmd run: NVT molecular dynamics (CSVR, 300 K, tau 50 fs) of a HAP frame of the sealed test, 0.5 fs steps, 20,000 steps, a sample every 50 steps, the trained se_e2_a model of the evaluator benchmarks (hap-iter0-pre/ens4-f32-0) in float32 with tables (compress_min_distance 0.5); the engine prints the time of its steps, model loading not included. Beside it omnimd-native-gpu-eval --bench 3000 with --compress 0.5 in float32 on the same frame and model. Two builds of each, alternated in 5 rounds in one session, the least of each kept; the build before twice a round, so that `before_again` against `before` shows what the machine adds",
+ "builds": {
+  "before": "omnimd-mlmd and omnimd-native-gpu-eval of commit 475cafb (one warp per center)",
+  "after": "omnimd-mlmd and omnimd-native-gpu-eval of this change (four warps per center)"
+ },
+ "us": [
+  {
+   "frame": "88 atoms",
+   "per": "step",
+   "before": 170.5,
+   "after": 165.8,
+   "before_again": 170.4
+  },
+  {
+   "frame": "88 atoms",
+   "per": "evaluation",
+   "before": 155.62,
+   "after": 154.73,
+   "before_again": 154.6
+  },
+  {
+   "frame": "169 atoms",
+   "per": "step",
+   "before": 241.7,
+   "after": 232.2,
+   "before_again": 222.9
+  },
+  {
+   "frame": "169 atoms",
+   "per": "evaluation",
+   "before": 193.22,
+   "after": 188.7,
+   "before_again": 193.16
+  },
+  {
+   "frame": "224 atoms",
+   "per": "step",
+   "before": 239.4,
+   "after": 234.3,
+   "before_again": 238.3
+  },
+  {
+   "frame": "224 atoms",
+   "per": "evaluation",
+   "before": 214.42,
+   "after": 209.41,
+   "before_again": 217.37
+  }
+ ],
+ "rerun_169_atoms": {
+  "rounds": 7,
+  "us": [
+   {
+    "frame": "169 atoms",
+    "per": "step",
+    "before": 243.8,
+    "after": 221.7,
+    "before_again": 239.8
+   },
+   {
+    "frame": "169 atoms",
+    "per": "evaluation",
+    "before": 191.46,
+    "after": 186.99,
+    "before_again": 192.73
+   }
+  ],
+  "note": "In the first run the build before gave 241.7 and 222.9 us a step for the 169-atom frame (before, before again); in this rerun 243.8 and 239.8, and the build after 232.2 and 221.7. The step of that frame sits near 222 or near 240 us from run to run with either build, so its steps are not compared; its evaluations are."
+ },
+ "rerun_88_atoms": {
+  "rounds": 7,
+  "us": [
+   {
+    "frame": "88 atoms",
+    "per": "step",
+    "before": 162.2,
+    "after": 159.8,
+    "before_again": 163.4
+   },
+   {
+    "frame": "88 atoms",
+    "per": "evaluation",
+    "before": 152.22,
+    "after": 150.22,
+    "before_again": 152.74
+   }
+  ],
+  "note": "The 88-atom frame again, after the test suites, in seven rounds."
+ }
+}

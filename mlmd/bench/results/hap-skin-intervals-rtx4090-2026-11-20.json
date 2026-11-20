@@ -1,0 +1,81 @@
+{
+ "date": "2026-11-20",
+ "device": "NVIDIA GeForce RTX 4090",
+ "what": "How many MD steps a neighbor list with a skin would last on the HAP frames. NVT molecular dynamics (CSVR, tau 50 fs, 0.5 fs steps, 2,000 steps) of each HAP frame of the engine benchmarks with the trained se_e2_a model (float32, tables at 0.5 A) at 300 and 500 K, every step written; from each build of the list, the steps until the two largest displacements since that build add up to more than the skin (0.5, 1 and 2 A; the cell is fixed). A step past that bound is a rebuild and the next build. steps_per_rebuild is the steps over the builds (the first included).",
+ "engine": "omnimd-mlmd of commit 475cafb",
+ "model": "hap-iter0-pre/ens4-f32-0",
+ "rows": [
+  {
+   "system": "88 atoms",
+   "kelvin": 300.0,
+   "steps": 2000,
+   "largest_step_displacement_A": 0.0289,
+   "steps_per_rebuild_skin_0.5": 23.53,
+   "rebuilds_skin_0.5": 85,
+   "steps_per_rebuild_skin_1.0": 125.0,
+   "rebuilds_skin_1.0": 16,
+   "steps_per_rebuild_skin_2.0": 2000.0,
+   "rebuilds_skin_2.0": 1
+  },
+  {
+   "system": "88 atoms",
+   "kelvin": 500.0,
+   "steps": 2000,
+   "largest_step_displacement_A": 0.04019,
+   "steps_per_rebuild_skin_0.5": 17.7,
+   "rebuilds_skin_0.5": 113,
+   "steps_per_rebuild_skin_1.0": 58.82,
+   "rebuilds_skin_1.0": 34,
+   "steps_per_rebuild_skin_2.0": 2000.0,
+   "rebuilds_skin_2.0": 1
+  },
+  {
+   "system": "169 atoms",
+   "kelvin": 300.0,
+   "steps": 2000,
+   "largest_step_displacement_A": 0.03682,
+   "steps_per_rebuild_skin_0.5": 11.9,
+   "rebuilds_skin_0.5": 168,
+   "steps_per_rebuild_skin_1.0": 27.4,
+   "rebuilds_skin_1.0": 73,
+   "steps_per_rebuild_skin_2.0": 111.11,
+   "rebuilds_skin_2.0": 18
+  },
+  {
+   "system": "169 atoms",
+   "kelvin": 500.0,
+   "steps": 2000,
+   "largest_step_displacement_A": 0.05243,
+   "steps_per_rebuild_skin_0.5": 9.62,
+   "rebuilds_skin_0.5": 208,
+   "steps_per_rebuild_skin_1.0": 21.28,
+   "rebuilds_skin_1.0": 94,
+   "steps_per_rebuild_skin_2.0": 58.82,
+   "rebuilds_skin_2.0": 34
+  },
+  {
+   "system": "224 atoms",
+   "kelvin": 300.0,
+   "steps": 2000,
+   "largest_step_displacement_A": 0.03506,
+   "steps_per_rebuild_skin_0.5": 11.98,
+   "rebuilds_skin_0.5": 167,
+   "steps_per_rebuild_skin_1.0": 68.97,
+   "rebuilds_skin_1.0": 29,
+   "steps_per_rebuild_skin_2.0": 2000.0,
+   "rebuilds_skin_2.0": 1
+  },
+  {
+   "system": "224 atoms",
+   "kelvin": 500.0,
+   "steps": 2000,
+   "largest_step_displacement_A": 0.04559,
+   "steps_per_rebuild_skin_0.5": 9.43,
+   "rebuilds_skin_0.5": 212,
+   "steps_per_rebuild_skin_1.0": 27.78,
+   "rebuilds_skin_1.0": 72,
+   "steps_per_rebuild_skin_2.0": 2000.0,
+   "rebuilds_skin_2.0": 1
+  }
+ ]
+}

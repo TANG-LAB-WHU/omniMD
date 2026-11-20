@@ -1,0 +1,1167 @@
+{
+ "date": "2026-11-20",
+ "device": "NVIDIA GeForce RTX 4090",
+ "what": "Stage probe of the neighbor search kernel with 1, 2, 4 and 8 warps per center (one center per block), on a probe build of this change: the kernel takes a stop (return at once; after the scan of the stencil; after the double precision pass over the candidates; all) and a mode (scan the stencil, or read the candidates stored by an earlier search back, each image moved by the shifts of its two atoms as the refresh of a list with a skin would). Microseconds per launch from device marks around 3,000 launches back to back (500 for 5,632 atoms), after 20 to warm up; a launch that returns at once takes 4.6 to 9 us this way, which is the host issuing them. The scan radius rcut + s is the search a skin of s would make, its candidates what a refresh would read back. Host: microseconds to pack the input of a search (binning included) and to bin alone. HAP frames of the engine benchmarks, rcut 6 A, sel [44, 16, 60, 72, 20]; 704 and 5,632 atoms are the 88-atom frame replicated 2 and 4 times along each axis. In the same run 2, 3, 4, 8, 9 and 16 warps gave the list of one warp, bit for bit, on all five frames.",
+ "rows": [
+  {
+   "frame": "hap bulk",
+   "atoms": 88,
+   "warps_per_center": 1,
+   "host_us": {
+    "pack_at_rcut": 1.79,
+    "bin_at_rcut": 0.95,
+    "pack_at_rcut_plus_1": 1.78,
+    "pack_at_rcut_plus_2": 1.83
+   },
+   "kernel_us": [
+    {
+     "scan_radius": "rcut + 0",
+     "scanning": {
+      "launch_and_return": 5.28,
+      "through_the_scan": 14.85,
+      "through_exact_distances": 17.23,
+      "all": 19.71
+     },
+     "candidates_read_back": {
+      "through_the_read": 6.34,
+      "through_exact_distances": 8.23,
+      "all": 12.33
+     },
+     "candidates_per_center": 74.23
+    },
+    {
+     "scan_radius": "rcut + 1",
+     "scanning": {
+      "launch_and_return": 5.14,
+      "through_the_scan": 19.16,
+      "through_exact_distances": 22.08,
+      "all": 31.62
+     },
+     "candidates_read_back": {
+      "through_the_read": 6.33,
+      "through_exact_distances": 8.01,
+      "all": 16.6
+     },
+     "candidates_per_center": 118.95
+    },
+    {
+     "scan_radius": "rcut + 2",
+     "scanning": {
+      "launch_and_return": 4.73,
+      "through_the_scan": 19.35,
+      "through_exact_distances": 23.15,
+      "all": 37.93
+     },
+     "candidates_read_back": {
+      "through_the_read": 6.31,
+      "through_exact_distances": 8.56,
+      "all": 22.95
+     },
+     "candidates_per_center": 176.82
+    }
+   ]
+  },
+  {
+   "frame": "hap bulk",
+   "atoms": 88,
+   "warps_per_center": 2,
+   "host_us": {
+    "pack_at_rcut": 1.72,
+    "bin_at_rcut": 0.93,
+    "pack_at_rcut_plus_1": 1.76,
+    "pack_at_rcut_plus_2": 1.78
+   },
+   "kernel_us": [
+    {
+     "scan_radius": "rcut + 0",
+     "scanning": {
+      "launch_and_return": 4.76,
+      "through_the_scan": 11.21,
+      "through_exact_distances": 13.07,
+      "all": 14.51
+     },
+     "candidates_read_back": {
+      "through_the_read": 6.43,
+      "through_exact_distances": 8.41,
+      "all": 9.15
+     },
+     "candidates_per_center": 74.23
+    },
+    {
+     "scan_radius": "rcut + 1",
+     "scanning": {
+      "launch_and_return": 4.71,
+      "through_the_scan": 13.6,
+      "through_exact_distances": 15.05,
+      "all": 20.66
+     },
+     "candidates_read_back": {
+      "through_the_read": 6.39,
+      "through_exact_distances": 8.09,
+      "all": 12.85
+     },
+     "candidates_per_center": 118.95
+    },
+    {
+     "scan_radius": "rcut + 2",
+     "scanning": {
+      "launch_and_return": 4.87,
+      "through_the_scan": 14.22,
+      "through_exact_distances": 15.47,
+      "all": 23.29
+     },
+     "candidates_read_back": {
+      "through_the_read": 6.05,
+      "through_exact_distances": 8.25,
+      "all": 14.79
+     },
+     "candidates_per_center": 176.82
+    }
+   ]
+  },
+  {
+   "frame": "hap bulk",
+   "atoms": 88,
+   "warps_per_center": 4,
+   "host_us": {
+    "pack_at_rcut": 1.73,
+    "bin_at_rcut": 0.94,
+    "pack_at_rcut_plus_1": 1.75,
+    "pack_at_rcut_plus_2": 1.75
+   },
+   "kernel_us": [
+    {
+     "scan_radius": "rcut + 0",
+     "scanning": {
+      "launch_and_return": 4.7,
+      "through_the_scan": 8.02,
+      "through_exact_distances": 9.45,
+      "all": 12.83
+     },
+     "candidates_read_back": {
+      "through_the_read": 6.52,
+      "through_exact_distances": 7.9,
+      "all": 8.28
+     },
+     "candidates_per_center": 74.23
+    },
+    {
+     "scan_radius": "rcut + 1",
+     "scanning": {
+      "launch_and_return": 4.72,
+      "through_the_scan": 10.99,
+      "through_exact_distances": 12.85,
+      "all": 15.97
+     },
+     "candidates_read_back": {
+      "through_the_read": 6.56,
+      "through_exact_distances": 8.29,
+      "all": 11.9
+     },
+     "candidates_per_center": 118.95
+    },
+    {
+     "scan_radius": "rcut + 2",
+     "scanning": {
+      "launch_and_return": 4.89,
+      "through_the_scan": 11.56,
+      "through_exact_distances": 13.52,
+      "all": 17.55
+     },
+     "candidates_read_back": {
+      "through_the_read": 6.51,
+      "through_exact_distances": 7.9,
+      "all": 13.45
+     },
+     "candidates_per_center": 176.82
+    }
+   ]
+  },
+  {
+   "frame": "hap bulk",
+   "atoms": 88,
+   "warps_per_center": 8,
+   "host_us": {
+    "pack_at_rcut": 2.11,
+    "bin_at_rcut": 1.6,
+    "pack_at_rcut_plus_1": 1.78,
+    "pack_at_rcut_plus_2": 1.78
+   },
+   "kernel_us": [
+    {
+     "scan_radius": "rcut + 0",
+     "scanning": {
+      "launch_and_return": 8.72,
+      "through_the_scan": 9.23,
+      "through_exact_distances": 8.63,
+      "all": 12.17
+     },
+     "candidates_read_back": {
+      "through_the_read": 6.79,
+      "through_exact_distances": 8.02,
+      "all": 8.65
+     },
+     "candidates_per_center": 74.23
+    },
+    {
+     "scan_radius": "rcut + 1",
+     "scanning": {
+      "launch_and_return": 7.72,
+      "through_the_scan": 8.57,
+      "through_exact_distances": 11.64,
+      "all": 16.29
+     },
+     "candidates_read_back": {
+      "through_the_read": 8.8,
+      "through_exact_distances": 8.87,
+      "all": 8.39
+     },
+     "candidates_per_center": 118.95
+    },
+    {
+     "scan_radius": "rcut + 2",
+     "scanning": {
+      "launch_and_return": 4.6,
+      "through_the_scan": 8.41,
+      "through_exact_distances": 12.19,
+      "all": 14.44
+     },
+     "candidates_read_back": {
+      "through_the_read": 7.61,
+      "through_exact_distances": 8.17,
+      "all": 11.95
+     },
+     "candidates_per_center": 176.82
+    }
+   ]
+  },
+  {
+   "frame": "hap001+water",
+   "atoms": 169,
+   "warps_per_center": 1,
+   "host_us": {
+    "pack_at_rcut": 3.46,
+    "bin_at_rcut": 1.78,
+    "pack_at_rcut_plus_1": 3.11,
+    "pack_at_rcut_plus_2": 3.08
+   },
+   "kernel_us": [
+    {
+     "scan_radius": "rcut + 0",
+     "scanning": {
+      "launch_and_return": 5.41,
+      "through_the_scan": 13.58,
+      "through_exact_distances": 14.91,
+      "all": 18.55
+     },
+     "candidates_read_back": {
+      "through_the_read": 8.99,
+      "through_exact_distances": 8.46,
+      "all": 12.93
+     },
+     "candidates_per_center": 70.8
+    },
+    {
+     "scan_radius": "rcut + 1",
+     "scanning": {
+      "launch_and_return": 5.66,
+      "through_the_scan": 14.65,
+      "through_exact_distances": 17.16,
+      "all": 26.53
+     },
+     "candidates_read_back": {
+      "through_the_read": 8.19,
+      "through_exact_distances": 9.77,
+      "all": 17.64
+     },
+     "candidates_per_center": 111.93
+    },
+    {
+     "scan_radius": "rcut + 2",
+     "scanning": {
+      "launch_and_return": 9.77,
+      "through_the_scan": 14.32,
+      "through_exact_distances": 18.22,
+      "all": 34.55
+     },
+     "candidates_read_back": {
+      "through_the_read": 8.46,
+      "through_exact_distances": 9.07,
+      "all": 27.59
+     },
+     "candidates_per_center": 163.21
+    }
+   ]
+  },
+  {
+   "frame": "hap001+water",
+   "atoms": 169,
+   "warps_per_center": 2,
+   "host_us": {
+    "pack_at_rcut": 3.02,
+    "bin_at_rcut": 1.86,
+    "pack_at_rcut_plus_1": 3.9,
+    "pack_at_rcut_plus_2": 4.2
+   },
+   "kernel_us": [
+    {
+     "scan_radius": "rcut + 0",
+     "scanning": {
+      "launch_and_return": 7.07,
+      "through_the_scan": 10.67,
+      "through_exact_distances": 12.68,
+      "all": 14.28
+     },
+     "candidates_read_back": {
+      "through_the_read": 9.05,
+      "through_exact_distances": 8.61,
+      "all": 10.69
+     },
+     "candidates_per_center": 70.8
+    },
+    {
+     "scan_radius": "rcut + 1",
+     "scanning": {
+      "launch_and_return": 5.68,
+      "through_the_scan": 12.44,
+      "through_exact_distances": 13.82,
+      "all": 18.59
+     },
+     "candidates_read_back": {
+      "through_the_read": 5.98,
+      "through_exact_distances": 9.42,
+      "all": 15.89
+     },
+     "candidates_per_center": 111.93
+    },
+    {
+     "scan_radius": "rcut + 2",
+     "scanning": {
+      "launch_and_return": 7.31,
+      "through_the_scan": 12.17,
+      "through_exact_distances": 13.67,
+      "all": 22.79
+     },
+     "candidates_read_back": {
+      "through_the_read": 6.94,
+      "through_exact_distances": 9.31,
+      "all": 18.83
+     },
+     "candidates_per_center": 163.21
+    }
+   ]
+  },
+  {
+   "frame": "hap001+water",
+   "atoms": 169,
+   "warps_per_center": 4,
+   "host_us": {
+    "pack_at_rcut": 3.48,
+    "bin_at_rcut": 2.35,
+    "pack_at_rcut_plus_1": 3.82,
+    "pack_at_rcut_plus_2": 4.61
+   },
+   "kernel_us": [
+    {
+     "scan_radius": "rcut + 0",
+     "scanning": {
+      "launch_and_return": 6.55,
+      "through_the_scan": 10.05,
+      "through_exact_distances": 9.1,
+      "all": 12.31
+     },
+     "candidates_read_back": {
+      "through_the_read": 6.62,
+      "through_exact_distances": 8.3,
+      "all": 9.42
+     },
+     "candidates_per_center": 70.8
+    },
+    {
+     "scan_radius": "rcut + 1",
+     "scanning": {
+      "launch_and_return": 5.18,
+      "through_the_scan": 8.76,
+      "through_exact_distances": 14.34,
+      "all": 14.96
+     },
+     "candidates_read_back": {
+      "through_the_read": 7.72,
+      "through_exact_distances": 9.28,
+      "all": 13.07
+     },
+     "candidates_per_center": 111.93
+    },
+    {
+     "scan_radius": "rcut + 2",
+     "scanning": {
+      "launch_and_return": 5.27,
+      "through_the_scan": 8.54,
+      "through_exact_distances": 12.33,
+      "all": 17.6
+     },
+     "candidates_read_back": {
+      "through_the_read": 8.89,
+      "through_exact_distances": 9.81,
+      "all": 14.89
+     },
+     "candidates_per_center": 163.21
+    }
+   ]
+  },
+  {
+   "frame": "hap001+water",
+   "atoms": 169,
+   "warps_per_center": 8,
+   "host_us": {
+    "pack_at_rcut": 5.93,
+    "bin_at_rcut": 3.35,
+    "pack_at_rcut_plus_1": 4.06,
+    "pack_at_rcut_plus_2": 3.02
+   },
+   "kernel_us": [
+    {
+     "scan_radius": "rcut + 0",
+     "scanning": {
+      "launch_and_return": 5.42,
+      "through_the_scan": 8.42,
+      "through_exact_distances": 10.86,
+      "all": 12.7
+     },
+     "candidates_read_back": {
+      "through_the_read": 8.35,
+      "through_exact_distances": 9.09,
+      "all": 9.85
+     },
+     "candidates_per_center": 70.8
+    },
+    {
+     "scan_radius": "rcut + 1",
+     "scanning": {
+      "launch_and_return": 6.57,
+      "through_the_scan": 9.46,
+      "through_exact_distances": 9.74,
+      "all": 13.74
+     },
+     "candidates_read_back": {
+      "through_the_read": 7.83,
+      "through_exact_distances": 9.45,
+      "all": 12.1
+     },
+     "candidates_per_center": 111.93
+    },
+    {
+     "scan_radius": "rcut + 2",
+     "scanning": {
+      "launch_and_return": 7.45,
+      "through_the_scan": 9.5,
+      "through_exact_distances": 13.68,
+      "all": 16.49
+     },
+     "candidates_read_back": {
+      "through_the_read": 7.7,
+      "through_exact_distances": 9.32,
+      "all": 13.95
+     },
+     "candidates_per_center": 163.21
+    }
+   ]
+  },
+  {
+   "frame": "monetite",
+   "atoms": 224,
+   "warps_per_center": 1,
+   "host_us": {
+    "pack_at_rcut": 4.26,
+    "bin_at_rcut": 4.16,
+    "pack_at_rcut_plus_1": 6.9,
+    "pack_at_rcut_plus_2": 4.1
+   },
+   "kernel_us": [
+    {
+     "scan_radius": "rcut + 0",
+     "scanning": {
+      "launch_and_return": 5.56,
+      "through_the_scan": 15.83,
+      "through_exact_distances": 14.68,
+      "all": 19.05
+     },
+     "candidates_read_back": {
+      "through_the_read": 10.13,
+      "through_exact_distances": 10.28,
+      "all": 13.87
+     },
+     "candidates_per_center": 78.2
+    },
+    {
+     "scan_radius": "rcut + 1",
+     "scanning": {
+      "launch_and_return": 9.02,
+      "through_the_scan": 32.35,
+      "through_exact_distances": 35.95,
+      "all": 46.25
+     },
+     "candidates_read_back": {
+      "through_the_read": 6.02,
+      "through_exact_distances": 8.21,
+      "all": 17.63
+     },
+     "candidates_per_center": 124.45
+    },
+    {
+     "scan_radius": "rcut + 2",
+     "scanning": {
+      "launch_and_return": 5.17,
+      "through_the_scan": 32.74,
+      "through_exact_distances": 37.31,
+      "all": 55.78
+     },
+     "candidates_read_back": {
+      "through_the_read": 6.55,
+      "through_exact_distances": 10.06,
+      "all": 27.63
+     },
+     "candidates_per_center": 187.05
+    }
+   ]
+  },
+  {
+   "frame": "monetite",
+   "atoms": 224,
+   "warps_per_center": 2,
+   "host_us": {
+    "pack_at_rcut": 5.03,
+    "bin_at_rcut": 3.62,
+    "pack_at_rcut_plus_1": 7.49,
+    "pack_at_rcut_plus_2": 6.14
+   },
+   "kernel_us": [
+    {
+     "scan_radius": "rcut + 0",
+     "scanning": {
+      "launch_and_return": 6.9,
+      "through_the_scan": 10.21,
+      "through_exact_distances": 12.22,
+      "all": 14.65
+     },
+     "candidates_read_back": {
+      "through_the_read": 6.34,
+      "through_exact_distances": 8.28,
+      "all": 13.29
+     },
+     "candidates_per_center": 78.2
+    },
+    {
+     "scan_radius": "rcut + 1",
+     "scanning": {
+      "launch_and_return": 6.72,
+      "through_the_scan": 20.52,
+      "through_exact_distances": 23.37,
+      "all": 30.13
+     },
+     "candidates_read_back": {
+      "through_the_read": 9.1,
+      "through_exact_distances": 9.56,
+      "all": 13.79
+     },
+     "candidates_per_center": 124.45
+    },
+    {
+     "scan_radius": "rcut + 2",
+     "scanning": {
+      "launch_and_return": 5.46,
+      "through_the_scan": 20.53,
+      "through_exact_distances": 24.47,
+      "all": 35.58
+     },
+     "candidates_read_back": {
+      "through_the_read": 8.19,
+      "through_exact_distances": 8.39,
+      "all": 19.47
+     },
+     "candidates_per_center": 187.05
+    }
+   ]
+  },
+  {
+   "frame": "monetite",
+   "atoms": 224,
+   "warps_per_center": 4,
+   "host_us": {
+    "pack_at_rcut": 5.86,
+    "bin_at_rcut": 3.67,
+    "pack_at_rcut_plus_1": 4.03,
+    "pack_at_rcut_plus_2": 6.36
+   },
+   "kernel_us": [
+    {
+     "scan_radius": "rcut + 0",
+     "scanning": {
+      "launch_and_return": 6.65,
+      "through_the_scan": 9.41,
+      "through_exact_distances": 9.08,
+      "all": 13.15
+     },
+     "candidates_read_back": {
+      "through_the_read": 6.97,
+      "through_exact_distances": 8.16,
+      "all": 10.4
+     },
+     "candidates_per_center": 78.2
+    },
+    {
+     "scan_radius": "rcut + 1",
+     "scanning": {
+      "launch_and_return": 5.34,
+      "through_the_scan": 15.39,
+      "through_exact_distances": 18.14,
+      "all": 22.74
+     },
+     "candidates_read_back": {
+      "through_the_read": 6.08,
+      "through_exact_distances": 8.01,
+      "all": 14.26
+     },
+     "candidates_per_center": 124.45
+    },
+    {
+     "scan_radius": "rcut + 2",
+     "scanning": {
+      "launch_and_return": 5.4,
+      "through_the_scan": 15.65,
+      "through_exact_distances": 18.62,
+      "all": 25.97
+     },
+     "candidates_read_back": {
+      "through_the_read": 8.37,
+      "through_exact_distances": 8.25,
+      "all": 15.31
+     },
+     "candidates_per_center": 187.05
+    }
+   ]
+  },
+  {
+   "frame": "monetite",
+   "atoms": 224,
+   "warps_per_center": 8,
+   "host_us": {
+    "pack_at_rcut": 7.89,
+    "bin_at_rcut": 4.21,
+    "pack_at_rcut_plus_1": 7.55,
+    "pack_at_rcut_plus_2": 7.57
+   },
+   "kernel_us": [
+    {
+     "scan_radius": "rcut + 0",
+     "scanning": {
+      "launch_and_return": 6.37,
+      "through_the_scan": 8.35,
+      "through_exact_distances": 8.81,
+      "all": 13.2
+     },
+     "candidates_read_back": {
+      "through_the_read": 6.39,
+      "through_exact_distances": 7.91,
+      "all": 10.48
+     },
+     "candidates_per_center": 78.2
+    },
+    {
+     "scan_radius": "rcut + 1",
+     "scanning": {
+      "launch_and_return": 7.16,
+      "through_the_scan": 13.84,
+      "through_exact_distances": 15.55,
+      "all": 19.16
+     },
+     "candidates_read_back": {
+      "through_the_read": 6.18,
+      "through_exact_distances": 8.11,
+      "all": 12.94
+     },
+     "candidates_per_center": 124.45
+    },
+    {
+     "scan_radius": "rcut + 2",
+     "scanning": {
+      "launch_and_return": 7.52,
+      "through_the_scan": 13.53,
+      "through_exact_distances": 15.95,
+      "all": 22.56
+     },
+     "candidates_read_back": {
+      "through_the_read": 5.97,
+      "through_exact_distances": 8.18,
+      "all": 14.9
+     },
+     "candidates_per_center": 187.05
+    }
+   ]
+  },
+  {
+   "frame": "hap x2",
+   "atoms": 704,
+   "warps_per_center": 1,
+   "host_us": {
+    "pack_at_rcut": 17.26,
+    "bin_at_rcut": 11.11,
+    "pack_at_rcut_plus_1": 15.62,
+    "pack_at_rcut_plus_2": 15.25
+   },
+   "kernel_us": [
+    {
+     "scan_radius": "rcut + 0",
+     "scanning": {
+      "launch_and_return": 6.92,
+      "through_the_scan": 15.21,
+      "through_exact_distances": 19.67,
+      "all": 25.81
+     },
+     "candidates_read_back": {
+      "through_the_read": 7.64,
+      "through_exact_distances": 10.08,
+      "all": 16.59
+     },
+     "candidates_per_center": 74.23
+    },
+    {
+     "scan_radius": "rcut + 1",
+     "scanning": {
+      "launch_and_return": 5.2,
+      "through_the_scan": 16.93,
+      "through_exact_distances": 22.59,
+      "all": 33.34
+     },
+     "candidates_read_back": {
+      "through_the_read": 7.59,
+      "through_exact_distances": 13.65,
+      "all": 22.62
+     },
+     "candidates_per_center": 118.98
+    },
+    {
+     "scan_radius": "rcut + 2",
+     "scanning": {
+      "launch_and_return": 7.3,
+      "through_the_scan": 17.03,
+      "through_exact_distances": 25.21,
+      "all": 44.17
+     },
+     "candidates_read_back": {
+      "through_the_read": 7.03,
+      "through_exact_distances": 13.74,
+      "all": 33.57
+     },
+     "candidates_per_center": 176.82
+    }
+   ]
+  },
+  {
+   "frame": "hap x2",
+   "atoms": 704,
+   "warps_per_center": 2,
+   "host_us": {
+    "pack_at_rcut": 22.65,
+    "bin_at_rcut": 9.31,
+    "pack_at_rcut_plus_1": 14.1,
+    "pack_at_rcut_plus_2": 13.22
+   },
+   "kernel_us": [
+    {
+     "scan_radius": "rcut + 0",
+     "scanning": {
+      "launch_and_return": 5.04,
+      "through_the_scan": 12.51,
+      "through_exact_distances": 15.49,
+      "all": 21.72
+     },
+     "candidates_read_back": {
+      "through_the_read": 8.24,
+      "through_exact_distances": 11.14,
+      "all": 16.85
+     },
+     "candidates_per_center": 74.23
+    },
+    {
+     "scan_radius": "rcut + 1",
+     "scanning": {
+      "launch_and_return": 5.35,
+      "through_the_scan": 13.12,
+      "through_exact_distances": 17.62,
+      "all": 25.98
+     },
+     "candidates_read_back": {
+      "through_the_read": 6.57,
+      "through_exact_distances": 12.85,
+      "all": 19.84
+     },
+     "candidates_per_center": 118.98
+    },
+    {
+     "scan_radius": "rcut + 2",
+     "scanning": {
+      "launch_and_return": 8.71,
+      "through_the_scan": 13.31,
+      "through_exact_distances": 20.18,
+      "all": 35.88
+     },
+     "candidates_read_back": {
+      "through_the_read": 8.7,
+      "through_exact_distances": 13.85,
+      "all": 29.86
+     },
+     "candidates_per_center": 176.82
+    }
+   ]
+  },
+  {
+   "frame": "hap x2",
+   "atoms": 704,
+   "warps_per_center": 4,
+   "host_us": {
+    "pack_at_rcut": 16.16,
+    "bin_at_rcut": 7.19,
+    "pack_at_rcut_plus_1": 13.67,
+    "pack_at_rcut_plus_2": 13.14
+   },
+   "kernel_us": [
+    {
+     "scan_radius": "rcut + 0",
+     "scanning": {
+      "launch_and_return": 5.02,
+      "through_the_scan": 12.59,
+      "through_exact_distances": 14.34,
+      "all": 19.45
+     },
+     "candidates_read_back": {
+      "through_the_read": 6.1,
+      "through_exact_distances": 10.99,
+      "all": 15.69
+     },
+     "candidates_per_center": 74.23
+    },
+    {
+     "scan_radius": "rcut + 1",
+     "scanning": {
+      "launch_and_return": 5.2,
+      "through_the_scan": 13.6,
+      "through_exact_distances": 16.42,
+      "all": 23.38
+     },
+     "candidates_read_back": {
+      "through_the_read": 6.95,
+      "through_exact_distances": 13.55,
+      "all": 18.57
+     },
+     "candidates_per_center": 118.98
+    },
+    {
+     "scan_radius": "rcut + 2",
+     "scanning": {
+      "launch_and_return": 7.42,
+      "through_the_scan": 12.17,
+      "through_exact_distances": 19.37,
+      "all": 33.49
+     },
+     "candidates_read_back": {
+      "through_the_read": 7.22,
+      "through_exact_distances": 14.38,
+      "all": 28.65
+     },
+     "candidates_per_center": 176.82
+    }
+   ]
+  },
+  {
+   "frame": "hap x2",
+   "atoms": 704,
+   "warps_per_center": 8,
+   "host_us": {
+    "pack_at_rcut": 14.97,
+    "bin_at_rcut": 13.18,
+    "pack_at_rcut_plus_1": 20.02,
+    "pack_at_rcut_plus_2": 23.66
+   },
+   "kernel_us": [
+    {
+     "scan_radius": "rcut + 0",
+     "scanning": {
+      "launch_and_return": 6.32,
+      "through_the_scan": 13.1,
+      "through_exact_distances": 18.66,
+      "all": 25.7
+     },
+     "candidates_read_back": {
+      "through_the_read": 9.51,
+      "through_exact_distances": 13.13,
+      "all": 19.26
+     },
+     "candidates_per_center": 74.23
+    },
+    {
+     "scan_radius": "rcut + 1",
+     "scanning": {
+      "launch_and_return": 6.75,
+      "through_the_scan": 13.82,
+      "through_exact_distances": 20.34,
+      "all": 29.45
+     },
+     "candidates_read_back": {
+      "through_the_read": 8.22,
+      "through_exact_distances": 13.92,
+      "all": 22.64
+     },
+     "candidates_per_center": 118.98
+    },
+    {
+     "scan_radius": "rcut + 2",
+     "scanning": {
+      "launch_and_return": 10.18,
+      "through_the_scan": 14.15,
+      "through_exact_distances": 22.76,
+      "all": 36.85
+     },
+     "candidates_read_back": {
+      "through_the_read": 7.8,
+      "through_exact_distances": 16.02,
+      "all": 29.32
+     },
+     "candidates_per_center": 176.82
+    }
+   ]
+  },
+  {
+   "frame": "hap x4",
+   "atoms": 5632,
+   "warps_per_center": 1,
+   "host_us": {
+    "pack_at_rcut": 125.14,
+    "bin_at_rcut": 90.68,
+    "pack_at_rcut_plus_1": 148.85,
+    "pack_at_rcut_plus_2": 122.51
+   },
+   "kernel_us": [
+    {
+     "scan_radius": "rcut + 0",
+     "scanning": {
+      "launch_and_return": 6.98,
+      "through_the_scan": 50.79,
+      "through_exact_distances": 73.81,
+      "all": 114.51
+     },
+     "candidates_read_back": {
+      "through_the_read": 12.18,
+      "through_exact_distances": 42.17,
+      "all": 86.94
+     },
+     "candidates_per_center": 74.25
+    },
+    {
+     "scan_radius": "rcut + 1",
+     "scanning": {
+      "launch_and_return": 7.64,
+      "through_the_scan": 76.88,
+      "through_exact_distances": 104.7,
+      "all": 156.77
+     },
+     "candidates_read_back": {
+      "through_the_read": 13.02,
+      "through_exact_distances": 54.67,
+      "all": 106.27
+     },
+     "candidates_per_center": 119.0
+    },
+    {
+     "scan_radius": "rcut + 2",
+     "scanning": {
+      "launch_and_return": 7.04,
+      "through_the_scan": 83.3,
+      "through_exact_distances": 131.39,
+      "all": 220.13
+     },
+     "candidates_read_back": {
+      "through_the_read": 13.06,
+      "through_exact_distances": 73.39,
+      "all": 155.07
+     },
+     "candidates_per_center": 176.84
+    }
+   ]
+  },
+  {
+   "frame": "hap x4",
+   "atoms": 5632,
+   "warps_per_center": 2,
+   "host_us": {
+    "pack_at_rcut": 167.39,
+    "bin_at_rcut": 88.79,
+    "pack_at_rcut_plus_1": 119.65,
+    "pack_at_rcut_plus_2": 119.69
+   },
+   "kernel_us": [
+    {
+     "scan_radius": "rcut + 0",
+     "scanning": {
+      "launch_and_return": 7.38,
+      "through_the_scan": 35.83,
+      "through_exact_distances": 61.92,
+      "all": 104.53
+     },
+     "candidates_read_back": {
+      "through_the_read": 15.05,
+      "through_exact_distances": 42.24,
+      "all": 82.32
+     },
+     "candidates_per_center": 74.25
+    },
+    {
+     "scan_radius": "rcut + 1",
+     "scanning": {
+      "launch_and_return": 6.89,
+      "through_the_scan": 53.39,
+      "through_exact_distances": 84.22,
+      "all": 126.98
+     },
+     "candidates_read_back": {
+      "through_the_read": 11.76,
+      "through_exact_distances": 53.67,
+      "all": 93.96
+     },
+     "candidates_per_center": 119.0
+    },
+    {
+     "scan_radius": "rcut + 2",
+     "scanning": {
+      "launch_and_return": 6.71,
+      "through_the_scan": 56.01,
+      "through_exact_distances": 106.03,
+      "all": 185.81
+     },
+     "candidates_read_back": {
+      "through_the_read": 12.81,
+      "through_exact_distances": 72.53,
+      "all": 141.17
+     },
+     "candidates_per_center": 176.84
+    }
+   ]
+  },
+  {
+   "frame": "hap x4",
+   "atoms": 5632,
+   "warps_per_center": 4,
+   "host_us": {
+    "pack_at_rcut": 153.91,
+    "bin_at_rcut": 84.55,
+    "pack_at_rcut_plus_1": 149.2,
+    "pack_at_rcut_plus_2": 123.03
+   },
+   "kernel_us": [
+    {
+     "scan_radius": "rcut + 0",
+     "scanning": {
+      "launch_and_return": 8.1,
+      "through_the_scan": 42.84,
+      "through_exact_distances": 74.08,
+      "all": 107.83
+     },
+     "candidates_read_back": {
+      "through_the_read": 14.89,
+      "through_exact_distances": 47.69,
+      "all": 82.47
+     },
+     "candidates_per_center": 74.25
+    },
+    {
+     "scan_radius": "rcut + 1",
+     "scanning": {
+      "launch_and_return": 8.35,
+      "through_the_scan": 58.4,
+      "through_exact_distances": 100.57,
+      "all": 142.99
+     },
+     "candidates_read_back": {
+      "through_the_read": 14.52,
+      "through_exact_distances": 59.12,
+      "all": 100.41
+     },
+     "candidates_per_center": 119.0
+    },
+    {
+     "scan_radius": "rcut + 2",
+     "scanning": {
+      "launch_and_return": 8.0,
+      "through_the_scan": 62.9,
+      "through_exact_distances": 124.62,
+      "all": 206.36
+     },
+     "candidates_read_back": {
+      "through_the_read": 16.42,
+      "through_exact_distances": 79.51,
+      "all": 157.87
+     },
+     "candidates_per_center": 176.84
+    }
+   ]
+  },
+  {
+   "frame": "hap x4",
+   "atoms": 5632,
+   "warps_per_center": 8,
+   "host_us": {
+    "pack_at_rcut": 165.07,
+    "bin_at_rcut": 99.47,
+    "pack_at_rcut_plus_1": 172.12,
+    "pack_at_rcut_plus_2": 158.37
+   },
+   "kernel_us": [
+    {
+     "scan_radius": "rcut + 0",
+     "scanning": {
+      "launch_and_return": 7.54,
+      "through_the_scan": 67.79,
+      "through_exact_distances": 111.37,
+      "all": 143.1
+     },
+     "candidates_read_back": {
+      "through_the_read": 26.2,
+      "through_exact_distances": 74.54,
+      "all": 106.44
+     },
+     "candidates_per_center": 74.25
+    },
+    {
+     "scan_radius": "rcut + 1",
+     "scanning": {
+      "launch_and_return": 8.81,
+      "through_the_scan": 84.89,
+      "through_exact_distances": 138.72,
+      "all": 191.25
+     },
+     "candidates_read_back": {
+      "through_the_read": 25.74,
+      "through_exact_distances": 81.06,
+      "all": 132.55
+     },
+     "candidates_per_center": 119.0
+    },
+    {
+     "scan_radius": "rcut + 2",
+     "scanning": {
+      "launch_and_return": 8.17,
+      "through_the_scan": 91.66,
+      "through_exact_distances": 165.19,
+      "all": 252.75
+     },
+     "candidates_read_back": {
+      "through_the_read": 27.39,
+      "through_exact_distances": 94.26,
+      "all": 171.65
+     },
+     "candidates_per_center": 176.84
+    }
+   ]
+  }
+ ]
+}

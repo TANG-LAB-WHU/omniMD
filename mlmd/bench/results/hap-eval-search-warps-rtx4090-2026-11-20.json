@@ -1,0 +1,273 @@
+{
+ "date": "2026-11-20",
+ "device": "NVIDIA GeForce RTX 4090",
+ "what": "ba_eval.py OLD NEW OUT.json [ROUNDS]: evaluations before and after the neighbor search with four warps a center.\n\nTwo builds of omnimd-native-gpu-eval, alternated in ROUNDS rounds (5) in one session, the order reversed every\nother round; the build before runs twice a round (`before` and `before again`), so that the two show what the\nmachine adds. The least time of each is kept, and the median recorded. Cases: the three HAP frames of the engine\nbenchmarks with the trained se_e2_a model in float32 with tables (as the MD runs use it) and in float64, the\n88-atom frame replicated to 704 and 5,632 atoms (float32 with tables), and the water frames of 192, 1,536 and\n12,288 atoms with the water model in float64.\n",
+ "rounds": 5,
+ "builds": {
+  "before": "omnimd-native-gpu-eval of commit 475cafb (one warp per center)",
+  "after": "omnimd-native-gpu-eval of this change (four warps per center)"
+ },
+ "us_per_evaluation": [
+  {
+   "case": "HAP 88, float32 with tables",
+   "before": {
+    "best": 155.03,
+    "median": 157.78
+   },
+   "after": {
+    "best": 149.77,
+    "median": 152.83
+   },
+   "before_again": {
+    "best": 157.45,
+    "median": 157.55
+   }
+  },
+  {
+   "case": "HAP 169, float32 with tables",
+   "before": {
+    "best": 192.62,
+    "median": 192.64
+   },
+   "after": {
+    "best": 188.15,
+    "median": 188.46
+   },
+   "before_again": {
+    "best": 193.33,
+    "median": 194.26
+   }
+  },
+  {
+   "case": "HAP 224, float32 with tables",
+   "before": {
+    "best": 217.44,
+    "median": 217.85
+   },
+   "after": {
+    "best": 210.18,
+    "median": 212.95
+   },
+   "before_again": {
+    "best": 216.08,
+    "median": 217.77
+   }
+  },
+  {
+   "case": "HAP 88, float64 with tables",
+   "before": {
+    "best": 411.83,
+    "median": 414.8
+   },
+   "after": {
+    "best": 407.4,
+    "median": 408.59
+   },
+   "before_again": {
+    "best": 413.27,
+    "median": 414.0
+   }
+  },
+  {
+   "case": "HAP 169, float64 with tables",
+   "before": {
+    "best": 720.26,
+    "median": 721.22
+   },
+   "after": {
+    "best": 715.52,
+    "median": 716.98
+   },
+   "before_again": {
+    "best": 720.12,
+    "median": 722.63
+   }
+  },
+  {
+   "case": "HAP 224, float64 with tables",
+   "before": {
+    "best": 748.59,
+    "median": 757.14
+   },
+   "after": {
+    "best": 749.09,
+    "median": 750.6
+   },
+   "before_again": {
+    "best": 752.44,
+    "median": 756.61
+   }
+  },
+  {
+   "case": "HAP 704, float32 with tables",
+   "before": {
+    "best": 524.83,
+    "median": 528.06
+   },
+   "after": {
+    "best": 521.41,
+    "median": 524.31
+   },
+   "before_again": {
+    "best": 525.94,
+    "median": 527.57
+   }
+  },
+  {
+   "case": "HAP 5,632, float32 with tables",
+   "before": {
+    "best": 2797.82,
+    "median": 2836.15
+   },
+   "after": {
+    "best": 2810.9,
+    "median": 2819.41
+   },
+   "before_again": {
+    "best": 2784.19,
+    "median": 2813.85
+   }
+  },
+  {
+   "case": "water 192, float64",
+   "before": {
+    "best": 1259.88,
+    "median": 1261.48
+   },
+   "after": {
+    "best": 1243.13,
+    "median": 1244.15
+   },
+   "before_again": {
+    "best": 1258.71,
+    "median": 1261.16
+   }
+  },
+  {
+   "case": "water 1,536, float64",
+   "before": {
+    "best": 8482.01,
+    "median": 8500.15
+   },
+   "after": {
+    "best": 8494.65,
+    "median": 8499.35
+   },
+   "before_again": {
+    "best": 8490.0,
+    "median": 8506.91
+   }
+  },
+  {
+   "case": "water 12,288, float64",
+   "before": {
+    "best": 66071.29,
+    "median": 66174.61
+   },
+   "after": {
+    "best": 66165.23,
+    "median": 66202.46
+   },
+   "before_again": {
+    "best": 66112.54,
+    "median": 66162.07
+   }
+  }
+ ],
+ "second_run": {
+  "rounds": 9,
+  "note": "The same two builds again in the same session, after the test suites, on the HAP cases of 88 to 5,632 atoms only: the build before ran faster for 88 atoms than in the first run (152.5 against 155.0 us), and the difference to the build after is 2.3 us there against 5.3.",
+  "us_per_evaluation": [
+   {
+    "case": "HAP 88, float32 with tables",
+    "before": {
+     "best": 152.54,
+     "median": 153.62
+    },
+    "after": {
+     "best": 150.26,
+     "median": 151.91
+    },
+    "before_again": {
+     "best": 152.53,
+     "median": 153.07
+    }
+   },
+   {
+    "case": "HAP 169, float32 with tables",
+    "before": {
+     "best": 189.72,
+     "median": 191.88
+    },
+    "after": {
+     "best": 186.07,
+     "median": 187.13
+    },
+    "before_again": {
+     "best": 190.82,
+     "median": 191.56
+    }
+   },
+   {
+    "case": "HAP 224, float32 with tables",
+    "before": {
+     "best": 213.82,
+     "median": 215.69
+    },
+    "after": {
+     "best": 208.91,
+     "median": 209.58
+    },
+    "before_again": {
+     "best": 214.17,
+     "median": 214.82
+    }
+   },
+   {
+    "case": "HAP 88, float64 with tables",
+    "before": {
+     "best": 403.93,
+     "median": 408.95
+    },
+    "after": {
+     "best": 400.13,
+     "median": 403.13
+    },
+    "before_again": {
+     "best": 407.91,
+     "median": 408.61
+    }
+   },
+   {
+    "case": "HAP 704, float32 with tables",
+    "before": {
+     "best": 522.61,
+     "median": 524.46
+    },
+    "after": {
+     "best": 517.22,
+     "median": 519.61
+    },
+    "before_again": {
+     "best": 522.75,
+     "median": 523.96
+    }
+   },
+   {
+    "case": "HAP 5,632, float32 with tables",
+    "before": {
+     "best": 2769.34,
+     "median": 2781.36
+    },
+    "after": {
+     "best": 2766.64,
+     "median": 2782.91
+    },
+    "before_again": {
+     "best": 2770.86,
+     "median": 2781.07
+    }
+   }
+  ]
+ }
+}
