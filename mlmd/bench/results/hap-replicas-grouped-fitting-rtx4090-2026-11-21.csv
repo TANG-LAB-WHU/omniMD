@@ -1,0 +1,13 @@
+system,natoms,route,replicas,ms_per_step_before,ms_per_step_after,us_per_replica_step_before,us_per_replica_step_after,speedup
+hap_bulk__H4Ca20O52P12,88,run,1,0.1473,0.1480,147.3,148.0,0.995
+hap_bulk__H4Ca20O52P12,88,run-replicas,8,0.5153,0.5148,64.4,64.4,1.001
+hap_bulk__H4Ca20O52P12,88,run-replicas,16,1.0280,0.9000,64.2,56.2,1.142
+hap_bulk__H4Ca20O52P12,88,run-replicas,32,1.7584,1.4805,54.9,46.3,1.188
+hap001_water_co2__C2H54Ca20O81P12,169,run,1,0.1833,0.1816,183.3,181.6,1.009
+hap001_water_co2__C2H54Ca20O81P12,169,run-replicas,8,0.9859,0.8536,123.2,106.7,1.155
+hap001_water_co2__C2H54Ca20O81P12,169,run-replicas,16,1.8234,1.3904,114.0,86.9,1.311
+hap001_water_co2__C2H54Ca20O81P12,169,run-replicas,32,2.8437,2.3536,88.9,73.6,1.208
+monetite_CaHPO4__H32Ca32O128P32,224,run,1,0.2027,0.2022,202.7,202.2,1.002
+monetite_CaHPO4__H32Ca32O128P32,224,run-replicas,8,1.3406,1.0607,167.6,132.6,1.264
+monetite_CaHPO4__H32Ca32O128P32,224,run-replicas,16,2.0410,1.7593,127.6,110.0,1.160
+monetite_CaHPO4__H32Ca32O128P32,224,run-replicas,32,3.4377,3.0804,107.4,96.3,1.116

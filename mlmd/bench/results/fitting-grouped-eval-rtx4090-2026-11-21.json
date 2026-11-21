@@ -1,0 +1,222 @@
+{
+ "date": "2026-11-21",
+ "device": "NVIDIA GeForce RTX 4090",
+ "what": "eval_ab.py OLD NEW OUT.json [ROUNDS]: evaluations before and after the grouped cuBLAS fitting path.\n\nTwo builds of omnimd-native-gpu-eval, alternated in ROUNDS rounds (5) in one session, the order reversed every\nother round; the build before runs twice a round (`before` and `before again`), so that the two show what the\nmachine adds. The least time of each is kept, and the median recorded. Cases: the three HAP frames of the engine\nbenchmarks with the trained se_e2_a model in float32 with tables (as the MD runs use it) and in float64, the\n88-atom frame replicated to 704 and 5,632 atoms (float32 with tables), and the water frames of 192, 1,536 and\n12,288 atoms with the water model in float64; added for this change: the 88-atom frame replicated to 2,376 atoms\nand the water frames of 1,536 and 12,288 atoms in float32 with tables.\n",
+ "rounds": 5,
+ "builds": {
+  "before": "omnimd-native-gpu-eval of d179ef7 (run/prev-d179ef7, shawn_dev before this change)",
+  "after": "omnimd-native-gpu-eval of this change (the grouped cuBLAS fitting path, the rule by nets and rows), built 2026-11-21 05:40 from the working tree that was committed"
+ },
+ "us_per_evaluation": [
+  {
+   "case": "HAP 88, float32 with tables",
+   "before": {
+    "best": 141.1,
+    "median": 142.26
+   },
+   "after": {
+    "best": 138.46,
+    "median": 141.85
+   },
+   "before_again": {
+    "best": 141.35,
+    "median": 142.65
+   }
+  },
+  {
+   "case": "HAP 169, float32 with tables",
+   "before": {
+    "best": 171.73,
+    "median": 172.92
+   },
+   "after": {
+    "best": 172.64,
+    "median": 172.96
+   },
+   "before_again": {
+    "best": 171.46,
+    "median": 172.61
+   }
+  },
+  {
+   "case": "HAP 224, float32 with tables",
+   "before": {
+    "best": 193.21,
+    "median": 193.3
+   },
+   "after": {
+    "best": 192.65,
+    "median": 193.46
+   },
+   "before_again": {
+    "best": 192.1,
+    "median": 193.36
+   }
+  },
+  {
+   "case": "HAP 88, float64 with tables",
+   "before": {
+    "best": 367.26,
+    "median": 369.79
+   },
+   "after": {
+    "best": 367.89,
+    "median": 368.78
+   },
+   "before_again": {
+    "best": 368.19,
+    "median": 370.12
+   }
+  },
+  {
+   "case": "HAP 169, float64 with tables",
+   "before": {
+    "best": 662.83,
+    "median": 663.9
+   },
+   "after": {
+    "best": 663.55,
+    "median": 665.69
+   },
+   "before_again": {
+    "best": 664.09,
+    "median": 665.56
+   }
+  },
+  {
+   "case": "HAP 224, float64 with tables",
+   "before": {
+    "best": 694.07,
+    "median": 696.0
+   },
+   "after": {
+    "best": 693.84,
+    "median": 697.11
+   },
+   "before_again": {
+    "best": 695.97,
+    "median": 696.8
+   }
+  },
+  {
+   "case": "HAP 704, float32 with tables",
+   "before": {
+    "best": 472.49,
+    "median": 475.62
+   },
+   "after": {
+    "best": 472.46,
+    "median": 474.84
+   },
+   "before_again": {
+    "best": 472.02,
+    "median": 474.22
+   }
+  },
+  {
+   "case": "HAP 2,376, float32 with tables",
+   "before": {
+    "best": 1436.3,
+    "median": 1440.2
+   },
+   "after": {
+    "best": 1168.28,
+    "median": 1174.86
+   },
+   "before_again": {
+    "best": 1429.46,
+    "median": 1431.76
+   }
+  },
+  {
+   "case": "HAP 5,632, float32 with tables",
+   "before": {
+    "best": 2530.9,
+    "median": 2554.03
+   },
+   "after": {
+    "best": 2206.25,
+    "median": 2216.45
+   },
+   "before_again": {
+    "best": 2539.21,
+    "median": 2559.01
+   }
+  },
+  {
+   "case": "water 192, float64",
+   "before": {
+    "best": 1145.33,
+    "median": 1147.98
+   },
+   "after": {
+    "best": 1146.14,
+    "median": 1148.87
+   },
+   "before_again": {
+    "best": 1144.95,
+    "median": 1147.12
+   }
+  },
+  {
+   "case": "water 1,536, float64",
+   "before": {
+    "best": 7785.83,
+    "median": 7806.5
+   },
+   "after": {
+    "best": 7784.5,
+    "median": 7807.89
+   },
+   "before_again": {
+    "best": 7802.04,
+    "median": 7812.79
+   }
+  },
+  {
+   "case": "water 12,288, float64",
+   "before": {
+    "best": 60403.01,
+    "median": 60527.76
+   },
+   "after": {
+    "best": 60515.74,
+    "median": 60536.55
+   },
+   "before_again": {
+    "best": 60512.61,
+    "median": 60585.79
+   }
+  },
+  {
+   "case": "water 1,536, float32 with tables",
+   "before": {
+    "best": 862.46,
+    "median": 867.58
+   },
+   "after": {
+    "best": 867.55,
+    "median": 871.37
+   },
+   "before_again": {
+    "best": 866.27,
+    "median": 871.85
+   }
+  },
+  {
+   "case": "water 12,288, float32 with tables",
+   "before": {
+    "best": 4949.93,
+    "median": 4977.42
+   },
+   "after": {
+    "best": 4815.93,
+    "median": 4832.18
+   },
+   "before_again": {
+    "best": 4939.95,
+    "median": 4954.06
+   }
+  }
+ ]
+}

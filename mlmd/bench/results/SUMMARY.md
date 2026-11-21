@@ -1,3 +1,175 @@
+# The fitting nets of many rows in grouped cuBLAS products, 2026-11-21
+
+Of a large evaluation in float32, the fitting nets were the stage that
+took longest: 0.84 of 2.77 ms for the HAP frame of 88 atoms replicated to
+5,632 (`--profile` on the build before). With that many rows they went
+through cuBLAS a net at a time, some nineteen calls for each center type
+and model, and the host issued those calls for 0.40 ms of the stage. A
+batch of frames or a committee of models met the same cost sooner. Each
+layer of all nets is now one grouped product (`cublas<t>gemmGroupedBatched`,
+cuBLAS 12.5 and later), so `GroupedNetwork` (`gpu/src/grouped.rs`) takes six
+products and five small kernels for three hidden layers, whatever the
+number of nets. In float64 nothing changes: the fused kernel is taken at
+every size there, as before, because the arithmetic of the double precision
+units bounds both paths.
+
+**The layout.** The products work on the rows of all nets at once, a group
+a net, in the work buffers the set keeps between calls. After each forward
+product one kernel adds the bias, applies the activation and the residual
+and keeps the slope; the last one also applies the output layer, which has
+one output: a warp a row sums the energy and writes the adjoint of the last
+layer, so the backward pass starts without a product of its own. Going
+back, a product a layer gives the adjoint of its input (added to the
+adjoint of its output for a residual layer) and one kernel multiplies it by
+the slopes of the layer below. A grouped product reads the addresses of its
+operands from arrays on the device; they are uploaded again only when the
+layout of a chunk changes. On a cuBLAS older than 12.5, or for nets that do
+not end in one linear output, the potential keeps the path a net at a time.
+
+**Which path.** A grouped call takes the device 20 to 24 µs whatever its
+size, so the grouped products cost some 0.2 ms more than the fused kernels
+for few rows, and a net at a time costs some 0.15 ms more a net than they
+do. By whole passes over batches in float32 with tables (`--fused-fitting`,
+`--grouped-fitting`, least of three alternated runs, µs):
+
+| frames (atoms, models) | nets | rows | fused | grouped | a net at a time |
+|---|---:|---:|---:|---:|---:|
+| 1 (88, 1) | 4 | 88 | 140 | 344 | 619 |
+| 8 (88, 1) | 4 | 704 | 480 | 498 | 770 |
+| 10 (88, 1) | 4 | 880 | 591 | 558 | 861 |
+| 16 (88, 1) | 4 | 1,408 | 968 | 834 | 1,064 |
+| 32 (88, 1) | 4 | 2,816 | 1,941 | 1,358 | 1,613 |
+| 4 (169, 1) | 5 | 676 | 469 | 491 | 895 |
+| 6 (169, 1) | 5 | 1,014 | 692 | 649 | 1,028 |
+| 16 (169, 1) | 5 | 2,704 | 1,831 | 1,278 | 1,660 |
+| 1 (169, 4) | 20 | 676 | 490 | 529 | 2,947 |
+| 2 (169, 4) | 20 | 1,352 | 879 | 751 | 3,273 |
+| 4 (169, 4) | 20 | 2,704 | 1,724 | 1,157 | 3,646 |
+| 16 (169, 4) | 20 | 10,816 | 9,253 | 3,699 | 5,979 |
+| 4 (water 192, 1) | 2 | 768 | 516 | 524 | 499 |
+| 8 (water 192, 1) | 2 | 1,536 | 1,071 | 896 | 876 |
+| 10 (water 192, 1) | 2 | 1,920 | 1,347 | 1,043 | 1,042 |
+| 12 (water 192, 1) | 2 | 2,304 | 1,635 | 1,179 | 1,205 |
+| 24 (water 192, 1) | 2 | 4,608 | 3,101 | 2,015 | 2,103 |
+
+The HAP frames are those of the engine benchmarks, with the HAP model
+(`hap-iter0-pre/ens4-f32-*`), the water frames with the water model; the
+records are in `fitting-paths-rtx4090-2026-11-21.json`.
+
+The potential now goes by the rows of the fitting nets in a chunk, atoms
+times models, and by the nets in it, center types times models: with three
+nets or more it takes the fused kernels up to 800 rows and the grouped
+products beyond; with one or two, the rule of before (the fused kernels up
+to 340 atoms a type and model, then cuBLAS a net at a time) and the grouped
+products from 1,920 rows. The rule of before had five-type models in the
+fused kernels up to 1,700 atoms a model, whatever the number of models, and
+a committee of four on 1,352 rows of HAP took 0.88 ms there against 0.75 in
+grouped products.
+
+**Evaluations of one frame** (`omnimd-native-gpu-eval --bench`, the build
+before and this one alternated in five rounds, the build before twice a
+round as a control; least of each, µs; held to the performance cores;
+record `fitting-grouped-eval-rtx4090-2026-11-21.json`):
+
+| frame | before | after | before again |
+|---|---:|---:|---:|
+| HAP 88 atoms, float32 with tables | 141.1 | 138.5 | 141.3 |
+| HAP 224 atoms, float32 with tables | 193.2 | 192.7 | 192.1 |
+| HAP 704 atoms, float32 with tables | 472.5 | 472.5 | 472.0 |
+| HAP 2,376 atoms, float32 with tables | 1,436.3 | 1,168.3 | 1,429.5 |
+| HAP 5,632 atoms, float32 with tables | 2,530.9 | 2,206.2 | 2,539.2 |
+| water 1,536 atoms, float32 with tables | 862.5 | 867.5 | 866.3 |
+| water 12,288 atoms, float32 with tables | 4,949.9 | 4,815.9 | 4,939.9 |
+| HAP 224 atoms, float64 with tables | 694.1 | 693.8 | 696.0 |
+| water 12,288 atoms, float64 | 60,403 | 60,516 | 60,513 |
+
+The frames of up to 704 atoms and float64 take the paths of before and stay
+within the control (the other cases of the record as well). A HAP frame of
+2,376 atoms is 19% faster, one of 5,632 13% (325 µs of the 0.84 ms the
+fitting nets took). Water has two nets: 1,536 atoms keep the nets one at a
+time, as before; 12,288 take the grouped products and gain 2.7%. A first
+build with the rule by rows alone had water of 1,536 atoms in the grouped
+products and 30 µs slower (890.5 against 860.8 and 862.0), which is how the
+nets came into the rule.
+
+**Batches and committees** (`hap_batch.py` on each build, alternated in
+three rounds, least of each; µs per pass, before → after, float32 with
+tables; the three systems the script picks from `cases/hap`; record
+`hap-batch-grouped-fitting-rtx4090-2026-11-21.csv`):
+
+| system (atoms, types) | models | 1 frame | 2 | 4 | 8 | 16 | 32 | 64 |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|
+| lime (54, 2) | 1 | 130 → 129 | 149 → 146 | 188 → 189 | 308 → 310 | 580 → 579 | 960 → 957 | 1,634 → 1,598 |
+| lime (54, 2) | 4 | 187 → 185 | 330 → 327 | 558 → 531 | 1,107 → 849 | 2,197 → 1,410 | 3,326 → 2,436 | 5,527 → 4,740 |
+| HAP(001) + CO2 (91, 5) | 1 | 140 → 140 | 174 → 175 | 263 → 264 | 476 → 477 | 940 → 799 | 1,687 → 1,256 | 2,630 → 2,095 |
+| HAP(001) + CO2 (91, 5) | 4 | 346 → 347 | 492 → 494 | 902 → 738 | 1,762 → 1,143 | 4,823 → 1,904 | 6,015 → 3,634 | 9,253 → 6,904 |
+| monetite (224, 4) | 1 | 194 → 193 | 330 → 331 | 612 → 579 | 1,280 → 1,001 | 1,904 → 1,632 | 3,150 → 2,801 | 5,851 → 5,472 |
+| monetite (224, 4) | 4 | 602 → 602 | 1,204 → 930 | 2,308 → 1,481 | 4,502 → 2,564 | 6,645 → 4,943 | 11,143 → 9,623 | 21,345 → 19,549 |
+
+- A committee of four gains most: 1.2 to 1.8 times from 1,400 to 7,200
+  rows (HAP(001) + CO2, 8 frames: 1.76 against 1.14 ms; monetite, 8
+  frames: 4.50 against 2.56 ms). The 4.82 ms of 16 frames of 91 atoms before
+  (2.53 times) is the fused kernel well past where it pays.
+- One model gains 1.06 to 1.34 times from 16 frames of 91 atoms and 4 frames
+  of 224 on, and nothing below, where the fused kernels stay.
+- Lime has two types: one model keeps the paths of before (3,456 rows at 64
+  frames take the grouped products and gain 2%); four models make eight
+  nets and gain like the others.
+- The committee of the four models over the 83 frames of the case in
+  batches of 16 (`hap_batch.py --check`, this build), each member against
+  DeePMD: float32 within 4.1e-7 eV per atom and 9.0e-6 eV/Å, float32 with
+  tables 3.3e-7 and 1.2e-5, float64 1.8e-13 and 5.6e-13, float64 with
+  tables 1.8e-13 and 7.8e-11. Of the same order as recorded on 2026-11-11
+  (3.1e-7 and 8.5e-6, 4.5e-7 and 1.0e-5).
+
+**Model deviation through the engine** (`hap_deviation.py`, the four
+models over the 83 frames, time per frame from a run over them once and
+one over them 25 times; record
+`hap-deviation-grouped-fitting-rtx4090-2026-11-21.json`): float32 with
+tables 0.219 ms per frame before and 0.114 after, and in a second run in the
+other order 0.325 and 0.213; the time per frame is the difference of two
+whole processes and varies that much from run to run, so the gain is 1.5
+to 1.9 times. Float64 is unchanged (2.323 and 2.327). The deviations of the
+two builds differ by up to 1.6e-6 eV/Å in float32 (3.2e-15 in float64) and
+stay within 2.4e-6 of those from DeePMD's forces.
+
+**Replicas in MD** (`hap_replicas.py` on each build, alternated in two
+rounds, least of each: NVT at 300 K, 0.5 fs, float32 with tables; µs per
+step and replica, before → after; record
+`hap-replicas-grouped-fitting-rtx4090-2026-11-21.csv`):
+
+| system (atoms) | one run | 8 replicas | 16 | 32 |
+|---|---:|---:|---:|---:|
+| HAP bulk (88) | 147.3 → 148.0 | 64.4 → 64.4 | 64.2 → 56.2 | 54.9 → 46.3 |
+| HAP(001) + water + CO2 (169) | 183.3 → 181.6 | 123.2 → 106.7 | 114.0 → 86.9 | 88.9 → 73.6 |
+| monetite (224) | 202.7 → 202.2 | 167.6 → 132.6 | 127.6 → 110.0 | 107.4 → 96.3 |
+
+A single run keeps its path. Replicas gain 1.12 to 1.31 times where their
+rows pass 800 (eight replicas of 88 atoms are 704 rows and stay in the
+fused kernels).
+
+**Tests.** A device test (`grouped_network_matches_cpu_value_and_gradient`)
+holds the grouped products to the CPU networks in float64 (1e-12) and
+float32 (1e-4), value and gradient: five fitting nets with residual layers
+and timesteps, nets whose width changes after a layer without residual, nets
+of one hidden layer, and nets wider than a warp has lanes; calls of
+different sizes one after another, each twice, so that the work buffers and
+the arrays of addresses are used again; groups that are refused, and six
+shapes of nets that are. Seven mutations of `grouped.rs` were each caught by
+it: the arrays of addresses not uploaded again, the residual of the
+gradient not added, the adjoint of the output layer not written, the
+residual dropped in the forward kernel or in that of the last layer, the
+nets left out of the group table, the weights of the first net used for
+all. An eighth, two buffers for the adjoints that no longer alternate,
+survived because one buffer serves: the products read the adjoints of the
+activation inputs only, never those of the layer outputs; the second buffer
+is gone. The parity tests of the potential (`native/tests/gpu_parity.rs`)
+now compare the grouped products and the nets one at a time with the CPU
+reference, for single frames, a float32 model, batches and a committee; on
+a cuBLAS before 12.5 they compare the path a net at a time twice. The GPU
+suites pass in release and debug (289 tests in 52 binaries with the GPU
+features; all 54 binaries of the workspace without them).
+
 # The neighbor search input packed in one pass, 2026-11-20
 
 The request was to speed up the host's packing of the neighbor search
@@ -173,7 +345,8 @@ to the scheduler (µs, the least;
 | MD step HAP 224 | 229.8 | 240.4 | 232.4 |
 
 The evaluations of the HAP frames took 4.3 to 7.1 µs longer from pinned
-memory while the pageable path differed from itself by up to 2.6, and the
+memory while the pageable path differed from itself by up to 1.9 (by the
+medians 4.6 to 6.1 longer, against up to 2.6), and the
 MD steps 5.6 to 10.6 longer, with the pageable path up to 7.6 from itself
 (169 atoms). For thousands of atoms the differences were about those of
 the control. In a loop of its own, the upload of the input of 169 atoms

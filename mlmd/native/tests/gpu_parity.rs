@@ -68,16 +68,30 @@ fn check(label: &str, model: Model, frame: &Frame) {
     compare(label, &g, &c, FLOAT64);
     // Re-evaluation reuses cached kernels and must give the same answer.
     compare(label, &gpu.eval(frame).unwrap(), &c, FLOAT64);
-    // The layer-by-layer cuBLAS fitting path (used for large chunks) gives
-    // the same answer as the fused kernel used above.
-    gpu.set_fused_fitting_max_atoms(0);
+    // The layer-by-layer cuBLAS fitting path (used for large chunks), all
+    // nets in grouped products and a net at a time, gives the same answer
+    // as the fused kernel used above.
+    gpu.set_fused_fitting_max_rows(0);
+    // Without grouped products (cuBLAS before 12.5) this compares the path
+    // a net at a time twice.
+    if !gpu.set_grouped_fitting(true) {
+        eprintln!("{label}: no grouped products in this cuBLAS");
+    }
     compare(
         &format!("{label} (cuBLAS fitting)"),
         &gpu.eval(frame).unwrap(),
         &c,
         FLOAT64,
     );
-    gpu.set_fused_fitting_max_atoms(usize::MAX);
+    assert!(!gpu.set_grouped_fitting(false));
+    compare(
+        &format!("{label} (cuBLAS fitting, a net at a time)"),
+        &gpu.eval(frame).unwrap(),
+        &c,
+        FLOAT64,
+    );
+    gpu.set_grouped_fitting(true);
+    gpu.set_fused_fitting_max_rows(usize::MAX);
     // The fused kernel with its first layer in tiles (the default only for
     // large float32 nets) gives the same answer again.
     assert!(gpu.set_tiled_fitting(true), "{label}: no tiles");
@@ -124,9 +138,16 @@ fn float32_networks_stay_close_to_float64() {
         &c,
         (1e-6, 1e-4),
     );
-    gpu.set_fused_fitting_max_atoms(0);
+    gpu.set_fused_fitting_max_rows(0);
     compare(
         "float32 cuBLAS fitting",
+        &gpu.eval(&frame).unwrap(),
+        &c,
+        (1e-6, 1e-4),
+    );
+    gpu.set_grouped_fitting(false);
+    compare(
+        "float32 cuBLAS fitting, a net at a time",
         &gpu.eval(&frame).unwrap(),
         &c,
         (1e-6, 1e-4),
@@ -554,9 +575,16 @@ fn a_batch_of_frames_matches_each_frame_alone() {
     gpu.set_chunk_atoms(7);
     against("batch in chunks", &gpu.eval_batch(&batch).unwrap(), FLOAT64);
     gpu.set_chunk_atoms(100_000);
-    gpu.set_fused_fitting_max_atoms(0);
+    gpu.set_fused_fitting_max_rows(0);
     against("batch, cuBLAS", &gpu.eval_batch(&batch).unwrap(), FLOAT64);
-    gpu.set_fused_fitting_max_atoms(usize::MAX);
+    gpu.set_grouped_fitting(false);
+    against(
+        "batch, cuBLAS a net at a time",
+        &gpu.eval_batch(&batch).unwrap(),
+        FLOAT64,
+    );
+    gpu.set_grouped_fitting(true);
+    gpu.set_fused_fitting_max_rows(usize::MAX);
     assert!(gpu.set_tiled_fitting(true));
     against("batch, tiles", &gpu.eval_batch(&batch).unwrap(), FLOAT64);
     gpu.compress(0.8, 0.01).unwrap();
@@ -634,7 +662,7 @@ fn a_batch_of_frames_matches_each_frame_alone() {
         (1e-6, 1e-4),
     );
     single.set_chunk_atoms(9);
-    single.set_fused_fitting_max_atoms(0);
+    single.set_fused_fitting_max_rows(0);
     let chunked = single.eval_batch(&batch).unwrap();
     against("float32 batch, chunks and cuBLAS", &chunked, (1e-6, 1e-4));
 }
@@ -768,14 +796,22 @@ fn a_committee_matches_its_members_alone() {
         FLOAT64,
     );
     gpu.set_chunk_atoms(100_000);
-    gpu.set_fused_fitting_max_atoms(0);
+    gpu.set_fused_fitting_max_rows(0);
     against(
         "committee, cuBLAS",
         &gpu.eval_members(&batch).unwrap(),
         3,
         FLOAT64,
     );
-    gpu.set_fused_fitting_max_atoms(usize::MAX);
+    gpu.set_grouped_fitting(false);
+    against(
+        "committee, cuBLAS a net at a time",
+        &gpu.eval_members(&batch).unwrap(),
+        3,
+        FLOAT64,
+    );
+    gpu.set_grouped_fitting(true);
+    gpu.set_fused_fitting_max_rows(usize::MAX);
     assert!(gpu.set_tiled_fitting(true));
     against(
         "committee, tiles",
@@ -801,7 +837,7 @@ fn a_committee_matches_its_members_alone() {
         (1e-6, 1e-4),
     );
     single.set_chunk_atoms(10);
-    single.set_fused_fitting_max_atoms(0);
+    single.set_fused_fitting_max_rows(0);
     let chunked = single.eval_members(&batch).unwrap();
     against(
         "float32 committee, chunks and cuBLAS",

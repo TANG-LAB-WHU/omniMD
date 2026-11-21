@@ -19,7 +19,7 @@ use cudarc::driver::{
 };
 use omnimd_ml_contract::{Error, Result};
 
-const ACTIVATE: &str = r#"
+pub(crate) const ACTIVATE: &str = r#"
 template <typename T>
 __device__ void activate(int act, T z, T* v, T* s) {
     if (act == 1) {
@@ -631,7 +631,7 @@ pub struct LayerParameters<T> {
 /// Checks that `networks` is a nonempty set of chains with identical layer
 /// shapes, activations and residual flags, starting from `input` inputs when
 /// given. Returns the shared layer list.
-fn common_shape<T: Scalar>(
+pub(crate) fn common_shape<T: Scalar>(
     networks: &[Vec<LayerParameters<T>>],
     input: Option<usize>,
 ) -> Result<&[LayerParameters<T>]> {

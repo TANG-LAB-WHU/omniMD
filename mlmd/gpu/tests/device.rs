@@ -1086,6 +1086,296 @@ fn gradient_network_matches_cpu_value_and_gradient() {
     );
 }
 
+/// Rows of nets in consecutive groups, as `(net, first row, rows)`.
+fn row_groups(lengths: &[(usize, usize)]) -> Vec<(usize, usize, usize)> {
+    let mut first = 0;
+    lengths
+        .iter()
+        .map(|&(net, rows)| {
+            let group = (net, first, rows);
+            first += rows;
+            group
+        })
+        .collect()
+}
+
+#[test]
+fn grouped_network_matches_cpu_value_and_gradient() {
+    let Some(device) = device() else { return };
+    if device.blas_version().unwrap() < 120_500 {
+        eprintln!("skipped: grouped products need cuBLAS 12.5");
+        return;
+    }
+    let scaled = |mut layer: CpuLayer| {
+        let scale = 1.0 / (layer.input as f64).sqrt();
+        layer.weights.iter_mut().for_each(|w| *w *= scale);
+        layer
+    };
+    // A fitting net with residual layers and timesteps; widths that change
+    // after a layer without residual; one hidden layer only; and a wide one
+    // (more neurons than a warp has lanes).
+    let fitting = |seed: u64| {
+        vec![
+            scaled(CpuLayer::random(
+                40,
+                24,
+                Activation::Tanh,
+                false,
+                false,
+                seed,
+            )),
+            scaled(CpuLayer::random(
+                24,
+                24,
+                Activation::Tanh,
+                true,
+                true,
+                seed + 10,
+            )),
+            scaled(CpuLayer::random(
+                24,
+                24,
+                Activation::Softplus,
+                true,
+                false,
+                seed + 20,
+            )),
+            scaled(CpuLayer::random(
+                24,
+                1,
+                Activation::Linear,
+                false,
+                false,
+                seed + 30,
+            )),
+        ]
+    };
+    let widths = |seed: u64| {
+        vec![
+            scaled(CpuLayer::random(
+                30,
+                16,
+                Activation::Sigmoid,
+                false,
+                true,
+                seed,
+            )),
+            scaled(CpuLayer::random(
+                16,
+                20,
+                Activation::Tanh,
+                false,
+                false,
+                seed + 10,
+            )),
+            scaled(CpuLayer::random(
+                20,
+                20,
+                Activation::Tanh,
+                true,
+                true,
+                seed + 20,
+            )),
+            scaled(CpuLayer::random(
+                20,
+                1,
+                Activation::Linear,
+                false,
+                false,
+                seed + 30,
+            )),
+        ]
+    };
+    let shallow = |seed: u64| {
+        vec![
+            scaled(CpuLayer::random(
+                12,
+                8,
+                Activation::Tanh,
+                false,
+                false,
+                seed,
+            )),
+            scaled(CpuLayer::random(
+                8,
+                1,
+                Activation::Linear,
+                false,
+                false,
+                seed + 10,
+            )),
+        ]
+    };
+    let wide = |seed: u64| {
+        vec![
+            scaled(CpuLayer::random(
+                300,
+                70,
+                Activation::Tanh,
+                false,
+                false,
+                seed,
+            )),
+            scaled(CpuLayer::random(
+                70,
+                70,
+                Activation::Tanh,
+                true,
+                true,
+                seed + 10,
+            )),
+            scaled(CpuLayer::random(
+                70,
+                1,
+                Activation::Linear,
+                false,
+                false,
+                seed + 20,
+            )),
+        ]
+    };
+    type Calls = Vec<Vec<(usize, usize)>>;
+    let cases: [(&str, Vec<Vec<CpuLayer>>, Calls); 4] = [
+        (
+            "fitting",
+            (0..5).map(|n| fitting(100 * n)).collect(),
+            vec![
+                vec![(0, 7), (1, 30), (2, 1), (3, 12), (4, 5)],
+                vec![(2, 3), (0, 9)],
+                vec![(4, 37), (1, 2), (4, 11), (0, 19), (3, 8), (2, 40)],
+            ],
+        ),
+        (
+            "widths",
+            (0..3).map(|n| widths(700 + 100 * n)).collect(),
+            vec![vec![(1, 13), (0, 4), (2, 21)], vec![(2, 50)]],
+        ),
+        (
+            "shallow",
+            (0..2).map(|n| shallow(1500 + 100 * n)).collect(),
+            vec![vec![(0, 3), (1, 6)], vec![(1, 33), (0, 1)]],
+        ),
+        (
+            "wide",
+            (0..2).map(|n| wide(1800 + 100 * n)).collect(),
+            vec![vec![(1, 9), (0, 26)], vec![(0, 5)]],
+        ),
+    ];
+    for (label, nets, calls) in &cases {
+        let input = nets[0][0].input;
+        let parameters: Vec<_> = nets.iter().map(|n| layer_parameters::<f64>(n)).collect();
+        let mut double = omnimd_gpu::GroupedNetwork::new_set(device, &parameters).unwrap();
+        let single: Vec<_> = nets.iter().map(|n| layer_parameters::<f32>(n)).collect();
+        let mut single = omnimd_gpu::GroupedNetwork::new_set(device, &single).unwrap();
+        assert_eq!(double.input(), input);
+        // Calls of other sizes and inputs one after another: the set keeps
+        // its buffers and the addresses of its products between them.
+        for (call, lengths) in calls.iter().enumerate() {
+            for repeat in 0..2u64 {
+                let groups = row_groups(lengths);
+                let rows: usize = lengths.iter().map(|g| g.1).sum();
+                let x = values(rows * input, 2000 + 10 * call as u64 + repeat);
+                let (mut value, mut gradient) = (Vec::new(), Vec::new());
+                for &(net, first, count) in &groups {
+                    for r in first..first + count {
+                        let (v, g) = cpu_value_and_gradient(&nets[net], &x[r * input..][..input]);
+                        value.push(v);
+                        gradient.extend(g);
+                    }
+                }
+                let what = format!("{label}, call {call}, repeat {repeat}");
+                let scale = gradient.iter().fold(1.0_f64, |m, v| m.max(v.abs()));
+                let (mut v, mut g) = (
+                    device.upload(&vec![f64::NAN; rows]).unwrap(),
+                    device.upload(&vec![f64::NAN; rows * input]).unwrap(),
+                );
+                let xd = device.upload(&x).unwrap();
+                double
+                    .forward_gradient_grouped(device, &xd, &groups, rows, &mut v, &mut g)
+                    .unwrap();
+                let error = max_error(device.download(&v).unwrap(), &value);
+                assert!(error < 1e-12, "{what}: value {error:e}");
+                let error = max_error(device.download(&g).unwrap(), &gradient);
+                assert!(error < 1e-12 * scale, "{what}: gradient {error:e}");
+
+                let x32: Vec<f32> = x.iter().map(|&v| v as f32).collect();
+                let (mut v, mut g) = (
+                    device.upload(&vec![f32::NAN; rows]).unwrap(),
+                    device.upload(&vec![f32::NAN; rows * input]).unwrap(),
+                );
+                single
+                    .forward_gradient_grouped(
+                        device,
+                        &device.upload(&x32).unwrap(),
+                        &groups,
+                        rows,
+                        &mut v,
+                        &mut g,
+                    )
+                    .unwrap();
+                let widen = |v: Vec<f32>| v.into_iter().map(f64::from).collect::<Vec<f64>>();
+                let error = max_error(widen(device.download(&v).unwrap()), &value);
+                assert!(error < 1e-4, "{what}: f32 value {error:e}");
+                let error = max_error(widen(device.download(&g).unwrap()), &gradient);
+                assert!(error < 1e-4 * scale, "{what}: f32 gradient {error:e}");
+            }
+        }
+        // Groups that are not consecutive runs of known nets, or that do not
+        // cover the rows, are refused.
+        let rows = 10;
+        let xd = device.upload(&values(rows * input, 3)).unwrap();
+        let (mut v, mut g) = (
+            device.zeros::<f64>(rows).unwrap(),
+            device.zeros::<f64>(rows * input).unwrap(),
+        );
+        for groups in [
+            vec![(0, 0, 4), (1, 5, 5)],
+            vec![(0, 0, 4), (1, 4, 5)],
+            vec![(0, 0, 10), (nets.len(), 10, 0)],
+            vec![(nets.len(), 0, 10)],
+            vec![(0, 0, 0), (1, 0, 10)],
+        ] {
+            assert!(
+                double
+                    .forward_gradient_grouped(device, &xd, &groups, rows, &mut v, &mut g)
+                    .is_err(),
+                "{label}: {groups:?}"
+            );
+        }
+    }
+    // Shapes the set does not take: more than one output, no hidden layer,
+    // an output that is not linear or has a timestep, a residual first
+    // layer, a residual layer that doubles its width.
+    let refused = [
+        vec![CpuLayer::random(4, 2, Activation::Tanh, false, false, 1)],
+        vec![CpuLayer::random(4, 1, Activation::Linear, false, false, 1)],
+        vec![
+            CpuLayer::random(4, 3, Activation::Tanh, false, false, 1),
+            CpuLayer::random(3, 1, Activation::Tanh, false, false, 2),
+        ],
+        vec![
+            CpuLayer::random(4, 3, Activation::Tanh, false, false, 1),
+            CpuLayer::random(3, 1, Activation::Linear, false, true, 2),
+        ],
+        vec![
+            CpuLayer::random(4, 4, Activation::Tanh, true, false, 1),
+            CpuLayer::random(4, 1, Activation::Linear, false, false, 2),
+        ],
+        vec![
+            CpuLayer::random(4, 3, Activation::Tanh, false, false, 1),
+            CpuLayer::random(3, 6, Activation::Tanh, true, false, 2),
+            CpuLayer::random(6, 1, Activation::Linear, false, false, 3),
+        ],
+    ];
+    for (at, layers) in refused.iter().enumerate() {
+        assert!(
+            omnimd_gpu::GroupedNetwork::new_set(device, &[layer_parameters::<f64>(layers)])
+                .is_err(),
+            "shape {at}"
+        );
+    }
+}
+
 #[test]
 fn transposed_matmul_matches_cpu() {
     let Some(device) = device() else { return };

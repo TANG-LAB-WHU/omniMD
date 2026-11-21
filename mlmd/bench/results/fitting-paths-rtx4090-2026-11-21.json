@@ -1,0 +1,415 @@
+{
+ "date": "2026-11-21",
+ "device": "NVIDIA GeForce RTX 4090",
+ "what": "Whole passes of omnimd-native-gpu-eval --bench-batches over batches of copies of one frame, float32 with tables (--compress 0.5), the fitting nets in the fused kernels (--fused-fitting 1000000000), in grouped cuBLAS products (--fused-fitting 0, grouped on) and a net at a time (--fused-fitting 0 --grouped-fitting off). Three rounds alternated, the order reversed every other round, the least of each kept; held to the performance cores. HAP frames of the engine benchmarks (hap_bulk 88 atoms, hap001_water_co2 169 atoms) with the HAP models hap-iter0-pre/ens4-f32-0..3; water frames of 192 atoms with the water se_e2_a model. The water rows come from a second sweep with the build of the PR; the HAP rows from an earlier build of it that differed in the default rule, which these forced paths do not use, and in alternating two buffers for the adjoints of the layer outputs where one now serves.",
+ "us_per_pass": [
+  {
+   "case": "HAP 88, one model",
+   "frames": 1,
+   "atoms_per_frame": 88,
+   "nets": 4,
+   "rows": 88,
+   "us_per_pass": {
+    "fused": 140.4,
+    "grouped": 343.5,
+    "a net at a time": 619.1
+   }
+  },
+  {
+   "case": "HAP 88, one model",
+   "frames": 4,
+   "atoms_per_frame": 88,
+   "nets": 4,
+   "rows": 352,
+   "us_per_pass": {
+    "fused": 256.3,
+    "grouped": 400.7,
+    "a net at a time": 667.0
+   }
+  },
+  {
+   "case": "HAP 88, one model",
+   "frames": 6,
+   "atoms_per_frame": 88,
+   "nets": 4,
+   "rows": 528,
+   "us_per_pass": {
+    "fused": 388.5,
+    "grouped": 445.5,
+    "a net at a time": 727.4
+   }
+  },
+  {
+   "case": "HAP 88, one model",
+   "frames": 8,
+   "atoms_per_frame": 88,
+   "nets": 4,
+   "rows": 704,
+   "us_per_pass": {
+    "fused": 479.9,
+    "grouped": 498.4,
+    "a net at a time": 770.2
+   }
+  },
+  {
+   "case": "HAP 88, one model",
+   "frames": 10,
+   "atoms_per_frame": 88,
+   "nets": 4,
+   "rows": 880,
+   "us_per_pass": {
+    "fused": 591.0,
+    "grouped": 557.8,
+    "a net at a time": 861.4
+   }
+  },
+  {
+   "case": "HAP 88, one model",
+   "frames": 12,
+   "atoms_per_frame": 88,
+   "nets": 4,
+   "rows": 1056,
+   "us_per_pass": {
+    "fused": 743.7,
+    "grouped": 666.9,
+    "a net at a time": 930.3
+   }
+  },
+  {
+   "case": "HAP 88, one model",
+   "frames": 16,
+   "atoms_per_frame": 88,
+   "nets": 4,
+   "rows": 1408,
+   "us_per_pass": {
+    "fused": 968.3,
+    "grouped": 833.7,
+    "a net at a time": 1063.6
+   }
+  },
+  {
+   "case": "HAP 88, one model",
+   "frames": 24,
+   "atoms_per_frame": 88,
+   "nets": 4,
+   "rows": 2112,
+   "us_per_pass": {
+    "fused": 1479.2,
+    "grouped": 1081.3,
+    "a net at a time": 1337.8
+   }
+  },
+  {
+   "case": "HAP 88, one model",
+   "frames": 32,
+   "atoms_per_frame": 88,
+   "nets": 4,
+   "rows": 2816,
+   "us_per_pass": {
+    "fused": 1940.9,
+    "grouped": 1358.0,
+    "a net at a time": 1612.7
+   }
+  },
+  {
+   "case": "HAP 169, one model",
+   "frames": 1,
+   "atoms_per_frame": 169,
+   "nets": 5,
+   "rows": 169,
+   "us_per_pass": {
+    "fused": 172.2,
+    "grouped": 359.7,
+    "a net at a time": 753.5
+   }
+  },
+  {
+   "case": "HAP 169, one model",
+   "frames": 2,
+   "atoms_per_frame": 169,
+   "nets": 5,
+   "rows": 338,
+   "us_per_pass": {
+    "fused": 253.3,
+    "grouped": 398.4,
+    "a net at a time": 829.4
+   }
+  },
+  {
+   "case": "HAP 169, one model",
+   "frames": 3,
+   "atoms_per_frame": 169,
+   "nets": 5,
+   "rows": 507,
+   "us_per_pass": {
+    "fused": 373.1,
+    "grouped": 444.7,
+    "a net at a time": 885.3
+   }
+  },
+  {
+   "case": "HAP 169, one model",
+   "frames": 4,
+   "atoms_per_frame": 169,
+   "nets": 5,
+   "rows": 676,
+   "us_per_pass": {
+    "fused": 468.7,
+    "grouped": 490.8,
+    "a net at a time": 894.7
+   }
+  },
+  {
+   "case": "HAP 169, one model",
+   "frames": 6,
+   "atoms_per_frame": 169,
+   "nets": 5,
+   "rows": 1014,
+   "us_per_pass": {
+    "fused": 691.9,
+    "grouped": 649.3,
+    "a net at a time": 1028.2
+   }
+  },
+  {
+   "case": "HAP 169, one model",
+   "frames": 8,
+   "atoms_per_frame": 169,
+   "nets": 5,
+   "rows": 1352,
+   "us_per_pass": {
+    "fused": 922.6,
+    "grouped": 798.3,
+    "a net at a time": 1174.4
+   }
+  },
+  {
+   "case": "HAP 169, one model",
+   "frames": 12,
+   "atoms_per_frame": 169,
+   "nets": 5,
+   "rows": 2028,
+   "us_per_pass": {
+    "fused": 1384.3,
+    "grouped": 1034.0,
+    "a net at a time": 1423.2
+   }
+  },
+  {
+   "case": "HAP 169, one model",
+   "frames": 16,
+   "atoms_per_frame": 169,
+   "nets": 5,
+   "rows": 2704,
+   "us_per_pass": {
+    "fused": 1831.2,
+    "grouped": 1277.7,
+    "a net at a time": 1660.4
+   }
+  },
+  {
+   "case": "HAP 169, four models",
+   "frames": 1,
+   "atoms_per_frame": 169,
+   "nets": 20,
+   "rows": 676,
+   "us_per_pass": {
+    "fused": 489.8,
+    "grouped": 529.2,
+    "a net at a time": 2947.2
+   }
+  },
+  {
+   "case": "HAP 169, four models",
+   "frames": 2,
+   "atoms_per_frame": 169,
+   "nets": 20,
+   "rows": 1352,
+   "us_per_pass": {
+    "fused": 879.2,
+    "grouped": 750.6,
+    "a net at a time": 3273.4
+   }
+  },
+  {
+   "case": "HAP 169, four models",
+   "frames": 3,
+   "atoms_per_frame": 169,
+   "nets": 20,
+   "rows": 2028,
+   "us_per_pass": {
+    "fused": 1317.0,
+    "grouped": 944.1,
+    "a net at a time": 3439.9
+   }
+  },
+  {
+   "case": "HAP 169, four models",
+   "frames": 4,
+   "atoms_per_frame": 169,
+   "nets": 20,
+   "rows": 2704,
+   "us_per_pass": {
+    "fused": 1724.2,
+    "grouped": 1157.0,
+    "a net at a time": 3646.4
+   }
+  },
+  {
+   "case": "HAP 169, four models",
+   "frames": 6,
+   "atoms_per_frame": 169,
+   "nets": 20,
+   "rows": 4056,
+   "us_per_pass": {
+    "fused": 2507.1,
+    "grouped": 1554.8,
+    "a net at a time": 4016.3
+   }
+  },
+  {
+   "case": "HAP 169, four models",
+   "frames": 8,
+   "atoms_per_frame": 169,
+   "nets": 20,
+   "rows": 5408,
+   "us_per_pass": {
+    "fused": 3272.4,
+    "grouped": 1952.7,
+    "a net at a time": 4279.5
+   }
+  },
+  {
+   "case": "HAP 169, four models",
+   "frames": 16,
+   "atoms_per_frame": 169,
+   "nets": 20,
+   "rows": 10816,
+   "us_per_pass": {
+    "fused": 9253.4,
+    "grouped": 3699.2,
+    "a net at a time": 5979.3
+   }
+  },
+  {
+   "case": "water 192, one model",
+   "frames": 2,
+   "atoms_per_frame": 192,
+   "nets": 2,
+   "rows": 384,
+   "us_per_pass": {
+    "fused": 283.6,
+    "grouped": 420.6,
+    "a net at a time": 422.9
+   }
+  },
+  {
+   "case": "water 192, one model",
+   "frames": 4,
+   "atoms_per_frame": 192,
+   "nets": 2,
+   "rows": 768,
+   "us_per_pass": {
+    "fused": 516.0,
+    "grouped": 524.3,
+    "a net at a time": 499.5
+   }
+  },
+  {
+   "case": "water 192, one model",
+   "frames": 6,
+   "atoms_per_frame": 192,
+   "nets": 2,
+   "rows": 1152,
+   "us_per_pass": {
+    "fused": 830.9,
+    "grouped": 721.0,
+    "a net at a time": 701.0
+   }
+  },
+  {
+   "case": "water 192, one model",
+   "frames": 8,
+   "atoms_per_frame": 192,
+   "nets": 2,
+   "rows": 1536,
+   "us_per_pass": {
+    "fused": 1070.5,
+    "grouped": 896.4,
+    "a net at a time": 875.7
+   }
+  },
+  {
+   "case": "water 192, one model",
+   "frames": 10,
+   "atoms_per_frame": 192,
+   "nets": 2,
+   "rows": 1920,
+   "us_per_pass": {
+    "fused": 1347.4,
+    "grouped": 1042.6,
+    "a net at a time": 1042.0
+   }
+  },
+  {
+   "case": "water 192, one model",
+   "frames": 12,
+   "atoms_per_frame": 192,
+   "nets": 2,
+   "rows": 2304,
+   "us_per_pass": {
+    "fused": 1634.5,
+    "grouped": 1178.5,
+    "a net at a time": 1205.0
+   }
+  },
+  {
+   "case": "water 192, one model",
+   "frames": 14,
+   "atoms_per_frame": 192,
+   "nets": 2,
+   "rows": 2688,
+   "us_per_pass": {
+    "fused": 1888.5,
+    "grouped": 1340.0,
+    "a net at a time": 1359.6
+   }
+  },
+  {
+   "case": "water 192, one model",
+   "frames": 16,
+   "atoms_per_frame": 192,
+   "nets": 2,
+   "rows": 3072,
+   "us_per_pass": {
+    "fused": 2130.4,
+    "grouped": 1473.6,
+    "a net at a time": 1500.8
+   }
+  },
+  {
+   "case": "water 192, one model",
+   "frames": 20,
+   "atoms_per_frame": 192,
+   "nets": 2,
+   "rows": 3840,
+   "us_per_pass": {
+    "fused": 2631.2,
+    "grouped": 1756.0,
+    "a net at a time": 1821.6
+   }
+  },
+  {
+   "case": "water 192, one model",
+   "frames": 24,
+   "atoms_per_frame": 192,
+   "nets": 2,
+   "rows": 4608,
+   "us_per_pass": {
+    "fused": 3101.3,
+    "grouped": 2015.0,
+    "a net at a time": 2102.6
+   }
+  }
+ ]
+}

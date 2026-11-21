@@ -18,16 +18,19 @@
 //! a knot every 0.01 on a smooth net, or of another step if `:STEP` is
 //! given). RMIN is a distance in Å below the shortest expected: the tables
 //! reach to a fifth of it, frames with closer pairs fall back to the exact
-//! networks, and the size of the tables is printed. `--fused-fitting ATOMS`
-//! sets the largest
-//! chunk whose fitting nets run in the single fused kernel instead of cuBLAS
-//! (0 disables it); the default suits an RTX 4090. `--wide-forces CENTERS`
-//! sets the most centers (atoms of a chunk times models) of a pass whose
-//! two-body force kernel gets its wider blocks (0: none); the default suits
-//! that card too. `--block-sums CENTERS` sets, for every descriptor, the
-//! most centers of a pass whose force kernel forms the sums of a block
-//! across its warps in shared memory (0: every warp reduces its own, as
-//! before 2026-11-19); without it se_e2_a has a limit and the others none.
+//! networks, and the size of the tables is printed. `--fused-fitting ROWS`
+//! sets the most rows (atoms of a chunk times models) whose fitting nets run
+//! in the single fused kernel instead of cuBLAS (0 disables it); the default
+//! suits an RTX 4090. `--grouped-fitting on|off` has the cuBLAS path take
+//! all nets in grouped products, or one net at a time, always instead of by
+//! the default rule (which goes by the nets and rows of a chunk).
+//! `--wide-forces CENTERS` sets the most centers (atoms of a chunk times
+//! models) of a pass whose two-body force kernel gets its wider blocks (0:
+//! none); the default suits that card too. `--block-sums CENTERS` sets, for
+//! every descriptor, the most centers of a pass whose force kernel forms the
+//! sums of a block across its warps in shared memory (0: every warp reduces
+//! its own, as before 2026-11-19); without it se_e2_a has a limit and the
+//! others none.
 //!
 //! `--member` adds a model of the same architecture: the models are then
 //! evaluated together as a committee, and each output line is the array of
@@ -50,7 +53,7 @@ use std::time::Instant;
 
 const USAGE: &str = "usage: omnimd-native-gpu-eval MODEL.json [--precision float64|float32] \
                      [--bench K] [--profile] [--chunk ATOMS] [--compress RMIN[:STEP]] \
-                     [--fused-fitting ATOMS] [--tiled-fitting on|off] [--wide-forces CENTERS] \
+                     [--fused-fitting ROWS] [--grouped-fitting on|off] [--tiled-fitting on|off] [--wide-forces CENTERS] \
                      [--block-sums CENTERS] [--member MODEL.json]... [--batch FRAMES] \
                      [--bench-batches N,N,...] < frames.jsonl";
 
@@ -65,6 +68,7 @@ struct Options {
     chunk: Option<usize>,
     compress: Option<(f64, f64)>,
     fused_fitting: Option<usize>,
+    grouped_fitting: Option<bool>,
     tiled_fitting: Option<bool>,
     wide_forces: Option<usize>,
     block_sums: Option<usize>,
@@ -83,6 +87,7 @@ fn options() -> Result<Options, Box<dyn std::error::Error>> {
         chunk: None,
         compress: None,
         fused_fitting: None,
+        grouped_fitting: None,
         tiled_fitting: None,
         wide_forces: None,
         block_sums: None,
@@ -117,6 +122,17 @@ fn options() -> Result<Options, Box<dyn std::error::Error>> {
             "--fused-fitting" => options.fused_fitting = Some(value()?.parse()?),
             "--wide-forces" => options.wide_forces = Some(value()?.parse()?),
             "--block-sums" => options.block_sums = Some(value()?.parse()?),
+            "--grouped-fitting" => {
+                options.grouped_fitting = Some(match value()?.as_str() {
+                    "on" => true,
+                    "off" => false,
+                    other => {
+                        return Err(
+                            format!("--grouped-fitting takes on or off, not {other:?}").into()
+                        )
+                    }
+                })
+            }
             "--tiled-fitting" => {
                 options.tiled_fitting = Some(match value()?.as_str() {
                     "on" => true,
@@ -151,8 +167,13 @@ fn evaluate<P: Scalar>(
     if let Some(chunk) = options.chunk {
         gpu.set_chunk_atoms(chunk);
     }
-    if let Some(atoms) = options.fused_fitting {
-        gpu.set_fused_fitting_max_atoms(atoms);
+    if let Some(rows) = options.fused_fitting {
+        gpu.set_fused_fitting_max_rows(rows);
+    }
+    if let Some(on) = options.grouped_fitting {
+        if gpu.set_grouped_fitting(on) != on {
+            return Err("this model's fitting nets or this cuBLAS take no grouped products".into());
+        }
     }
     if let Some(centers) = options.wide_forces {
         gpu.set_wide_force_centers(centers);

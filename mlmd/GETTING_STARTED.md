@@ -1513,8 +1513,12 @@ omnimd-native-gpu-eval MODEL.json [--precision float64|float32] [--compress RMIN
   times printed before 2026-11-19 were taken with a wait for the device
   after every stage and are not comparable.
 - `--fused-fitting`, `--tiled-fitting`, `--wide-forces` and `--block-sums`
-  move limits that were measured on an RTX 4090; the header of
+  move limits that were measured on an RTX 4090, and `--grouped-fitting on|off`
+  has the fitting nets on cuBLAS take grouped products always or never
+  (for comparison; the default rule needs no flag); the header of
   `native/src/bin/omnimd-native-gpu-eval.rs` says what each is.
+  `--fused-fitting` counts rows of the fitting nets (atoms times models)
+  since 2026-11-21, no longer atoms.
 - Frames larger than the device memory budget are processed in chunks of atoms
   automatically; `--chunk ATOMS` overrides the chunk size.
 - A warning is printed when an atom has more neighbors than `sel`. The runtime

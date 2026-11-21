@@ -12,7 +12,8 @@ NVRTC at run time (and cached on disk), launched through `cudarc`.
 | `ScalarNetwork` | embedding nets, value and tangent in one launch |
 | `CellTable` | embedding nets as quintic tables in pieces of uneven length, each as long as its net allows (a trained net turns within a hundredth of a unit in some places and not at all in most; the θ of se_e3 spans thousands of units): the piece of an input is found from its sign, its exponent and its first bits, with nothing rounded on the way in float32 or float64. A table may have pieces on one side of zero only, and reach less far than its pieces go; an input beyond is flagged. `CELL_LOOKUP` is the lookup as CUDA source, for kernels that read such tables themselves |
 | `GradientNetwork` | fitting nets, forward and backward (few atoms): one launch, or three with a wide first layer in tiles through shared memory and the other layers two rows a block |
-| `DenseNetwork` | fitting nets layer by layer on cuBLAS (many atoms) |
+| `GroupedNetwork` | fitting nets layer by layer on cuBLAS (many atoms), all nets of a layer in one grouped product (cuBLAS 12.5 and later) |
+| `DenseNetwork` | fitting nets layer by layer on cuBLAS a net at a time (many atoms, older cuBLAS) |
 | `TrainSet`, `TrainNetwork` | networks with tangents and parameter gradients for the trainer |
 
 ## What things cost on the device
@@ -328,6 +329,28 @@ What follows for the kernels:
   from 75 to 67 for 88. What is left with many rows is 0.07 microseconds a
   row in the forward tiles, 0.14 in the layers after the first and 0.15 in
   the backward tiles.
+- Past some hundreds of rows cuBLAS does the fitting nets faster than the
+  fused kernels, but a net at a time it costs a fixed amount per net:
+  about nineteen calls for each center type and model, some 0.6 ms for the
+  five types of HAP whatever the rows (a probe, not committed: 767 microseconds for 5,632
+  rows split over four nets, 382 for the same rows in one). Streams of their own for the
+  nets took that only to 615. Grouped products
+  (`cublas<t>gemmGroupedBatched`) do a layer of all nets in one call, so
+  `GroupedNetwork` issues six products and five small kernels for three
+  hidden layers however many nets there are; the activations, the output
+  layer and the residual sums of the gradient are in the kernels, and the
+  device's arrays of matrix addresses are uploaded again only when the
+  layout of a chunk changes. A grouped call takes the device 20 to 24
+  microseconds whatever its size, which puts the path some 0.2 ms behind
+  the fused kernels at one row; they meet near 700 to 900 rows. Whole
+  passes in float32 with tables (fused, grouped, a net at a time, in
+  microseconds): HAP frames of 169 atoms, 2,704 rows 1,831, 1,278 and
+  1,660; four models on them, 676 rows 490, 529 and 2,947 and 10,816 rows
+  9,253, 3,699 and 5,979. With two nets (water) a net at a time is 20 to
+  30 microseconds faster up to some 1,900 rows and the grouped products up
+  to 90 faster beyond, so the potential takes them from three nets on and,
+  with fewer, from 1,920 rows (`GROUPED_FITTING_MIN_NETS` in
+  `native/src/gpu_model.rs`).
 - What was tried for those tiles and did not pay: four rows a warp in the
   transposed pass (fewer reads per product, but too few warps left to keep a
   multiprocessor busy), and eight inputs a lane with the outputs reloaded in
@@ -360,8 +383,11 @@ The two combine: a batch of frames for a committee is still one pass.
 
 What does not change with the batch: launches, uploads and the download (one
 each per stage), the host's binning of atoms into cells (per system, a few
-microseconds each), and the rule that picks the fitting path, which goes by
-the atoms per model in a chunk. What a batch cannot share is the arithmetic,
+microseconds each). The rule that picks the fitting path goes by the rows
+of the fitting nets in a chunk, its atoms times the models, so a batch or a
+committee leaves the fused kernels for the grouped products as soon as the
+products are faster (`FUSED_FITTING_ROWS_F32` in `native/src/gpu_model.rs`;
+with fewer than three nets in a chunk the rule of before stands). What a batch cannot share is the arithmetic,
 so the gain ends where the card is full; see the
 [timings](../bench/results/SUMMARY.md).
 

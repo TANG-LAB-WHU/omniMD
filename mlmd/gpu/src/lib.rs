@@ -7,6 +7,7 @@
 //! stream-ordered driver allocator (`cuMemAllocAsync`), which already pools.
 mod dense;
 mod fused;
+mod grouped;
 mod kernels;
 mod nlist;
 mod table;
@@ -19,6 +20,7 @@ pub use cudarc::driver::{
 };
 pub use dense::{Activation, DenseLayer, DenseNetwork, DenseTape};
 pub use fused::{GradientNetwork, LayerParameters, ScalarNetwork};
+pub use grouped::GroupedNetwork;
 pub use kernels::{CacheStats, KernelCache};
 pub use nlist::{Cell, NeighborList, NeighborSearch, NeighborStats, COINCIDENT, TRUNCATED};
 pub use table::{CellBuffers, CellSegments, CellTable, CELL_LOOKUP};
@@ -86,10 +88,32 @@ pub trait Scalar: DeviceRepr + ValidAsZeroBits + Copy + Default + Debug + 'stati
         b: &CudaSlice<Self>,
         c: &mut CudaSlice<Self>,
     ) -> std::result::Result<(), cudarc::cublas::result::CublasError>;
+    /// `cublas<t>gemmGroupedBatched` with one problem a group; `a`, `b` and
+    /// `c` are device arrays of operand addresses.
+    #[doc(hidden)]
+    #[allow(clippy::too_many_arguments)]
+    unsafe fn gemm_grouped(
+        handle: cudarc::cublas::sys::cublasHandle_t,
+        transa: *const cudarc::cublas::sys::cublasOperation_t,
+        transb: *const cudarc::cublas::sys::cublasOperation_t,
+        m: *const i32,
+        n: *const i32,
+        k: *const i32,
+        alpha: *const Self,
+        a: u64,
+        lda: *const i32,
+        b: u64,
+        ldb: *const i32,
+        beta: *const Self,
+        c: u64,
+        ldc: *const i32,
+        groups: i32,
+        sizes: *const i32,
+    ) -> cudarc::cublas::sys::cublasStatus_t;
 }
 
 macro_rules! scalar {
-    ($t:ty, $suffix:literal) => {
+    ($t:ty, $suffix:literal, $grouped:ident) => {
         impl Scalar for $t {
             const SUFFIX: &'static str = $suffix;
             const ONE: Self = 1.0;
@@ -130,11 +154,48 @@ macro_rules! scalar {
             ) -> std::result::Result<(), cudarc::cublas::result::CublasError> {
                 Gemm::<$t>::gemm_strided_batched(blas, cfg, a, b, c)
             }
+            unsafe fn gemm_grouped(
+                handle: cudarc::cublas::sys::cublasHandle_t,
+                transa: *const cudarc::cublas::sys::cublasOperation_t,
+                transb: *const cudarc::cublas::sys::cublasOperation_t,
+                m: *const i32,
+                n: *const i32,
+                k: *const i32,
+                alpha: *const Self,
+                a: u64,
+                lda: *const i32,
+                b: u64,
+                ldb: *const i32,
+                beta: *const Self,
+                c: u64,
+                ldc: *const i32,
+                groups: i32,
+                sizes: *const i32,
+            ) -> cudarc::cublas::sys::cublasStatus_t {
+                cudarc::cublas::sys::$grouped(
+                    handle,
+                    transa,
+                    transb,
+                    m,
+                    n,
+                    k,
+                    alpha,
+                    a as *const *const $t,
+                    lda,
+                    b as *const *const $t,
+                    ldb,
+                    beta,
+                    c as *const *mut $t,
+                    ldc,
+                    groups,
+                    sizes,
+                )
+            }
         }
     };
 }
-scalar!(f32, "f32");
-scalar!(f64, "f64");
+scalar!(f32, "f32", cublasSgemmGroupedBatched);
+scalar!(f64, "f64", cublasDgemmGroupedBatched);
 
 /// Shape of one row-major product `c[m×n] = a[m×k] · b[k×n]`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -284,6 +345,67 @@ impl Device {
 
     pub fn name(&self) -> &str {
         &self.name
+    }
+
+    /// The version of the cuBLAS library, e.g. 120804 for 12.8.4.
+    pub fn blas_version(&self) -> Result<i32> {
+        let mut version = 0;
+        let status =
+            unsafe { cudarc::cublas::sys::cublasGetVersion_v2(*self.blas.handle(), &mut version) };
+        grouped::blas_status(status).map(|()| version)
+    }
+
+    /// One row-major product per group, `c = op(a) · b`, plus `c` when
+    /// `accumulate`, in one call: `rows[g]` rows in group `g`, `m` outputs
+    /// and `k` inputs per row, `a`, `b` and `c` device arrays of the groups'
+    /// operand addresses (see `GroupedNetwork`). Needs cuBLAS 12.5.
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) fn grouped_matmul<T: Scalar>(
+        &self,
+        transpose_a: bool,
+        m: usize,
+        k: usize,
+        rows: &[i32],
+        (lda, ldb, ldc): (usize, usize, usize),
+        accumulate: bool,
+        [a, b, c]: [u64; 3],
+    ) -> Result<()> {
+        let groups = rows.len();
+        let int = |v: usize| {
+            i32::try_from(v)
+                .ok()
+                .filter(|&v| v > 0)
+                .ok_or_else(|| Error(format!("grouped product dimension {v} is out of range")))
+        };
+        let repeat = |v: usize| int(v).map(|v| vec![v; groups]);
+        let (ms, ks) = (repeat(m)?, repeat(k)?);
+        let (ldas, ldbs, ldcs) = (repeat(lda)?, repeat(ldb)?, repeat(ldc)?);
+        let transa = vec![grouped::operation(transpose_a); groups];
+        let transb = vec![grouped::operation(false); groups];
+        let alphas = vec![T::ONE; groups];
+        let betas = vec![if accumulate { T::ONE } else { T::ZERO }; groups];
+        let sizes = vec![1i32; groups];
+        let status = unsafe {
+            T::gemm_grouped(
+                *self.blas.handle(),
+                transa.as_ptr(),
+                transb.as_ptr(),
+                ms.as_ptr(),
+                rows.as_ptr(),
+                ks.as_ptr(),
+                alphas.as_ptr(),
+                a,
+                ldas.as_ptr(),
+                b,
+                ldbs.as_ptr(),
+                betas.as_ptr(),
+                c,
+                ldcs.as_ptr(),
+                int(groups)?,
+                sizes.as_ptr(),
+            )
+        };
+        grouped::blas_status(status)
     }
 
     pub fn compute_capability(&self) -> (i32, i32) {

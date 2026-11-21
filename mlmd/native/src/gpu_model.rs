@@ -50,8 +50,9 @@ use crate::adaptive_table::{NetTable, TableOptions, TableSpan};
 use crate::{Activation, Descriptor, DescriptorKind, Model, Network, Residual, RADIAL_RESCALE};
 use omnimd_gpu::{
     Activation as DeviceActivation, Cell, CellSegments, CellTable, CudaFunction, CudaSlice,
-    CudaViewMut, DenseLayer, DenseNetwork, Device, GradientNetwork, LaunchConfig, LayerParameters,
-    Mark, NeighborList, NeighborSearch, PushKernelArg, Scalar, ScalarNetwork, CELL_LOOKUP,
+    CudaViewMut, DenseLayer, DenseNetwork, Device, GradientNetwork, GroupedNetwork, LaunchConfig,
+    LayerParameters, Mark, NeighborList, NeighborSearch, PushKernelArg, Scalar, ScalarNetwork,
+    CELL_LOOKUP,
 };
 use omnimd_ml_contract::{
     Committee, Error, Evaluation, Frame, ModelMetadata, Potential, Result, Units,
@@ -1400,19 +1401,46 @@ const TABLE_FLOOR_F64: f64 = 1e-14;
 const TABLE_KEY_BITS: u32 = 6;
 const TABLE_RESOLUTION_F32: u32 = 20;
 const TABLE_RESOLUTION_F64: u32 = 28;
-/// Float32 chunks of at most this many atoms per center type and model run
-/// the fitting nets in the fused kernels instead of layer-by-layer cuBLAS,
-/// whose fixed cost (some twenty-five launches per type, 0.68 ms for five
-/// types) dominates below that. Float64 always uses the fused kernel: both
-/// paths are bound by the double-precision units there and the fused one has
-/// no fixed cost. Measured on an RTX 4090 with [240, 240, 240] fitting nets
-/// on 1600 descriptor components, whole passes over batches of a frame in
-/// float32: with five types the two paths meet near 1,800 to 2,000 atoms
-/// (88-atom frames: 1.28 against 1.37 ms at 1,408 atoms, 1.96 against 1.72
-/// ms at 2,112; 169-atom frames: equal at 2,028), with two types near 680
-/// (192-atom frames: 0.60 against 0.63 ms at 576 atoms, 0.74 against 0.71 ms
-/// at 768).
+/// Without grouped products (cuBLAS before 12.5, nets they do not take, or
+/// fewer than `GROUPED_FITTING_MIN_NETS` nets in a chunk), float32 chunks of
+/// at most this many atoms per center type and model run the fitting nets in
+/// the fused kernels instead of layer-by-layer cuBLAS a net at a time, whose
+/// fixed cost (some twenty-five launches per type, 0.68 ms for five types)
+/// dominates below that. Measured on an RTX 4090 with
+/// [240, 240, 240] fitting nets on 1600 descriptor components, whole passes
+/// over batches of a frame in float32: with five types the two paths meet
+/// near 1,800 to 2,000 atoms (88-atom frames: 1.28 against 1.37 ms at 1,408
+/// atoms, 1.96 against 1.72 ms at 2,112; 169-atom frames: equal at 2,028),
+/// with two types near 680 (192-atom frames: 0.60 against 0.63 ms at 576
+/// atoms, 0.74 against 0.71 ms at 768).
 const FUSED_FITTING_ATOMS_PER_TYPE_F32: usize = 340;
+/// Float32 chunks with at least `GROUPED_FITTING_MIN_NETS` fitting nets and
+/// at most this many rows of them (atoms times models) run them in the fused
+/// kernels; larger ones in grouped products, all nets at once
+/// (`GroupedNetwork`), which cost some 0.2 ms more than the fused kernel for
+/// one row and grow more slowly. Float64 always uses
+/// the fused kernel: both paths are bound by the double-precision units
+/// there and the fused one has no fixed cost. Measured on an RTX 4090 with
+/// [240, 240, 240] fitting nets on 1600 descriptor components, whole passes
+/// over batches in float32 with tables (fused against grouped): HAP frames
+/// of 88 atoms 480 against 498 us at 704 rows and 591 against 558 at 880;
+/// of 169 atoms 469 against 491 at 676 and 692 against 649 at 1,014; four
+/// models on one such frame 490 against 529 at 676 rows and on two 879
+/// against 751; water frames of 192 atoms 516 against 518 at 768.
+const FUSED_FITTING_ROWS_F32: usize = 800;
+/// The grouped products take the place of cuBLAS a net at a time for chunks
+/// with at least this many fitting nets (center types times models), or
+/// with at least `GROUPED_FITTING_ROWS_FEW_NETS` rows. Their fixed cost does
+/// not grow with the nets; that of a net at a time grows by some 0.15 ms a
+/// net. Measured as above (grouped against a net at a time): four nets
+/// (HAP frames of 88 atoms) 498 against 770 us at 704 rows, 558 against 861
+/// at 880; two nets (water frames of 192 atoms) 524 against 500 at 768
+/// rows, 896 against 876 at 1,536, 1,043 against 1,042 at 1,920, 1,179
+/// against 1,205 at 2,304 and 2,015 against 2,103 at 4,608. One net was not
+/// measured.
+const GROUPED_FITTING_MIN_NETS: usize = 3;
+/// See `GROUPED_FITTING_MIN_NETS`.
+const GROUPED_FITTING_ROWS_FEW_NETS: usize = 1_920;
 /// Fraction of the free device memory one chunk of per-atom work may use.
 const MEMORY_FRACTION: f64 = 0.5;
 
@@ -1843,8 +1871,16 @@ pub struct GpuPotential<P: Scalar> {
     /// All fitting nets in one kernel, forward and backward: best for few
     /// atoms, where the launches of the layer-by-layer path dominate.
     fused_fitting: Option<GradientNetwork<P>>,
-    /// Chunks of at most this many atoms use `fused_fitting`.
-    fused_fitting_max_atoms: usize,
+    /// All fitting nets in grouped cuBLAS products, layer by layer: best
+    /// for many rows. None when the library or the nets do not allow it.
+    grouped_fitting: Option<GroupedNetwork<P>>,
+    /// Whether `grouped_fitting` takes the place of cuBLAS a net at a time:
+    /// always, never, or None by the rule of `GROUPED_FITTING_MIN_NETS`.
+    grouped_fitting_on: Option<bool>,
+    /// Chunks of at most this many fitting rows (atoms times models) use
+    /// `fused_fitting`; None for the default rule (see
+    /// `FUSED_FITTING_ROWS_F32`).
+    fused_fitting_max_rows: Option<usize>,
     /// hybrid: writes the table of slots of a descriptor that does not read
     /// the neighbor list as it is.
     narrow: Option<CudaFunction>,
@@ -2725,6 +2761,7 @@ impl<P: Scalar> GpuPotential<P> {
         }
         // Not every fitting net fits in shared memory; those keep cuBLAS only.
         let fused_fitting = GradientNetwork::new_set(&device, &fitting_layers).ok();
+        let grouped_fitting = GroupedNetwork::new_set(&device, &fitting_layers).ok();
         let fitting = fitting_host
             .iter()
             .map(|n| dense_network(&device, n, features))
@@ -2777,11 +2814,9 @@ impl<P: Scalar> GpuPotential<P> {
             table_fallbacks: 0,
             fitting,
             fused_fitting,
-            fused_fitting_max_atoms: if std::mem::size_of::<P>() == 4 {
-                FUSED_FITTING_ATOMS_PER_TYPE_F32 * ntypes
-            } else {
-                usize::MAX
-            },
+            grouped_fitting,
+            grouped_fitting_on: None,
+            fused_fitting_max_rows: None,
             narrow,
             chunk_atoms,
             chunk_pairs,
@@ -3021,11 +3056,23 @@ impl<P: Scalar> GpuPotential<P> {
         )
     }
 
-    /// Chunks of at most this many atoms evaluate the fitting nets in one
-    /// fused kernel; larger chunks use layer-by-layer cuBLAS. Zero disables
-    /// the fused kernel.
-    pub fn set_fused_fitting_max_atoms(&mut self, atoms: usize) {
-        self.fused_fitting_max_atoms = atoms;
+    /// Chunks of at most this many fitting rows (atoms times models)
+    /// evaluate the fitting nets in one fused kernel; larger chunks use
+    /// layer-by-layer cuBLAS. Zero disables the fused kernel, `usize::MAX`
+    /// takes it always. The default depends on the precision and on whether
+    /// the grouped products are available (see `set_grouped_fitting`).
+    pub fn set_fused_fitting_max_rows(&mut self, rows: usize) {
+        self.fused_fitting_max_rows = Some(rows);
+    }
+
+    /// Has the layer-by-layer path take the grouped products always (on) or
+    /// never (off: cuBLAS a net at a time) instead of by the default rule,
+    /// and returns whether they are taken: they need cuBLAS 12.5 and fitting
+    /// nets that end in one linear output. Both give the same results to
+    /// rounding.
+    pub fn set_grouped_fitting(&mut self, on: bool) -> bool {
+        self.grouped_fitting_on = Some(on);
+        on && self.grouped_fitting.is_some()
     }
 
     /// Turns the tiled first layer of the fused fitting kernel on or off
@@ -3673,10 +3720,24 @@ impl<P: Scalar> GpuPotential<P> {
 
             // Fitting: atomic energies and dE/dD, the centers of a chunk as
             // [model][local atom]. Few atoms: every model and center type
-            // in one fused kernel. Many atoms: cuBLAS per model and center
-            // type, with the energies copied out so the tape can go.
-            let limit = self.fused_fitting_max_atoms;
-            let fused = self.fused_fitting.as_mut().filter(|_| count <= limit);
+            // in one fused kernel. Many atoms: grouped cuBLAS products for
+            // all of them, or cuBLAS per model and center type (few nets,
+            // or no grouped products), with the energies copied out so the
+            // tape can go.
+            let rows = members * count;
+            let nets = members * ranges.len();
+            let many_nets = nets >= GROUPED_FITTING_MIN_NETS;
+            let grouped_on = self.grouped_fitting.is_some()
+                && self
+                    .grouped_fitting_on
+                    .unwrap_or(many_nets || rows >= GROUPED_FITTING_ROWS_FEW_NETS);
+            let take_fused = match self.fused_fitting_max_rows {
+                Some(limit) => rows <= limit,
+                None if std::mem::size_of::<P>() == 8 => true,
+                None if grouped_on && many_nets => rows <= FUSED_FITTING_ROWS_F32,
+                None => count <= FUSED_FITTING_ATOMS_PER_TYPE_F32 * ntypes,
+            };
+            let fused = self.fused_fitting.as_mut().filter(|_| take_fused);
             // The atoms are sorted by type: runs of one fitting net each.
             let runs = (0..members).flat_map(|model| {
                 ranges
@@ -3692,7 +3753,19 @@ impl<P: Scalar> GpuPotential<P> {
                     device,
                     &x,
                     &groups,
-                    members * count,
+                    rows,
+                    &mut energies,
+                    &mut dx,
+                )?;
+            } else if let Some(grouped) = self.grouped_fitting.as_mut().filter(|_| grouped_on) {
+                let x = descriptor.slice(0..rows * features);
+                let groups: Vec<(usize, usize, usize)> = runs.collect();
+                let mut dx = d_descriptor.slice_mut(0..rows * features);
+                grouped.forward_gradient_grouped(
+                    device,
+                    &x,
+                    &groups,
+                    rows,
                     &mut energies,
                     &mut dx,
                 )?;

@@ -1,0 +1,179 @@
+{
+ "date": "2026-11-21",
+ "device": "NVIDIA GeForce RTX 4090",
+ "what": "bench/hap_deviation.py: model deviation of the four HAP models of cases/hap through omnimd-mlmd model-deviation over its 83 frames, the time per frame from a run over the frames once and one over them 25 times (whole-process seconds, so one run each is noisy). Run 1: the build after first, then the build before (float32 with tables and float64). Run 2: the same in reversed order, float32 with tables only. Before: the build of d179ef7 (run/prev-d179ef7); after: this change. Also the committee check of bench/hap_batch.py --check with the build after (all four models in batches of 16, each member against DeePMD).",
+ "run_1_after_then_before": {
+  "float32-compressed": {
+   "after": {
+    "evaluation": "all members together, a batch of frames in one device pass",
+    "whole_process_seconds": [
+     1.9427827000035904,
+     2.169984199979808
+    ],
+    "ms_per_frame": 0.1140569778997077,
+    "max_difference_from_deepmd_force_deviation": 2.4016239776603054e-06
+   },
+   "before": {
+    "evaluation": "all members together, a batch of frames in one device pass",
+    "whole_process_seconds": [
+     1.9192754999967292,
+     2.3548921999754384
+    ],
+    "ms_per_frame": 0.21868308231862912,
+    "max_difference_from_deepmd_force_deviation": 1.8780267150020347e-06
+   },
+   "max_difference_between_builds": 1.6370540224658336e-06
+  },
+  "float64": {
+   "after": {
+    "evaluation": "all members together, a batch of frames in one device pass",
+    "whole_process_seconds": [
+     1.5720168999978341,
+     6.20698859996628
+    ],
+    "ms_per_frame": 2.326793022072513,
+    "max_difference_from_deepmd_force_deviation": 1.0075273948473296e-14
+   },
+   "before": {
+    "evaluation": "all members together, a batch of frames in one device pass",
+    "whole_process_seconds": [
+     1.5157138999784365,
+     6.143906100012828
+    ],
+    "ms_per_frame": 2.3233896586518026,
+    "max_difference_from_deepmd_force_deviation": 1.0533240946131173e-14
+   },
+   "max_difference_between_builds": 3.184952301893418e-15
+  }
+ },
+ "run_2_before_then_after": {
+  "float32-compressed": {
+   "before": {
+    "evaluation": "all members together, a batch of frames in one device pass",
+    "whole_process_seconds": [
+     1.705069600022398,
+     2.3527375999838114
+    ],
+    "ms_per_frame": 0.32513453813323967,
+    "max_difference_from_deepmd_force_deviation": 1.8780267146412122e-06
+   },
+   "after": {
+    "evaluation": "all members together, a batch of frames in one device pass",
+    "whole_process_seconds": [
+     1.6854191000456922,
+     2.1093878999818116
+    ],
+    "ms_per_frame": 0.21283574293981902,
+    "max_difference_from_deepmd_force_deviation": 2.4016239777713277e-06
+   },
+   "max_difference_between_builds": 1.6370540223270558e-06
+  }
+ },
+ "committee_check_after": {
+  "frames": 83,
+  "models": 4,
+  "batch": 16,
+  "modes": {
+   "float64": {
+    "max_difference_from_deepmd_per_member": [
+     {
+      "energy_per_atom": 1.8189894035458566e-13,
+      "force": 5.417888360170764e-13,
+      "virial": 9.805489753489383e-13
+     },
+     {
+      "energy_per_atom": 1.3473995581821158e-13,
+      "force": 5.38680211548126e-13,
+      "virial": 1.0089706847793423e-12
+     },
+     {
+      "energy_per_atom": 1.8189894035458566e-13,
+      "force": 5.420108806220014e-13,
+      "virial": 1.1191048088221578e-12
+     },
+     {
+      "energy_per_atom": 1.6168794698185392e-13,
+      "force": 5.591083152012288e-13,
+      "virial": 9.094947017729282e-13
+     }
+    ],
+    "messages": []
+   },
+   "float32": {
+    "max_difference_from_deepmd_per_member": [
+     {
+      "energy_per_atom": 3.076308530580718e-07,
+      "force": 8.61108559528775e-06,
+      "virial": 9.337458449998337e-05
+     },
+     {
+      "energy_per_atom": 2.636243556884842e-07,
+      "force": 7.10907327450272e-06,
+      "virial": 5.029639629494653e-05
+     },
+     {
+      "energy_per_atom": 2.1400747182606547e-07,
+      "force": 8.421546020986881e-06,
+      "virial": 0.00011211792399734577
+     },
+     {
+      "energy_per_atom": 4.110029463104352e-07,
+      "force": 9.014389409811585e-06,
+      "virial": 5.288719296459021e-05
+     }
+    ],
+    "messages": []
+   },
+   "float64-compressed": {
+    "max_difference_from_deepmd_per_member": [
+     {
+      "energy_per_atom": 1.8189894035458566e-13,
+      "force": 7.757283704279416e-11,
+      "virial": 3.495728151392541e-10
+     },
+     {
+      "energy_per_atom": 1.3473995581821158e-13,
+      "force": 2.2950974454261086e-11,
+      "virial": 1.0649303661125487e-10
+     },
+     {
+      "energy_per_atom": 1.8189894035458566e-13,
+      "force": 2.509070728962115e-11,
+      "virial": 1.1800960209029654e-10
+     },
+     {
+      "energy_per_atom": 1.6168794698185392e-13,
+      "force": 1.028688245696685e-11,
+      "virial": 5.848832529409265e-11
+     }
+    ],
+    "messages": []
+   },
+   "float32-compressed": {
+    "max_difference_from_deepmd_per_member": [
+     {
+      "energy_per_atom": 3.1758005476418746e-07,
+      "force": 5.995329729113763e-06,
+      "virial": 4.3745760683222557e-05
+     },
+     {
+      "energy_per_atom": 2.6250272640027105e-07,
+      "force": 7.387612986686776e-06,
+      "virial": 4.175056550792533e-05
+     },
+     {
+      "energy_per_atom": 2.2254109218785608e-07,
+      "force": 1.1737317572091399e-05,
+      "virial": 5.070972595788703e-05
+     },
+     {
+      "energy_per_atom": 3.271149277376632e-07,
+      "force": 6.356557841646904e-06,
+      "virial": 4.2783200598250914e-05
+     }
+    ],
+    "messages": []
+   }
+  }
+ }
+}
