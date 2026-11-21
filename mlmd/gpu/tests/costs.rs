@@ -805,4 +805,43 @@ fn upload_behind_a_busy_stream() {
         let back = stream.clone_dtoh(&held).unwrap();
         assert_eq!(back[len - 1], (len as u64 - 1) * 3 + rounds as u64 - 1);
     }
+    // Copies one after another behind the spin, each from a buffer of its
+    // own: how many the host issues before one waits for the stream.
+    for len in [420usize, 5120, 65536] {
+        let mut held = device.zeros::<u64>(len).unwrap();
+        let copies = 64u64;
+        let hosts: Vec<Vec<u64>> = (0..copies)
+            .map(|copy| (0..len as u64).map(|v| v * 5 + copy).collect())
+            .collect();
+        device.synchronize().unwrap();
+        let mut launch = stream.launch_builder(&spin);
+        launch.arg(&cycles);
+        unsafe { launch.launch(one) }.map(drop).unwrap();
+        let mut times = Vec::new();
+        for host in &hosts {
+            let start = Instant::now();
+            stream.memcpy_htod(host, &mut held).unwrap();
+            times.push(start.elapsed().as_secs_f64() * 1e6);
+            if times[times.len() - 1] > 1000.0 {
+                break;
+            }
+        }
+        device.synchronize().unwrap();
+        let issued = times.len() as u64;
+        let kb = len * 8 / 1024;
+        match times.iter().position(|&t| t > 1000.0) {
+            Some(at) => println!(
+                "{kb:>8} KB copies behind the spin: {at} issued without waiting ({} KB), the next waited {:.0} us",
+                at * kb,
+                times[at]
+            ),
+            None => println!(
+                "{kb:>8} KB copies behind the spin: all {issued} issued without waiting ({} KB, the slowest {:.1} us)",
+                issued as usize * kb,
+                times.iter().cloned().fold(0.0, f64::max)
+            ),
+        }
+        let back = stream.clone_dtoh(&held).unwrap();
+        assert_eq!(back[len - 1], (len as u64 - 1) * 5 + issued - 1);
+    }
 }

@@ -33,13 +33,19 @@ cargo test --release -p omnimd-gpu --test costs -- --ignored --nocapture
 |---|---:|
 | allocation and free (stream-ordered pool), 8 KB to 256 MiB | 0.4 |
 | copy into a device buffer, 8 KB / 128 KB | 5 / 9 |
-| the same behind a busy stream, 3 KB / 512 KB (pageable memory: the host does not wait for the stream; for 8 MB it does) | 3.5 / 15 |
+| the same behind a running kernel, 3 KB / 512 KB (from pageable memory, see below) | 3.5 / 15 |
 | clearing a buffer | 5 to 6 |
 | kernel launch | 5 to 6 |
 | copy back to the host, 8 KB / 128 KB (waits for the stream) | 10 / 20 |
 | each further copy back, pageable / pinned | 11 / 4 |
 | looking a kernel up in the cache (hashes its source) | about 8 |
 | a mark in the stream (`Device::mark`) | 4.5 to 5 |
+
+A copy from pageable memory queued behind a running kernel does not make
+the host wait for the kernel: 64 copies of 3 or of 40 KB in a row each
+returned within 9 microseconds behind a kernel of 4 ms, while of copies of
+512 KB the third waited for it, and so did a single one of 8 MB
+(`upload_behind_a_busy_stream`, 2026-11-21).
 
 These are the host's costs, and an evaluation of a small frame does not
 wait for the host. One of 88 atoms (se_e2_a with tables, float32) took 166
@@ -215,7 +221,9 @@ What follows for the kernels:
   now reaches the next upload while the kernel still runs, and the times
   fit an upload of 40 KB from pageable memory that then waits for the
   stream (the driver API's notes on synchronization allow an asynchronous
-  copy that stages pageable memory to). Evaluations, MD steps and the
+  copy that stages pageable memory to). A later probe did not reproduce
+  such a wait (the table of host calls above), so what the searches wait
+  for there is open. Evaluations, MD steps and the
   trainer wait for their results before the next search, so they never
   issue searches that way. An upload from a pinned buffer of the search
   made evaluations of the HAP frames 4 to 7 µs slower and is not used

@@ -23,8 +23,12 @@ back, a product a layer gives the adjoint of its input (added to the
 adjoint of its output for a residual layer) and one kernel multiplies it by
 the slopes of the layer below. A grouped product reads the addresses of its
 operands from arrays on the device; they are uploaded again only when the
-layout of a chunk changes. On a cuBLAS older than 12.5, or for nets that do
-not end in one linear output, the potential keeps the path a net at a time.
+layout of a chunk changes, a copy of a few KB from pageable memory that the
+host issues without waiting for the kernels before it (a probe of the
+review, `upload_behind_a_busy_stream` in `gpu/tests/costs.rs`: 64 such
+copies of 3 or 40 KB in a row behind a kernel of 4 ms did not wait, the
+third of 512 KB did). On a cuBLAS older than 12.5, or for nets that do not
+end in one linear output, the potential keeps the path a net at a time.
 
 **Which path.** A grouped call takes the device 20 to 24 µs whatever its
 size, so the grouped products cost some 0.2 ms more than the fused kernels
@@ -102,7 +106,7 @@ forces in float32 with tables (1.8e-4 eV of 5.1e6 in the energy, 2.2e-6 eV
 of 78 in the virial), within 1.8e-9 eV/Å in float32 and within 8e-18 eV/Å
 with the same energy in float64, the grouped products forced on or not.
 Float32 with tables took 41.7 ms an evaluation before and 40.8 after,
-float64 522 ms in both.
+float64 521.8 and 522.8 ms.
 
 **Batches and committees** (`hap_batch.py` on each build, alternated in
 three rounds, least of each; µs per pass, before → after, float32 with
@@ -300,7 +304,12 @@ still runs (its packing, 7.4 µs, is shorter than the kernel, 19), and the
 times fit an upload of 40 KB from pageable memory that then waits for the
 stream: the driver API's notes on synchronization behavior say that when
 pageable memory must first be staged to pinned memory, the driver may
-synchronize with the stream. Before, the packing (14
+synchronize with the stream. (Erratum, 2026-11-21: a probe did not
+reproduce that wait. Behind a kernel of 4 ms, 64 copies of 40 KB from
+pageable memory, one after another, each returned within 9 µs; of copies of
+512 KB the third waited. What the searches issued back to back wait for is
+open; `upload_behind_a_busy_stream` in `gpu/tests/costs.rs`.) Before, the
+packing (14
 µs) and the calls kept the host behind the kernel. Evaluations, MD steps
 and the trainer wait for their results before the next search, so they do
 not issue searches that way.
