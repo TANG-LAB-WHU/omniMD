@@ -1,0 +1,178 @@
+{
+ "date": "2026-11-20",
+ "device": "NVIDIA GeForce RTX 4090",
+ "what": "pk_eval.py OLD NEW OUT.json [ROUNDS]: evaluations before and after the single-pass packing of the search input.\n\nTwo builds of omnimd-native-gpu-eval, alternated in ROUNDS rounds (5) in one session, the order reversed every\nother round; the build before runs twice a round (`before` and `before again`), so that the two show what the\nmachine adds. The least time of each is kept, and the median recorded. Cases: the three HAP frames of the engine\nbenchmarks with the trained se_e2_a model in float32 with tables (as the MD runs use it) and in float64, the\n88-atom frame replicated to 704 and 5,632 atoms (float32 with tables), and the water frames of 192, 1,536 and\n12,288 atoms with the water model in float64.\n",
+ "affinity": "Every process held to logical processors 2 to 15, the performance cores of the i9-14900K but the first (a Python wrapper sets the affinity of the script, and the programs it starts inherit it): run by the scheduler, the host side of a run lands on performance or efficiency cores, which differ by 1.5 to 2 times in the packing alone.",
+ "rounds": 5,
+ "builds": {
+  "before": "omnimd-native-gpu-eval of 868614f (run/prev-868614f)",
+  "after": "omnimd-native-gpu-eval of this change (the single-pass packing)"
+ },
+ "us_per_evaluation": [
+  {
+   "case": "HAP 88, float32 with tables",
+   "before": {
+    "best": 150.72,
+    "median": 152.56
+   },
+   "after": {
+    "best": 151.69,
+    "median": 153.87
+   },
+   "before_again": {
+    "best": 150.68,
+    "median": 153.79
+   }
+  },
+  {
+   "case": "HAP 169, float32 with tables",
+   "before": {
+    "best": 185.58,
+    "median": 186.99
+   },
+   "after": {
+    "best": 181.39,
+    "median": 182.48
+   },
+   "before_again": {
+    "best": 185.94,
+    "median": 186.74
+   }
+  },
+  {
+   "case": "HAP 224, float32 with tables",
+   "before": {
+    "best": 208.48,
+    "median": 209.87
+   },
+   "after": {
+    "best": 202.97,
+    "median": 204.08
+   },
+   "before_again": {
+    "best": 207.85,
+    "median": 209.52
+   }
+  },
+  {
+   "case": "HAP 88, float64 with tables",
+   "before": {
+    "best": 399.83,
+    "median": 402.82
+   },
+   "after": {
+    "best": 399.57,
+    "median": 400.72
+   },
+   "before_again": {
+    "best": 400.3,
+    "median": 401.82
+   }
+  },
+  {
+   "case": "HAP 169, float64 with tables",
+   "before": {
+    "best": 709.58,
+    "median": 711.54
+   },
+   "after": {
+    "best": 704.43,
+    "median": 708.89
+   },
+   "before_again": {
+    "best": 708.08,
+    "median": 711.18
+   }
+  },
+  {
+   "case": "HAP 224, float64 with tables",
+   "before": {
+    "best": 743.68,
+    "median": 745.5
+   },
+   "after": {
+    "best": 740.1,
+    "median": 742.43
+   },
+   "before_again": {
+    "best": 742.1,
+    "median": 746.12
+   }
+  },
+  {
+   "case": "HAP 704, float32 with tables",
+   "before": {
+    "best": 516.69,
+    "median": 517.59
+   },
+   "after": {
+    "best": 506.96,
+    "median": 508.87
+   },
+   "before_again": {
+    "best": 517.07,
+    "median": 518.47
+   }
+  },
+  {
+   "case": "HAP 5,632, float32 with tables",
+   "before": {
+    "best": 2784.75,
+    "median": 2787.48
+   },
+   "after": {
+    "best": 2737.29,
+    "median": 2741.9
+   },
+   "before_again": {
+    "best": 2772.37,
+    "median": 2780.85
+   }
+  },
+  {
+   "case": "water 192, float64",
+   "before": {
+    "best": 1234.83,
+    "median": 1239.31
+   },
+   "after": {
+    "best": 1230.34,
+    "median": 1235.51
+   },
+   "before_again": {
+    "best": 1236.83,
+    "median": 1241.36
+   }
+  },
+  {
+   "case": "water 1,536, float64",
+   "before": {
+    "best": 8426.54,
+    "median": 8460.27
+   },
+   "after": {
+    "best": 8404.2,
+    "median": 8455.06
+   },
+   "before_again": {
+    "best": 8412.17,
+    "median": 8461.86
+   }
+  },
+  {
+   "case": "water 12,288, float64",
+   "before": {
+    "best": 65895.56,
+    "median": 65995.77
+   },
+   "after": {
+    "best": 65780.72,
+    "median": 65928.36
+   },
+   "before_again": {
+    "best": 65955.75,
+    "median": 66066.1
+   }
+  }
+ ]
+}

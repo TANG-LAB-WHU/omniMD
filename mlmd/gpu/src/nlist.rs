@@ -497,10 +497,10 @@ pub struct NeighborSearch {
     rcut: f64,
     sel: Vec<usize>,
     slots: usize,
-    /// Host copy of the packed kernel input, reused between calls, and its
-    /// four-byte entries while they are put together.
+    /// Host copy of the packed kernel input, reused between calls, and the
+    /// memory of putting it together.
     words: Vec<u64>,
-    halves: Vec<u32>,
+    scratch: Scratch,
     /// Warps of the block of a center.
     warps: usize,
     state: Option<State>,
@@ -568,28 +568,66 @@ impl State {
 /// Four-byte entries of a system's header in the kernel input.
 const HEADER: usize = 20;
 
+/// Host memory of the packing, kept between searches.
+#[derive(Default)]
+struct Scratch {
+    /// The atoms of every system in their order: those of system `f` are
+    /// `order[first[f]..first[f + 1]]`.
+    order: Vec<u32>,
+    first: Vec<usize>,
+    /// The grid of every system.
+    shapes: Vec<Shape>,
+    /// The cell of each atom of the system being packed, in `order`.
+    flat: Vec<u32>,
+    /// Atoms a cell, then the cursors of the counting sort.
+    counts: Vec<usize>,
+}
+
 /// Bins the atoms of every system and writes the kernel's input (see
-/// `neighbor_search`) to `words`, with `halves` as scratch for its four-byte
-/// entries. `system` names the system of each atom and is empty when there
-/// is one. Returns the number of cells of all grids.
+/// `neighbor_search`) to `words`. `system` names the system of each atom
+/// and is empty when there is one. Returns the number of cells of all grids.
 fn pack(
     words: &mut Vec<u64>,
-    halves: &mut Vec<u32>,
+    scratch: &mut Scratch,
     positions: &[[f64; 3]],
     system: &[i32],
     cells: &[Cell],
     rcut: f64,
 ) -> Result<usize> {
+    let (total, length) = plan(scratch, positions, system, cells, rcut)?;
+    // `fill` writes every word: no zero fill unless the length changes.
+    if words.len() != length {
+        words.clear();
+        words.resize(length, 0);
+    }
+    fill(words, scratch, positions, cells, rcut, total);
+    Ok(total)
+}
+
+/// Groups the atoms by system and lays out the grid of every system in
+/// `scratch`. Returns the number of cells of all grids and the words of the
+/// kernel input.
+fn plan(
+    scratch: &mut Scratch,
+    positions: &[[f64; 3]],
+    system: &[i32],
+    cells: &[Cell],
+    rcut: f64,
+) -> Result<(usize, usize)> {
     let (natoms, systems) = (positions.len(), cells.len());
-    // The atoms of system `f`, in their order: `first[f]..first[f + 1]` of
-    // `atoms`.
-    let mut first = vec![0usize; systems + 1];
-    let mut atoms = vec![0i32; natoms];
+    let Scratch {
+        order,
+        first,
+        shapes,
+        counts,
+        ..
+    } = scratch;
+    first.clear();
+    first.resize(systems + 1, 0);
+    order.clear();
     if system.is_empty() {
         first[1..].fill(natoms);
-        for (entry, atom) in atoms.iter_mut().zip(0..) {
-            *entry = atom;
-        }
+        order.extend(0..natoms as u32);
     } else {
         for &of in system {
             first[of as usize + 1] += 1;
@@ -597,37 +635,103 @@ fn pack(
         for f in 0..systems {
             first[f + 1] += first[f];
         }
-        let mut cursor = first.clone();
+        order.resize(natoms, 0);
+        counts.clear();
+        counts.extend_from_slice(first);
         for (atom, &of) in system.iter().enumerate() {
-            atoms[cursor[of as usize]] = atom as i32;
-            cursor[of as usize] += 1;
+            order[counts[of as usize]] = atom as u32;
+            counts[of as usize] += 1;
         }
     }
-    let at_positions = 9 * systems;
-    words.clear();
-    words.resize(at_positions + 3 * natoms, 0);
-    let at_floats = HEADER * systems;
-    let at_cell_of = at_floats + 3 * natoms;
-    let at_atoms = at_cell_of + 3 * natoms;
-    let at_system = at_atoms + natoms;
-    halves.clear();
-    halves.resize(at_system + natoms, 0);
-    let mut local = Vec::new();
-    let mut total_cells = 0usize;
+    shapes.clear();
+    let mut total = 0;
     for (f, cell) in cells.iter().enumerate() {
-        let mine = &atoms[first[f]..first[f + 1]];
+        let mine = &order[first[f]..first[f + 1]];
         if mine.is_empty() {
             return Err(Error(format!(
                 "system {f} of the neighbor search has no atoms"
             )));
         }
-        local.clear();
-        local.extend(mine.iter().map(|&atom| positions[atom as usize]));
-        let grid = bin(&local, cell, rcut)?;
-        let count = grid.cells.iter().product::<usize>();
-        let flat = |c: &[i32; 3]| {
-            (c[0] as usize * grid.cells[1] + c[1] as usize) * grid.cells[2] + c[2] as usize
-        };
+        let shape = Shape::new(positions, mine, cell, rcut)?;
+        total += shape.cells.iter().product::<usize>();
+        shapes.push(shape);
+    }
+    Ok((total, packed_words(natoms, total, systems)))
+}
+
+/// Writes all of the kernel input that `plan` laid out to `words`, its
+/// length: the lattices and the positions as doubles, then the four-byte
+/// entries, two to a word as they lie in memory. `total` is the number of
+/// cells of all grids.
+fn fill(
+    words: &mut [u64],
+    scratch: &mut Scratch,
+    positions: &[[f64; 3]],
+    cells: &[Cell],
+    rcut: f64,
+    total: usize,
+) {
+    #[cfg(target_arch = "x86_64")]
+    if std::arch::is_x86_feature_detected!("sse4.1") {
+        // SAFETY: the processor has SSE4.1.
+        unsafe { fill_sse41(words, scratch, positions, cells, rcut, total) };
+        return;
+    }
+    fill_any(words, scratch, positions, cells, rcut, total);
+}
+
+/// `fill` for a processor with SSE4.1, whose rounding instruction takes the
+/// floor of a fractional coordinate where the x86-64 baseline calls the C
+/// library: the same words, in 8% to 15% less time on a performance core of
+/// an i9-14900K and 15% to 24% on an efficiency core (88 to 12,288 atoms).
+#[cfg(target_arch = "x86_64")]
+#[target_feature(enable = "sse4.1")]
+unsafe fn fill_sse41(
+    words: &mut [u64],
+    scratch: &mut Scratch,
+    positions: &[[f64; 3]],
+    cells: &[Cell],
+    rcut: f64,
+    total: usize,
+) {
+    fill_any(words, scratch, positions, cells, rcut, total)
+}
+
+#[inline(always)]
+fn fill_any(
+    words: &mut [u64],
+    scratch: &mut Scratch,
+    positions: &[[f64; 3]],
+    cells: &[Cell],
+    rcut: f64,
+    total: usize,
+) {
+    let (natoms, systems) = (positions.len(), cells.len());
+    debug_assert_eq!(words.len(), packed_words(natoms, total, systems));
+    let Scratch {
+        order,
+        first,
+        shapes,
+        flat,
+        counts,
+    } = scratch;
+    let at_positions = 9 * systems;
+    let (doubles, rest) = words.split_at_mut(at_positions + 3 * natoms);
+    // SAFETY: u32 has no invalid bit patterns and an alignment that divides
+    // that of u64, and `rest` holds twice as many of them as it holds words.
+    let halves: &mut [u32] =
+        unsafe { std::slice::from_raw_parts_mut(rest.as_mut_ptr().cast(), 2 * rest.len()) };
+    let at_floats = HEADER * systems;
+    let at_cell_of = at_floats + 3 * natoms;
+    let at_atoms = at_cell_of + 3 * natoms;
+    let at_system = at_atoms + natoms;
+    let at_starts = at_system + natoms;
+    flat.resize(natoms, 0);
+    let mut before = 0;
+    for (f, (cell, shape)) in cells.iter().zip(shapes.iter()).enumerate() {
+        let mine = &order[first[f]..first[f + 1]];
+        let grid = shape.cells;
+        let count: usize = grid.iter().product();
         let mut lattice = [0.0; 9];
         let periodic = match cell {
             Cell::Periodic(rows) => {
@@ -638,57 +742,76 @@ fn pack(
             }
             Cell::Open => false,
         };
-        for (entry, value) in words[9 * f..9 * f + 9].iter_mut().zip(lattice) {
+        for (entry, value) in doubles[9 * f..9 * f + 9].iter_mut().zip(lattice) {
             *entry = value.to_bits();
+        }
+        // One pass places the atoms, writes what goes in atom order, and
+        // counts the atoms of each cell.
+        counts.clear();
+        counts.resize(count + 1, 0);
+        let mut magnitude = 0.0f64;
+        for (slot, &atom) in flat.iter_mut().zip(mine) {
+            let atom = atom as usize;
+            let (c, position) = shape.place(&positions[atom]);
+            for axis in 0..3 {
+                doubles[at_positions + 3 * atom + axis] = position[axis].to_bits();
+                halves[at_cell_of + 3 * atom + axis] = c[axis] as u32;
+            }
+            if !periodic {
+                magnitude = position.iter().fold(magnitude, |m, v| m.max(v.abs()));
+            }
+            let index = (c[0] * grid[1] + c[1]) * grid[2] + c[2];
+            *slot = index as u32;
+            counts[index + 1] += 1;
         }
         let header = &mut halves[HEADER * f..HEADER * (f + 1)];
         for (entry, value) in header.iter_mut().zip(lattice) {
             *entry = (value as f32).to_bits();
         }
-        header[9] = scan_radius2(rcut, &lattice, &grid, periodic).to_bits();
+        if periodic {
+            magnitude = image_magnitude(&lattice, &shape.reach);
+        }
+        header[9] = scan_radius2(rcut, magnitude).to_bits();
         for axis in 0..3 {
-            header[10 + axis] = grid.cells[axis] as u32;
-            header[13 + axis] = grid.reach[axis] as u32;
+            header[10 + axis] = grid[axis] as u32;
+            header[13 + axis] = shape.reach[axis] as u32;
         }
         header[16] = u32::from(periodic);
-        header[17] = total_cells as u32;
+        header[17] = before as u32;
         // Packed images need |q| < 512; past that the centers go serial.
-        header[18] = u32::from(grid.reach.iter().all(|&r| r < 500));
+        header[18] = u32::from(shape.reach.iter().all(|&r| r < 500));
+        header[19] = 0;
         // Counting sort of the system's atoms by cell. The first entry of
         // each cell is a place in the list of all atoms in cell order.
-        let mut cursor = vec![0usize; count + 1];
-        for c in &grid.cell_of {
-            cursor[flat(c) + 1] += 1;
-        }
         for k in 0..count {
-            cursor[k + 1] += cursor[k];
+            counts[k + 1] += counts[k];
         }
-        halves.extend(cursor[..count].iter().map(|&k| (first[f] + k) as u32));
-        for ((&atom, c), position) in mine.iter().zip(&grid.cell_of).zip(&grid.positions) {
+        let base = first[f];
+        for (entry, &k) in halves[at_starts + before..at_starts + before + count]
+            .iter_mut()
+            .zip(&counts[..count])
+        {
+            *entry = (base + k) as u32;
+        }
+        for (&index, &atom) in flat.iter().zip(mine) {
+            let index = index as usize;
+            let k = base + counts[index];
+            counts[index] += 1;
             let atom = atom as usize;
-            let k = first[f] + cursor[flat(c)];
-            cursor[flat(c)] += 1;
             for axis in 0..3 {
-                words[at_positions + 3 * atom + axis] = position[axis].to_bits();
-                halves[at_floats + 3 * k + axis] = (position[axis] as f32).to_bits();
-                halves[at_cell_of + 3 * atom + axis] = c[axis] as u32;
+                let position = f64::from_bits(doubles[at_positions + 3 * atom + axis]);
+                halves[at_floats + 3 * k + axis] = (position as f32).to_bits();
             }
             halves[at_atoms + k] = atom as u32;
             halves[at_system + atom] = f as u32;
         }
-        total_cells += count;
+        before += count;
     }
-    halves.push(natoms as u32);
-    // Two to a word, as they lie in memory.
-    words.extend(halves.chunks(2).map(|pair| {
-        let mut bytes = [0; 8];
-        bytes[..4].copy_from_slice(&pair[0].to_ne_bytes());
-        if let Some(high) = pair.get(1) {
-            bytes[4..].copy_from_slice(&high.to_ne_bytes());
-        }
-        u64::from_ne_bytes(bytes)
-    }));
-    Ok(total_cells)
+    halves[at_starts + total] = natoms as u32;
+    // The half of the last word past the entries, when there is one.
+    if let Some(pad) = halves.get_mut(at_starts + total + 1) {
+        *pad = 0;
+    }
 }
 
 /// Square of the radius of the kernel's single-precision scan: the cutoff
@@ -696,27 +819,13 @@ fn pack(
 /// every neighbor (and a few atoms just outside, which the pass in double
 /// precision drops).
 ///
-/// With coordinates and image shifts of magnitude at most `m`, rounding
-/// positions and lattice to single precision and the sums that form a
-/// separation move each of its components by less than 14 units of
-/// roundoff of `m` (7 epsilon), the distance by less than 13 epsilon `m`,
-/// and the squared sum adds under one epsilon of the cutoff. 32 epsilon of
-/// `m + rcut` leaves more than a factor two.
-fn scan_radius2(rcut: f64, lattice: &[f64; 9], grid: &Grid, periodic: bool) -> f32 {
-    let magnitude = if periodic {
-        (0..3)
-            .map(|a| {
-                (0..3)
-                    .map(|b| (grid.reach[b] + 1) as f64 * lattice[3 * b + a].abs())
-                    .sum::<f64>()
-            })
-            .fold(0.0, f64::max)
-    } else {
-        grid.positions
-            .iter()
-            .flatten()
-            .fold(0.0, |m: f64, v| m.max(v.abs()))
-    };
+/// With coordinates and image shifts of magnitude at most `m`
+/// (`magnitude`), rounding positions and lattice to single precision and
+/// the sums that form a separation move each of its components by less
+/// than 14 units of roundoff of `m` (7 epsilon), the distance by less than
+/// 13 epsilon `m`, and the squared sum adds under one epsilon of the
+/// cutoff. 32 epsilon of `m + rcut` leaves more than a factor two.
+fn scan_radius2(rcut: f64, magnitude: f64) -> f32 {
     let wide = rcut + 32.0 * f64::from(f32::EPSILON) * (magnitude + rcut);
     let square = (wide * wide) as f32;
     // One step up, so rounding the square cannot shrink it.
@@ -725,6 +834,19 @@ fn scan_radius2(rcut: f64, lattice: &[f64; 9], grid: &Grid, periodic: bool) -> f
     } else {
         f32::INFINITY
     }
+}
+
+/// `m` of `scan_radius2` for a periodic system: the largest coordinate of
+/// an image shift its stencil reaches (positions wrapped into the cell are
+/// smaller). An open system's is its largest coordinate.
+fn image_magnitude(lattice: &[f64; 9], reach: &[usize; 3]) -> f64 {
+    (0..3)
+        .map(|a| {
+            (0..3)
+                .map(|b| (reach[b] + 1) as f64 * lattice[3 * b + a].abs())
+                .sum::<f64>()
+        })
+        .fold(0.0, f64::max)
 }
 
 fn inverse(m: &[[f64; 3]; 3]) -> Result<[[f64; 3]; 3]> {
@@ -817,79 +939,97 @@ fn coarsen(
     }
 }
 
-struct Grid {
+/// The grid of one system: cells per axis, how far the stencil reaches, and
+/// where an atom goes.
+struct Shape {
     cells: [usize; 3],
     reach: [usize; 3],
-    cell_of: Vec<[i32; 3]>,
-    positions: Vec<[f64; 3]>,
+    place: Place,
 }
 
-fn bin(positions: &[[f64; 3]], cell: &Cell, rcut: f64) -> Result<Grid> {
-    let mut cells = [1; 3];
-    let mut reach = [1; 3];
-    let mut widths = [0.0; 3];
-    let mut fractions = Vec::with_capacity(positions.len());
-    let mut wrapped = Vec::with_capacity(positions.len());
-    match cell {
-        Cell::Periodic(lattice) => {
-            let inv = inverse(lattice)?;
-            for axis in 0..3 {
-                // Distance between lattice planes = 1 / |reciprocal vector|.
-                let norm = (0..3).map(|a| inv[a][axis].powi(2)).sum::<f64>().sqrt();
-                widths[axis] = 1.0 / norm;
-                (cells[axis], reach[axis]) = grid_axis(widths[axis], rcut);
+enum Place {
+    /// Fractional coordinates by the inverse lattice, wrapped into the cell.
+    Periodic {
+        inverse: [[f64; 3]; 3],
+        lattice: [[f64; 3]; 3],
+    },
+    /// Coordinates in the box around the atoms, `width` at least the cutoff.
+    Open { lo: [f64; 3], width: [f64; 3] },
+}
+
+impl Shape {
+    /// The grid of the atoms `mine` of `positions` in `cell`.
+    fn new(positions: &[[f64; 3]], mine: &[u32], cell: &Cell, rcut: f64) -> Result<Self> {
+        let mut cells = [1; 3];
+        let mut reach = [1; 3];
+        let mut widths = [0.0; 3];
+        let place = match cell {
+            Cell::Periodic(lattice) => {
+                let inverse = inverse(lattice)?;
+                for axis in 0..3 {
+                    // Distance between lattice planes = 1 / |reciprocal vector|.
+                    let norm = (0..3).map(|a| inverse[a][axis].powi(2)).sum::<f64>().sqrt();
+                    widths[axis] = 1.0 / norm;
+                    (cells[axis], reach[axis]) = grid_axis(widths[axis], rcut);
+                }
+                Place::Periodic {
+                    inverse,
+                    lattice: *lattice,
+                }
             }
-            coarsen(&mut cells, &mut reach, &widths, rcut, positions.len());
-            for p in positions {
+            Cell::Open => {
+                let lo: [f64; 3] = std::array::from_fn(|a| {
+                    mine.iter()
+                        .map(|&atom| positions[atom as usize][a])
+                        .fold(f64::INFINITY, f64::min)
+                });
+                let hi: [f64; 3] = std::array::from_fn(|a| {
+                    mine.iter()
+                        .map(|&atom| positions[atom as usize][a])
+                        .fold(f64::NEG_INFINITY, f64::max)
+                });
+                for axis in 0..3 {
+                    widths[axis] = (hi[axis] - lo[axis]).max(rcut);
+                    (cells[axis], reach[axis]) = grid_axis(widths[axis], rcut);
+                }
+                Place::Open { lo, width: widths }
+            }
+        };
+        coarsen(&mut cells, &mut reach, &widths, rcut, mine.len());
+        Ok(Self {
+            cells,
+            reach,
+            place,
+        })
+    }
+
+    /// The cell of an atom at `p`, and its position: wrapped into the cell
+    /// when the system is periodic, as it is when open.
+    #[inline(always)]
+    fn place(&self, p: &[f64; 3]) -> ([usize; 3], [f64; 3]) {
+        let (fraction, position): ([f64; 3], [f64; 3]) = match &self.place {
+            Place::Periodic { inverse, lattice } => {
                 let mut f: [f64; 3] =
-                    std::array::from_fn(|b| (0..3).map(|a| p[a] * inv[a][b]).sum());
+                    std::array::from_fn(|b| (0..3).map(|a| p[a] * inverse[a][b]).sum());
                 for v in &mut f {
                     *v -= v.floor();
                     if *v >= 1.0 {
                         *v = 0.0;
                     }
                 }
-                wrapped.push(std::array::from_fn(|a| {
-                    (0..3).map(|b| f[b] * lattice[b][a]).sum()
-                }));
-                fractions.push(f);
+                let wrapped = std::array::from_fn(|a| (0..3).map(|b| f[b] * lattice[b][a]).sum());
+                (f, wrapped)
             }
-        }
-        Cell::Open => {
-            let lo: [f64; 3] = std::array::from_fn(|a| {
-                positions.iter().map(|p| p[a]).fold(f64::INFINITY, f64::min)
-            });
-            let hi: [f64; 3] = std::array::from_fn(|a| {
-                positions
-                    .iter()
-                    .map(|p| p[a])
-                    .fold(f64::NEG_INFINITY, f64::max)
-            });
-            for axis in 0..3 {
-                widths[axis] = (hi[axis] - lo[axis]).max(rcut);
-                (cells[axis], reach[axis]) = grid_axis(widths[axis], rcut);
-            }
-            coarsen(&mut cells, &mut reach, &widths, rcut, positions.len());
-            for p in positions {
-                fractions.push(std::array::from_fn(|a| {
-                    ((p[a] - lo[a]) / (hi[a] - lo[a]).max(rcut)).min(1.0 - f64::EPSILON)
-                }));
-                wrapped.push(*p);
-            }
-        }
+            Place::Open { lo, width } => (
+                std::array::from_fn(|a| ((p[a] - lo[a]) / width[a]).min(1.0 - f64::EPSILON)),
+                *p,
+            ),
+        };
+        let cell = std::array::from_fn(|a| {
+            ((fraction[a] * self.cells[a] as f64) as usize).min(self.cells[a] - 1)
+        });
+        (cell, position)
     }
-    let cell_of = fractions
-        .iter()
-        .map(|f| {
-            std::array::from_fn(|a| ((f[a] * cells[a] as f64) as usize).min(cells[a] - 1) as i32)
-        })
-        .collect();
-    Ok(Grid {
-        cells,
-        reach,
-        cell_of,
-        positions: wrapped,
-    })
 }
 
 /// Shared memory one block may use without opting in to more.
@@ -938,7 +1078,7 @@ impl NeighborSearch {
             sel: sel.to_vec(),
             slots,
             words: Vec::new(),
-            halves: Vec::new(),
+            scratch: Scratch::default(),
             warps: WARPS_PER_CENTER,
             state: None,
         })
@@ -1101,7 +1241,7 @@ impl NeighborSearch {
         }
         pack(
             &mut self.words,
-            &mut self.halves,
+            &mut self.scratch,
             positions,
             system,
             cells,
@@ -1293,14 +1433,14 @@ mod tests {
         // Three atoms in a 400 Å box: 80 cells per axis by the cutoff alone.
         let cell = Cell::Periodic([[400.0, 0.0, 0.0], [0.0, 400.0, 0.0], [0.0, 0.0, 400.0]]);
         let atoms = [[1.0, 2.0, 3.0], [399.0, 200.0, 5.0], [150.0, 150.0, 150.0]];
-        let grid = bin(&atoms, &cell, 5.0).unwrap();
+        let grid = Shape::new(&atoms, &[0, 1, 2], &cell, 5.0).unwrap();
         let total: usize = grid.cells.iter().product();
         assert!((27..=64).contains(&total), "{:?}", grid.cells);
         assert!(grid.cells.iter().all(|&c| c == grid.cells[0]));
         assert_eq!(grid.reach, [1, 1, 1]);
         // The packed input of any grid fits the bound it is allocated by.
-        let (mut words, mut halves) = (Vec::new(), Vec::new());
-        let packed = pack(&mut words, &mut halves, &atoms, &[], &[cell], 5.0).unwrap();
+        let (mut words, mut scratch) = (Vec::new(), Scratch::default());
+        let packed = pack(&mut words, &mut scratch, &atoms, &[], &[cell], 5.0).unwrap();
         assert_eq!(packed, total);
         assert_eq!(words.len(), packed_words(3, total, 1));
         assert!(words.len() <= packed_words(3, cells_bound(3, 1), 1));
@@ -1316,7 +1456,11 @@ mod tests {
             })
             .collect();
         let cell = Cell::Periodic([[20.0, 0.0, 0.0], [0.0, 20.0, 0.0], [0.0, 0.0, 20.0]]);
-        assert_eq!(bin(&dense, &cell, 5.0).unwrap().cells, [4, 4, 4]);
+        let all: Vec<u32> = (0..4000).collect();
+        assert_eq!(
+            Shape::new(&dense, &all, &cell, 5.0).unwrap().cells,
+            [4, 4, 4]
+        );
         // Wider cells never shorten the stencil below what the cutoff needs.
         // An axis with one cell has none to give up; its stencil stays as
         // wide as the cutoff needs.
@@ -1348,12 +1492,13 @@ mod tests {
             [1.0, 1.0, 47.0],
         ];
         let system = [0, 1, 0, 1, 0];
-        let (mut words, mut halves) = (Vec::new(), Vec::new());
-        let total = pack(&mut words, &mut halves, &positions, &system, &cells, 6.0).unwrap();
+        let (mut words, mut scratch) = (Vec::new(), Scratch::default());
+        let total = pack(&mut words, &mut scratch, &positions, &system, &cells, 6.0).unwrap();
         // 2 x 2 x 4 cells of the cutoff in the box, one around the pair.
         assert_eq!(total, 17);
         assert_eq!(words.len(), packed_words(5, total, 2));
         assert!(words.len() <= packed_words(5, cells_bound(5, 2), 2));
+        let halves = entries(&words, 9 * 2 + 3 * 5);
         let header = |f: usize| &halves[HEADER * f..HEADER * (f + 1)];
         assert_eq!(header(0)[10..13], [2, 2, 4]);
         assert_eq!(f32::from_bits(header(0)[8]), 24.0);
@@ -1387,24 +1532,27 @@ mod tests {
             .unwrap();
         assert_eq!(f32::from_bits(halves[HEADER * 2 + 3 * place]), 101.0);
         // Every system needs an atom.
-        assert!(pack(&mut words, &mut halves, &positions, &[0; 5], &cells, 6.0).is_err());
+        assert!(pack(&mut words, &mut scratch, &positions, &[0; 5], &cells, 6.0).is_err());
     }
 
     #[test]
     fn the_scan_radius_covers_single_precision_rounding() {
-        let lattice = [400.0, 0.0, 0.0, 0.0, 30.0, 0.0, 0.0, 0.0, 30.0];
+        // The radius of the header of a system of one atom.
+        let scan = |cell: Cell, atom: [f64; 3]| {
+            let (mut words, mut scratch) = (Vec::new(), Scratch::default());
+            pack(&mut words, &mut scratch, &[atom], &[], &[cell], 5.0).unwrap();
+            f64::from(f32::from_bits(entries(&words, 9 + 3)[9])).sqrt()
+        };
         let cell = Cell::Periodic([[400.0, 0.0, 0.0], [0.0, 30.0, 0.0], [0.0, 0.0, 30.0]]);
-        let grid = bin(&[[1.0, 1.0, 1.0]], &cell, 5.0).unwrap();
-        let wide = f64::from(scan_radius2(5.0, &lattice, &grid, true)).sqrt();
+        let wide = scan(cell, [1.0, 1.0, 1.0]);
         // Coordinates and shifts reach 800 Å here: 32 epsilon of that.
         let margin = 32.0 * f64::from(f32::EPSILON) * (800.0 + 5.0);
         assert!(wide > 5.0 + margin && wide < 5.0 + 1.01 * margin, "{wide}");
         // In an open cell the coordinates themselves set the scale.
-        let far = bin(&[[3.0e5, -1.0e5, 0.0]], &Cell::Open, 5.0).unwrap();
-        let wide = f64::from(scan_radius2(5.0, &[0.0; 9], &far, false)).sqrt();
+        let wide = scan(Cell::Open, [3.0e5, -1.0e5, 0.0]);
         assert!(wide > 5.0 + 1.1 && wide < 5.0 + 1.2, "{wide}");
         // Out of the range of floats, everything passes the scan.
-        assert_eq!(scan_radius2(1e30, &[0.0; 9], &far, false), f32::INFINITY);
+        assert_eq!(scan_radius2(1e30, 3.0e5), f32::INFINITY);
     }
 
     #[test]
@@ -1433,15 +1581,179 @@ mod tests {
     #[test]
     fn periodic_binning_wraps_into_the_cell() {
         let cell = Cell::Periodic([[10.0, 0.0, 0.0], [2.0, 10.0, 0.0], [0.0, 0.0, 10.0]]);
-        let grid = bin(&[[-1.0, 5.0, 25.0], [9.999, 0.0, 0.0]], &cell, 3.0).unwrap();
-        for (p, c) in grid.positions.iter().zip(&grid.cell_of) {
-            assert!(c
-                .iter()
-                .zip(&grid.cells)
-                .all(|(&c, &n)| c >= 0 && (c as usize) < n));
+        let atoms = [[-1.0, 5.0, 25.0], [9.999, 0.0, 0.0]];
+        let grid = Shape::new(&atoms, &[0, 1], &cell, 3.0).unwrap();
+        let placed = atoms.map(|p| grid.place(&p));
+        for (c, p) in &placed {
+            assert!(c.iter().zip(&grid.cells).all(|(&c, &n)| c < n));
             assert!(p.iter().all(|v| v.is_finite()));
         }
-        assert!((grid.positions[0][2] - 5.0).abs() < 1e-12);
+        assert!((placed[0].1[2] - 5.0).abs() < 1e-12);
         assert!(inverse(&[[1.0, 0.0, 0.0], [2.0, 0.0, 0.0], [0.0, 0.0, 1.0]]).is_err());
     }
+
+    /// The four-byte entries of a packed input with `doubles` doubles, two
+    /// to a word as they lie in memory.
+    fn entries(words: &[u64], doubles: usize) -> Vec<u32> {
+        words[doubles..]
+            .iter()
+            .flat_map(|word| {
+                let bytes = word.to_ne_bytes();
+                [0, 4].map(|at| u32::from_ne_bytes([0, 1, 2, 3].map(|b| bytes[at + b])))
+            })
+            .collect()
+    }
+
+    /// Packs one case with the single pass, on both of its paths and over
+    /// stale words and scratch, and with the packing it replaced: the same
+    /// words, or the same error. The number of four-byte entries, if packed.
+    fn pack_both(
+        scratch: &mut Scratch,
+        positions: &[[f64; 3]],
+        system: &[i32],
+        cells: &[Cell],
+        rcut: f64,
+    ) -> Option<usize> {
+        let (mut expected, mut halves) = (Vec::new(), Vec::new());
+        let old = reference::pack(&mut expected, &mut halves, positions, system, cells, rcut);
+        let new = plan(scratch, positions, system, cells, rcut);
+        let (total, length) = match (old, new) {
+            (Ok(old), Ok((total, length))) => {
+                assert_eq!((old, length), (total, expected.len()));
+                (total, length)
+            }
+            (Err(old), Err(new)) => {
+                assert_eq!(old, new);
+                return None;
+            }
+            (old, new) => panic!("reference {old:?}, single pass {new:?}"),
+        };
+        let differs = |words: &[u64]| words.iter().zip(&expected).position(|(a, b)| a != b);
+        let mut words = vec![u64::MAX; length];
+        fill_any(&mut words, scratch, positions, cells, rcut, total);
+        assert_eq!(differs(&words), None, "portable path, {} words", length);
+        words.fill(0x5a5a_5a5a_5a5a_5a5a);
+        fill(&mut words, scratch, positions, cells, rcut, total);
+        assert_eq!(differs(&words), None, "dispatched path, {} words", length);
+        words.fill(u64::MAX);
+        assert_eq!(
+            pack(&mut words, scratch, positions, system, cells, rcut),
+            Ok(total)
+        );
+        assert_eq!(differs(&words), None, "pack, {} words", length);
+        Some(halves.len())
+    }
+
+    #[test]
+    fn the_single_pass_packs_the_words_of_the_reference() {
+        let mut scratch = Scratch::default();
+        let mut parities = [0; 2];
+        let mut count = |entries: Option<usize>| {
+            if let Some(entries) = entries {
+                parities[entries % 2] += 1;
+            }
+        };
+        let skewed = Cell::Periodic([[10.0, 0.0, 0.0], [3.0, 9.0, 0.0], [-2.0, 1.5, 11.0]]);
+        // On faces and corners, outside the cell, signed zeros, subnormals.
+        let edges = [
+            [0.0, 0.0, 0.0],
+            [-0.0, -0.0, -0.0],
+            [1e-300, -1e-300, 5e-324],
+            [-5e-324, 0.0, -1e-300],
+            [10.0, 0.0, 0.0],
+            [13.0, 9.0, 0.0],
+            [11.0, 10.5, 11.0],
+            [-25.0, 40.0, -33.0],
+            [
+                9.999_999_999_999_998,
+                8.999_999_999_999_998,
+                10.999_999_999_999_998,
+            ],
+            [5.0, 4.5, 5.5],
+            [1e5, -3e4, 2e5],
+        ];
+        for n in 1..=edges.len() {
+            count(pack_both(&mut scratch, &edges[..n], &[], &[skewed], 4.0));
+            count(pack_both(
+                &mut scratch,
+                &edges[..n],
+                &[],
+                &[Cell::Open],
+                4.0,
+            ));
+        }
+        // An axis far thinner than the cutoff: a reach past the packed images.
+        let thin = Cell::Periodic([[10.0, 0.0, 0.0], [0.0, 10.0, 0.0], [0.0, 0.0, 0.01]]);
+        count(pack_both(&mut scratch, &edges, &[], &[thin], 6.0));
+        // A sparse box, coarsened; atoms that coincide in an open cell.
+        let sparse = Cell::Periodic([[400.0, 0.0, 0.0], [0.0, 400.0, 0.0], [0.0, 0.0, 400.0]]);
+        count(pack_both(&mut scratch, &edges, &[], &[sparse], 5.0));
+        count(pack_both(
+            &mut scratch,
+            &[[1.0, 2.0, 3.0]; 4],
+            &[],
+            &[Cell::Open],
+            5.0,
+        ));
+        // Three systems, their atoms interleaved.
+        let small = Cell::Periodic([[4.0, 0.0, 0.0], [0.0, 5.0, 0.0], [0.0, 0.0, 30.0]]);
+        let cells = [skewed, Cell::Open, small];
+        let system: Vec<i32> = (0..edges.len() as i32).map(|i| i % 3).collect();
+        count(pack_both(&mut scratch, &edges, &system, &cells, 4.0));
+        // A system without atoms and a singular cell fail alike.
+        assert_eq!(pack_both(&mut scratch, &edges, &[0; 11], &cells, 4.0), None);
+        let flat = Cell::Periodic([[1.0, 0.0, 0.0], [2.0, 0.0, 0.0], [0.0, 0.0, 1.0]]);
+        assert_eq!(pack_both(&mut scratch, &edges, &[], &[flat], 4.0), None);
+        // Random systems: skewed cells of 3 to 40 Å, open ones, atoms in and
+        // around them at several scales.
+        let mut state = 0x9e37_79b9_7f4a_7c15_u64;
+        let mut uniform = move || {
+            state ^= state << 13;
+            state ^= state >> 7;
+            state ^= state << 17;
+            (state >> 11) as f64 / (1u64 << 53) as f64
+        };
+        for _ in 0..400 {
+            let systems = 1 + (uniform() * 3.0) as usize;
+            let natoms = systems + (uniform() * 60.0) as usize;
+            let scale = [1.0, 1.0, 10.0, 1e4][(uniform() * 4.0) as usize];
+            let cells: Vec<Cell> = (0..systems)
+                .map(|_| {
+                    if uniform() < 0.25 {
+                        return Cell::Open;
+                    }
+                    let length: [f64; 3] = std::array::from_fn(|_| 3.0 + 37.0 * uniform());
+                    Cell::Periodic(std::array::from_fn(|a| {
+                        std::array::from_fn(|b| {
+                            if a == b {
+                                length[a]
+                            } else {
+                                (uniform() - 0.5) * 0.6 * length[a]
+                            }
+                        })
+                    }))
+                })
+                .collect();
+            let positions: Vec<[f64; 3]> = (0..natoms)
+                .map(|_| std::array::from_fn(|_| (uniform() * 50.0 - 15.0) * scale))
+                .collect();
+            // Every system gets an atom; the rest go anywhere.
+            let system: Vec<i32> = (0..natoms)
+                .map(|i| {
+                    if i < systems {
+                        i as i32
+                    } else {
+                        (uniform() * systems as f64) as i32
+                    }
+                })
+                .collect();
+            let rcut = 1.5 + 6.5 * uniform();
+            count(pack_both(&mut scratch, &positions, &system, &cells, rcut));
+        }
+        // Inputs whose entries fill the last word and some that leave half.
+        assert!(parities.iter().all(|&n| n > 20), "{parities:?}");
+    }
 }
+
+#[cfg(test)]
+mod reference;

@@ -1,3 +1,182 @@
+# The neighbor search input packed in one pass, 2026-11-20
+
+The request was to speed up the host's packing of the neighbor search
+input, which for thousands of atoms took longer than the search kernel
+(next section: 154 µs for 5,632 atoms against the kernel's 108). The
+packing now places every atom once, into memory the search keeps between
+calls, and writes the four-byte entries of the input straight into the
+words it uploads. The input is the same, bit for bit. On a performance core
+it takes 43% to 48% less time from 88 to 12,288 atoms; a search with its
+packing and a wait for the device is 4.8 µs shorter for 88 atoms and 44.7
+for 5,632; an evaluation in float32 with tables is 4 to 5.5 µs shorter for
+the HAP frames of 169 and 224 atoms and 47.5 for 5,632 (1.7% to 2.6%), and
+an MD step of 169 or 224 atoms about 5.7. An upload from pinned memory was
+priced as well and left out.
+
+**What the packing did.** Every call allocated the order of the atoms by
+system, a copy of the positions of each system, the fractional and wrapped
+positions and the cells of its atoms (`bin`), a cursor array for the
+counting sort and a vector of the four-byte entries, which it then paired
+into words (15 µs of 107 for 5,632 atoms in a first probe). The floor of
+each fractional coordinate, three an atom, was a call into the C library:
+the x86-64 baseline of the gnu target has no rounding instruction.
+
+**What it does now.** `plan` groups the atoms by system and lays out the
+grid of each (`Shape`: cells, stencil reach, and how an atom is placed).
+`fill` places each atom once, writes what goes in atom order (its wrapped
+position and its cell), counts the atoms of each cell, and then writes what
+goes in cell order by a counting sort. The entries go through a view of the
+words as 32-bit halves, in the order in which the old packing paired them.
+The order, the grids, the cell of each atom and the counts stay with the
+search (`Scratch`), and the words are zeroed only when their count
+changes: every word is written, the half past the last entry included. On a
+processor with SSE4.1, `fill` runs a copy compiled with it, where the floor
+is one instruction.
+
+**Tests.** The packing it replaced stays for the tests only
+(`gpu/src/nlist/reference.rs`). A test packs more than 400 inputs both
+ways: faces, corners and points far outside a skewed cell, signed zeros and
+subnormals, an axis so thin that the stencil reaches past the packed
+images, a sparse box whose grid is coarsened, atoms that coincide in an
+open cell, three systems with their atoms interleaved, the errors (a system
+without atoms, a singular cell), and 400 random inputs of one to three
+systems in skewed cells of 3 to 40 Å or open ones, at scales up to 10⁴ Å.
+It checks the same words from both paths of `fill` and from `pack`, over
+stale words and scratch, for inputs whose entries fill the last word and
+for some that leave half of it. Eight mutations of the single pass were
+each caught by it: a header entry, the pad or the terminator left stale, a
+fraction of exactly 1 kept, the atoms of a cell reversed, the magnitude of
+an open system skipped, the counts of the system before kept, the cell
+starts not offset. The GPU suites, which hold the lists to brute force,
+pass as before (237, 93, 195, 195 and 93 tests).
+
+**The host's time.** A probe in the unit tests (not committed) packs the
+HAP frames of the engine benchmarks, the 88-atom one replicated 2 and 4
+times along each axis, and the water frames, periodic, cutoff 6 Å; it
+first checks that the single pass gives the words of the old packing on
+every frame, periodic and open. Each variant is timed over seven batches
+of 0.1 s and the least batch kept, in the order old, single pass, portable
+path, portable again, single pass again, old again; the process held to
+one performance core of the i9-14900K, three runs (µs a pack, the least;
+`neighbor-search-packing-i9-14900k-2026-11-20.json`):
+
+| frame | atoms | old | single pass | its portable path | single pass / old |
+|---|---:|---:|---:|---:|---:|
+| HAP | 88 | 1.82 | 1.04 | 1.17 | 0.57 |
+| HAP | 169 | 3.45 | 1.84 | 2.10 | 0.53 |
+| HAP | 224 | 4.36 | 2.41 | 2.68 | 0.55 |
+| HAP | 704 | 14.17 | 7.35 | 8.66 | 0.52 |
+| HAP | 5,632 | 114.64 | 60.59 | 69.01 | 0.53 |
+| water | 192 | 3.73 | 2.08 | 2.29 | 0.56 |
+| water | 1,536 | 28.84 | 14.93 | 17.03 | 0.52 |
+| water | 12,288 | 232.08 | 124.37 | 135.87 | 0.54 |
+
+The copy compiled with SSE4.1 takes 8% to 15% less time than the portable
+path. On an efficiency core everything takes 1.5 to 2 times as long; there
+the single pass is 51% to 55% shorter than the old packing and the SSE4.1
+copy 15% to 24% shorter than the portable path. Runs left to the scheduler
+moved between the two kinds of core: in one build the single pass came out
+slower than its portable path in all three such runs, which held to one
+core it never was. The before and after timings below hold every process
+to the performance cores but the first (logical processors 2 to 15).
+
+**The search's own costs.** `neighbor_search_costs` (tests/costs.rs) runs
+a search 3,000 times back to back after 100 to warm up (`issue`: the
+host's pace) and 3,000 times with a wait for the device after each (`with
+a sync`: packing, upload, kernel and the wait), for 88 atoms of four types
+at the density of hydroxyapatite and the same replicated to 704 and 5,632,
+cutoff 6 Å. The test of 868614f and of this change, the one before twice a
+round, seven rounds, the least (µs a search;
+`neighbor-search-costs-packing-rtx4090-2026-11-20.json`, with the medians):
+
+| atoms | issue: before | after | before again | with a sync: before | after | before again |
+|---:|---:|---:|---:|---:|---:|---:|
+| 88 | 15.4 | 13.8 | 13.3 | 25.3 | 20.5 | 25.8 |
+| 704 | 21.2 | 42.5 | 22.3 | 49.0 | 41.2 | 48.7 |
+| 5,632 | 175.9 | 176.2 | 175.8 | 281.9 | 237.2 | 282.0 |
+
+With a wait after each search, the single pass saves about what it saves
+on the host for 704 and 5,632 atoms (7.8 and 44.7 µs against 6.8 and 54),
+and for 88 atoms more (4.8 against 0.8; why was not measured). Issued back
+to back, the search of 704 atoms takes twice as long as before, about as
+long as with a wait: the host now reaches the next upload while the kernel
+still runs (its packing, 7.4 µs, is shorter than the kernel, 19), and the
+times fit an upload of 40 KB from pageable memory that then waits for the
+stream, which CUDA allows a copy it stages to do. Before, the packing (14
+µs) and the calls kept the host behind the kernel. Evaluations, MD steps
+and the trainer wait for their results before the next search, so they do
+not issue searches that way.
+
+**Before and after.** The evaluator of 868614f and of this change, the one
+before twice a round, five rounds, the least (µs an evaluation;
+`hap-eval-packing-rtx4090-2026-11-20.json`, with the medians):
+
+| case | before | after | before again | after − before |
+|---|---:|---:|---:|---:|
+| HAP 88, float32 with tables | 150.7 | 151.7 | 150.7 | +1.0 |
+| HAP 169, float32 with tables | 185.6 | 181.4 | 185.9 | -4.2 |
+| HAP 224, float32 with tables | 208.5 | 203.0 | 207.8 | -5.5 |
+| HAP 88, float64 with tables | 399.8 | 399.6 | 400.3 | -0.3 |
+| HAP 169, float64 with tables | 709.6 | 704.4 | 708.1 | -5.2 |
+| HAP 224, float64 with tables | 743.7 | 740.1 | 742.1 | -3.6 |
+| HAP 704, float32 with tables | 516.7 | 507.0 | 517.1 | -9.7 |
+| HAP 5,632, float32 with tables | 2,784.8 | 2,737.3 | 2,772.4 | -47.5 |
+| water 192, float64 | 1,234.8 | 1,230.3 | 1,236.8 | -4.5 |
+| water 1,536, float64 | 8,426.5 | 8,404.2 | 8,412.2 | -22.3 |
+| water 12,288, float64 | 65,895.6 | 65,780.7 | 65,955.8 | -114.8 |
+
+The build before differed from itself by 0 to 1.6 µs on the HAP frames up
+to 704 atoms, and the frames of 169 to 704 atoms gained 3.6 to 9.7 (the
+medians agree: 4.5, 5.8 and 8.7 in float32). For 5,632 atoms the gain,
+47.5 µs (45.6 by the medians), is about what the packing saves and four
+times what the build before differed from itself (12.4). For 88 atoms and
+for the water frames the differences are about those of the control (for
+12,288 waters 114.8 against 60.2, and 67.4 against 70.3 by the medians).
+
+The engine (`omnimd-mlmd run`: NVT, CSVR at 300 K, 20,000 steps of 0.5 fs)
+of 868614f and of this change, with the evaluator beside it, five rounds,
+the least (µs; `hap-md-step-packing-rtx4090-2026-11-20.json`):
+
+| frame | step: before | after | before again | evaluation: before | after | before again |
+|---|---:|---:|---:|---:|---:|---:|
+| 88 atoms | 157.8 | 156.4 | 156.7 | 151.2 | 150.3 | 149.3 |
+| 169 atoms | 206.4 | 200.8 | 207.9 | 185.4 | 182.4 | 185.3 |
+| 224 atoms | 219.9 | 214.1 | 216.6 | 209.0 | 204.0 | 208.8 |
+
+A step of 169 atoms is 5.6 µs shorter (the build before differed from
+itself by 1.5) and one of 224 atoms 5.8 (by 3.3); one of 88 atoms is within
+the control.
+
+**Pinned memory.** The search uploads its input from the pageable vector
+it packs into. A probe build of 868614f (engine and evaluator, not
+committed) instead copied the input into a pinned (page-locked, cached)
+staging buffer of the search, waited on an event of its last upload before
+writing it again, and uploaded from there; a switch in the environment
+chose the path, the pageable one twice a round, five rounds, processes left
+to the scheduler (µs, the least;
+`hap-search-pinned-upload-rtx4090-2026-11-20.json`, with the medians):
+
+| case | pageable | pinned | pageable again |
+|---|---:|---:|---:|
+| evaluation HAP 88 | 155.5 | 162.6 | 153.6 |
+| evaluation HAP 169 | 186.4 | 192.4 | 187.6 |
+| evaluation HAP 224 | 211.2 | 215.5 | 210.4 |
+| evaluation HAP 5,632 | 2,809.8 | 2,805.5 | 2,795.0 |
+| evaluation water 1,536 | 8,450.8 | 8,454.3 | 8,459.0 |
+| evaluation water 12,288 | 66,164.5 | 66,213.5 | 66,209.7 |
+| MD step HAP 88 | 164.0 | 172.4 | 165.7 |
+| MD step HAP 169 | 227.4 | 233.0 | 219.8 |
+| MD step HAP 224 | 229.8 | 240.4 | 232.4 |
+
+The evaluations of the HAP frames took 4.3 to 7.1 µs longer from pinned
+memory while the pageable path differed from itself by up to 2.6, and the
+MD steps 5.6 to 10.6 longer, with the pageable path up to 7.6 from itself
+(169 atoms). For thousands of atoms the differences were about those of
+the control. In a loop of its own, the upload of the input of 169 atoms
+with a wait for it had taken 10.6 µs from pinned memory and 22.8 from
+pageable memory; in an evaluation that difference does not show, and the
+path through the staging buffer costs more than it saves. Not built.
+
 # The neighbor search with four warps a center, and a skin priced, 2026-11-20
 
 The request was to keep the neighbor list across MD steps with a Verlet

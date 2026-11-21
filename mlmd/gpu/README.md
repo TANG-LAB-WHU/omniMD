@@ -179,8 +179,42 @@ What follows for the kernels:
   frames the search runs afresh every step. Thousands of atoms are another
   case: for 5,632 the packing takes 125 to 167 µs, more than the kernel's
   108, and a 1 Å skin reads back in 100, so a skin or a faster packing
-  could save about 5% of an evaluation of 2,770 µs. The packing is the part
-  of the search to look at next.
+  could save about 5% of an evaluation of 2,770 µs. So the packing came
+  next.
+- Pack the search input in one pass, into memory the search keeps. The
+  host binned the atoms of every system into a grid built anew for each
+  search: it allocated a copy of the positions, their fractions, wrapped
+  positions and cells, and the four-byte entries of the input, which it
+  then paired into words, and it took each floor of a fractional
+  coordinate, three an atom, from the C library (the x86-64 baseline has no
+  rounding instruction). It now places each atom once and writes the
+  entries straight into the words it uploads, through a view of them as
+  32-bit halves; the order of the atoms, the grids and the counts of the
+  counting sort stay with the search between calls (`Scratch` in
+  `src/nlist.rs`), and on a processor with SSE4.1 a copy compiled with it
+  takes the floors in one instruction. The input is the same, bit for bit:
+  a test holds it to the packing it replaced (`src/nlist/reference.rs`) on
+  more than 400 inputs. On a performance core of the i9-14900K the packing
+  takes 43% to 48% less time from 88 to 12,288 atoms (1.8 → 1.0 µs for 88
+  atoms, 4.4 → 2.4 for 224, 115 → 61 for 5,632, 232 → 124 for 12,288
+  waters), and a search with its packing and a wait for the device
+  (`neighbor_search_costs`) went from 25.3 to 20.5 µs for 88 atoms, 49.0 to
+  41.2 for 704 and 282 to 237 for 5,632. An evaluation in float32 with
+  tables is 4.2 and 5.5 µs shorter for the HAP frames of 169 and 224 atoms
+  (2.3% and 2.6%), 9.7 for 704 and 47.5 for 5,632 (1.9% and 1.7%), and an
+  MD step of 169 atoms went from 206.4 to 200.8 µs, one of 224 from 219.9
+  to 214.1. That is more than the packing saves at those sizes when it is
+  timed in a loop of its own (1.6 and 2.0 µs); why was not measured. For
+  88 atoms and for the water frames in float64 the differences are about
+  those of the build before from itself. Issued back to back without a
+  wait, the search of 704 atoms takes 42.5 µs where it took 21.2: the host
+  now reaches the next upload while the kernel still runs, and the times
+  fit an upload of 40 KB from pageable memory that then waits for the
+  stream (CUDA allows a staged copy to). Evaluations, MD steps and the
+  trainer wait for their results before the next search, so they never
+  issue searches that way. An upload from a pinned buffer of the search,
+  which would not wait, made evaluations of the HAP frames 4 to 7 µs
+  slower and is not used (`bench/results/SUMMARY.md`).
 - Keep double precision for what needs it. The neighbor search scans in
   single precision with a margin that covers its rounding and measures only
   the surviving candidates in double; distances are ranked by their bit

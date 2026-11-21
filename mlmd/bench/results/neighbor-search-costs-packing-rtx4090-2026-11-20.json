@@ -1,0 +1,109 @@
+{
+ "date": "2026-11-20",
+ "device": "NVIDIA GeForce RTX 4090",
+ "what": "costs_ab.py OLD NEW OUT.json [ROUNDS]: the neighbor search's own costs before and after the single-pass packing.\n\nTwo builds of the costs test of omnimd-gpu (tests/costs.rs), whose `neighbor_search_costs` runs a NeighborSearch\n3,000 times back to back after 100 to warm up (`issue`: the host's pace, packing included) and 3,000 times with a\nwait for the device after each (`with a sync`: packing, upload, kernel and the wait), for 88 atoms of four types at\nthe density of hydroxyapatite and the same replicated 2 and 4 times along each axis (704 and 5,632), cutoff 6 A.\nAlternated in ROUNDS rounds (7) in one session, the order reversed every other round; the build before twice a round\n(`before again`: what the machine adds). The least and the median of each.\n",
+ "affinity": "Every process held to logical processors 2 to 15, the performance cores of the i9-14900K but the first (a Python wrapper sets the affinity of the script, and the programs it starts inherit it): run by the scheduler, the host side of a run lands on performance or efficiency cores, which differ by 1.5 to 2 times in the packing alone.",
+ "rounds": 7,
+ "builds": {
+  "before": "tests/costs.rs of 868614f",
+  "after": "tests/costs.rs of this change (the single-pass packing)"
+ },
+ "us_per_search": [
+  {
+   "atoms": 88,
+   "per": "issue",
+   "before": {
+    "best": 15.4,
+    "median": 16.2
+   },
+   "after": {
+    "best": 13.8,
+    "median": 15.9
+   },
+   "before_again": {
+    "best": 13.3,
+    "median": 16.1
+   }
+  },
+  {
+   "atoms": 88,
+   "per": "with a sync",
+   "before": {
+    "best": 25.3,
+    "median": 26.2
+   },
+   "after": {
+    "best": 20.5,
+    "median": 20.7
+   },
+   "before_again": {
+    "best": 25.8,
+    "median": 26.2
+   }
+  },
+  {
+   "atoms": 704,
+   "per": "issue",
+   "before": {
+    "best": 21.2,
+    "median": 25.7
+   },
+   "after": {
+    "best": 42.5,
+    "median": 45.7
+   },
+   "before_again": {
+    "best": 22.3,
+    "median": 25.5
+   }
+  },
+  {
+   "atoms": 704,
+   "per": "with a sync",
+   "before": {
+    "best": 49.0,
+    "median": 49.3
+   },
+   "after": {
+    "best": 41.2,
+    "median": 41.3
+   },
+   "before_again": {
+    "best": 48.7,
+    "median": 49.3
+   }
+  },
+  {
+   "atoms": 5632,
+   "per": "issue",
+   "before": {
+    "best": 175.9,
+    "median": 176.9
+   },
+   "after": {
+    "best": 176.2,
+    "median": 176.9
+   },
+   "before_again": {
+    "best": 175.8,
+    "median": 176.7
+   }
+  },
+  {
+   "atoms": 5632,
+   "per": "with a sync",
+   "before": {
+    "best": 281.9,
+    "median": 282.6
+   },
+   "after": {
+    "best": 237.2,
+    "median": 238.3
+   },
+   "before_again": {
+    "best": 282.0,
+    "median": 283.6
+   }
+  }
+ ]
+}

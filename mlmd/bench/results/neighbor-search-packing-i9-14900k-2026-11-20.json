@@ -1,0 +1,511 @@
+{
+ "date": "2026-11-20",
+ "host": "Intel Core i9-14900K (8 performance cores with two threads each, logical processors 0 to 15, and 16 efficiency cores, 16 to 31); Windows 11, x86_64-pc-windows-gnu, release build",
+ "what": "Microseconds the host takes to pack the input of one neighbor search (binning included) for one periodic frame, cutoff 6 A: the packing of 868614f (`old`, kept as gpu/src/nlist/reference.rs for the tests), the single pass of this change as the search calls it (`single_pass`: on this processor the copy compiled with SSE4.1, whose rounding instruction takes the floors) and its portable path (`single_pass_portable`: the floor from the C library, as the x86-64 baseline has it). A probe in the unit tests of omnimd-gpu (not committed) first checks that the single pass gives the words of the old packing on every frame, periodic and open, then times each variant over seven batches of 0.1 s after 20 calls to warm up and keeps the least batch, in the order old, single pass, portable, portable again, single pass again, old again. Three runs with the probe held to logical processor 2 (a performance core) and one held to 16 (an efficiency core), where everything takes 1.5 to 2 times as long. Runs left to the scheduler moved between the two kinds of core: in one build the single pass came out slower than its portable path in all three such runs, which on one core it never was (`unpinned_runs_first_build`: an earlier build of the same code, three unpinned runs without the repeats). HAP frames: the three of the engine benchmarks and the 88-atom one replicated 2 and 4 times along each axis; water: the frames of 192, 1,536 and 12,288 atoms of the benchmarks.",
+ "us_per_pack": [
+  {
+   "frame": "hap88",
+   "atoms": 88,
+   "least_performance_core": {
+    "old": 1.82,
+    "single_pass": 1.04,
+    "single_pass_portable": 1.17
+   },
+   "performance_core_runs": [
+    {
+     "old": 1.96,
+     "single_pass": 1.05,
+     "single_pass_portable": 1.19,
+     "single_pass_portable_again": 1.18,
+     "single_pass_again": 1.05,
+     "old_again": 1.94
+    },
+    {
+     "old": 1.82,
+     "single_pass": 1.04,
+     "single_pass_portable": 1.18,
+     "single_pass_portable_again": 1.17,
+     "single_pass_again": 1.04,
+     "old_again": 1.96
+    },
+    {
+     "old": 1.82,
+     "single_pass": 1.06,
+     "single_pass_portable": 1.32,
+     "single_pass_portable_again": 1.31,
+     "single_pass_again": 1.06,
+     "old_again": 1.95
+    }
+   ],
+   "efficiency_core_run": {
+    "old": 3.44,
+    "single_pass": 1.6,
+    "single_pass_portable": 2.09,
+    "single_pass_portable_again": 2.08,
+    "single_pass_again": 1.6,
+    "old_again": 3.39
+   },
+   "unpinned_runs_first_build": [
+    {
+     "old": 1.81,
+     "single_pass": 1.0,
+     "single_pass_portable": 1.1,
+     "old_again": 1.81
+    },
+    {
+     "old": 1.8,
+     "single_pass": 0.99,
+     "single_pass_portable": 1.09,
+     "old_again": 1.8
+    },
+    {
+     "old": 1.78,
+     "single_pass": 0.99,
+     "single_pass_portable": 1.1,
+     "old_again": 1.79
+    }
+   ]
+  },
+  {
+   "frame": "hap169",
+   "atoms": 169,
+   "least_performance_core": {
+    "old": 3.45,
+    "single_pass": 1.84,
+    "single_pass_portable": 2.1
+   },
+   "performance_core_runs": [
+    {
+     "old": 3.63,
+     "single_pass": 1.84,
+     "single_pass_portable": 2.1,
+     "single_pass_portable_again": 2.1,
+     "single_pass_again": 1.85,
+     "old_again": 3.57
+    },
+    {
+     "old": 3.48,
+     "single_pass": 1.91,
+     "single_pass_portable": 2.13,
+     "single_pass_portable_again": 2.14,
+     "single_pass_again": 1.88,
+     "old_again": 3.46
+    },
+    {
+     "old": 3.45,
+     "single_pass": 1.89,
+     "single_pass_portable": 2.14,
+     "single_pass_portable_again": 2.13,
+     "single_pass_again": 1.91,
+     "old_again": 3.47
+    }
+   ],
+   "efficiency_core_run": {
+    "old": 6.19,
+    "single_pass": 2.87,
+    "single_pass_portable": 3.76,
+    "single_pass_portable_again": 3.76,
+    "single_pass_again": 2.89,
+    "old_again": 6.1
+   },
+   "unpinned_runs_first_build": [
+    {
+     "old": 3.21,
+     "single_pass": 1.9,
+     "single_pass_portable": 2.33,
+     "old_again": 3.58
+    },
+    {
+     "old": 3.19,
+     "single_pass": 2.01,
+     "single_pass_portable": 2.38,
+     "old_again": 3.59
+    },
+    {
+     "old": 3.16,
+     "single_pass": 1.88,
+     "single_pass_portable": 2.3,
+     "old_again": 3.25
+    }
+   ]
+  },
+  {
+   "frame": "hap224",
+   "atoms": 224,
+   "least_performance_core": {
+    "old": 4.36,
+    "single_pass": 2.41,
+    "single_pass_portable": 2.68
+   },
+   "performance_core_runs": [
+    {
+     "old": 4.39,
+     "single_pass": 2.41,
+     "single_pass_portable": 2.79,
+     "single_pass_portable_again": 2.78,
+     "single_pass_again": 2.44,
+     "old_again": 4.44
+    },
+    {
+     "old": 4.49,
+     "single_pass": 2.72,
+     "single_pass_portable": 2.72,
+     "single_pass_portable_again": 2.74,
+     "single_pass_again": 2.71,
+     "old_again": 4.43
+    },
+    {
+     "old": 4.41,
+     "single_pass": 2.46,
+     "single_pass_portable": 2.68,
+     "single_pass_portable_again": 2.71,
+     "single_pass_again": 2.47,
+     "old_again": 4.36
+    }
+   ],
+   "efficiency_core_run": {
+    "old": 7.78,
+    "single_pass": 3.83,
+    "single_pass_portable": 4.73,
+    "single_pass_portable_again": 4.75,
+    "single_pass_again": 3.84,
+    "old_again": 7.78
+   },
+   "unpinned_runs_first_build": [
+    {
+     "old": 4.58,
+     "single_pass": 2.61,
+     "single_pass_portable": 2.63,
+     "old_again": 4.33
+    },
+    {
+     "old": 4.48,
+     "single_pass": 2.58,
+     "single_pass_portable": 2.69,
+     "old_again": 4.61
+    },
+    {
+     "old": 4.49,
+     "single_pass": 2.48,
+     "single_pass_portable": 2.67,
+     "old_again": 4.52
+    }
+   ]
+  },
+  {
+   "frame": "hap704",
+   "atoms": 704,
+   "least_performance_core": {
+    "old": 14.17,
+    "single_pass": 7.35,
+    "single_pass_portable": 8.66
+   },
+   "performance_core_runs": [
+    {
+     "old": 14.56,
+     "single_pass": 7.73,
+     "single_pass_portable": 8.96,
+     "single_pass_portable_again": 8.91,
+     "single_pass_again": 7.59,
+     "old_again": 14.41
+    },
+    {
+     "old": 14.17,
+     "single_pass": 7.83,
+     "single_pass_portable": 8.7,
+     "single_pass_portable_again": 8.66,
+     "single_pass_again": 7.83,
+     "old_again": 14.34
+    },
+    {
+     "old": 14.49,
+     "single_pass": 7.35,
+     "single_pass_portable": 8.73,
+     "single_pass_portable_again": 8.7,
+     "single_pass_again": 7.45,
+     "old_again": 14.65
+    }
+   ],
+   "efficiency_core_run": {
+    "old": 24.01,
+    "single_pass": 11.4,
+    "single_pass_portable": 14.96,
+    "single_pass_portable_again": 14.96,
+    "single_pass_again": 11.39,
+    "old_again": 23.96
+   },
+   "unpinned_runs_first_build": [
+    {
+     "old": 15.6,
+     "single_pass": 7.17,
+     "single_pass_portable": 8.7,
+     "old_again": 15.83
+    },
+    {
+     "old": 15.32,
+     "single_pass": 7.71,
+     "single_pass_portable": 9.43,
+     "old_again": 17.5
+    },
+    {
+     "old": 14.82,
+     "single_pass": 7.32,
+     "single_pass_portable": 10.15,
+     "old_again": 15.01
+    }
+   ]
+  },
+  {
+   "frame": "hap5632",
+   "atoms": 5632,
+   "least_performance_core": {
+    "old": 114.64,
+    "single_pass": 60.59,
+    "single_pass_portable": 69.01
+   },
+   "performance_core_runs": [
+    {
+     "old": 127.34,
+     "single_pass": 61.08,
+     "single_pass_portable": 69.77,
+     "single_pass_portable_again": 69.68,
+     "single_pass_again": 60.76,
+     "old_again": 114.64
+    },
+    {
+     "old": 118.02,
+     "single_pass": 60.82,
+     "single_pass_portable": 69.01,
+     "single_pass_portable_again": 69.12,
+     "single_pass_again": 60.59,
+     "old_again": 117.18
+    },
+    {
+     "old": 127.58,
+     "single_pass": 61.17,
+     "single_pass_portable": 71.73,
+     "single_pass_portable_again": 71.69,
+     "single_pass_again": 61.66,
+     "old_again": 116.66
+    }
+   ],
+   "efficiency_core_run": {
+    "old": 228.61,
+    "single_pass": 90.42,
+    "single_pass_portable": 116.46,
+    "single_pass_portable_again": 116.46,
+    "single_pass_again": 90.15,
+    "old_again": 200.83
+   },
+   "unpinned_runs_first_build": [
+    {
+     "old": 128.07,
+     "single_pass": 69.36,
+     "single_pass_portable": 72.73,
+     "old_again": 111.64
+    },
+    {
+     "old": 156.5,
+     "single_pass": 59.05,
+     "single_pass_portable": 67.69,
+     "old_again": 128.47
+    },
+    {
+     "old": 172.46,
+     "single_pass": 60.58,
+     "single_pass_portable": 74.58,
+     "old_again": 146.26
+    }
+   ]
+  },
+  {
+   "frame": "water192",
+   "atoms": 192,
+   "least_performance_core": {
+    "old": 3.73,
+    "single_pass": 2.08,
+    "single_pass_portable": 2.29
+   },
+   "performance_core_runs": [
+    {
+     "old": 3.86,
+     "single_pass": 2.08,
+     "single_pass_portable": 2.31,
+     "single_pass_portable_again": 2.3,
+     "single_pass_again": 2.09,
+     "old_again": 3.88
+    },
+    {
+     "old": 3.83,
+     "single_pass": 2.13,
+     "single_pass_portable": 2.3,
+     "single_pass_portable_again": 2.3,
+     "single_pass_again": 2.12,
+     "old_again": 3.78
+    },
+    {
+     "old": 3.81,
+     "single_pass": 2.13,
+     "single_pass_portable": 2.29,
+     "single_pass_portable_again": 2.3,
+     "single_pass_again": 2.11,
+     "old_again": 3.73
+    }
+   ],
+   "efficiency_core_run": {
+    "old": 6.73,
+    "single_pass": 3.25,
+    "single_pass_portable": 4.06,
+    "single_pass_portable_again": 4.08,
+    "single_pass_again": 3.26,
+    "old_again": 6.63
+   },
+   "unpinned_runs_first_build": [
+    {
+     "old": 3.65,
+     "single_pass": 2.3,
+     "single_pass_portable": 2.42,
+     "old_again": 3.77
+    },
+    {
+     "old": 3.83,
+     "single_pass": 2.33,
+     "single_pass_portable": 2.41,
+     "old_again": 4.01
+    },
+    {
+     "old": 3.74,
+     "single_pass": 2.15,
+     "single_pass_portable": 2.25,
+     "old_again": 3.86
+    }
+   ]
+  },
+  {
+   "frame": "water1536",
+   "atoms": 1536,
+   "least_performance_core": {
+    "old": 28.84,
+    "single_pass": 14.93,
+    "single_pass_portable": 17.03
+   },
+   "performance_core_runs": [
+    {
+     "old": 29.06,
+     "single_pass": 14.93,
+     "single_pass_portable": 17.04,
+     "single_pass_portable_again": 17.03,
+     "single_pass_again": 15.14,
+     "old_again": 28.84
+    },
+    {
+     "old": 30.73,
+     "single_pass": 16.49,
+     "single_pass_portable": 17.98,
+     "single_pass_portable_again": 18.02,
+     "single_pass_again": 16.26,
+     "old_again": 30.4
+    },
+    {
+     "old": 30.74,
+     "single_pass": 16.76,
+     "single_pass_portable": 18.17,
+     "single_pass_portable_again": 18.01,
+     "single_pass_again": 16.71,
+     "old_again": 30.88
+    }
+   ],
+   "efficiency_core_run": {
+    "old": 51.13,
+    "single_pass": 25.04,
+    "single_pass_portable": 31.35,
+    "single_pass_portable_again": 31.3,
+    "single_pass_again": 25.12,
+    "old_again": 51.27
+   },
+   "unpinned_runs_first_build": [
+    {
+     "old": 31.71,
+     "single_pass": 17.28,
+     "single_pass_portable": 17.24,
+     "old_again": 30.03
+    },
+    {
+     "old": 31.38,
+     "single_pass": 16.16,
+     "single_pass_portable": 19.53,
+     "old_again": 33.93
+    },
+    {
+     "old": 32.99,
+     "single_pass": 15.9,
+     "single_pass_portable": 22.18,
+     "old_again": 33.11
+    }
+   ]
+  },
+  {
+   "frame": "water12288",
+   "atoms": 12288,
+   "least_performance_core": {
+    "old": 232.08,
+    "single_pass": 124.37,
+    "single_pass_portable": 135.87
+   },
+   "performance_core_runs": [
+    {
+     "old": 234.26,
+     "single_pass": 124.4,
+     "single_pass_portable": 135.87,
+     "single_pass_portable_again": 135.99,
+     "single_pass_again": 124.37,
+     "old_again": 232.08
+    },
+    {
+     "old": 266.13,
+     "single_pass": 130.14,
+     "single_pass_portable": 144.99,
+     "single_pass_portable_again": 144.02,
+     "single_pass_again": 131.09,
+     "old_again": 254.12
+    },
+    {
+     "old": 257.59,
+     "single_pass": 132.48,
+     "single_pass_portable": 144.54,
+     "single_pass_portable_again": 147.4,
+     "single_pass_again": 132.93,
+     "old_again": 256.9
+    }
+   ],
+   "efficiency_core_run": {
+    "old": 465.36,
+    "single_pass": 211.95,
+    "single_pass_portable": 250.2,
+    "single_pass_portable_again": 250.67,
+    "single_pass_again": 214.8,
+    "old_again": 465.45
+   },
+   "unpinned_runs_first_build": [
+    {
+     "old": 264.89,
+     "single_pass": 140.4,
+     "single_pass_portable": 153.32,
+     "old_again": 439.33
+    },
+    {
+     "old": 268.57,
+     "single_pass": 140.6,
+     "single_pass_portable": 167.23,
+     "old_again": 268.17
+    },
+    {
+     "old": 280.19,
+     "single_pass": 137.75,
+     "single_pass_portable": 138.57,
+     "old_again": 293.3
+    }
+   ]
+  }
+ ]
+}

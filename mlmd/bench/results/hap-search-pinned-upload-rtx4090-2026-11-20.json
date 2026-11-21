@@ -1,0 +1,143 @@
+{
+ "date": "2026-11-20",
+ "device": "NVIDIA GeForce RTX 4090",
+ "what": "The upload of the packed search input from pinned (page-locked, cached) host memory, priced before building it. A probe build of 868614f (engine and evaluator; not committed) copies the packed input into a pinned staging buffer of the search, waits on an event of its last upload before writing it again, and uploads from there when OMNIMD_PINNED_UPLOAD=1 (`on`); otherwise it uploads from the pageable vector as before (`off`, twice a round: `off_again` against `off` shows what the machine adds). Five rounds, the order reversed every other round, the least and the median of each. Evaluations (--bench) of the three HAP frames of the engine benchmarks (3,000) and of the 88-atom frame replicated to 5,632 atoms (300) with the trained se_e2_a model in float32 with tables; of the water frames of 1,536 (300) and 12,288 atoms (60) with the water model in float64; NVT MD of the three HAP frames, 20,000 steps of 0.5 fs (us a step). Not built. By the least time, the evaluations of the HAP frames took 4.3 to 7.1 us longer with pinned memory while `off_again` was within 2.6 us of `off`; the MD steps took 5.6 to 10.6 us longer, with `off_again` up to 7.6 us from `off` (169 atoms); for thousands of atoms the differences were about those of the control.",
+ "rounds": 5,
+ "us": [
+  {
+   "case": "evaluation HAP 88",
+   "off": {
+    "best": 155.5,
+    "median": 157.5
+   },
+   "on": {
+    "best": 162.58,
+    "median": 163.52
+   },
+   "off_again": {
+    "best": 153.55,
+    "median": 154.89
+   }
+  },
+  {
+   "case": "evaluation HAP 169",
+   "off": {
+    "best": 186.37,
+    "median": 188.63
+   },
+   "on": {
+    "best": 192.37,
+    "median": 194.68
+   },
+   "off_again": {
+    "best": 187.59,
+    "median": 190.46
+   }
+  },
+  {
+   "case": "evaluation HAP 224",
+   "off": {
+    "best": 211.21,
+    "median": 212.48
+   },
+   "on": {
+    "best": 215.49,
+    "median": 217.09
+   },
+   "off_again": {
+    "best": 210.36,
+    "median": 211.4
+   }
+  },
+  {
+   "case": "evaluation HAP 5,632",
+   "off": {
+    "best": 2809.8,
+    "median": 2814.16
+   },
+   "on": {
+    "best": 2805.52,
+    "median": 2810.21
+   },
+   "off_again": {
+    "best": 2794.99,
+    "median": 2812.45
+   }
+  },
+  {
+   "case": "evaluation water 1,536",
+   "off": {
+    "best": 8450.77,
+    "median": 8483.54
+   },
+   "on": {
+    "best": 8454.32,
+    "median": 8489.16
+   },
+   "off_again": {
+    "best": 8459.0,
+    "median": 8487.35
+   }
+  },
+  {
+   "case": "evaluation water 12,288",
+   "off": {
+    "best": 66164.54,
+    "median": 66250.55
+   },
+   "on": {
+    "best": 66213.53,
+    "median": 66338.93
+   },
+   "off_again": {
+    "best": 66209.72,
+    "median": 66328.48
+   }
+  },
+  {
+   "case": "MD step HAP 88",
+   "off": {
+    "best": 164.0,
+    "median": 166.9
+   },
+   "on": {
+    "best": 172.4,
+    "median": 173.0
+   },
+   "off_again": {
+    "best": 165.7,
+    "median": 166.6
+   }
+  },
+  {
+   "case": "MD step HAP 169",
+   "off": {
+    "best": 227.4,
+    "median": 238.2
+   },
+   "on": {
+    "best": 233.0,
+    "median": 251.0
+   },
+   "off_again": {
+    "best": 219.8,
+    "median": 230.6
+   }
+  },
+  {
+   "case": "MD step HAP 224",
+   "off": {
+    "best": 229.8,
+    "median": 234.1
+   },
+   "on": {
+    "best": 240.4,
+    "median": 241.6
+   },
+   "off_again": {
+    "best": 232.4,
+    "median": 234.1
+   }
+  }
+ ]
+}
