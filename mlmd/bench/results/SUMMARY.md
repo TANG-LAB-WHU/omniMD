@@ -10,8 +10,9 @@ it takes 43% to 48% less time from 88 to 12,288 atoms; a search with its
 packing and a wait for the device is 4.8 µs shorter for 88 atoms and 44.7
 for 5,632; an evaluation in float32 with tables is 4 to 5.5 µs shorter for
 the HAP frames of 169 and 224 atoms and 47.5 for 5,632 (1.7% to 2.6%), and
-an MD step of 169 or 224 atoms about 5.7. An upload from pinned memory was
-priced as well and left out.
+an MD step of 169 atoms 5.6 (of 224 atoms 2.5 to 5.8, by which run of the
+build before). An upload from pinned memory was priced as well and left
+out.
 
 **What the packing did.** Every call allocated the order of the atoms by
 system, a copy of the positions of each system, the fractional and wrapped
@@ -102,7 +103,9 @@ to back, the search of 704 atoms takes twice as long as before, about as
 long as with a wait: the host now reaches the next upload while the kernel
 still runs (its packing, 7.4 µs, is shorter than the kernel, 19), and the
 times fit an upload of 40 KB from pageable memory that then waits for the
-stream, which CUDA allows a copy it stages to do. Before, the packing (14
+stream: the driver API's notes on synchronization behavior say that when
+pageable memory must first be staged to pinned memory, the driver may
+synchronize with the stream. Before, the packing (14
 µs) and the calls kept the host behind the kernel. Evaluations, MD steps
 and the trainer wait for their results before the next search, so they do
 not issue searches that way.
@@ -144,8 +147,9 @@ the least (µs; `hap-md-step-packing-rtx4090-2026-11-20.json`):
 | 224 atoms | 219.9 | 214.1 | 216.6 | 209.0 | 204.0 | 208.8 |
 
 A step of 169 atoms is 5.6 µs shorter (the build before differed from
-itself by 1.5) and one of 224 atoms 5.8 (by 3.3); one of 88 atoms is within
-the control.
+itself by 1.5); one of 224 atoms is 5.8 shorter than the first run of the
+build before and 2.5 than its second, which differed from the first by
+3.3; one of 88 atoms is within the control.
 
 **Pinned memory.** The search uploads its input from the pageable vector
 it packs into. A probe build of 868614f (engine and evaluator, not

@@ -201,20 +201,23 @@ What follows for the kernels:
   (`neighbor_search_costs`) went from 25.3 to 20.5 µs for 88 atoms, 49.0 to
   41.2 for 704 and 282 to 237 for 5,632. An evaluation in float32 with
   tables is 4.2 and 5.5 µs shorter for the HAP frames of 169 and 224 atoms
-  (2.3% and 2.6%), 9.7 for 704 and 47.5 for 5,632 (1.9% and 1.7%), and an
-  MD step of 169 atoms went from 206.4 to 200.8 µs, one of 224 from 219.9
-  to 214.1. That is more than the packing saves at those sizes when it is
-  timed in a loop of its own (1.6 and 2.0 µs); why was not measured. For
+  (2.3% and 2.6%), 9.7 for 704 and 47.5 for 5,632 (1.9% and 1.7%). An MD
+  step of 169 atoms went from 206.4 to 200.8 µs, the build before reading
+  207.9 the second time, and one of 224 atoms from 219.9 to 214.1, against
+  216.6 the second time. The evaluations of 169 and 224 atoms gain more
+  than the packing saves at those sizes when it is timed in a loop of its
+  own (1.6 and 2.0 µs); why was not measured. For
   88 atoms and for the water frames in float64 the differences are about
   those of the build before from itself. Issued back to back without a
   wait, the search of 704 atoms takes 42.5 µs where it took 21.2: the host
   now reaches the next upload while the kernel still runs, and the times
   fit an upload of 40 KB from pageable memory that then waits for the
-  stream (CUDA allows a staged copy to). Evaluations, MD steps and the
+  stream (the driver API's notes on synchronization allow an asynchronous
+  copy that stages pageable memory to). Evaluations, MD steps and the
   trainer wait for their results before the next search, so they never
-  issue searches that way. An upload from a pinned buffer of the search,
-  which would not wait, made evaluations of the HAP frames 4 to 7 µs
-  slower and is not used (`bench/results/SUMMARY.md`).
+  issue searches that way. An upload from a pinned buffer of the search
+  made evaluations of the HAP frames 4 to 7 µs slower and is not used
+  (`bench/results/SUMMARY.md`).
 - Keep double precision for what needs it. The neighbor search scans in
   single precision with a margin that covers its rounding and measures only
   the surviving candidates in double; distances are ranked by their bit

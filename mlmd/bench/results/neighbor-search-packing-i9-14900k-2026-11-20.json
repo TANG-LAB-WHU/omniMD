@@ -1,7 +1,7 @@
 {
  "date": "2026-11-20",
  "host": "Intel Core i9-14900K (8 performance cores with two threads each, logical processors 0 to 15, and 16 efficiency cores, 16 to 31); Windows 11, x86_64-pc-windows-gnu, release build",
- "what": "Microseconds the host takes to pack the input of one neighbor search (binning included) for one periodic frame, cutoff 6 A: the packing of 868614f (`old`, kept as gpu/src/nlist/reference.rs for the tests), the single pass of this change as the search calls it (`single_pass`: on this processor the copy compiled with SSE4.1, whose rounding instruction takes the floors) and its portable path (`single_pass_portable`: the floor from the C library, as the x86-64 baseline has it). A probe in the unit tests of omnimd-gpu (not committed) first checks that the single pass gives the words of the old packing on every frame, periodic and open, then times each variant over seven batches of 0.1 s after 20 calls to warm up and keeps the least batch, in the order old, single pass, portable, portable again, single pass again, old again. Three runs with the probe held to logical processor 2 (a performance core) and one held to 16 (an efficiency core), where everything takes 1.5 to 2 times as long. Runs left to the scheduler moved between the two kinds of core: in one build the single pass came out slower than its portable path in all three such runs, which on one core it never was (`unpinned_runs_first_build`: an earlier build of the same code, three unpinned runs without the repeats). HAP frames: the three of the engine benchmarks and the 88-atom one replicated 2 and 4 times along each axis; water: the frames of 192, 1,536 and 12,288 atoms of the benchmarks.",
+ "what": "Microseconds the host takes to pack the input of one neighbor search (binning included) for one periodic frame, cutoff 6 A: the packing of 868614f (`old`, kept as gpu/src/nlist/reference.rs for the tests), the single pass of this change as the search calls it (`single_pass`: on this processor the copy compiled with SSE4.1, whose rounding instruction takes the floors) and its portable path (`single_pass_portable`: the floor from the C library, as the x86-64 baseline has it). A probe in the unit tests of omnimd-gpu (not committed) first checks that the single pass gives the words of the old packing on every frame, periodic and open, then times each variant over seven batches of 0.1 s after 20 calls to warm up and keeps the least batch, in the order old, single pass, portable, portable again, single pass again, old again. Three runs with the probe held to logical processor 2 (a performance core) and one held to 16 (an efficiency core), where everything takes 1.5 to 2 times as long. Runs left to the scheduler moved between the two kinds of core. `unpinned_runs_first_build`: an earlier build of the same code, three unpinned runs without the repeats, where the single pass came out faster than its portable path but once (1,536 waters, by 0.04 us); `unpinned_runs_second_build`: another build of the same code with the probe of the pinned runs, three unpinned runs, where the single pass came out slower than its portable path in all three, which held to one core it never was. HAP frames: the three of the engine benchmarks and the 88-atom one replicated 2 and 4 times along each axis; water: the frames of 192, 1,536 and 12,288 atoms of the benchmarks.",
  "us_per_pack": [
   {
    "frame": "hap88",
@@ -63,6 +63,32 @@
      "single_pass": 0.99,
      "single_pass_portable": 1.1,
      "old_again": 1.79
+    }
+   ],
+   "unpinned_runs_second_build": [
+    {
+     "old": 1.8,
+     "single_pass": 1.37,
+     "single_pass_portable": 1.09,
+     "single_pass_portable_again": 1.09,
+     "single_pass_again": 1.38,
+     "old_again": 1.84
+    },
+    {
+     "old": 1.8,
+     "single_pass": 0.97,
+     "single_pass_portable": 1.34,
+     "single_pass_portable_again": 1.35,
+     "single_pass_again": 0.99,
+     "old_again": 1.94
+    },
+    {
+     "old": 1.79,
+     "single_pass": 1.37,
+     "single_pass_portable": 1.09,
+     "single_pass_portable_again": 1.1,
+     "single_pass_again": 1.37,
+     "old_again": 1.95
     }
    ]
   },
@@ -127,6 +153,32 @@
      "single_pass_portable": 2.3,
      "old_again": 3.25
     }
+   ],
+   "unpinned_runs_second_build": [
+    {
+     "old": 3.81,
+     "single_pass": 3.07,
+     "single_pass_portable": 2.2,
+     "single_pass_portable_again": 2.17,
+     "single_pass_again": 2.83,
+     "old_again": 3.31
+    },
+    {
+     "old": 3.2,
+     "single_pass": 2.8,
+     "single_pass_portable": 2.25,
+     "single_pass_portable_again": 2.36,
+     "single_pass_again": 2.72,
+     "old_again": 3.24
+    },
+    {
+     "old": 3.23,
+     "single_pass": 2.63,
+     "single_pass_portable": 2.01,
+     "single_pass_portable_again": 2.39,
+     "single_pass_again": 2.64,
+     "old_again": 3.41
+    }
    ]
   },
   {
@@ -189,6 +241,32 @@
      "single_pass": 2.48,
      "single_pass_portable": 2.67,
      "old_again": 4.52
+    }
+   ],
+   "unpinned_runs_second_build": [
+    {
+     "old": 4.38,
+     "single_pass": 4.1,
+     "single_pass_portable": 2.97,
+     "single_pass_portable_again": 2.99,
+     "single_pass_again": 3.62,
+     "old_again": 4.5
+    },
+    {
+     "old": 4.42,
+     "single_pass": 3.67,
+     "single_pass_portable": 2.71,
+     "single_pass_portable_again": 2.98,
+     "single_pass_again": 3.53,
+     "old_again": 4.64
+    },
+    {
+     "old": 4.4,
+     "single_pass": 3.51,
+     "single_pass_portable": 3.19,
+     "single_pass_portable_again": 2.87,
+     "single_pass_again": 3.54,
+     "old_again": 4.34
     }
    ]
   },
@@ -253,6 +331,32 @@
      "single_pass_portable": 10.15,
      "old_again": 15.01
     }
+   ],
+   "unpinned_runs_second_build": [
+    {
+     "old": 14.91,
+     "single_pass": 11.5,
+     "single_pass_portable": 8.78,
+     "single_pass_portable_again": 9.16,
+     "single_pass_again": 11.79,
+     "old_again": 13.7
+    },
+    {
+     "old": 15.89,
+     "single_pass": 10.49,
+     "single_pass_portable": 8.44,
+     "single_pass_portable_again": 8.87,
+     "single_pass_again": 11.15,
+     "old_again": 14.26
+    },
+    {
+     "old": 14.44,
+     "single_pass": 11.36,
+     "single_pass_portable": 8.96,
+     "single_pass_portable_again": 9.11,
+     "single_pass_again": 11.57,
+     "old_again": 14.34
+    }
    ]
   },
   {
@@ -315,6 +419,32 @@
      "single_pass": 60.58,
      "single_pass_portable": 74.58,
      "old_again": 146.26
+    }
+   ],
+   "unpinned_runs_second_build": [
+    {
+     "old": 139.15,
+     "single_pass": 88.33,
+     "single_pass_portable": 70.48,
+     "single_pass_portable_again": 75.26,
+     "single_pass_again": 92.26,
+     "old_again": 122.68
+    },
+    {
+     "old": 130.25,
+     "single_pass": 88.08,
+     "single_pass_portable": 65.88,
+     "single_pass_portable_again": 75.75,
+     "single_pass_again": 85.68,
+     "old_again": 119.94
+    },
+    {
+     "old": 128.49,
+     "single_pass": 87.38,
+     "single_pass_portable": 73.68,
+     "single_pass_portable_again": 68.67,
+     "single_pass_again": 87.84,
+     "old_again": 128.79
     }
    ]
   },
@@ -379,6 +509,32 @@
      "single_pass_portable": 2.25,
      "old_again": 3.86
     }
+   ],
+   "unpinned_runs_second_build": [
+    {
+     "old": 3.71,
+     "single_pass": 3.03,
+     "single_pass_portable": 2.17,
+     "single_pass_portable_again": 2.5,
+     "single_pass_again": 3.04,
+     "old_again": 4.41
+    },
+    {
+     "old": 3.72,
+     "single_pass": 3.34,
+     "single_pass_portable": 2.27,
+     "single_pass_portable_again": 2.15,
+     "single_pass_again": 3.58,
+     "old_again": 3.74
+    },
+    {
+     "old": 3.82,
+     "single_pass": 3.14,
+     "single_pass_portable": 2.14,
+     "single_pass_portable_again": 2.42,
+     "single_pass_again": 3.07,
+     "old_again": 4.43
+    }
    ]
   },
   {
@@ -442,6 +598,32 @@
      "single_pass_portable": 22.18,
      "old_again": 33.11
     }
+   ],
+   "unpinned_runs_second_build": [
+    {
+     "old": 34.05,
+     "single_pass": 24.98,
+     "single_pass_portable": 17.51,
+     "single_pass_portable_again": 17.0,
+     "single_pass_again": 23.89,
+     "old_again": 31.59
+    },
+    {
+     "old": 30.34,
+     "single_pass": 23.29,
+     "single_pass_portable": 18.83,
+     "single_pass_portable_again": 18.49,
+     "single_pass_again": 23.79,
+     "old_again": 30.78
+    },
+    {
+     "old": 32.6,
+     "single_pass": 25.85,
+     "single_pass_portable": 17.44,
+     "single_pass_portable_again": 18.51,
+     "single_pass_again": 23.65,
+     "old_again": 29.31
+    }
    ]
   },
   {
@@ -504,6 +686,32 @@
      "single_pass": 137.75,
      "single_pass_portable": 138.57,
      "old_again": 293.3
+    }
+   ],
+   "unpinned_runs_second_build": [
+    {
+     "old": 274.2,
+     "single_pass": 209.28,
+     "single_pass_portable": 147.4,
+     "single_pass_portable_again": 142.6,
+     "single_pass_again": 191.7,
+     "old_again": 275.73
+    },
+    {
+     "old": 252.86,
+     "single_pass": 188.38,
+     "single_pass_portable": 144.42,
+     "single_pass_portable_again": 148.86,
+     "single_pass_again": 201.03,
+     "old_again": 256.0
+    },
+    {
+     "old": 253.16,
+     "single_pass": 192.97,
+     "single_pass_portable": 155.1,
+     "single_pass_portable_again": 157.75,
+     "single_pass_again": 199.83,
+     "old_again": 284.97
     }
    ]
   }
