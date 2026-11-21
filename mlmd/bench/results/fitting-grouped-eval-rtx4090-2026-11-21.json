@@ -5,7 +5,7 @@
  "rounds": 5,
  "builds": {
   "before": "omnimd-native-gpu-eval of d179ef7 (run/prev-d179ef7, shawn_dev before this change)",
-  "after": "omnimd-native-gpu-eval of this change (the grouped cuBLAS fitting path, the rule by nets and rows), built 2026-11-21 05:40 from the working tree that was committed"
+  "after": "omnimd-native-gpu-eval of this change, built 2026-11-21 05:40; the commit has the same code (doc comments of gpu_model.rs rewrapped, and the parity tests changed, after the build)"
  },
  "us_per_evaluation": [
   {
@@ -218,5 +218,55 @@
     "median": 4954.06
    }
   }
- ]
+ ],
+ "first_build_rule_by_rows_alone": {
+  "note": "The same comparison, water cases only, with a first build (05:36) whose rule went by rows alone; it put water of 1,536 atoms in the grouped products.",
+  "us_per_evaluation": [
+   {
+    "case": "water 192, float64",
+    "before": {
+     "best": 1146.86,
+     "median": 1148.52
+    },
+    "after": {
+     "best": 1147.42,
+     "median": 1147.98
+    },
+    "before_again": {
+     "best": 1146.91,
+     "median": 1149.27
+    }
+   },
+   {
+    "case": "water 1,536, float32 with tables",
+    "before": {
+     "best": 860.79,
+     "median": 867.07
+    },
+    "after": {
+     "best": 890.47,
+     "median": 895.39
+    },
+    "before_again": {
+     "best": 862.03,
+     "median": 863.69
+    }
+   },
+   {
+    "case": "water 12,288, float32 with tables",
+    "before": {
+     "best": 4938.66,
+     "median": 4944.83
+    },
+    "after": {
+     "best": 4819.88,
+     "median": 4826.55
+    },
+    "before_again": {
+     "best": 4937.01,
+     "median": 4959.2
+    }
+   }
+  ]
+ }
 }

@@ -119,8 +119,10 @@ tables; the three systems the script picks from `cases/hap`; record
   batches of 16 (`hap_batch.py --check`, this build), each member against
   DeePMD: float32 within 4.1e-7 eV per atom and 9.0e-6 eV/Å, float32 with
   tables 3.3e-7 and 1.2e-5, float64 1.8e-13 and 5.6e-13, float64 with
-  tables 1.8e-13 and 7.8e-11. Of the same order as recorded on 2026-11-11
-  (3.1e-7 and 8.5e-6, 4.5e-7 and 1.0e-5).
+  tables 1.8e-13 and 7.8e-11. The build before, checked the same way in
+  this session: float32 3.6e-7 and 8.3e-6, with tables 3.6e-7 and 6.6e-6,
+  float64 as now. The float32 products add in another order, and the
+  committee of 16 frames took the fused kernels before.
 
 **Model deviation through the engine** (`hap_deviation.py`, the four
 models over the 83 frames, time per frame from a run over them once and
@@ -167,8 +169,9 @@ is gone. The parity tests of the potential (`native/tests/gpu_parity.rs`)
 now compare the grouped products and the nets one at a time with the CPU
 reference, for single frames, a float32 model, batches and a committee; on
 a cuBLAS before 12.5 they compare the path a net at a time twice. The GPU
-suites pass in release and debug (289 tests in 52 binaries with the GPU
-features; all 54 binaries of the workspace without them).
+suites pass in release and debug on the code as committed (289 tests in 52
+binaries with the GPU features); all 54 binaries of the workspace pass
+without them.
 
 # The neighbor search input packed in one pass, 2026-11-20
 

@@ -139,6 +139,9 @@ fn float32_networks_stay_close_to_float64() {
         (1e-6, 1e-4),
     );
     gpu.set_fused_fitting_max_rows(0);
+    if !gpu.set_grouped_fitting(true) {
+        eprintln!("float32: no grouped products in this cuBLAS");
+    }
     compare(
         "float32 cuBLAS fitting",
         &gpu.eval(&frame).unwrap(),
@@ -576,6 +579,9 @@ fn a_batch_of_frames_matches_each_frame_alone() {
     against("batch in chunks", &gpu.eval_batch(&batch).unwrap(), FLOAT64);
     gpu.set_chunk_atoms(100_000);
     gpu.set_fused_fitting_max_rows(0);
+    if !gpu.set_grouped_fitting(true) {
+        eprintln!("batch: no grouped products in this cuBLAS");
+    }
     against("batch, cuBLAS", &gpu.eval_batch(&batch).unwrap(), FLOAT64);
     gpu.set_grouped_fitting(false);
     against(
@@ -797,6 +803,9 @@ fn a_committee_matches_its_members_alone() {
     );
     gpu.set_chunk_atoms(100_000);
     gpu.set_fused_fitting_max_rows(0);
+    if !gpu.set_grouped_fitting(true) {
+        eprintln!("committee: no grouped products in this cuBLAS");
+    }
     against(
         "committee, cuBLAS",
         &gpu.eval_members(&batch).unwrap(),
