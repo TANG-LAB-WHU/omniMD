@@ -28,9 +28,10 @@ not end in one linear output, the potential keeps the path a net at a time.
 
 **Which path.** A grouped call takes the device 20 to 24 µs whatever its
 size, so the grouped products cost some 0.2 ms more than the fused kernels
-for few rows, and a net at a time costs some 0.15 ms more a net than they
-do. By whole passes over batches in float32 with tables (`--fused-fitting`,
-`--grouped-fitting`, least of three alternated runs, µs):
+for few rows, and a net at a time costs some 0.13 to 0.14 ms more a net
+than they do. By whole passes over batches in float32 with tables
+(`--fused-fitting`, `--grouped-fitting`, least of three alternated runs,
+µs):
 
 | frames (atoms, models) | nets | rows | fused | grouped | a net at a time |
 |---|---:|---:|---:|---:|---:|
@@ -91,6 +92,17 @@ time, as before; 12,288 take the grouped products and gain 2.7%. A first
 build with the rule by rows alone had water of 1,536 atoms in the grouped
 products and 30 µs slower (890.5 against 860.8 and 862.0), which is how the
 nets came into the rule.
+
+The largest case, the water frame of 98,304 atoms, after the review (the
+build before against this one, one evaluation each compared, then
+`--bench 20` twice each; record
+`fitting-grouped-largest-rtx4090-2026-11-21.json`): no build ran out of
+memory, and this one is within 1.9e-9 eV/Å of the build before in the
+forces in float32 with tables (1.8e-4 eV of 5.1e6 in the energy, 2.2e-6 eV
+of 78 in the virial), within 1.8e-9 eV/Å in float32 and within 8e-18 eV/Å
+with the same energy in float64, the grouped products forced on or not.
+Float32 with tables took 41.7 ms an evaluation before and 40.8 after,
+float64 522 ms in both.
 
 **Batches and committees** (`hap_batch.py` on each build, alternated in
 three rounds, least of each; µs per pass, before → after, float32 with
@@ -156,7 +168,8 @@ float32 (1e-4), value and gradient: five fitting nets with residual layers
 and timesteps, nets whose width changes after a layer without residual, nets
 of one hidden layer, and nets wider than a warp has lanes; calls of
 different sizes one after another, each twice, so that the work buffers and
-the arrays of addresses are used again; groups that are refused, and six
+the arrays of addresses are used again; groups that are refused (among
+them more than the 65,535 a call takes, the limit of the grid), and six
 shapes of nets that are. Seven mutations of `grouped.rs` were each caught by
 it: the arrays of addresses not uploaded again, the residual of the
 gradient not added, the adjoint of the output layer not written, the
@@ -165,13 +178,20 @@ nets left out of the group table, the weights of the first net used for
 all. An eighth, two buffers for the adjoints that no longer alternate,
 survived because one buffer serves: the products read the adjoints of the
 activation inputs only, never those of the layer outputs; the second buffer
-is gone. The parity tests of the potential (`native/tests/gpu_parity.rs`)
-now compare the grouped products and the nets one at a time with the CPU
-reference, for single frames, a float32 model, batches and a committee; on
-a cuBLAS before 12.5 they compare the path a net at a time twice. The GPU
-suites pass in release and debug on the code as committed (289 tests in 52
-binaries with the GPU features); all 54 binaries of the workspace pass
-without them.
+is gone. The limit of groups lifted is caught by the message of the refusal:
+without the limit the launch of the kernels fails as well, so a test that
+asked for an error alone, as the first one did, passed. The parity tests of
+the potential (`native/tests/gpu_parity.rs`) now compare the grouped
+products and the nets one at a time with the CPU reference, for single
+frames, a float32 model, batches and a committee, and a potential held to
+the grouped products serves frames of three sizes in turn, so that the
+layout of its chunks changes between evaluations; on a cuBLAS before 12.5
+they compare the path a net at a time twice. The rule that picks the path
+is a function of its own (`FittingRule::path` in
+`native/src/gpu_model.rs`), and unit tests of its bounds run in CI with the
+GPU feature, without a card. The GPU suites pass in release and debug on
+the code as committed (291 tests in 52 binaries with the GPU features); all
+54 binaries of the workspace pass without them.
 
 # The neighbor search input packed in one pass, 2026-11-20
 

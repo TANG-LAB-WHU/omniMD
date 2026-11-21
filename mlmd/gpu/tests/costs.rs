@@ -733,3 +733,76 @@ fn allocation_costs_by_size() {
         });
     }
 }
+
+const SPIN: &str = r#"
+extern "C" __global__ void spin(long long cycles) {
+    long long start = clock64();
+    while (clock64() - start < cycles) {}
+}
+"#;
+
+/// Whether a copy from pageable host memory into a device buffer waits for
+/// a stream that is still busy. The grouped products upload the addresses
+/// of their operands that way when the layout of a chunk changes, between
+/// launches on that stream. Timed on the host, on an idle stream and right
+/// behind a kernel that spins for some milliseconds; the copy must still
+/// deliver what the host buffer held, though it is gone by then.
+#[test]
+#[ignore]
+fn upload_behind_a_busy_stream() {
+    let device = Device::new(0).unwrap();
+    let stream = device.stream().clone();
+    let spin = device.kernels().function(SPIN, "spin").unwrap();
+    let one = LaunchConfig {
+        grid_dim: (1, 1, 1),
+        block_dim: (1, 1, 1),
+        shared_mem_bytes: 0,
+    };
+    let cycles: i64 = 10_000_000;
+    let mut spun = Vec::new();
+    for _ in 0..5 {
+        device.synchronize().unwrap();
+        let start = Instant::now();
+        let mut launch = stream.launch_builder(&spin);
+        launch.arg(&cycles);
+        unsafe { launch.launch(one) }.map(drop).unwrap();
+        device.synchronize().unwrap();
+        spun.push(start.elapsed().as_secs_f64() * 1e3);
+    }
+    println!("the spin alone: {spun:.3?} ms");
+    let rounds = 30;
+    for len in [420usize, 4096, 65536, 1 << 20] {
+        let mut held = device.zeros::<u64>(len).unwrap();
+        let (mut idle, mut busy) = (Vec::new(), Vec::new());
+        for round in 0..rounds as u64 {
+            let host: Vec<u64> = (0..len as u64).map(|v| v * 3 + round).collect();
+            device.synchronize().unwrap();
+            let start = Instant::now();
+            stream.memcpy_htod(&host, &mut held).unwrap();
+            idle.push(start.elapsed().as_secs_f64() * 1e6);
+            device.synchronize().unwrap();
+            let mut launch = stream.launch_builder(&spin);
+            launch.arg(&cycles);
+            unsafe { launch.launch(one) }.map(drop).unwrap();
+            let start = Instant::now();
+            stream.memcpy_htod(&host, &mut held).unwrap();
+            busy.push(start.elapsed().as_secs_f64() * 1e6);
+            drop(host);
+            device.synchronize().unwrap();
+        }
+        idle.sort_by(f64::total_cmp);
+        busy.sort_by(f64::total_cmp);
+        let half = rounds / 2;
+        println!(
+            "{:>8} KB from pageable memory, us on the host: idle stream {:.1} (least {:.1}), behind the spin {:.1} (least {:.1}, most {:.1})",
+            len * 8 / 1024,
+            idle[half],
+            idle[0],
+            busy[half],
+            busy[0],
+            busy[rounds - 1]
+        );
+        let back = stream.clone_dtoh(&held).unwrap();
+        assert_eq!(back[len - 1], (len as u64 - 1) * 3 + rounds as u64 - 1);
+    }
+}

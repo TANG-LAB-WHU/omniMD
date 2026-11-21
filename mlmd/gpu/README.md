@@ -33,6 +33,7 @@ cargo test --release -p omnimd-gpu --test costs -- --ignored --nocapture
 |---|---:|
 | allocation and free (stream-ordered pool), 8 KB to 256 MiB | 0.4 |
 | copy into a device buffer, 8 KB / 128 KB | 5 / 9 |
+| the same behind a busy stream, 3 KB / 512 KB (pageable memory: the host does not wait for the stream; for 8 MB it does) | 3.5 / 15 |
 | clearing a buffer | 5 to 6 |
 | kernel launch | 5 to 6 |
 | copy back to the host, 8 KB / 128 KB (waits for the stream) | 10 / 20 |
@@ -332,25 +333,27 @@ What follows for the kernels:
 - Past some hundreds of rows cuBLAS does the fitting nets faster than the
   fused kernels, but a net at a time it costs a fixed amount per net:
   about nineteen calls for each center type and model, some 0.6 ms for the
-  five types of HAP whatever the rows (a probe, not committed: 767 microseconds for 5,632
-  rows split over four nets, 382 for the same rows in one). Streams of their own for the
-  nets took that only to 615. Grouped products
-  (`cublas<t>gemmGroupedBatched`) do a layer of all nets in one call, so
-  `GroupedNetwork` issues six products and five small kernels for three
-  hidden layers however many nets there are; the activations, the output
-  layer and the residual sums of the gradient are in the kernels, and the
-  device's arrays of matrix addresses are uploaded again only when the
-  layout of a chunk changes. A grouped call takes the device 20 to 24
-  microseconds whatever its size, which puts the path some 0.2 ms behind
-  the fused kernels at one row; they meet near 700 to 900 rows. Whole
-  passes in float32 with tables (fused, grouped, a net at a time, in
-  microseconds): HAP frames of 169 atoms, 2,704 rows 1,831, 1,278 and
-  1,660; four models on them, 676 rows 490, 529 and 2,947 and 10,816 rows
-  9,253, 3,699 and 5,979. With two nets (water) a net at a time is 20 to
-  30 microseconds faster up to some 1,900 rows and the grouped products up
-  to 90 faster beyond, so the potential takes them from three nets on and,
-  with fewer, from 1,920 rows (`GROUPED_FITTING_MIN_NETS` in
-  `native/src/gpu_model.rs`).
+  five types of HAP whatever the rows (a probe, not committed: 767
+  microseconds for 5,632 rows split over four nets, 382 for the same rows
+  in one). Streams of their own for the nets took that only to 615.
+  Grouped products (`cublas<t>gemmGroupedBatched`) do a layer of all nets
+  in one call, so `GroupedNetwork` issues six products and five small
+  kernels for three hidden layers however many nets there are; the
+  activations, the output layer and the residual sums of the gradient are
+  in the kernels, and the device's arrays of matrix addresses are uploaded
+  again only when the layout of a chunk changes (a few KB from pageable
+  memory, which the host issues without waiting for the kernels queued
+  before it: `upload_behind_a_busy_stream` in `tests/costs.rs`). A grouped
+  call takes the device 20 to 24 microseconds whatever its size, which
+  puts the path some 0.2 ms behind the fused kernels at one row; they meet
+  near 700 to 900 rows. Whole passes in float32 with tables (fused,
+  grouped, a net at a time, in microseconds): HAP frames of 169 atoms,
+  2,704 rows 1,831, 1,278 and 1,660; four models on them, 676 rows 490,
+  529 and 2,947 and 10,816 rows 9,253, 3,699 and 5,979. With two nets
+  (water) a net at a time is 20 to 30 microseconds faster up to some 1,900
+  rows and the grouped products up to 90 faster beyond, so the potential
+  takes them from three nets on and, with fewer, from 1,920 rows
+  (`GROUPED_FITTING_MIN_NETS` in `native/src/gpu_model.rs`).
 - What was tried for those tiles and did not pay: four rows a warp in the
   transposed pass (fewer reads per product, but too few warps left to keep a
   multiprocessor busy), and eight inputs a lane with the outputs reloaded in
@@ -386,9 +389,11 @@ each per stage), the host's binning of atoms into cells (per system, a few
 microseconds each). The rule that picks the fitting path goes by the rows
 of the fitting nets in a chunk, its atoms times the models, so a batch or a
 committee leaves the fused kernels for the grouped products as soon as the
-products are faster (`FUSED_FITTING_ROWS_F32` in `native/src/gpu_model.rs`;
-with fewer than three nets in a chunk the rule of before stands). What a batch cannot share is the arithmetic,
-so the gain ends where the card is full; see the
+products are faster (`FUSED_FITTING_ROWS_F32` in `native/src/gpu_model.rs`).
+With fewer than three nets in a chunk the fused kernels keep their limit of
+before, 340 atoms a center type, and the grouped products take over from a
+net at a time at 1,920 rows. What a batch cannot share is the arithmetic, so
+the gain ends where the card is full; see the
 [timings](../bench/results/SUMMARY.md).
 
 A frame of a batch that leaves the range of the embedding tables does not

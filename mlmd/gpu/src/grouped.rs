@@ -32,6 +32,10 @@ use omnimd_ml_contract::{Error, Result};
 /// The first cuBLAS with grouped products (CUDA 12.5).
 pub(crate) const GROUPED_CUBLAS: i32 = 120_500;
 
+/// The most row groups one call of [`GroupedNetwork`] takes: its kernels
+/// put the groups in the second dimension of the grid.
+pub const GROUPED_MAX_GROUPS: usize = 65_535;
+
 const SOURCE: &str = r#"
 #define FULL_MASK 0xffffffffu
 
@@ -308,6 +312,12 @@ impl<T: Scalar> GroupedNetwork<T> {
         value: &mut impl DevicePtrMut<T>,
         gradient: &mut impl DevicePtrMut<T>,
     ) -> Result<()> {
+        if groups.len() > GROUPED_MAX_GROUPS {
+            return Err(Error(format!(
+                "{} row groups, more than the {GROUPED_MAX_GROUPS} a grouped call takes",
+                groups.len()
+            )));
+        }
         let mut next = 0;
         for &(network, first, count) in groups {
             if network >= self.networks || first != next || count == 0 {
@@ -549,11 +559,11 @@ impl<T: Scalar> GroupedNetwork<T> {
     }
 }
 
-/// The status of a grouped product as a result.
-pub(crate) fn blas_status(status: cublasStatus_t) -> Result<()> {
+/// The status of a cuBLAS call as a result.
+pub(crate) fn blas_status(status: cublasStatus_t, what: &str) -> Result<()> {
     match status {
         cublasStatus_t::CUBLAS_STATUS_SUCCESS => Ok(()),
-        other => Err(Error(format!("cuBLAS grouped product failed: {other:?}"))),
+        other => Err(Error(format!("cuBLAS {what} failed: {other:?}"))),
     }
 }
 

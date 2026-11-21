@@ -171,6 +171,14 @@ fn one_potential_serves_frames_of_different_sizes_in_turn() {
     let open = frame(triclinic, 4, 2, false, 18);
     let mut cpu = NativePotential::new(model.clone()).unwrap();
     let mut gpu = GpuPotential::<f64>::new(&model, device.clone()).unwrap();
+    // The grouped products keep the addresses of their operands while the
+    // layout of the chunk stays, and must take those of every new one.
+    let mut grouped = GpuPotential::<f64>::new(&model, device.clone()).unwrap();
+    grouped.set_fused_fitting_max_rows(0);
+    let grouped_on = grouped.set_grouped_fitting(true);
+    if !grouped_on {
+        eprintln!("frames in turn: no grouped products in this cuBLAS");
+    }
     let mut single = GpuPotential::<f32>::new(&model, device).unwrap();
     let turns = [
         ("large", &large),
@@ -182,6 +190,10 @@ fn one_potential_serves_frames_of_different_sizes_in_turn() {
     for (label, frame) in turns {
         let c = cpu.eval(frame).unwrap();
         compare(label, &gpu.eval(frame).unwrap(), &c, FLOAT64);
+        if grouped_on {
+            let g = grouped.eval(frame).unwrap();
+            compare(&format!("{label}, grouped products"), &g, &c, FLOAT64);
+        }
         let label = format!("{label}, float32");
         compare(&label, &single.eval(frame).unwrap(), &c, (1e-6, 1e-4));
     }

@@ -1,0 +1,137 @@
+{
+ "date": "2026-11-21",
+ "device": "NVIDIA GeForce RTX 4090",
+ "what": "largest_check.py OLD NEW OUT.json: the water frame of 98,304 atoms, the largest of the cases, on the build before the\ngrouped products and the build after the review, both evaluating it once in float32 with tables, float32 and float64,\nand the build after once more in float64 held to the grouped products (--fused-fitting 0 --grouped-fitting on): the\nlargest differences of its energy, forces and virial from those of the build before (eV, eV/A, eV), and the time of\nan evaluation (--bench 20, twice each, held to the performance cores).",
+ "builds": {
+  "before": "run/prev-d179ef7 (shawn_dev before #39)",
+  "after": "the release build of the review fixes of #39 (run/gf/rv; code as committed but for test-only changes)"
+ },
+ "frame": "cases/water-98304.jsonl",
+ "model": "cases/water-se_e2_a-float64.native.json",
+ "largest_differences": [
+  {
+   "case": "float32 with tables",
+   "before_args": [
+    "--precision",
+    "float32",
+    "--compress",
+    "0.5"
+   ],
+   "after_args": [
+    "--precision",
+    "float32",
+    "--compress",
+    "0.5"
+   ],
+   "energy": {
+    "largest_difference": 0.0001775696873664856,
+    "largest_value": 5102829.214279446
+   },
+   "forces": {
+    "largest_difference": 1.9312374052379844e-09,
+    "largest_value": 0.006737280249756185
+   },
+   "virial": {
+    "largest_difference": 2.237910663893672e-06,
+    "largest_value": 77.72464957717897
+   }
+  },
+  {
+   "case": "float32",
+   "before_args": [
+    "--precision",
+    "float32"
+   ],
+   "after_args": [
+    "--precision",
+    "float32"
+   ],
+   "energy": {
+    "largest_difference": 6.854534149169922e-06,
+    "largest_value": 5102829.214185442
+   },
+   "forces": {
+    "largest_difference": 1.7916703129797207e-09,
+    "largest_value": 0.006737278307705919
+   },
+   "virial": {
+    "largest_difference": 4.348824120370409e-06,
+    "largest_value": 77.72465217873587
+   }
+  },
+  {
+   "case": "float64",
+   "before_args": [
+    "--precision",
+    "float64"
+   ],
+   "after_args": [
+    "--precision",
+    "float64"
+   ],
+   "energy": {
+    "largest_difference": 0.0,
+    "largest_value": 5102829.213791073
+   },
+   "forces": {
+    "largest_difference": 7.806255641895632e-18,
+    "largest_value": 0.006737279088758338
+   },
+   "virial": {
+    "largest_difference": 1.4210854715202004e-14,
+    "largest_value": 77.72475870846026
+   }
+  },
+  {
+   "case": "float64, new held to grouped products",
+   "before_args": [
+    "--precision",
+    "float64"
+   ],
+   "after_args": [
+    "--precision",
+    "float64",
+    "--fused-fitting",
+    "0",
+    "--grouped-fitting",
+    "on"
+   ],
+   "energy": {
+    "largest_difference": 0.0,
+    "largest_value": 5102829.213791073
+   },
+   "forces": {
+    "largest_difference": 6.938893903907228e-18,
+    "largest_value": 0.006737279088758337
+   },
+   "virial": {
+    "largest_difference": 3.552713678800501e-15,
+    "largest_value": 77.72475870846024
+   }
+  }
+ ],
+ "ms_per_evaluation": [
+  {
+   "case": "float32 with tables",
+   "before": [
+    41.761,
+    41.705
+   ],
+   "after": [
+    40.783,
+    41.001
+   ]
+  },
+  {
+   "case": "float64",
+   "before": [
+    521.759,
+    522.602
+   ],
+   "after": [
+    522.776,
+    524.188
+   ]
+  }
+ ]
+}

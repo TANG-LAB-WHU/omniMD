@@ -1343,6 +1343,31 @@ fn grouped_network_matches_cpu_value_and_gradient() {
             );
         }
     }
+    // More row groups than the grid of the kernels takes are refused before
+    // anything is launched.
+    {
+        let layers = vec![
+            CpuLayer::random(4, 3, Activation::Tanh, false, false, 1),
+            CpuLayer::random(3, 1, Activation::Linear, false, false, 2),
+        ];
+        let mut set =
+            omnimd_gpu::GroupedNetwork::new_set(device, &[layer_parameters::<f64>(&layers)])
+                .unwrap();
+        let groups: Vec<(usize, usize, usize)> = (0..=omnimd_gpu::GROUPED_MAX_GROUPS)
+            .map(|row| (0, row, 1))
+            .collect();
+        let rows = groups.len();
+        let xd = device.zeros::<f64>(rows * 4).unwrap();
+        let (mut v, mut g) = (
+            device.zeros::<f64>(rows).unwrap(),
+            device.zeros::<f64>(rows * 4).unwrap(),
+        );
+        let error = set
+            .forward_gradient_grouped(device, &xd, &groups, rows, &mut v, &mut g)
+            .unwrap_err()
+            .to_string();
+        assert!(error.contains("a grouped call takes"), "{error}");
+    }
     // Shapes the set does not take: more than one output, no hidden layer,
     // an output that is not linear or has a timestep, a residual first
     // layer, a residual layer that doubles its width.

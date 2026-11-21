@@ -20,7 +20,7 @@ pub use cudarc::driver::{
 };
 pub use dense::{Activation, DenseLayer, DenseNetwork, DenseTape};
 pub use fused::{GradientNetwork, LayerParameters, ScalarNetwork};
-pub use grouped::GroupedNetwork;
+pub use grouped::{GroupedNetwork, GROUPED_MAX_GROUPS};
 pub use kernels::{CacheStats, KernelCache};
 pub use nlist::{Cell, NeighborList, NeighborSearch, NeighborStats, COINCIDENT, TRUNCATED};
 pub use table::{CellBuffers, CellSegments, CellTable, CELL_LOOKUP};
@@ -352,7 +352,7 @@ impl Device {
         let mut version = 0;
         let status =
             unsafe { cudarc::cublas::sys::cublasGetVersion_v2(*self.blas.handle(), &mut version) };
-        grouped::blas_status(status).map(|()| version)
+        grouped::blas_status(status, "version query").map(|()| version)
     }
 
     /// One row-major product per group, `c = op(a) · b`, plus `c` when
@@ -405,7 +405,7 @@ impl Device {
                 sizes.as_ptr(),
             )
         };
-        grouped::blas_status(status)
+        grouped::blas_status(status, "grouped product")
     }
 
     pub fn compute_capability(&self) -> (i32, i32) {

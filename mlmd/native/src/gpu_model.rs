@@ -52,7 +52,7 @@ use omnimd_gpu::{
     Activation as DeviceActivation, Cell, CellSegments, CellTable, CudaFunction, CudaSlice,
     CudaViewMut, DenseLayer, DenseNetwork, Device, GradientNetwork, GroupedNetwork, LaunchConfig,
     LayerParameters, Mark, NeighborList, NeighborSearch, PushKernelArg, Scalar, ScalarNetwork,
-    CELL_LOOKUP,
+    CELL_LOOKUP, GROUPED_MAX_GROUPS,
 };
 use omnimd_ml_contract::{
     Committee, Error, Evaluation, Frame, ModelMetadata, Potential, Result, Units,
@@ -1431,16 +1431,71 @@ const FUSED_FITTING_ROWS_F32: usize = 800;
 /// The grouped products take the place of cuBLAS a net at a time for chunks
 /// with at least this many fitting nets (center types times models), or
 /// with at least `GROUPED_FITTING_ROWS_FEW_NETS` rows. Their fixed cost does
-/// not grow with the nets; that of a net at a time grows by some 0.15 ms a
-/// net. Measured as above (grouped against a net at a time): four nets
-/// (HAP frames of 88 atoms) 498 against 770 us at 704 rows, 558 against 861
-/// at 880; two nets (water frames of 192 atoms) 524 against 500 at 768
-/// rows, 896 against 876 at 1,536, 1,043 against 1,042 at 1,920, 1,179
-/// against 1,205 at 2,304 and 2,015 against 2,103 at 4,608. One net was not
-/// measured.
+/// not grow with the nets; that of a net at a time grows by some 0.13 to
+/// 0.14 ms a net. Measured as above (grouped against a net at a time):
+/// four nets (HAP frames of 88 atoms) 498 against 770 us at 704 rows, 558
+/// against 861 at 880; two nets (water frames of 192 atoms) 524 against
+/// 500 at 768 rows, 896 against 876 at 1,536, 1,043 against 1,042 at 1,920,
+/// 1,179 against 1,205 at 2,304 and 2,015 against 2,103 at 4,608. One net
+/// was not measured.
 const GROUPED_FITTING_MIN_NETS: usize = 3;
 /// See `GROUPED_FITTING_MIN_NETS`.
 const GROUPED_FITTING_ROWS_FEW_NETS: usize = 1_920;
+
+/// How the fitting nets of a chunk are evaluated.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum FittingPath {
+    /// Every net in the fused kernels (`GradientNetwork`).
+    Fused,
+    /// Every net in grouped cuBLAS products (`GroupedNetwork`).
+    Grouped,
+    /// cuBLAS a net at a time (`DenseNetwork`).
+    NetByNet,
+}
+
+/// What chooses the fitting path of a chunk, besides its size.
+#[derive(Clone, Copy, Debug)]
+struct FittingRule {
+    /// Float64 networks.
+    double: bool,
+    /// The center types of a model.
+    ntypes: usize,
+    /// Whether the fused kernels take these nets.
+    fused: bool,
+    /// Whether the grouped products take them.
+    grouped: bool,
+    /// What `GpuPotential::set_fused_fitting_max_rows` set, if called.
+    fused_max_rows: Option<usize>,
+    /// What `GpuPotential::set_grouped_fitting` set, if called.
+    grouped_on: Option<bool>,
+}
+
+impl FittingRule {
+    /// The path for a chunk with `rows` rows of the fitting nets (its
+    /// `atoms` atoms times the models) in `nets` nets (the center types in
+    /// it times the models).
+    fn path(&self, rows: usize, atoms: usize, nets: usize) -> FittingPath {
+        let many_nets = nets >= GROUPED_FITTING_MIN_NETS;
+        let grouped = self.grouped
+            && nets <= GROUPED_MAX_GROUPS
+            && self
+                .grouped_on
+                .unwrap_or(many_nets || rows >= GROUPED_FITTING_ROWS_FEW_NETS);
+        let fused = self.fused
+            && match self.fused_max_rows {
+                Some(limit) => rows <= limit,
+                None if self.double => true,
+                None if grouped && many_nets => rows <= FUSED_FITTING_ROWS_F32,
+                None => atoms <= FUSED_FITTING_ATOMS_PER_TYPE_F32 * self.ntypes,
+            };
+        match (fused, grouped) {
+            (true, _) => FittingPath::Fused,
+            (false, true) => FittingPath::Grouped,
+            (false, false) => FittingPath::NetByNet,
+        }
+    }
+}
+
 /// Fraction of the free device memory one chunk of per-atom work may use.
 const MEMORY_FRACTION: f64 = 0.5;
 
@@ -3068,8 +3123,8 @@ impl<P: Scalar> GpuPotential<P> {
     /// Has the layer-by-layer path take the grouped products always (on) or
     /// never (off: cuBLAS a net at a time) instead of by the default rule,
     /// and returns whether they are taken: they need cuBLAS 12.5 and fitting
-    /// nets that end in one linear output. Both give the same results to
-    /// rounding.
+    /// nets that end in one linear output, and take chunks of at most
+    /// `GROUPED_MAX_GROUPS` nets. Both give the same results to rounding.
     pub fn set_grouped_fitting(&mut self, on: bool) -> bool {
         self.grouped_fitting_on = Some(on);
         on && self.grouped_fitting.is_some()
@@ -3725,19 +3780,15 @@ impl<P: Scalar> GpuPotential<P> {
             // or no grouped products), with the energies copied out so the
             // tape can go.
             let rows = members * count;
-            let nets = members * ranges.len();
-            let many_nets = nets >= GROUPED_FITTING_MIN_NETS;
-            let grouped_on = self.grouped_fitting.is_some()
-                && self
-                    .grouped_fitting_on
-                    .unwrap_or(many_nets || rows >= GROUPED_FITTING_ROWS_FEW_NETS);
-            let take_fused = match self.fused_fitting_max_rows {
-                Some(limit) => rows <= limit,
-                None if std::mem::size_of::<P>() == 8 => true,
-                None if grouped_on && many_nets => rows <= FUSED_FITTING_ROWS_F32,
-                None => count <= FUSED_FITTING_ATOMS_PER_TYPE_F32 * ntypes,
+            let rule = FittingRule {
+                double: std::mem::size_of::<P>() == 8,
+                ntypes,
+                fused: self.fused_fitting.is_some(),
+                grouped: self.grouped_fitting.is_some(),
+                fused_max_rows: self.fused_fitting_max_rows,
+                grouped_on: self.grouped_fitting_on,
             };
-            let fused = self.fused_fitting.as_mut().filter(|_| take_fused);
+            let path = rule.path(rows, count, members * ranges.len());
             // The atoms are sorted by type: runs of one fitting net each.
             let runs = (0..members).flat_map(|model| {
                 ranges
@@ -3745,44 +3796,52 @@ impl<P: Scalar> GpuPotential<P> {
                     .map(move |&(t, lo, hi)| (model * ntypes + t, model * count + lo, hi - lo))
             });
             let mut energies = atomic.slice_mut(members * first..members * end);
-            if let Some(fused) = fused {
-                let x = descriptor.slice(0..members * count * features);
-                let groups: Vec<(usize, usize, usize)> = runs.collect();
-                let mut dx = d_descriptor.slice_mut(0..members * count * features);
-                fused.forward_gradient_grouped(
-                    device,
-                    &x,
-                    &groups,
-                    rows,
-                    &mut energies,
-                    &mut dx,
-                )?;
-            } else if let Some(grouped) = self.grouped_fitting.as_mut().filter(|_| grouped_on) {
-                let x = descriptor.slice(0..rows * features);
-                let groups: Vec<(usize, usize, usize)> = runs.collect();
-                let mut dx = d_descriptor.slice_mut(0..rows * features);
-                grouped.forward_gradient_grouped(
-                    device,
-                    &x,
-                    &groups,
-                    rows,
-                    &mut energies,
-                    &mut dx,
-                )?;
-            } else {
-                let ones = match &ones {
-                    Some(ones) => ones,
-                    None => ones.insert(device.upload(&vec![P::ONE; chunk])?),
-                };
-                for (net, lo, rows) in runs {
-                    let hi = lo + rows;
-                    let x = descriptor.slice(lo * features..hi * features);
-                    let tape = self.fitting[net].forward_record(device, &x, rows)?;
-                    let mut dx = d_descriptor.slice_mut(lo * features..hi * features);
-                    self.fitting[net].backward(device, &tape, &ones.slice(0..rows), &mut dx)?;
-                    stream
-                        .memcpy_dtod(&tape.output, &mut energies.slice_mut(lo..hi))
-                        .map_err(copy_error)?;
+            match (
+                path,
+                self.fused_fitting.as_mut(),
+                self.grouped_fitting.as_mut(),
+            ) {
+                (FittingPath::Fused, Some(fused), _) => {
+                    let x = descriptor.slice(0..rows * features);
+                    let groups: Vec<(usize, usize, usize)> = runs.collect();
+                    let mut dx = d_descriptor.slice_mut(0..rows * features);
+                    fused.forward_gradient_grouped(
+                        device,
+                        &x,
+                        &groups,
+                        rows,
+                        &mut energies,
+                        &mut dx,
+                    )?;
+                }
+                (FittingPath::Grouped, _, Some(grouped)) => {
+                    let x = descriptor.slice(0..rows * features);
+                    let groups: Vec<(usize, usize, usize)> = runs.collect();
+                    let mut dx = d_descriptor.slice_mut(0..rows * features);
+                    grouped.forward_gradient_grouped(
+                        device,
+                        &x,
+                        &groups,
+                        rows,
+                        &mut energies,
+                        &mut dx,
+                    )?;
+                }
+                _ => {
+                    let ones = match &ones {
+                        Some(ones) => ones,
+                        None => ones.insert(device.upload(&vec![P::ONE; chunk])?),
+                    };
+                    for (net, lo, rows) in runs {
+                        let hi = lo + rows;
+                        let x = descriptor.slice(lo * features..hi * features);
+                        let tape = self.fitting[net].forward_record(device, &x, rows)?;
+                        let mut dx = d_descriptor.slice_mut(lo * features..hi * features);
+                        self.fitting[net].backward(device, &tape, &ones.slice(0..rows), &mut dx)?;
+                        stream
+                            .memcpy_dtod(&tape.output, &mut energies.slice_mut(lo..hi))
+                            .map_err(copy_error)?;
+                    }
                 }
             }
             clock.lap(|t| &mut t.fitting)?;
@@ -4198,7 +4257,140 @@ impl<P: Scalar> Committee for GpuPotential<P> {
 
 #[cfg(test)]
 mod tests {
-    use super::{in_parallel, pair_chunks, pair_starts};
+    use super::{
+        in_parallel, pair_chunks, pair_starts, FittingPath, FittingRule, GROUPED_MAX_GROUPS,
+    };
+    use FittingPath::{Fused, Grouped, NetByNet};
+
+    /// Float32 models of five center types (those of HAP), with every path.
+    fn five_types() -> FittingRule {
+        FittingRule {
+            double: false,
+            ntypes: 5,
+            fused: true,
+            grouped: true,
+            fused_max_rows: None,
+            grouped_on: None,
+        }
+    }
+
+    #[test]
+    fn the_fitting_path_follows_the_rows_and_the_nets() {
+        // Rows, atoms, nets.
+        let float32 = five_types();
+        // Three nets or more: the fused kernels up to 800 rows, the grouped
+        // products above (one model on frames of 88 atoms has four nets,
+        // four models on frames of 169 atoms twenty).
+        assert_eq!(float32.path(704, 704, 4), Fused);
+        assert_eq!(float32.path(800, 800, 4), Fused);
+        assert_eq!(float32.path(801, 801, 4), Grouped);
+        assert_eq!(float32.path(676, 169, 20), Fused);
+        assert_eq!(float32.path(1_352, 338, 20), Grouped);
+        assert_eq!(float32.path(10, 10, 3), Fused);
+        assert_eq!(float32.path(900, 900, 3), Grouped);
+        // Fewer: the fused kernels up to 340 atoms a center type of the
+        // model, then a net at a time, and the grouped products from 1,920
+        // rows (water: both types of two).
+        let water = FittingRule {
+            ntypes: 2,
+            ..float32
+        };
+        assert_eq!(water.path(680, 680, 2), Fused);
+        assert_eq!(water.path(768, 768, 2), NetByNet);
+        assert_eq!(water.path(1_536, 1_536, 2), NetByNet);
+        assert_eq!(water.path(1_919, 1_919, 2), NetByNet);
+        assert_eq!(water.path(1_920, 1_920, 2), Grouped);
+        // Two types of five (lime): the fused kernels up to 1,700 atoms.
+        assert_eq!(float32.path(1_700, 1_700, 2), Fused);
+        assert_eq!(float32.path(1_728, 1_728, 2), NetByNet);
+        assert_eq!(float32.path(3_456, 3_456, 2), Grouped);
+        assert_eq!(float32.path(1_701, 1_701, 1), NetByNet);
+        assert_eq!(float32.path(1_920, 1_920, 1), Grouped);
+        // Float64: the fused kernels at any size.
+        let float64 = FittingRule {
+            double: true,
+            ..float32
+        };
+        assert_eq!(float64.path(100_000, 25_000, 20), Fused);
+        assert_eq!(float64.path(100_000, 100_000, 2), Fused);
+    }
+
+    #[test]
+    fn the_fitting_path_takes_what_is_set_and_what_there_is() {
+        let float32 = five_types();
+        // A limit of rows for the fused kernels in place of the rule.
+        let limit = FittingRule {
+            fused_max_rows: Some(1_000),
+            ..float32
+        };
+        assert_eq!(limit.path(1_000, 1_000, 4), Fused);
+        assert_eq!(limit.path(1_001, 1_001, 4), Grouped);
+        assert_eq!(limit.path(1_001, 1_001, 2), NetByNet);
+        let always = FittingRule {
+            fused_max_rows: Some(usize::MAX),
+            ..float32
+        };
+        assert_eq!(always.path(1 << 20, 1 << 20, 20), Fused);
+        // Float64 without the fused kernels: as float32 with them past
+        // their limit.
+        let float64 = FittingRule {
+            double: true,
+            fused_max_rows: Some(0),
+            ..float32
+        };
+        assert_eq!(float64.path(676, 169, 20), Grouped);
+        assert_eq!(float64.path(500, 500, 2), NetByNet);
+        assert_eq!(float64.path(1_920, 1_920, 2), Grouped);
+        // No grouped products, by choice or for want of them: the rule of
+        // before.
+        for before in [
+            FittingRule {
+                grouped_on: Some(false),
+                ..float32
+            },
+            FittingRule {
+                grouped: false,
+                ..float32
+            },
+        ] {
+            assert_eq!(before.path(880, 880, 4), Fused);
+            assert_eq!(before.path(1_352, 338, 20), Fused);
+            assert_eq!(before.path(10_816, 2_704, 20), NetByNet);
+            assert_eq!(before.path(3_456, 3_456, 2), NetByNet);
+        }
+        // Grouped products always: in place of every net at a time, after
+        // the fused kernels by the rule; without them a net at a time.
+        let on = FittingRule {
+            ntypes: 2,
+            grouped_on: Some(true),
+            ..float32
+        };
+        assert_eq!(on.path(680, 680, 2), Fused);
+        assert_eq!(on.path(768, 768, 2), Grouped);
+        assert_eq!(
+            FittingRule {
+                grouped: false,
+                ..on
+            }
+            .path(768, 768, 2),
+            NetByNet
+        );
+        // No fused kernels.
+        let unfused = FittingRule {
+            fused: false,
+            ..float32
+        };
+        assert_eq!(unfused.path(10, 10, 4), Grouped);
+        assert_eq!(unfused.path(10, 10, 2), NetByNet);
+        // More nets than one grouped call takes.
+        let layered = FittingRule {
+            fused_max_rows: Some(0),
+            grouped_on: Some(true),
+            ..float32
+        };
+        assert_eq!(layered.path(1 << 20, 16, GROUPED_MAX_GROUPS), Grouped);
+        assert_eq!(layered.path(1 << 20, 16, GROUPED_MAX_GROUPS + 1), NetByNet);
+    }
 
     /// The rows of one se_e3 descriptor and the chunks they allow.
     fn pair_layout(held: &[i32], atoms: usize, rows: usize) -> (Vec<i64>, Vec<(usize, usize)>) {
