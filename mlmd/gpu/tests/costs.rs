@@ -845,3 +845,223 @@ fn upload_behind_a_busy_stream() {
         assert_eq!(back[len - 1], (len as u64 - 1) * 5 + issued - 1);
     }
 }
+
+const TABLE_PROBE: &str = r#"
+template <typename T>
+__device__ T warp_total(T v) {
+    for (int o = 16; o > 0; o >>= 1) v += __shfl_down_sync(0xffffffffu, v, o);
+    return v;
+}
+
+// One warp a row, the lanes over the outputs, as the kernels of the tables
+// and of the forces go: every row ends in one number, so that nothing is
+// left out by the compiler.
+template <typename T, bool TANGENT>
+__device__ void lookup(const int* pieces, const T* us, const T* coef, int width, long long rows,
+        T* out) {
+    int warps = blockDim.x >> 5, warp = threadIdx.x >> 5, lane = threadIdx.x & 31;
+    long long row = (long long)blockIdx.x * warps + warp;
+    if (row >= rows) return;
+    int piece = pieces[row];
+    T u = us[row], acc = 0;
+    const T* of_piece = coef + (long long)piece * width * 6;
+    for (int m = lane; m < width; m += 32) {
+        const T* c = of_piece + m * 6;
+        acc += c[0] + u * (c[1] + u * (c[2] + u * (c[3] + u * (c[4] + u * c[5]))));
+        if (TANGENT)
+            acc += T(0.5)
+                * (c[1] + u * (T(2) * c[2] + u * (T(3) * c[3] + u * (T(4) * c[4] + u * T(5) * c[5]))));
+    }
+    acc = warp_total(acc);
+    if (lane == 0) out[row] = acc;
+}
+
+template <typename T, bool TWO>
+__device__ void stored(const T* g, const T* dg, int width, long long rows, T* out) {
+    int warps = blockDim.x >> 5, warp = threadIdx.x >> 5, lane = threadIdx.x & 31;
+    long long row = (long long)blockIdx.x * warps + warp;
+    if (row >= rows) return;
+    T acc = 0;
+    for (int m = lane; m < width; m += 32) {
+        acc += g[row * width + m];
+        if (TWO) acc += T(0.5) * dg[row * width + m];
+    }
+    acc = warp_total(acc);
+    if (lane == 0) out[row] = acc;
+}
+
+// The values and tangents of every row and output written out, as the
+// kernel of the tables does it.
+template <typename T>
+__device__ void written(const int* pieces, const T* us, const T* coef, int width, long long rows,
+        T* g, T* dg) {
+    int warps = blockDim.x >> 5, warp = threadIdx.x >> 5, lane = threadIdx.x & 31;
+    long long row = (long long)blockIdx.x * warps + warp;
+    if (row >= rows) return;
+    int piece = pieces[row];
+    T u = us[row];
+    const T* of_piece = coef + (long long)piece * width * 6;
+    for (int m = lane; m < width; m += 32) {
+        const T* c = of_piece + m * 6;
+        long long idx = row * width + m;
+        g[idx] = c[0] + u * (c[1] + u * (c[2] + u * (c[3] + u * (c[4] + u * c[5]))));
+        dg[idx] = T(0.5)
+            * (c[1] + u * (T(2) * c[2] + u * (T(3) * c[3] + u * (T(4) * c[4] + u * T(5) * c[5]))));
+    }
+}
+
+#define PROBE(T, S)                                                                           \
+extern "C" __global__ void value_##S(const int* p, const T* u, const T* c, int w,              \
+        long long r, T* o) { lookup<T, false>(p, u, c, w, r, o); }                             \
+extern "C" __global__ void value_tangent_##S(const int* p, const T* u, const T* c, int w,      \
+        long long r, T* o) { lookup<T, true>(p, u, c, w, r, o); }                              \
+extern "C" __global__ void one_load_##S(const T* g, const T* dg, int w, long long r, T* o) {   \
+    stored<T, false>(g, dg, w, r, o); }                                                        \
+extern "C" __global__ void two_loads_##S(const T* g, const T* dg, int w, long long r, T* o) {  \
+    stored<T, true>(g, dg, w, r, o); }                                                         \
+extern "C" __global__ void written_##S(const int* p, const T* u, const T* c, int w,            \
+        long long r, T* g, T* dg) { written<T>(p, u, c, w, r, g, dg); }
+PROBE(float, f32)
+PROBE(double, f64)
+"#;
+
+/// What the kernels of an se_e2_a descriptor with tables would pay to look
+/// their embedding values up themselves instead of reading them stored: a
+/// warp a row and the lanes over the outputs, as the kernel of the tables
+/// and the force kernel go, over a million rows of 100 outputs. Per row:
+/// the quintic of every output looked up (value, and value and tangent),
+/// one or two stored values read, and the values and tangents written as
+/// the kernel of the tables does. Tables of 178 pieces (the water model) and
+/// of 4,576 (a trained HAP model), the pieces of the rows at random or in
+/// runs of 64 rows.
+#[test]
+#[ignore]
+fn embedding_table_costs() {
+    let device = Device::new(0).unwrap();
+    let stream = device.stream().clone();
+    let rows: usize = 1 << 20;
+    let width: usize = 100;
+    let warps_per_block = 8usize;
+    let config = LaunchConfig {
+        grid_dim: (rows.div_ceil(warps_per_block) as u32, 1, 1),
+        block_dim: (32 * warps_per_block as u32, 1, 1),
+        shared_mem_bytes: 0,
+    };
+    let mut seed = 0x2545_f491_4f6c_dd1du64;
+    let mut next = move || {
+        seed ^= seed << 13;
+        seed ^= seed >> 7;
+        seed ^= seed << 17;
+        seed
+    };
+    let rows_i = rows as i64;
+    let width_i = width as i32;
+    macro_rules! run {
+        ($t:ty, $s:literal) => {{
+            let f = |name: &str| {
+                device
+                    .kernels()
+                    .function(TABLE_PROBE, &format!("{name}_{}", $s))
+                    .unwrap()
+            };
+            let (value, value_tangent, one_load, two_loads, written) = (
+                f("value"),
+                f("value_tangent"),
+                f("one_load"),
+                f("two_loads"),
+                f("written"),
+            );
+            let us: Vec<$t> = (0..rows).map(|_| (next() >> 11) as $t / (1u64 << 53) as $t).collect();
+            let us = device.upload(&us).unwrap();
+            let mut g = device.zeros::<$t>(rows * width).unwrap();
+            let mut dg = device.zeros::<$t>(rows * width).unwrap();
+            let mut out = device.zeros::<$t>(rows).unwrap();
+            for pieces_n in [178usize, 4576] {
+                let coef: Vec<$t> = (0..pieces_n * width * 6)
+                    .map(|_| (next() >> 11) as $t / (1u64 << 53) as $t - 0.5)
+                    .collect();
+                let coef = device.upload(&coef).unwrap();
+                for runs in [1usize, 64] {
+                    let pieces: Vec<i32> = (0..rows / runs)
+                        .flat_map(|_| {
+                            let p = (next() % pieces_n as u64) as i32;
+                            std::iter::repeat(p).take(runs)
+                        })
+                        .collect();
+                    let pieces = device.upload(&pieces).unwrap();
+                    let mut time = |label: &str, launch: &mut dyn FnMut()| {
+                        for _ in 0..3 {
+                            launch();
+                        }
+                        device.synchronize().unwrap();
+                        let start = Instant::now();
+                        let n = 20;
+                        for _ in 0..n {
+                            launch();
+                        }
+                        device.synchronize().unwrap();
+                        let us_each = start.elapsed().as_secs_f64() * 1e6 / n as f64;
+                        println!(
+                            "{:>4} {:>5} pieces, runs of {:>2}: {label:<24} {us_each:8.1} us, {:6.3} ns a row",
+                            $s,
+                            pieces_n,
+                            runs,
+                            us_each * 1e3 / rows as f64
+                        );
+                    };
+                    time("value", &mut || {
+                        let mut l = stream.launch_builder(&value);
+                        l.arg(&pieces).arg(&us).arg(&coef).arg(&width_i).arg(&rows_i).arg(&mut out);
+                        unsafe { l.launch(config) }.map(drop).unwrap();
+                    });
+                    time("value and tangent", &mut || {
+                        let mut l = stream.launch_builder(&value_tangent);
+                        l.arg(&pieces).arg(&us).arg(&coef).arg(&width_i).arg(&rows_i).arg(&mut out);
+                        unsafe { l.launch(config) }.map(drop).unwrap();
+                    });
+                    time("written (table kernel)", &mut || {
+                        let mut l = stream.launch_builder(&written);
+                        l.arg(&pieces)
+                            .arg(&us)
+                            .arg(&coef)
+                            .arg(&width_i)
+                            .arg(&rows_i)
+                            .arg(&mut g)
+                            .arg(&mut dg);
+                        unsafe { l.launch(config) }.map(drop).unwrap();
+                    });
+                }
+            }
+            let mut time = |label: &str, launch: &mut dyn FnMut()| {
+                for _ in 0..3 {
+                    launch();
+                }
+                device.synchronize().unwrap();
+                let start = Instant::now();
+                let n = 20;
+                for _ in 0..n {
+                    launch();
+                }
+                device.synchronize().unwrap();
+                let us_each = start.elapsed().as_secs_f64() * 1e6 / n as f64;
+                println!(
+                    "{:>4} stored: {label:<38} {us_each:8.1} us, {:6.3} ns a row",
+                    $s,
+                    us_each * 1e3 / rows as f64
+                );
+            };
+            time("one load", &mut || {
+                let mut l = stream.launch_builder(&one_load);
+                l.arg(&g).arg(&dg).arg(&width_i).arg(&rows_i).arg(&mut out);
+                unsafe { l.launch(config) }.map(drop).unwrap();
+            });
+            time("two loads", &mut || {
+                let mut l = stream.launch_builder(&two_loads);
+                l.arg(&g).arg(&dg).arg(&width_i).arg(&rows_i).arg(&mut out);
+                unsafe { l.launch(config) }.map(drop).unwrap();
+            });
+        }};
+    }
+    run!(f32, "f32");
+    run!(f64, "f64");
+}
