@@ -444,7 +444,7 @@ tables take ten times the step below `min_distance`).
   either way, so a frame that leaves the tables goes to the nets in the same
   chunks. In float32 with tables an evaluation became 5% to 8% shorter for
   the HAP frames of 88 to 224 atoms, 37% for 5,632 atoms and 40% for 12,288
-  waters ([summary](../bench/results/SUMMARY.md)).
+  water atoms ([summary](../bench/results/SUMMARY.md)).
 - se_e3: the table of a net covers θ of either sign, as far as two
   neighbors at a fifth of `min_distance` can bring it around a center of
   the type with the narrowest directions. With these tables the descriptor
@@ -491,8 +491,9 @@ same tables, at the 1.5e-8 that float32 has at best.
 
 A net as smooth as an untrained one was followed to rounding by a table
 with a knot every 0.01, and is followed to the tolerance by these: for the
-models of the water benchmark the float64 forces are 1e-14 to 2e-13 eV/Å
-from those of the nets, where they were within 1e-15.
+models of the water benchmark the float64 forces are 1e-14 to 3e-13 eV/Å
+from those of the nets (2026-11-22, at 192 and 1,536 atoms), where they
+were within 1e-15.
 
 Records:
 [`hap-tables-against-nets-...json`](../bench/results/hap-tables-against-nets-rtx4090-2026-11-18.json),

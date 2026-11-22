@@ -272,7 +272,7 @@
  },
  "water_rerun": {
   "rounds": 9,
-  "note": "Nine more rounds of the two large water frames, later in the same session, because in the first run the build after was 93.9 us slower than the build before for 12,288 waters, more than the 41.2 by which the build before differed from itself. Every time is about 8% below those of the first run, which is why builds are compared within a run only. For 12,288 waters the build after was the slowest of the three again: 164.4 us above before and 26.4 above before again, where the build before differed from itself by 138.0 (by the medians 30.9 and 22.0, against 9.0). The sign repeats; the size is not established.",
+  "note": "Nine more rounds of the two large water frames, later in the same session, because in the first run the build after was 93.9 us slower than the build before for 12,288 water atoms, more than the 41.2 by which the build before differed from itself. Every time is about 8% below those of the first run, which is why builds are compared within a run only. For 12,288 water atoms the build after was the slowest of the three again: 164.4 us above before and 26.4 above before again, where the build before differed from itself by 138.0 (by the medians 30.9 and 22.0, against 9.0). The sign repeats; the size is not established.",
   "us_per_evaluation": [
    {
     "case": "water 1,536, float64",

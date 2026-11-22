@@ -193,7 +193,7 @@ What follows for the kernels:
   tables are 2 to 7 µs shorter (two runs: 155.0 → 149.8 µs and 152.5 →
   150.3 for 88 atoms, less than the kernel's 7 µs), and an MD step of 88
   atoms 2.4 to 4.7 µs shorter. From 1,536 atoms on the differences are a
-  fraction of a percent. For 12,288 waters in float64 four warps came out
+  fraction of a percent. For 12,288 water atoms in float64 four warps came out
   slowest by the least in three runs, by 26 to 164 µs (0.04% to 0.27%),
   while the runs of the build before differed by 41 and 138, so the size of
   that is not established. Two warps were up to 7 µs an evaluation slower
@@ -235,7 +235,7 @@ What follows for the kernels:
   more than 400 inputs. On a performance core of the i9-14900K the packing
   takes 43% to 48% less time from 88 to 12,288 atoms (1.8 → 1.0 µs for 88
   atoms, 4.4 → 2.4 for 224, 115 → 61 for 5,632, 232 → 124 for 12,288
-  waters), and a search with its packing and a wait for the device
+  water atoms), and a search with its packing and a wait for the device
   (`neighbor_search_costs`) went from 25.3 to 20.5 µs for 88 atoms, 49.0 to
   41.2 for 704 and 282 to 237 for 5,632. An evaluation in float32 with
   tables is 4.2 and 5.5 µs shorter for the HAP frames of 169 and 224 atoms
@@ -343,9 +343,9 @@ What follows for the kernels:
   of its outputs themselves, and in float64 they read stored values
   (`native::gpu_model::GpuPotential::inline_tables`). Evaluations in
   float32 with tables became 5% to 8% shorter for the HAP frames of 88 to
-  224 atoms, 37% for 5,632 atoms and 40% for 12,288 waters. In float64,
+  224 atoms, 37% for 5,632 atoms and 40% for 12,288 water atoms. In float64,
   looking the tables up made evaluations 2.3% and 1.7% longer for 88 HAP
-  atoms and 192 waters and 1.3% shorter for 5,632 HAP atoms.
+  atoms and 192 water atoms and 1.3% shorter for 5,632 HAP atoms.
 - Do no work for empty neighbor slots. With `sel` sized for the densest
   environment most slots are empty (65% in the HAP systems); their embedding
   row is the same for a pair of types, so it is evaluated once per model and

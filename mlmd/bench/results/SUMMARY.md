@@ -1,3 +1,161 @@
+# omniMD and DeePMD-kit timed in one session, 2026-11-22
+
+The comparison with DeePMD-kit in the top-level README had numbers of
+different days, builds and protocols: omniMD's of 2026-11-10, DeePMD-kit's
+from NVE dynamics of 2026-11-09 and 11-10 (in which the atoms of the
+untrained model fall into each other sooner or later; see 2026-11-16), and
+for the other descriptors times of 11-15 to 11-18. A new driver,
+`bench_alternated.py`, timed both engines in one session instead, taking
+turns, with DeePMD-kit's atoms held, and the README's table and bullets now
+quote it (record `omnimd-deepmd-alternated-rtx4090-2026-11-22.json`, 13:11
+to 14:20). omniMD is `omnimd-native-gpu-eval` of 04ac051 (sha256
+e06fc6c2…), DeePMD-kit the image of 3.1.3 (ID sha256:452bf3f7…, digest
+sha256:796701c3…: LAMMPS 29 Aug 2024, deepmd-kit a170962, the PyTorch
+backend), both on the RTX 4090.
+
+**How.** A round has three slots: omniMD, DeePMD-kit and omniMD again, in
+reverse order every other round, and within DeePMD-kit's slot the order of
+its `bench_deepmd.py` invocations with it (the LAMMPS runs inside one keep
+theirs: float64 before float32, the sizes ascending). omniMD's repeat is
+the control: what the machine adds between two runs of the same thing. An
+omniMD sample is one process of `omnimd-native-gpu-eval --bench K`, K
+chosen in a pilot pass so that the K evaluations take about two seconds
+(from 3 for se_e3 at 98,304 atoms to 10,549 for se_e2_a at 192 in float32
+with tables); a DeePMD-kit sample is one LAMMPS run of 1,000, 130 or 50
+steps (192, 1,536, 12,288 atoms) after 20 untimed ones, with a time step of
+1e-6 fs. The se_e2_a model had five rounds, the other descriptors three;
+what DeePMD-kit takes minutes for or cannot run (98,304 atoms, se_e3 in
+float64 at 1,536) ran once, at the end. Of each case the least sample is
+kept, the median beside it below (in parentheses). Before every slot the
+driver waited until no container ran and the busy check printed nothing,
+and ran the check again after the slot. The check was
+`tools/ht/gpu_busy.ps1` of the build directory (`--busy-check`; this
+record does not name it, the driver records it since): one sample of the
+card's 3D engines that lists every process above 30% except the desktop's
+own and those named like this work's (omniMD, Python, `lmp`, `dp`, cargo's
+test binaries, Docker's `vmmem` and `vmwp`), so a job of those names, or a
+light one, would pass it. `nvidia-smi` sampled the card every 500 ms. The
+evaluator ran on the performance cores (mask 0xfffc); Docker's VM was not
+held.
+
+**se_e2_a**, ms per evaluation, least (median), and DeePMD-kit's least over
+omniMD's:
+
+| atoms | precision | DeePMD-kit | omniMD | ratio | DeePMD-kit, tables | omniMD, tables | ratio |
+|---:|---|---:|---:|---:|---:|---:|---:|
+| 192 | float64 | 10.9 (11.0) | 1.24 (1.25) | 8.7× | 8.38 (8.45) | 0.721 (0.723) | 11.6× |
+| 192 | float32 | 8.46 (8.62) | 0.243 (0.245) | 34.8× | 7.21 (7.43) | 0.184 (0.185) | 39.1× |
+| 1,536 | float64 | 39.7 (40.1) | 8.38 (8.41) | 4.7× | 20.7 (20.8) | 4.54 (4.57) | 4.6× |
+| 1,536 | float32 | 11.0 (11.3) | 1.26 (1.26) | 8.8× | 8.05 (8.20) | 0.655 (0.663) | 12.3× |
+| 12,288 | float64 | 277 (278) | 65.6 (65.7) | 4.2× | 115 (116) | 34.8 (34.8) | 3.3× |
+| 12,288 | float32 | 59.1 (59.4) | 7.68 (7.69) | 7.7× | 23.9 (24.2) | 3.08 (3.09) | 7.8× |
+| 98,304 | float64 | out of memory | 522 (523) | - | out of memory | 275 (276) | - |
+| 98,304 | float32 | out of memory | 60.3 (60.5) | - | out of memory | 24.6 (24.6) | - |
+
+**The other descriptors**, the same way. DeePMD-kit's tables of se_e3 are
+not a baseline (2026-11-16), so neither se_e3 nor the hybrid with it has
+them; "timeout" is no result within the 1,500 s of the run:
+
+| model | atoms | precision | DeePMD-kit | omniMD | ratio | DeePMD-kit, tables | omniMD, tables | ratio |
+|---|---:|---|---:|---:|---:|---:|---:|---:|
+| se_e3 | 192 | float64 | 88.5 (88.7) | 9.42 (9.43) | 9.4× | - | 1.13 (1.13) | - |
+| se_e3 | 192 | float32 | 27.5 (27.6) | 1.93 (1.94) | 14.2× | - | 0.415 (0.415) | - |
+| se_e3 | 1,536 | float64 | timeout | 70.1 (70.2) | - | - | 6.70 (6.72) | - |
+| se_e3 | 1,536 | float32 | 209 (209) | 13.4 (13.5) | 15.6× | - | 2.34 (2.35) | - |
+| se_e3 | 98,304 | float32 | - | 833 (833) | - | - | 143 (143) | - |
+| hybrid | 192 | float32 | 11.0 (11.3) | 0.299 (0.301) | 36.9× | 9.07 (9.40) | 0.228 (0.229) | 39.8× |
+| hybrid | 1,536 | float32 | 13.8 (14.2) | 1.46 (1.46) | 9.5× | 9.76 (10.3) | 0.922 (0.922) | 10.6× |
+| hybrid | 12,288 | float32 | 72.2 (72.6) | 9.03 (9.03) | 8.0× | 32.3 (32.5) | 5.03 (5.06) | 6.4× |
+| hybrid | 98,304 | float32 | out of memory | 70.8 (70.8) | - | out of memory | 39.6 (39.8) | - |
+| hybrid_e3 | 192 | float32 | 12.3 (12.8) | 0.447 (0.453) | 27.5× | - | 0.259 (0.259) | - |
+| hybrid_e3 | 1,536 | float32 | 35.8 (36.0) | 2.73 (2.73) | 13.1× | - | 0.974 (0.975) | - |
+| hybrid_e3 | 12,288 | float32 | - | 18.7 (18.8) | - | - | 5.13 (5.14) | - |
+
+**The machine.** The controls stayed between −1.6% and +1.1% in all 40
+cases, beyond 1% in three (the hybrid at 1,536 atoms with the nets, −1.6%;
+se_e2_a at 1,536 in float32 with tables, −1.3%; hybrid_e3 at 192 with the
+nets, +1.1%). A median exceeded its least by at most 5.3% (DeePMD-kit's
+hybrid at 1,536 atoms with tables). No slot waited for the card, and the
+check after every slot printed nothing. The median SM clock of every timed
+slot was 2,760 or 2,775 MHz, and the card stayed at or below 69 °C. In
+every LAMMPS run that ended, the timed run rebuilt no neighbor list, `Pair`
+took 99.19% of the loop or more, and the temperature stayed at 300 K
+(299.99973 to 300.00104).
+
+**What DeePMD-kit did not finish.** At 98,304 atoms all six runs (se_e2_a in
+both precisions with and without tables, the hybrid in float32 with and
+without) stopped at their first evaluation with "CUDA out of memory. Tried
+to allocate 115.96 GiB" from PyTorch, the same request in all six. se_e3 in
+float64 at 1,536 atoms took 208.4 s for its 20 untimed steps and gave no
+result within the 1,500 s of the run; the memory in use on the card reached
+23,355 of its 24,564 MiB, at a load of 100%. (The 6,494 ms a step of
+2026-11-15 were NVE, and the log of that run was later overwritten.)
+
+**Agreement** with DeePMD-kit's CPU float64 result, and of omniMD's other
+modes with its own float64 nets, at the sizes of each reference (eV per
+atom, eV/Å, eV):
+
+| model | atoms | precision | embedding | energy per atom | force, largest | virial, largest | force against omniMD float64 nets |
+|---|---:|---|---|---:|---:|---:|---:|
+| se_e2_a | 192 | float64 | nets | 0.0e+00 | 1.8e-17 | 6.1e-16 | - |
+| se_e2_a | 192 | float64 | tables | 0.0e+00 | 1.2e-14 | 4.5e-13 | 1.2e-14 |
+| se_e2_a | 192 | float32 | nets | 4.8e-09 | 4.7e-09 | 1.5e-07 | 4.7e-09 |
+| se_e2_a | 192 | float32 | tables | 5.3e-09 | 4.2e-09 | 1.4e-07 | 4.2e-09 |
+| se_e2_a | 1,536 | float64 | nets | 0.0e+00 | 1.6e-17 | 3.6e-15 | - |
+| se_e2_a | 1,536 | float64 | tables | 0.0e+00 | 1.2e-14 | 3.6e-12 | 1.2e-14 |
+| se_e2_a | 1,536 | float32 | nets | 4.7e-09 | 8.2e-09 | 2.1e-06 | 8.2e-09 |
+| se_e2_a | 1,536 | float32 | tables | 5.0e-09 | 7.0e-09 | 2.2e-06 | 7.0e-09 |
+| se_e3 | 192 | float64 | nets | 9.5e-15 | 5.9e-17 | 2.7e-15 | - |
+| se_e3 | 192 | float64 | tables | 9.5e-15 | 6.8e-14 | 4.1e-13 | 6.8e-14 |
+| se_e3 | 192 | float32 | nets | 5.7e-09 | 9.2e-09 | 4.1e-07 | 9.2e-09 |
+| se_e3 | 192 | float32 | tables | 4.5e-09 | 9.1e-09 | 3.5e-08 | 9.1e-09 |
+| hybrid | 192 | float64 | nets | 0.0e+00 | 7.3e-17 | 5.8e-16 | - |
+| hybrid | 192 | float64 | tables | 0.0e+00 | 1.9e-13 | 6.6e-12 | 1.9e-13 |
+| hybrid | 192 | float32 | nets | 8.1e-09 | 2.4e-08 | 3.2e-07 | 2.4e-08 |
+| hybrid | 192 | float32 | tables | 5.6e-09 | 2.1e-08 | 2.0e-07 | 2.1e-08 |
+| hybrid | 1,536 | float64 | nets | 0.0e+00 | 9.0e-17 | 3.4e-14 | - |
+| hybrid | 1,536 | float64 | tables | 0.0e+00 | 1.9e-13 | 5.3e-11 | 1.9e-13 |
+| hybrid | 1,536 | float32 | nets | 7.8e-09 | 3.6e-08 | 2.5e-06 | 3.6e-08 |
+| hybrid | 1,536 | float32 | tables | 6.0e-09 | 2.6e-08 | 1.2e-06 | 2.6e-08 |
+| hybrid_e3 | 192 | float64 | nets | 9.5e-15 | 2.5e-16 | 1.8e-15 | - |
+| hybrid_e3 | 192 | float64 | tables | 9.5e-15 | 2.9e-13 | 3.8e-12 | 2.9e-13 |
+| hybrid_e3 | 192 | float32 | nets | 5.0e-09 | 2.7e-08 | 3.3e-07 | 2.7e-08 |
+| hybrid_e3 | 192 | float32 | tables | 5.3e-09 | 3.3e-08 | 1.5e-07 | 3.3e-08 |
+| hybrid_e3 | 1,536 | float64 | nets | 0.0e+00 | 1.9e-16 | 9.9e-14 | - |
+| hybrid_e3 | 1,536 | float64 | tables | 0.0e+00 | 2.9e-13 | 3.0e-11 | 2.9e-13 |
+| hybrid_e3 | 1,536 | float32 | nets | 5.0e-09 | 3.9e-08 | 3.4e-06 | 3.9e-08 |
+| hybrid_e3 | 1,536 | float32 | tables | 5.8e-09 | 3.7e-08 | 2.2e-06 | 3.7e-08 |
+
+**Not alike.**
+- LAMMPS with the atoms held never rebuilds its neighbor list (its default
+  skin of 2 Å, neighbors to 8 Å: 222 an atom), while each omniMD evaluation
+  bins the atoms on the host, searches their neighbors on the device and
+  downloads energy, forces and virial.
+- DeePMD-kit runs in Docker Desktop's Linux VM, omniMD on Windows; the host
+  side of DeePMD-kit's runs was not held to any cores.
+- DeePMD-kit's float32 is a model built in float32 (`make_water_case.py`);
+  omniMD runs the networks of the float64 model in float32, with geometry,
+  reductions, forces and virial in float64.
+- DeePMD-kit's tables (`compress_deepmd.py`) have uniform steps; omniMD's
+  are pieces of uneven length within a tolerance of each net. The kernels
+  of se_e3 read them themselves in either precision; those of se_e2_a look
+  them up in float32 and read the values a kernel of the tables stored in
+  float64, as those of se_e2_r (in the hybrid) do in both.
+- For se_e3 omniMD evaluates the embedding net once for each pair of
+  neighbors, DeePMD-kit for every pair of slots (4.2 times as many here;
+  2026-11-16).
+- A LAMMPS sample is one run of 1,000 to 50 steps (a second to a minute
+  and a half), an omniMD sample about two seconds of evaluations in one
+  process.
+
+**Against the README's numbers before** (2026-11-09 and 11-10, DeePMD-kit in
+NVE): DeePMD-kit's times are 2.4% to 26% lower held (192 atoms in float32
+10.4 → 8.46 ms, 12,288 atoms with tables 32.5 → 23.9), omniMD's 13% to 73%
+lower from the work on its kernels since (192 atoms in float32 0.70 →
+0.243 ms, 12,288 atoms with tables 10.4 → 3.08, 98,304 atoms in float32
+118 → 60.3). The README had 14.2 ms for omniMD at 12,288 atoms in float32,
+where its record has 14.149 (corrected below).
+
 # The force kernels take the blocks the device keeps at once, 2026-11-22
 
 The force kernel of se_e2_a and se_e2_r runs a block for each center and
@@ -195,13 +353,13 @@ every output for every neighbor slot and stored its value and its slope,
 200 numbers a slot with 100 outputs; the descriptor kernel read the values
 back and the force kernel both. Under Nsight Systems the three took 1,428
 of the 2,051 µs that the kernels of an evaluation of 5,632 HAP atoms took,
-and 3,095 of 4,417 µs for 12,288 waters. Now, in float32, the descriptor
+and 3,095 of 4,417 µs for 12,288 water atoms. Now, in float32, the descriptor
 and force kernels look the values up in the tables themselves and the
 kernel of the tables does not run; in float64 they read stored values as
 before, which is cheaper there. Both ways give the same numbers but for the
 order of their sums. An evaluation in float32 with tables is 5% to 8%
 shorter for the HAP frames of 88 to 224 atoms, 37% for 5,632 atoms and 40%
-for 12,288 waters.
+for 12,288 water atoms.
 
 **What a lookup costs.** A probe (`embedding_table_costs` in
 `gpu/tests/costs.rs`, record
@@ -286,7 +444,7 @@ water model. Float32 with tables gains 5% to 8% up to 224 atoms, 18.5% at
 at 12,288. Float64, where the path is that of before, stays within 0.8%
 (HAP 88 atoms with tables; medians 407.7 against 406.5 and 406.9), and so
 does float32 held to stored values. Lookups in float64 made an evaluation
-2.3% and 1.7% longer for 88 HAP atoms and 192 waters and 1.3% shorter for
+2.3% and 1.7% longer for 88 HAP atoms and 192 water atoms and 1.3% shorter for
 5,632 HAP atoms, so float64 keeps the stored values.
 
 Only times of one session are compared. In this one the build before took
@@ -294,7 +452,7 @@ longer than the grouped products had in their record that morning (154.4
 against 138.5 µs for 88 atoms): run after the comparison, the build of the
 grouped products before their review (a2c045f) and the build before
 (0e57a4f) took the same, 152.9 and 150.7 µs for 88 HAP atoms, 203.4 and
-204.7 for 224, 912.3 and 912.8 for 1,536 waters, and this change 139.7,
+204.7 for 224, 912.3 and 912.8 for 1,536 water atoms, and this change 139.7,
 191.5 and 659.1 (in the record as `check_of_the_session`). The machine was
 slower, not the review.
 
@@ -771,7 +929,7 @@ medians agree: 4.5, 5.8 and 8.7 in float32). For 5,632 atoms the gain,
 47.5 µs (45.6 by the medians), is about what the packing saves and four
 times what the build before differed from itself (12.4). For 88 atoms and
 for the water frames the differences are about those of the control (for
-12,288 waters 114.8 against 60.2, and 67.4 against 70.3 by the medians).
+12,288 water atoms 114.8 against 60.2, and 67.4 against 70.3 by the medians).
 
 The engine (`omnimd-mlmd run`: NVT, CSVR at 300 K, 20,000 steps of 0.5 fs)
 of 868614f and of this change, with the evaluator beside it, five rounds,
@@ -968,23 +1126,23 @@ with the medians):
 | water 12,288, float64 | 66,071.3 | 66,165.2 | 66,112.5 | +93.9 |
 
 From 1,536 atoms on the differences are a fraction of a percent either way.
-For 5,632 HAP atoms and 1,536 waters they are about what `before again`
+For 5,632 HAP atoms and 1,536 water atoms they are about what `before again`
 differs from `before` (+13.1 against 13.6 µs, +12.6 against 8.0; the
-medians: 2,836 → 2,819 µs and 8,500 → 8,499). For 12,288 waters the build
+medians: 2,836 → 2,819 µs and 8,500 → 8,499). For 12,288 water atoms the build
 after was 93.9 µs (0.14%) slower, more than the 41.2 by which the build
 before differed from itself, and 27.9 slower by the medians (66,175 →
 66,202). Nine more rounds of the two water frames later (`water_rerun` in
 the record; every time about 8% below those of the first run, which is why
 builds are compared within a run only) gave 7,818.2, 7,814.3 and 7,807.1 µs
-for 1,536 waters (before, after, before again) and 60,592.6, 60,757.0 and
+for 1,536 water atoms (before, after, before again) and 60,592.6, 60,757.0 and
 60,730.6 for 12,288, where the build before differed from itself by 138.0
 (by the medians 60,868, 60,898 and 60,876). The probe evaluator, one build
-with one, two and four warps, nine rounds on 12,288 waters and no
+with one, two and four warps, nine rounds on 12,288 water atoms and no
 configuration run twice: 60,635.5, 60,667.7 and 60,676.9 µs (medians
 60,785, 60,891 and 60,863; `water_12288` in
 `hap-search-warps-rtx4090-2026-11-20.json`), each spread over 280 to 300 µs
 from its least to its most. So by the least four warps came out slowest in
-all three runs at 12,288 waters, but by how much is not established: 26 to
+all three runs at 12,288 water atoms, but by how much is not established: 26 to
 164 µs depending on the run and the reference (0.04% to 0.27%), against
 runs of the build before that differed by 41 and 138. The 224-atom frame in
 float64 reads 757.1 → 750.6 µs by the medians. The same two builds again later in the
@@ -3984,12 +4142,15 @@ compressed from `deepmd-3.1.3-lammps-compressed-2026-11-10.csv`, models from
 |---:|---|---:|---:|---:|---:|---:|---:|
 | 192 | fp32 | 10.4 | 0.70 | 14.9× | 7.58 | 0.69 | 11.0× |
 | 1,536 | fp32 | 13.1 | 2.18 | 6.0× | 8.94 | 1.64 | 5.5× |
-| 12,288 | fp32 | 66.1 | 14.2 | 4.7× | 32.5 | 10.4 | 3.1× |
+| 12,288 | fp32 | 66.1 | 14.1 | 4.7× | 32.5 | 10.4 | 3.1× |
 | 98,304 | fp32 | error | 118 | — | error | 84.9 | — |
 | 192 | fp64 | 11.4 | 2.77 | 4.1× | 8.57 | 1.65 | 5.2× |
 | 1,536 | fp64 | 41.9 | 11.8 | 3.5× | 20.2 | 6.12 | 3.3× |
 | 12,288 | fp64 | 293 | 90.4 | 3.2× | 118 | 40.0 | 2.9× |
 | 98,304 | fp64 | error | 699 | — | error | 329 | — |
+
+The omniMD time of 12,288 atoms in fp32 was written 14.2 here (and in the
+README) until 2026-11-22; its row in the CSV has 14.149 ms.
 
 - Changes since 2026-11-09:
   - The embedding net runs as one fused kernel (12,288 atoms fp32: embedding

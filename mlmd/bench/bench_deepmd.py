@@ -160,9 +160,16 @@ def main():
     parser.add_argument('--held', action='store_true',
                         help='LAMMPS with a time step of 1e-6 fs: every step evaluates the frame of the case')
     parser.add_argument('--max-atoms', type=int, help='skip the cases with more atoms')
+    parser.add_argument('--min-atoms', type=int, help='skip the cases with fewer atoms')
+    parser.add_argument('--precisions', help='the precisions to run, by comma (all of the manifest by default)')
     parser.add_argument('--timeout', type=int, default=600, help='seconds a LAMMPS run may take')
     args = parser.parse_args()
     manifest = json.loads((args.case_dir / 'manifest.json').read_text())
+    models = manifest['compressed_models' if args.compressed else 'models']
+    precisions = args.precisions.split(',') if args.precisions else list(models)
+    unknown = [p for p in precisions if p not in models]
+    if unknown:
+        parser.error(f'no model of precision {", ".join(unknown)} in the manifest (it has {", ".join(models)})')
     work_dir = args.case_dir / 'lammps'
     work_dir.mkdir(exist_ok=True)
     # Write each row as it completes so a crash keeps the finished measurements.
@@ -179,11 +186,13 @@ def main():
             handle.flush()
             print(json.dumps(row), flush=True)
 
-        for precision, stem in manifest['compressed_models' if args.compressed else 'models'].items():
-            model = f'{stem}.pth'
+        for precision in precisions:
+            model = f'{models[precision]}.pth'
             for case in manifest['cases']:
                 name, natoms = case['name'], case['natoms']
                 if args.max_atoms and natoms > args.max_atoms:
+                    continue
+                if args.min_atoms and natoms < args.min_atoms:
                     continue
                 if not args.skip_deeppot:
                     record(run_deeppot(args.case_dir, model, name, natoms, 'gpu', precision, args.cpu_threads))

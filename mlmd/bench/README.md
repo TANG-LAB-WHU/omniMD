@@ -40,10 +40,11 @@ boxes, and every later step takes `cases/se-r` and `water-se_e2_r-float64`
 where it has `cases` and `water-se_e2_a-float64` (step 4 does not apply: the
 CUDA subset has se_e2_a only). `--descriptor se_e3` with `cases/se-e3` and
 `water-se_e3-float64` does the same for the three-body descriptor, with the
-embedding sizes DeePMD-kit's input has by default for it ([10, 20, 40]) and
-without the compressed mode; DeePMD's reference for it is taken at 192 atoms
-only, and DeePMD-kit 3.1.3's compressed model of it was not usable as a
-baseline (it does not reproduce the uncompressed model: see the summary).
+embedding sizes DeePMD-kit's input has by default for it ([10, 20, 40]);
+DeePMD's reference for it is taken at 192 atoms only, and DeePMD-kit 3.1.3's
+compressed model of it was not usable as a baseline (it does not reproduce
+the uncompressed model: see the summary), so DeePMD-kit is timed with its
+nets only there. omniMD has tables for se_e3 since 2026-11-18.
 
 `--descriptor hybrid` with `cases/hybrid` and `water-hybrid-float64` times a
 hybrid of two descriptors, angular near the atom and radial further out: an
@@ -52,7 +53,8 @@ descriptor with the cutoff and `sel` of the other models, both with the
 embedding sizes [25, 50, 100]. `--descriptor hybrid_e3` with
 `cases/hybrid_e3` and `water-hybrid_e3-float64` times the se_e2_a descriptor
 of the first model together with an se_e3 descriptor of cutoff 4.0 Å, `sel`
-[16, 32] and embedding sizes [10, 20, 40], without the compressed mode. The
+[16, 32] and embedding sizes [10, 20, 40] (DeePMD-kit with its nets only,
+as for se_e3). The
 sizes of these two models are this recipe's own choice, not an example of
 DeePMD-kit's; the script stops if a descriptor has fewer slots than an atom
 of the box has neighbors within its cutoff.
@@ -76,7 +78,44 @@ larger cases out, and a run without a result after `--timeout` seconds (600)
 is stopped and recorded: a run that needs more memory than the card has is
 not refused on Windows, it takes minutes a step. The hybrid tables of the
 summary use the held times; the tables of the other descriptors have the
-NVE times, which a held run of 2026-11-16 confirmed.
+NVE times, which a held run of 2026-11-16 confirmed. The top-level README
+has held times since 2026-11-22, from the driver below.
+
+## Both engines in one session
+
+`bench_alternated.py` times omniMD and DeePMD-kit in one session,
+alternated; the tables of the top-level README come from it:
+
+```bash
+# Host: the cases of steps 1, 2 and 5 in cases, cases/se-e3, cases/hybrid and cases/hybrid_e3, the compressed
+# DeePMD-kit models, the image, and a release build of omnimd-native-gpu-eval; it times what steps 3 and 6 time, in turns
+python mlmd/bench/bench_alternated.py <target>/release mlmd/bench/results/<name>.json --busy-check <command> --work <raw outputs>
+python mlmd/bench/alternated_report.py mlmd/bench/results/<name>.json
+```
+
+A round has three slots, omniMD, DeePMD-kit and omniMD again, in reverse
+order every other round; omniMD's repeat is the control, what the machine
+adds between two runs of the same thing. An omniMD sample is one process of
+`omnimd-native-gpu-eval --bench K`, K chosen so that the K evaluations take
+about two seconds; a DeePMD-kit sample is one held LAMMPS run in the image
+(`bench_deepmd.py --skip-deeppot --held`, which `--precisions`,
+`--min-atoms` and `--max-atoms` narrow to the cases a slot needs). Of each
+case the least sample is kept and the median recorded beside it. Before
+every slot the driver waits until no container runs and the command of
+`--busy-check` prints nothing (it should list the other users of the card;
+on Windows a container's GPU work does not show as a process of its own),
+checks the card again after the slot, and keeps the slot's clocks, memory,
+temperature and load from `nvidia-smi`. It copies every LAMMPS log and
+records what it says (steps, neighbor-list builds, cutoff, temperature, out
+of memory), runs the evaluator from a copy whose hash it records, runs the
+image by its ID (it never pulls), checks, untimed, the agreement of every
+model with DeePMD-kit's CPU float64 result, and by default ends with
+DeePMD-kit's single runs (`once`: 98,304 atoms, se_e3 in float64 at
+1,536). Start it through an affinity
+wrapper to hold omniMD's host side to chosen cores; Docker's virtual
+machine is not held by that. `alternated_report.py` prints the README's
+se_e2_a table, the controls and spreads of every case, the single
+DeePMD-kit runs and the agreement.
 
 ## A real ensemble: the HAP pipeline models
 
@@ -156,14 +195,22 @@ float32 attempt at that size. Use the LAMMPS route for the large cases.
 ## Metrics
 
 `ms_per_eval` is one energy/force/virial evaluation; `us_per_atom_step` divides it
-by the atom count. LAMMPS rows also report `ns_per_day` from NVE at 0.5 fs.
+by the atom count. A LAMMPS row's `ms_per_eval` is the loop time of its timed
+run divided by the steps, the integrator included (`Pair` takes over 99% of
+the loop in a held run), and its `ns_per_day` follows its time step (0.5 fs,
+or next to nothing held).
 `peak_mem_mb` is the PyTorch allocator peak (DeepPot GPU rows only). Failed cases
 are kept as rows with `status` = `oom`, `rejected`, `timeout` or `error`.
 
-The omniMD CLI timing subtracts the fastest one-frame run from the fastest K-frame
-run (three repeats each), which removes
-start-up and model loading but still includes per-frame JSON parsing. That favors
-DeepMD slightly at large sizes; the in-process Rust harness planned for W5 removes it.
+`bench_omnimd.py` (step 4) subtracts the fastest one-frame run from the fastest
+K-frame run (three repeats each), which removes start-up and model loading but
+still includes per-frame JSON parsing; that favors DeepMD slightly at large
+sizes. The GPU evaluator of step 6 and of `bench_alternated.py` times in its
+own process instead (`--bench K`: the mean of K evaluations of one frame after
+two untimed ones). Each of its evaluations bins the atoms on the host and
+searches their neighbors on the device anew, runs the kernels and downloads
+the energy, forces and virial, where a held LAMMPS run never rebuilds its
+neighbor list.
 
 ## Results
 

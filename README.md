@@ -101,57 +101,83 @@ memory); the numbers and the rules drawn from them are in
 Measured on one RTX 4090 with the water se_e2_a benchmark model (sel [46, 92],
 embedding [25, 50, 100], fitting [240, 240, 240]). The weights are untrained, so
 these numbers show throughput and same-model agreement, not physical accuracy.
-Milliseconds per energy/force/virial evaluation; DeepMD-kit 3.1.3 is LAMMPS
-`pair_style deepmd` on the same card:
+Milliseconds per energy/force/virial evaluation, the least of five samples of
+each engine (three for the other descriptors below), the two taking turns in
+one session on 2026-11-22
+([record](mlmd/bench/results/omnimd-deepmd-alternated-rtx4090-2026-11-22.json),
+with the medians; [method](mlmd/bench/README.md#both-engines-in-one-session)).
+DeepMD-kit 3.1.3 is LAMMPS `pair_style deepmd` (PyTorch backend) in Docker
+Desktop's Linux VM on the same card, with the atoms held in place; "tables" are
+`--compress 0.5` in omniMD and `dp compress` in DeepMD-kit:
 
-| Atoms | Precision | DeepMD | omniMD | DeepMD compressed | omniMD compressed |
+| Atoms | Precision | DeepMD-kit | omniMD | DeepMD-kit, tables | omniMD, tables |
 | ---: | --- | ---: | ---: | ---: | ---: |
-| 192 | float32 | 10.4 | 0.70 | 7.58 | 0.69 |
-| 1,536 | float32 | 13.1 | 2.18 | 8.94 | 1.64 |
-| 12,288 | float32 | 66.1 | 14.2 | 32.5 | 10.4 |
-| 12,288 | float64 | 293 | 90.4 | 118 | 40.0 |
-| 98,304 | float32 | error | 118 | error | 84.9 |
+| 192 | float64 | 10.9 | 1.24 | 8.38 | 0.721 |
+| 192 | float32 | 8.46 | 0.243 | 7.21 | 0.184 |
+| 1,536 | float64 | 39.7 | 8.38 | 20.7 | 4.54 |
+| 1,536 | float32 | 11.0 | 1.26 | 8.05 | 0.655 |
+| 12,288 | float64 | 277 | 65.6 | 115 | 34.8 |
+| 12,288 | float32 | 59.1 | 7.68 | 23.9 | 3.08 |
+| 98,304 | float64 | out of memory | 522 | out of memory | 275 |
+| 98,304 | float32 | out of memory | 60.3 | out of memory | 24.6 |
 
+- DeepMD-kit takes 4.2 to 35 times as long as omniMD with the exact networks
+  and 3.3 to 39 times as long with tables. At 192 atoms most of a LAMMPS step
+  is a cost that does not grow with the atoms, so the ratios there say little
+  about the arithmetic; at 12,288 atoms they are 4.2 and 7.7 with the networks
+  in float64 and float32, and 3.3 and 7.8 with tables.
+- At 98,304 atoms every DeepMD-kit run (se_e2_a in float64 and float32 and the
+  hybrid below in float32, each with and without tables) stopped at its first
+  evaluation with "CUDA out of memory. Tried to allocate 115.96 GiB" from
+  PyTorch: the PyTorch backend on one MPI rank, as run here.
 - Agreement with DeepMD-kit CPU float64 at 192 and 1,536 atoms: the float64
-  energy is identical with and without compression and forces differ by at most
-  9e-16 eV/angstrom; float32 forces are within 6e-9 eV/angstrom.
-- LAMMPS reuses its neighbor list for about 13 steps, while omniMD rebuilds it on
-  every evaluation. The 98,304-atom LAMMPS runs stopped with a TorchScript runtime
-  error (probably out of memory; not verified).
+  energy is identical with and without tables, and forces differ by at most
+  2e-17 eV/angstrom with the networks and 2e-14 with tables; float32 forces are
+  within 9e-9 eV/angstrom.
+- The two sides are not timed alike. With the atoms held (a step of 1e-6 fs:
+  the untrained model has no repulsion and heats in dynamics) LAMMPS never
+  rebuilds its neighbor list, while every omniMD evaluation bins the atoms on
+  the host, searches their neighbors on the device and downloads its result.
+  LAMMPS keeps its default skin of 2 angstrom (neighbors to 8). DeepMD-kit's
+  float32 is a model built in float32; omniMD runs the networks of the float64
+  model in float32, with geometry, reductions, forces and virial in float64.
+  DeepMD-kit's tables have uniform steps, omniMD's are pieces of uneven length
+  within a tolerance of each network. omniMD's host side was held to the
+  performance cores; Docker's VM was not. Until 2026-11-22 this table had
+  DeepMD-kit's times from NVE dynamics at 0.5 fs and omniMD's of 2026-11-10.
 - The three-body descriptor se_e3 with the same cutoff and `sel` and embedding
-  [10, 20, 40] costs 2.33 ms at 192 atoms and 15.8 ms at 1,536 in float32
-  (DeepMD-kit in LAMMPS: 28.8 and 219 ms), 11.0 and 86.3 ms in float64 (92.3
-  and 6,494 ms), and 994 ms at 98,304 atoms in float32; omniMD's float64
-  result equals DeepMD-kit's at 192 atoms within 1e-14 eV per atom and
-  6e-17 eV/angstrom. Both sides evaluate the embedding networks themselves
-  there: the compressed model that DeepMD-kit 3.1.3 makes of this one did not
+  [10, 20, 40] costs 1.93 ms at 192 atoms and 13.4 ms at 1,536 in float32
+  (DeepMD-kit: 27.5 and 209 ms), 9.42 and 70.1 ms in float64, and 833 ms at
+  98,304 atoms in float32. DeepMD-kit takes 88.5 ms at 192 atoms in float64;
+  at 1,536 its 20 untimed steps took 208 s and the run gave no result within
+  its 1,500 s, the memory in use on the card reaching 23,355 of 24,564 MiB.
+  omniMD's float64 result equals DeepMD-kit's at 192 atoms within 1e-14 eV per
+  atom and 6e-17 eV/angstrom. Both sides evaluate the embedding networks
+  themselves there (omniMD once for each pair of neighbors of an atom,
+  DeepMD-kit for every pair of its slots, 4.2 times as many in this water):
+  the compressed model that DeepMD-kit 3.1.3 makes of this one did not
   reproduce the uncompressed model (see the summary), so it gave no baseline.
   omniMD has tables for these networks since 2026-11-18, in pieces of uneven
   length that are each within a tolerance of the network (a table of one
   step is either wrong by percent for a trained network of this descriptor,
-  or of gigabytes): 0.49 ms at 192 atoms and 2.50 ms at 1,536 in float32,
-  1.25 and 7.11 ms in float64, 153 ms at 98,304 atoms in float32, with
+  or of gigabytes): 0.415 ms at 192 atoms and 2.34 ms at 1,536 in float32,
+  1.13 and 6.70 ms in float64, 143 ms at 98,304 atoms in float32, with
   float64 forces within 7e-14 eV/angstrom of DeepMD-kit's uncompressed
   model at 192 atoms.
 - A hybrid of two descriptors, se_e2_a to 4.0 angstrom (`sel` [16, 32]) and
-  se_e2_r to 6.0 angstrom ([46, 92]), costs 0.38 ms at 192 atoms and 10.6 ms
-  at 12,288 in float32, and 0.31 and 6.85 ms with embedding tables. DeepMD-kit
-  in LAMMPS takes 12.3 and 83.0 ms, with tables 10.1 and 36.4 ms, with the
-  atoms held in place: the untrained benchmark model has no repulsion and
-  heats in dynamics, so DeepMD-kit was timed on the frames themselves here.
-  At 98,304 atoms omniMD takes 85 ms (55 ms with tables) where LAMMPS stops
-  with an error. omniMD's float64 energy equals DeepMD-kit's at 192 and 1,536
-  atoms to the last digit, and its forces within 1e-16 eV/angstrom.
-  This hybrid is no cheaper than the plain se_e2_a model: that evening the
-  plain model took 0.31 and 8.7 ms in omniMD (the table above is older than
-  later work on the kernels; the summary has the dates) and 10.3 and 69.9 ms
-  in DeepMD-kit with the atoms held. At 192 atoms most of a LAMMPS step is
-  a cost that does not grow with the atoms (12.3 ms at 192 atoms, 15.9 ms at
-  1,536), so the ratio there says little about the arithmetic.
-  A hybrid of se_e2_a with an se_e3 descriptor to 4.0 angstrom costs 0.59 ms
-  at 192 atoms and 3.36 ms at 1,536 in float32 (DeepMD-kit: 14.1 and 42.5
-  ms); from 12,288 atoms on DeepMD-kit no longer fits the card, omniMD takes
-  23 ms there.
+  se_e2_r to 6.0 angstrom ([46, 92]), costs 0.299 ms at 192 atoms and 9.03 ms
+  at 12,288 in float32, and 0.228 and 5.03 ms with embedding tables;
+  DeepMD-kit takes 11.0 and 72.2 ms, with tables 9.07 and 32.3 ms. At 98,304
+  atoms omniMD takes 70.8 ms (39.6 ms with tables), where DeepMD-kit runs out
+  of memory as above. omniMD's float64 energy equals DeepMD-kit's at 192 and
+  1,536 atoms to the last digit, and its forces within 1e-16 eV/angstrom.
+  This hybrid is no cheaper than the plain se_e2_a model, which took 0.243
+  and 7.68 ms in omniMD and 8.46 and 59.1 ms in DeepMD-kit in the same
+  session. A hybrid of se_e2_a with an se_e3 descriptor to 4.0 angstrom costs
+  0.447 ms at 192 atoms and 2.73 ms at 1,536 in float32 (DeepMD-kit: 12.3 and
+  35.8 ms), 0.259 and 0.974 ms with tables, and 18.7 ms at 12,288 atoms (5.13
+  with tables), where DeepMD-kit's held runs of 2026-11-16 gave no result
+  within 300 s.
 - Scope: one GPU, se_e2_a or se_e2_r with one embedding net per type pair or
   per neighbor type, se_e3, or a hybrid of these descriptors. The engine can
   select it for dynamics, minimization, batch evaluation and model deviation

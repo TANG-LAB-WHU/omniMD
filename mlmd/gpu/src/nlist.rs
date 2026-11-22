@@ -1053,7 +1053,7 @@ fn max_capacity(ntypes: usize, warps: usize) -> usize {
 /// Two kept up only for thousands of atoms; eight were within the scatter
 /// of four up to 224 atoms, slower from 704 on, and cost the kernel a third
 /// more time for 5,632. Against one warp, an evaluation of 88 to 704 atoms
-/// is 2 to 7 microseconds shorter. One of 12,288 waters (of 60,000) was
+/// is 2 to 7 microseconds shorter. One of 12,288 water atoms (of 60,000) was
 /// longer in three runs, by 26 to 164, which the scatter of the runs (41 to
 /// 138) leaves unsettled (`bench/results/SUMMARY.md`).
 const WARPS_PER_CENTER: usize = 4;

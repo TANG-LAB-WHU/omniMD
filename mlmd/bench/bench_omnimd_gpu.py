@@ -5,8 +5,9 @@ build with `--features gpu`) and check it against DeePMD-kit reference E/F/V.
         [--reference deepmd_ref.jsonl]
 
 Per case, network precision (float64, float32) and embedding mode (exact
-networks, then tables from `--compress`) the evaluator runs one warmup, K
-timed in-process evaluations (`--bench K`) and one profiled evaluation; rows
+networks, then tables from `--compress`) the evaluator runs the evaluation
+whose result it prints, one warmup, K timed in-process evaluations
+(`--bench K`) and K more with marks between the stages (`--profile`); rows
 use the same columns as bench_deepmd.py. The reference file
 comes from `deepmd_reference.py` (DeepMD-kit CPU float64); the error columns
 go to a JSON file next to the CSV.
