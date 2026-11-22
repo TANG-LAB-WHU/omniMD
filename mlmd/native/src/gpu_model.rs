@@ -96,6 +96,25 @@ __device__ long long slot_row(const int* rows, int ntypes, int count, int i, int
     return local < entry[1] ? entry[0] + local : entry[2];
 }
 
+// The embedding values of an se_e2_a descriptor with tables, for its
+// descriptor and force kernels to look up themselves instead of reading
+// what a kernel of the tables stored for every row: the input and the table
+// of every row as the environment kernel wrote them (`x`, `network`; -1 for
+// an empty slot), and the tables (see `cell_piece`). A row outside its table
+// sets `flag`, if there is one.
+template <typename P>
+struct RowTables {
+    const P* x;
+    const int* network;
+    const P* coef;
+    int bits;
+    const int* shape;
+    const P* range;
+    const int* base;
+    const P* scale;
+    int* flag;
+};
+
 // Several models of one architecture (a committee) go through these kernels
 // together: the second dimension of the launch grid is the model. Model `m`
 // reads the same neighbor lists, has its statistics and networks at center
@@ -197,16 +216,25 @@ __device__ void count_neighbors(const int* mine, const int* slot_type, const int
 // number for a model of this descriptor, and for a hybrid the number of all
 // its descriptors, with `d_out` at the first component of this one. The
 // force kernels read dE/dD the same way.
-template <typename P, typename E>
+//
+// With `TABLES` the embedding values are not read from `g` but looked up in
+// the tables (see `RowTables`): the piece of every neighbor's row and its
+// place there are found once, by a thread per slot, and kept in shared
+// memory; every output then evaluates its quintic there as the kernel of
+// the tables would have, and gets the number that kernel would have
+// stored. A row outside its table sets the flag.
+template <typename P, typename E, bool TABLES = false>
 __device__ void descriptor_impl(const E* env, const P* g, const int* slot_type,
         const int* slot_local, const int* sel, const int* offset, int count, int slots,
         int width, int axis, E* b_out, P* d_out, const int* rows, int ntypes,
         const int* index, const int* atype, const P* g_empty, const E* empty_row, int first,
-        int stride) {
+        int stride, RowTables<P> tables = RowTables<P>()) {
     extern __shared__ double b_shared[];
     E* b = (E*)b_shared;                    // [width][4]
     E* near = b + 4 * width;                // without `rows`: this atom's rows, [slots][4]
-    int* filled = (int*)(near + 4 * slots); // and its neighbors of each type, [ntypes]
+    P* place = (P*)(near + 4 * slots);      // with tables: the place of each slot's row, [slots]
+    int* filled = (int*)(place + (TABLES ? slots : 0)); // its neighbors of each type, [ntypes]
+    int* piece = filled + ntypes;           // with tables: the piece of each slot's row, [slots]
     int i = blockIdx.x, model = blockIdx.y;
     // This model's rows of the embedding and of the environment, and its
     // place among the centers.
@@ -219,6 +247,20 @@ __device__ void descriptor_impl(const E* env, const P* g, const int* slot_type,
         for (int e = threadIdx.x; e < 4 * slots; e += blockDim.x) near[e] = stored[e];
         count_neighbors(index + (long long)(first + i) * slots, slot_type, slot_local, sel,
                         slots, ntypes, filled);
+        if (TABLES) {
+            // An empty slot has no row: its net is -1, and nothing reads
+            // its piece.
+            long long before = (long long)model * count * slots;
+            for (int s = threadIdx.x; s < slots; s += blockDim.x) {
+                long long row = before + embed_row(count, i, slot_type[s], slot_local[s], sel, offset);
+                int net = tables.network[row];
+                P u = 0, du;
+                piece[s] = net < 0 ? 0
+                    : cell_piece(tables.x[row], net, tables.bits, tables.shape, tables.range,
+                                 tables.base, tables.scale, &u, &du, tables.flag);
+                place[s] = u;
+            }
+        }
         __syncthreads();
     }
     for (int m = threadIdx.x; m < width; m += blockDim.x) {
@@ -237,7 +279,14 @@ __device__ void descriptor_impl(const E* env, const P* g, const int* slot_type,
                 const P* mine = g + embed_row(count, i, t, 0, sel, offset) * width + m;
                 const E* r = near + 4 * offset[t];
                 for (int k = 0; k < neighbors; ++k) {
-                    E gm = (E)mine[(long long)k * width];
+                    E gm;
+                    if (TABLES) {
+                        int s = offset[t] + k;
+                        gm = (E)cell_value(tables.coef + ((long long)piece[s] * width + m) * 6,
+                                           place[s]);
+                    } else {
+                        gm = (E)mine[(long long)k * width];
+                    }
                     for (int a = 0; a < 4; ++a) part[a] += gm * r[4 * k + a];
                 }
                 if (neighbors < sel[t]) {
@@ -340,20 +389,31 @@ __device__ void block_sums(double* fi, double* vir, double* red, double* all, do
 //     float64 environment Jacobian; only the neighbor's force needs a global
 //     atomic, the center force and the virial are reduced over the block
 //     first (`block_sums`, with room for it when bit 1 of `add` is set).
-template <typename P, typename E>
+// With `TABLES` phase 2 looks G and dG/dr up in the tables (see `RowTables`)
+// instead of reading them: the piece of every neighbor's row, its place
+// there and du/dx are found with B, by a thread per slot, and the lanes of a
+// warp evaluate the quintics of their outputs and their derivatives as the
+// kernel of the tables would have.
+template <typename P, typename E, bool TABLES = false>
 __device__ void backward_impl(const E* env, const P* g, const P* dg, const E* b_in,
         const P* dd_in, const int* index, const double* delta, const double* dist,
         const int* atype, const double* dstd_inv, const int* slot_type, const int* slot_local,
         const int* sel, const int* offset, int first, int count, int slots, int width, int axis,
         double rmin, double inv_range, double* force, double* virial, const int* rows,
-        int ntypes, int natoms, int stride, int add) {
+        int ntypes, int natoms, int stride, int add, RowTables<P> tables = RowTables<P>()) {
     extern __shared__ double shared[];
     P* dr_all = (P*)shared;              // [slots][5]: dE/d(env row), the tangent term
     double* red = shared + (5 * slots * sizeof(P) + 7) / 8;  // [12]: center force, virial
     E* b = (E*)(red + 12);               // [width][4]
     P* db = (P*)(b + 4 * width);         // [4][width]
+    // With tables: the place of each slot's row and du/dx there, [slots]
+    // each, and its piece, [slots].
+    P* place = db + 4 * width;
+    P* slope = place + slots;
+    int* piece = (int*)(slope + slots);
+    char* after = (char*)place + (TABLES ? (2 * slots * sizeof(P) + 4 * slots + 7) / 8 * 8 : 0);
     // [12][threads], what every thread adds to the block's sums.
-    double* all = (add & 2) ? (double*)(db + 4 * width) : nullptr;
+    double* all = (add & 2) ? (double*)after : nullptr;
     add &= 1;
     int li = blockIdx.x, i = first + li, model = blockIdx.y;
     // This model's work rows and its place among the centers; its forces
@@ -367,6 +427,18 @@ __device__ void backward_impl(const E* env, const P* g, const P* dg, const E* b_
     virial += 9 * (long long)model * natoms;
     for (int e = threadIdx.x; e < 4 * width; e += blockDim.x) b[e] = b_in[center * width * 4 + e];
     for (int e = threadIdx.x; e < 12; e += blockDim.x) red[e] = 0.0;
+    if (TABLES) {
+        for (int s = threadIdx.x; s < slots; s += blockDim.x) {
+            long long row = before + embed_row(count, li, slot_type[s], slot_local[s], sel, offset);
+            int net = tables.network[row];
+            P u = 0, du = 0;
+            piece[s] = net < 0 ? 0
+                : cell_piece(tables.x[row], net, tables.bits, tables.shape, tables.range,
+                             tables.base, tables.scale, &u, &du, tables.flag);
+            place[s] = u;
+            slope[s] = du;
+        }
+    }
     __syncthreads();
     const P* dd = dd_in + center * stride;
     for (int m = threadIdx.x; m < width; m += blockDim.x) {
@@ -395,14 +467,29 @@ __device__ void backward_impl(const E* env, const P* g, const P* dg, const E* b_
         const E* r = env + 4 * ((long long)li * slots + s);
         P rp[4] = {(P)r[0], (P)r[1], (P)r[2], (P)r[3]};
         P dr[4] = {0, 0, 0, 0}, tangent = 0;
-        for (int m = lane; m < width; m += 32) {
-            P gm = g[row + m], projection = 0;
-            for (int a = 0; a < 4; ++a) {
-                P w = db[a * width + m];
-                dr[a] += w * gm;
-                projection += w * rp[a];
+        if (TABLES) {
+            const P* of_piece = tables.coef + (long long)piece[s] * width * 6;
+            P u = place[s], du = slope[s];
+            for (int m = lane; m < width; m += 32) {
+                const P* c = of_piece + m * 6;
+                P gm = cell_value(c, u), projection = 0;
+                for (int a = 0; a < 4; ++a) {
+                    P w = db[a * width + m];
+                    dr[a] += w * gm;
+                    projection += w * rp[a];
+                }
+                tangent += projection * cell_tangent(c, u, du);
             }
-            tangent += projection * dg[row + m];
+        } else {
+            for (int m = lane; m < width; m += 32) {
+                P gm = g[row + m], projection = 0;
+                for (int a = 0; a < 4; ++a) {
+                    P w = db[a * width + m];
+                    dr[a] += w * gm;
+                    projection += w * rp[a];
+                }
+                tangent += projection * dg[row + m];
+            }
         }
         for (int a = 0; a < 4; ++a) dr[a] = warp_sum(dr[a]);
         tangent = warp_sum(tangent);
@@ -1200,6 +1287,17 @@ extern "C" __global__ void se_e2_a_descriptor_##S(const P* env, const P* g,     
                           b_out, d_out, nullptr, ntypes, index, atype, g_empty, empty_row,        \
                           first, stride);                                                         \
 }                                                                                                 \
+extern "C" __global__ void se_e2_a_table_descriptor_##S(const P* env, const P* x,                 \
+        const int* network, const P* coef, int bits, const int* shape, const P* range,            \
+        const int* base, const P* scale, int* flag, const int* slot_type,                         \
+        const int* slot_local, const int* sel, const int* offset, int count, int slots,           \
+        int width, int axis, P* b_out, P* d_out, int ntypes, const int* index,                    \
+        const int* atype, const P* g_empty, const P* empty_row, int first, int stride) {          \
+    RowTables<P> tables = {x, network, coef, bits, shape, range, base, scale, flag};              \
+    descriptor_impl<P, P, true>(env, nullptr, slot_type, slot_local, sel, offset, count, slots,   \
+                                width, axis, b_out, d_out, nullptr, ntypes, index, atype,         \
+                                g_empty, empty_row, first, stride, tables);                       \
+}                                                                                                 \
 extern "C" __global__ void se_e2_a_descriptor_rows_##S(const double* env, const P* g,             \
         const int* slot_type, const int* slot_local, const int* sel, const int* offset,           \
         int count, int slots, int width, int axis, double* b_out, P* d_out, const int* rows,      \
@@ -1217,6 +1315,19 @@ extern "C" __global__ void se_e2_a_backward_##S(const P* env, const P* g, const 
     backward_impl<P, P>(env, g, dg, b_in, dd_in, index, delta, dist, atype, dstd_inv, slot_type,  \
                         slot_local, sel, offset, first, count, slots, width, axis, rmin,          \
                         inv_range, force, virial, nullptr, ntypes, natoms, stride, add);          \
+}                                                                                                 \
+extern "C" __global__ void se_e2_a_table_backward_##S(const P* env, const P* x,                   \
+        const int* network, const P* coef, int bits, const int* shape, const P* range,            \
+        const int* base, const P* scale, const P* b_in, const P* dd_in, const int* index,         \
+        const double* delta, const double* dist, const int* atype, const double* dstd_inv,        \
+        const int* slot_type, const int* slot_local, const int* sel, const int* offset,           \
+        int first, int count, int slots, int width, int axis, double rmin, double inv_range,      \
+        double* force, double* virial, int ntypes, int natoms, int stride, int add) {             \
+    RowTables<P> tables = {x, network, coef, bits, shape, range, base, scale, nullptr};           \
+    backward_impl<P, P, true>(env, nullptr, nullptr, b_in, dd_in, index, delta, dist, atype,      \
+                              dstd_inv, slot_type, slot_local, sel, offset, first, count, slots,  \
+                              width, axis, rmin, inv_range, force, virial, nullptr, ntypes,       \
+                              natoms, stride, add, tables);                                       \
 }                                                                                                 \
 extern "C" __global__ void se_e2_a_backward_rows_##S(const double* env, const P* g,               \
         const P* dg, const double* b_in, const P* dd_in, const int* index, const double* delta,   \
@@ -1363,6 +1474,13 @@ const WIDE_BLOCK: u32 = 256;
 /// every warp of a block reduced its own sums (sixty additions in double
 /// precision a warp, so twice as many for a block of eight warps as for one
 /// of four), the gain ended at 224 centers.
+///
+/// With the kernels of se_e2_a looking their tables up (float32 since
+/// 2026-11-21, `bench/results/inline-tables-force-blocks-rtx4090-2026-11-21.json`)
+/// the narrower blocks took 0.5% to 4.3% less with the HAP model from 264 to
+/// 352 centers, and the wider ones with the sums across the warps 3.1% less
+/// with the water model at 384, past both limits. A limit by the blocks the
+/// device keeps at once may serve both (see the summary of the results).
 pub const WIDE_FORCE_CENTERS_F32: usize = 352;
 /// The same for float64 passes. There the wider blocks took 1.6% to 4.4% off
 /// an evaluation with se_e2_r up to 224 centers, less than 1% from 264 to
@@ -1517,6 +1635,10 @@ struct Kernels {
     table_descriptor: Option<CudaFunction>,
     table_descriptor_rows: Option<CudaFunction>,
     table_dtheta: Option<CudaFunction>,
+    /// se_e2_a with tables: the descriptor and force kernels that look the
+    /// embedding values up themselves (see [`GpuPotential::inline_tables`]).
+    inline_descriptor: Option<CudaFunction>,
+    inline_backward: Option<CudaFunction>,
 }
 
 /// The rows of the embedding nets of an se_e3 descriptor for a frame: the
@@ -1727,6 +1849,27 @@ pub(crate) fn angular_force_shared<P>(slots: usize, width: usize, b_size: usize)
     (5 * slots * size).next_multiple_of(8) + 12 * 8 + 4 * width * (b_size + size)
 }
 
+/// Shared memory the se_e2_a force kernel that looks the embedding values
+/// up in the tables needs on top of [`angular_force_shared`]: the place of
+/// every slot's row in its piece and du/dx there in the precision of the
+/// networks, and the piece.
+fn angular_table_shared<P>(slots: usize) -> usize {
+    (2 * slots * std::mem::size_of::<P>() + 4 * slots).next_multiple_of(8)
+}
+
+/// Shared memory of the se_e2_a descriptor kernel of the potential per
+/// block: B and the atom's environment rows in the precision of the
+/// networks, its neighbors of each type, and when it looks the embedding
+/// values up in the tables the place and the piece of every slot's row.
+fn angular_descriptor_shared<P>(slots: usize, width: usize, ntypes: usize, tables: bool) -> usize {
+    let size = std::mem::size_of::<P>();
+    let looked_up = match tables {
+        true => slots * (size + 4),
+        false => 0,
+    };
+    (4 * (width + slots) * size + looked_up + 4 * ntypes).next_multiple_of(8)
+}
+
 /// Shared memory of the se_e2_r force kernel per block: dE/d(radial entry)
 /// of every slot and dE/dD in the precision of the networks, the block's
 /// sums in double.
@@ -1865,7 +2008,12 @@ type Stage = fn(&mut Stages) -> &mut f64;
 ///
 /// Both sets cover the same stretch, from the first device call to the
 /// results on the host; `host_prepare` and `host_finish` are the host's work
-/// before and after it, and `wall` is all of it.
+/// before and after it, and `wall` is all of it. That is, when the device
+/// gets to the first mark as the host issues it: now and then it gets there
+/// late, and `device` is then short of `issue` by the delay. Of 200
+/// evaluations of 12 atoms in float32 with tables, one each in a process of
+/// its own, 8 had `device` below half of `issue`, down to a quarter
+/// (2026-11-21).
 #[derive(Clone, Debug, Default, serde::Serialize)]
 pub struct StageTimes {
     pub wall: f64,
@@ -1954,6 +2102,11 @@ pub struct GpuPotential<P: Scalar> {
     force_threads: u32,
     block_sums_centers: Option<usize>,
     block_sums_shared: bool,
+    /// With tables, whether the kernels of se_e2_a look the embedding values
+    /// up themselves: always, never, or None by the precision (see
+    /// [`Self::inline_tables`]), and whether they did in the last pass.
+    inline_tables: Option<bool>,
+    tables_looked_up: bool,
     /// Neighbor search with its device buffers, kept between evaluations.
     search: NeighborSearch,
     last_truncated: bool,
@@ -2400,6 +2553,14 @@ impl<P: Scalar> Part<P> {
                 true => Some(function("se_e3_table_dtheta")?),
                 false => None,
             },
+            inline_descriptor: match kind == DescriptorKind::SeE2A {
+                true => Some(function("se_e2_a_table_descriptor")?),
+                false => None,
+            },
+            inline_backward: match kind == DescriptorKind::SeE2A {
+                true => Some(function("se_e2_a_table_backward")?),
+                false => None,
+            },
         };
         // A descriptor with the slots and the cutoff of the list reads the
         // list as it is; any other, its own table of it.
@@ -2466,6 +2627,19 @@ impl<P: Scalar> Part<P> {
             DescriptorKind::SeE2R => rows,
             DescriptorKind::SeE3 => 0,
         }
+    }
+
+    /// Whether the descriptor and force kernels of this descriptor look the
+    /// embedding values up in its tables themselves: an se_e2_a descriptor
+    /// whose tables are in use, when `on` (see
+    /// [`GpuPotential::inline_tables`]) and its blocks have room for what the
+    /// lookup keeps in shared memory.
+    fn looks_up(&self, compressed: bool, on: bool, ntypes: usize) -> bool {
+        on && compressed
+            && self.tables.is_some()
+            && self.kind == DescriptorKind::SeE2A
+            && self.backward_shared + angular_table_shared::<P>(self.slots) <= SHARED_LIMIT
+            && angular_descriptor_shared::<P>(self.slots, self.width, ntypes, true) <= SHARED_LIMIT
     }
 
     /// The neighbor slots the kernels of this descriptor read (neighbors,
@@ -2885,6 +3059,8 @@ impl<P: Scalar> GpuPotential<P> {
             force_threads: 0,
             block_sums_centers: None,
             block_sums_shared: false,
+            inline_tables: None,
+            tables_looked_up: false,
             search: NeighborSearch::new(d.rcut, &d.sel)?,
             last_truncated: false,
             profile: None,
@@ -3145,6 +3321,41 @@ impl<P: Scalar> GpuPotential<P> {
         self.table_fallbacks
     }
 
+    /// Whether, with tables, the descriptor and force kernels of se_e2_a
+    /// look the embedding values up in them themselves instead of reading
+    /// what a kernel of the tables stored for every row of a chunk: by
+    /// default in float32 and not in float64. Either gives the same
+    /// numbers, since both evaluate the quintics alike. A descriptor whose
+    /// blocks have no room in shared memory for what the lookup keeps reads
+    /// the stored values at any setting.
+    pub fn inline_tables(&self) -> bool {
+        self.inline_tables.unwrap_or(std::mem::size_of::<P>() == 4)
+    }
+
+    /// Whether a pass with the tables has the kernels of an se_e2_a
+    /// descriptor look the embedding values up in them: with tables, by the
+    /// setting of [`Self::inline_tables`] and where the blocks have room.
+    pub fn looks_up_tables(&self) -> bool {
+        let (on, ntypes) = (self.inline_tables(), self.sel.len());
+        self.parts
+            .iter()
+            .any(|part| part.looks_up(true, on, ntypes))
+    }
+
+    /// Override [`Self::inline_tables`]; `None` restores the default of the
+    /// precision.
+    pub fn set_inline_tables(&mut self, on: Option<bool>) {
+        self.inline_tables = on;
+    }
+
+    /// Whether the kernels of an se_e2_a descriptor looked the embedding
+    /// values up in its tables in the last pass over the device (see
+    /// [`Self::inline_tables`]): false before the first and after a pass
+    /// with the exact networks, as when a frame left the tables.
+    pub fn tables_looked_up(&self) -> bool {
+        self.tables_looked_up
+    }
+
     /// Turn per-stage timing on or off. On, an evaluation issues a mark in
     /// the device's stream after each stage and reads their times when the
     /// results are back; it waits for nothing it would not wait for anyway.
@@ -3229,6 +3440,10 @@ impl<P: Scalar> GpuPotential<P> {
         compressed: bool,
     ) -> Result<Option<Vec<Vec<Evaluation>>>> {
         let ntypes = self.sel.len();
+        // se_e2_a with tables: whether its kernels look the embedding values
+        // up themselves (see `inline_tables`).
+        let inline_on = self.inline_tables();
+        self.tables_looked_up = compressed && self.looks_up_tables();
         let batch = frames.len() > 1;
         let in_batch = |index: usize, e: Error| match batch {
             true => Error(format!("frame {index} of the batch: {e}")),
@@ -3455,9 +3670,14 @@ impl<P: Scalar> GpuPotential<P> {
             };
             let all_rows = members * rows;
             let angular = part.kind == DescriptorKind::SeE2A;
-            // se_e3 from its tables: no embedding rows are kept.
+            // se_e3 from its tables, and se_e2_a where its kernels look the
+            // values up there: no embedding rows are kept. (The chunks stay
+            // as large as the exact networks take them, which an evaluation
+            // that leaves the tables falls back to.)
             let from_tables = compressed && part.tables.is_some();
-            let kept = match from_tables && part.kind == DescriptorKind::SeE3 {
+            let kept = match (from_tables && part.kind == DescriptorKind::SeE3)
+                || part.looks_up(compressed, inline_on, ntypes)
+            {
                 true => 1,
                 false => all_rows * part.width,
             };
@@ -3605,12 +3825,18 @@ impl<P: Scalar> GpuPotential<P> {
                 // atom][slot][width] (se_e3: [model][local atom][pair][width],
                 // and atoms without neighbors have no row).
                 // The tables of se_e3 are read by its descriptor and force
-                // kernels themselves: nothing is evaluated here for it.
+                // kernels themselves, and those of se_e2_a where its kernels
+                // look the values up (`looks_up`): nothing is evaluated here
+                // for them.
                 let pair_tables = part
                     .tables
                     .as_ref()
                     .filter(|_| compressed && part.kind == DescriptorKind::SeE3);
-                if chunk_rows > 0 && pair_tables.is_none() {
+                let row_tables = part
+                    .tables
+                    .as_ref()
+                    .filter(|_| part.looks_up(compressed, inline_on, ntypes));
+                if chunk_rows > 0 && pair_tables.is_none() && row_tables.is_none() {
                     let rows = members * chunk_rows;
                     let x = work.input.slice(0..rows);
                     let ids = work.network.slice(0..rows);
@@ -3650,10 +3876,16 @@ impl<P: Scalar> GpuPotential<P> {
                     .ok_or_else(|| {
                         Error("an se_e3 descriptor without the kernel of its tables".into())
                     })?,
+                    None if row_tables.is_some() => {
+                        part.kernels.inline_descriptor.as_ref().ok_or_else(|| {
+                            Error("an se_e2_a descriptor without the kernel of its tables".into())
+                        })?
+                    }
                     None => &part.kernels.descriptor,
                 };
                 let mut launch = stream.launch_builder(function);
                 let buffers = pair_tables.map(CellTable::buffers);
+                let lookup = row_tables.map(CellTable::buffers);
                 let config = match part.kind {
                     DescriptorKind::SeE3 => {
                         let (Some(pairs), Some((weight, _))) = (&work.pairs, &work.of_pairs) else {
@@ -3711,9 +3943,25 @@ impl<P: Scalar> GpuPotential<P> {
                         let (Some(env), Some(b)) = (&work.env, &mut work.b) else {
                             return Err(Error("an se_e2_a descriptor without its rows".into()));
                         };
+                        launch.arg(env);
+                        // The values of the rows, or what looks them up.
+                        match &lookup {
+                            Some(tables) => {
+                                tabulated = true;
+                                launch
+                                    .arg(&work.input)
+                                    .arg(&work.network)
+                                    .arg(tables.coefficients)
+                                    .arg(&tables.key_bits)
+                                    .arg(tables.shape)
+                                    .arg(tables.range)
+                                    .arg(tables.base)
+                                    .arg(tables.scale)
+                                    .arg(&mut outside_table)
+                            }
+                            None => launch.arg(&work.g),
+                        };
                         launch
-                            .arg(env)
-                            .arg(&work.g)
                             .arg(&part.slot_type)
                             .arg(&part.slot_local)
                             .arg(&part.sel_d)
@@ -3734,11 +3982,12 @@ impl<P: Scalar> GpuPotential<P> {
                         LaunchConfig {
                             grid_dim: (count as u32, deep, 1),
                             block_dim: (BLOCK, 1, 1),
-                            // B, the atom's environment rows, its neighbors per type.
-                            shared_mem_bytes: (4 * (width + slots) * std::mem::size_of::<P>()
-                                + 4 * ntypes)
-                                .next_multiple_of(8)
-                                as u32,
+                            shared_mem_bytes: angular_descriptor_shared::<P>(
+                                slots,
+                                width,
+                                ntypes,
+                                lookup.is_some(),
+                            ) as u32,
                         }
                     }
                     DescriptorKind::SeE2R => {
@@ -3861,7 +4110,26 @@ impl<P: Scalar> GpuPotential<P> {
                 };
                 let chunk_rows_i = chunk_rows as i64;
                 let dd = d_descriptor.slice(part.first_feature..);
-                let mut launch = stream.launch_builder(&part.kernels.backward);
+                // se_e2_a where its kernels look the embedding values up in
+                // the tables (`looks_up`): what the lookup keeps in shared
+                // memory is added to the kernel's own.
+                let lookup = part
+                    .tables
+                    .as_ref()
+                    .filter(|_| part.looks_up(compressed, inline_on, ntypes))
+                    .map(CellTable::buffers);
+                let function = match lookup {
+                    Some(_) => part.kernels.inline_backward.as_ref().ok_or_else(|| {
+                        Error("an se_e2_a descriptor without the force kernel of its tables".into())
+                    })?,
+                    None => &part.kernels.backward,
+                };
+                let own_shared = part.backward_shared
+                    + match lookup {
+                        Some(_) => angular_table_shared::<P>(slots),
+                        None => 0,
+                    };
+                let mut launch = stream.launch_builder(function);
                 let block_dim = match part.kind {
                     DescriptorKind::SeE3 => {
                         let (Some(pairs), Some((weight, dtheta))) =
@@ -3954,11 +4222,23 @@ impl<P: Scalar> GpuPotential<P> {
                         PAIR_FORCE_BLOCK
                     }
                     DescriptorKind::SeE2A | DescriptorKind::SeE2R => {
-                        if let (Some(env), Some(b)) = (&work.env, &work.b) {
-                            launch.arg(env).arg(&work.g).arg(&work.dg).arg(b);
-                        } else {
-                            launch.arg(&work.dg);
-                        }
+                        match (&work.env, &work.b, &lookup) {
+                            (Some(env), Some(b), Some(tables)) => launch
+                                .arg(env)
+                                .arg(&work.input)
+                                .arg(&work.network)
+                                .arg(tables.coefficients)
+                                .arg(&tables.key_bits)
+                                .arg(tables.shape)
+                                .arg(tables.range)
+                                .arg(tables.base)
+                                .arg(tables.scale)
+                                .arg(b),
+                            (Some(env), Some(b), None) => {
+                                launch.arg(env).arg(&work.g).arg(&work.dg).arg(b)
+                            }
+                            _ => launch.arg(&work.dg),
+                        };
                         launch
                             .arg(&dd)
                             .arg(index)
@@ -4000,7 +4280,7 @@ impl<P: Scalar> GpuPotential<P> {
                 // The last argument of every force kernel: bit 0 has it add
                 // to the virial, bit 1 says that its blocks have room for
                 // their sums across the warps.
-                let with_sums = part.backward_shared + block_sums_shared(block_dim);
+                let with_sums = own_shared + block_sums_shared(block_dim);
                 let limit = self.block_sums_centers.unwrap_or(match part.kind {
                     DescriptorKind::SeE2A => BLOCK_SUMS_CENTERS,
                     DescriptorKind::SeE2R | DescriptorKind::SeE3 => usize::MAX,
@@ -4008,7 +4288,7 @@ impl<P: Scalar> GpuPotential<P> {
                 self.block_sums_shared = members * count <= limit && with_sums <= SHARED_LIMIT;
                 let (shared, add_i) = match self.block_sums_shared {
                     true => (with_sums, add | 2),
-                    false => (part.backward_shared, add),
+                    false => (own_shared, add),
                 };
                 launch.arg(&add_i);
                 let config = LaunchConfig {
@@ -4258,7 +4538,8 @@ impl<P: Scalar> Committee for GpuPotential<P> {
 #[cfg(test)]
 mod tests {
     use super::{
-        in_parallel, pair_chunks, pair_starts, FittingPath, FittingRule, GROUPED_MAX_GROUPS,
+        angular_descriptor_shared, angular_table_shared, in_parallel, pair_chunks, pair_starts,
+        FittingPath, FittingRule, GROUPED_MAX_GROUPS,
     };
     use FittingPath::{Fused, Grouped, NetByNet};
 
@@ -4459,5 +4740,34 @@ mod tests {
             (item % 2 == 1).then_some(item).ok_or(item)
         });
         assert_eq!(odd, [Ok(1), Err(2), Ok(3)]);
+    }
+
+    /// What the se_e2_a kernels that look the tables up keep in shared
+    /// memory, worked out by hand: the force kernel a place and a slope in
+    /// the precision of the nets and a piece (four bytes) for every slot, up
+    /// to the next eight bytes, where the sums of the block follow; the
+    /// descriptor kernel B and the rows (four numbers each for every output
+    /// and slot), the neighbors of each type (four bytes), and with the
+    /// lookups a place and a piece for every slot.
+    #[test]
+    fn shared_memory_of_the_lookups() {
+        // An odd number of slots ends off the eight-byte grid.
+        assert_eq!(angular_table_shared::<f32>(121), 2 * 484 + 484 + 4);
+        assert_eq!(angular_table_shared::<f64>(121), 2 * 968 + 484 + 4);
+        // The slots of the HAP models.
+        assert_eq!(angular_table_shared::<f32>(212), 2 * 848 + 848);
+        assert_eq!(angular_table_shared::<f64>(212), 2 * 1696 + 848);
+        assert_eq!(
+            angular_descriptor_shared::<f32>(212, 100, 5, false),
+            4 * 312 * 4 + 20 + 4
+        );
+        assert_eq!(
+            angular_descriptor_shared::<f32>(212, 100, 5, true),
+            4 * 312 * 4 + 212 * 8 + 20 + 4
+        );
+        assert_eq!(
+            angular_descriptor_shared::<f64>(121, 16, 2, true),
+            4 * 137 * 8 + 121 * 12 + 8 + 4
+        );
     }
 }

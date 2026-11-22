@@ -989,7 +989,7 @@ fn embedding_table_costs() {
                         })
                         .collect();
                     let pieces = device.upload(&pieces).unwrap();
-                    let mut time = |label: &str, launch: &mut dyn FnMut()| {
+                    let time = |label: &str, launch: &mut dyn FnMut()| {
                         for _ in 0..3 {
                             launch();
                         }
@@ -1032,7 +1032,7 @@ fn embedding_table_costs() {
                     });
                 }
             }
-            let mut time = |label: &str, launch: &mut dyn FnMut()| {
+            let time = |label: &str, launch: &mut dyn FnMut()| {
                 for _ in 0..3 {
                     launch();
                 }

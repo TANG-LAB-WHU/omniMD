@@ -424,6 +424,27 @@ tables take ten times the step below `min_distance`).
   tables, where it writes the normalized entry for one that runs its nets.
   A frame with a pair closer than a fifth of `min_distance` goes to the
   nets.
+- se_e2_a, where its kernels get the values: in float32 its descriptor and
+  force kernels look the embedding values up in the tables themselves. The
+  descriptor kernel finds the piece and the place of every neighbor slot of
+  its atom once, the force kernel the piece, the place and its slope, and
+  each then evaluates the quintics of all outputs from there; no kernel of
+  the tables runs and no rows of embedding values are kept. In float64 a
+  kernel of the tables writes the value and the slope of every output for
+  every neighbor slot and the two kernels read them, since there evaluating
+  the quintics costs more than storing and reading them
+  (`embedding_table_costs` in `gpu/tests/costs.rs`).
+  `GpuPotential::set_inline_tables` (`--inline-tables on|off`) has the
+  kernels do one or the other whatever the precision; both evaluate a
+  quintic with the same code (`cell_value` and `cell_tangent` of
+  `gpu/src/table.rs`) and give the same numbers. Where the blocks of the two
+  kernels have no room in shared memory for what the lookups keep (in
+  float32 beyond 1,432 slots with nets of 100 outputs, 1,516 with 16), they
+  read stored values. The chunks of a pass are sized for the stored values
+  either way, so a frame that leaves the tables goes to the nets in the same
+  chunks. In float32 with tables an evaluation became 5% to 8% shorter for
+  the HAP frames of 88 to 224 atoms, 37% for 5,632 atoms and 40% for 12,288
+  waters ([summary](../bench/results/SUMMARY.md)).
 - se_e3: the table of a net covers θ of either sign, as far as two
   neighbors at a fifth of `min_distance` can bring it around a center of
   the type with the narrowest directions. With these tables the descriptor

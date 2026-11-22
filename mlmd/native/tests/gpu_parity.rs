@@ -3593,13 +3593,18 @@ fn the_stages_of_an_evaluation_are_timed_by_the_device() {
         // be longer than the host's issuing, for the last mark can reach the
         // device a while after the host issued it (0.88 ms on the device
         // against 0.37 of issuing, once in a mutation round, under a mutant
-        // that this test does not reach). And they are most of the issuing,
-        // since the host waits for the device at its end.
+        // that this test does not reach). They are mostly most of the
+        // issuing, since the host waits for the device at its end; but now
+        // and then the device gets to the first mark late, and they are then
+        // little more than its own work (a third of the issuing, in 2 of the
+        // 30 runs of this test in a mutation round, 2026-11-21). So each
+        // returns its share of the issuing, and the largest is checked.
         let (issue, on_device) = (times.issue.sum(), times.device.sum());
         assert!(
-            on_device <= call && on_device > 0.5 * issue,
+            on_device <= call,
             "{label}: {on_device} ms on the device, {issue} ms issuing, a call of {call} ms"
         );
+        on_device / issue
     };
 
     gpu.set_profiling(true);
@@ -3607,7 +3612,7 @@ fn the_stages_of_an_evaluation_are_timed_by_the_device() {
     let timed = gpu.eval(&frame).unwrap();
     let call = ms_since(started);
     let whole = gpu.stage_times().unwrap().clone();
-    checked("one chunk", &whole, 1, call);
+    let mut shares = vec![checked("one chunk", &whole, 1, call)];
     assert_eq!(timed.energy, plain.energy);
     compare("profiled", &timed, &plain, (1e-15, 1e-11));
 
@@ -3618,12 +3623,12 @@ fn the_stages_of_an_evaluation_are_timed_by_the_device() {
     for round in 0..2 {
         let started = Instant::now();
         gpu.eval(&frame).unwrap();
-        checked(
+        shares.push(checked(
             &format!("chunks, evaluation {round}"),
             gpu.stage_times().unwrap(),
             chunks,
             ms_since(started),
-        );
+        ));
     }
     let chunked = gpu.stage_times().unwrap().clone();
 
@@ -3641,7 +3646,12 @@ fn the_stages_of_an_evaluation_are_timed_by_the_device() {
     gpu.eval(&pair).unwrap();
     let call = ms_since(started);
     assert_eq!(gpu.table_fallbacks(), 1);
-    checked("outside the tables", gpu.stage_times().unwrap(), 2, call);
+    shares.push(checked(
+        "outside the tables",
+        gpu.stage_times().unwrap(),
+        2,
+        call,
+    ));
 
     // Sums and means of times, as the evaluator prints them.
     let mut sum = StageTimes::default();
@@ -3682,12 +3692,12 @@ fn the_stages_of_an_evaluation_are_timed_by_the_device() {
     gpu.evaluate_frames(&[&frame, &pair], 1).unwrap();
     let call = ms_since(started);
     assert_eq!(gpu.table_fallbacks(), 2);
-    checked(
+    shares.push(checked(
         "a batch outside the tables",
         gpu.stage_times().unwrap(),
         2,
         call,
-    );
+    ));
 
     // An evaluation that fails leaves profiling on and no times of its own.
     let coincident = Frame {
@@ -3701,11 +3711,17 @@ fn the_stages_of_an_evaluation_are_timed_by_the_device() {
     assert_eq!((after.wall, after.chunks), (0.0, 0));
     let started = Instant::now();
     gpu.eval(&frame).unwrap();
-    checked(
+    shares.push(checked(
         "after a failure",
         gpu.stage_times().unwrap(),
         chunks,
         ms_since(started),
+    ));
+    // The device was busy over most of the issuing of one of the six at
+    // least: its marks are among its work, not after all of it.
+    assert!(
+        shares.iter().any(|share| *share > 0.5),
+        "the device's shares of the issuing: {shares:?}"
     );
 
     gpu.set_profiling(false);
@@ -3789,4 +3805,242 @@ fn an_atom_with_more_neighbors_than_a_force_block_has_threads() {
             );
         }
     }
+}
+
+/// What a potential gave for frames, the frames it took to the nets, and
+/// whether its last force kernel formed the sums of its blocks across the
+/// warps.
+struct Pass {
+    evaluations: Vec<Vec<Evaluation>>,
+    fallbacks: usize,
+    block_sums: bool,
+}
+
+/// Evaluations of `frames` by the committee of `models` with tables from
+/// `min_distance` (step 0.01), after `setup`: first with the descriptor and
+/// force kernels of se_e2_a looking the embedding values up themselves, then
+/// reading what the kernel of the tables stored. The last frame must be
+/// within the tables: its pass shows whether the kernels looked them up.
+fn looked_up_and_stored<P: omnimd_gpu::Scalar>(
+    device: &std::sync::Arc<omnimd_gpu::Device>,
+    models: &[&Model],
+    frames: &[&Frame],
+    min_distance: f64,
+    setup: &dyn Fn(&mut GpuPotential<P>),
+) -> [Pass; 2] {
+    [true, false].map(|on| {
+        let mut gpu = GpuPotential::<P>::committee(models, device.clone()).unwrap();
+        setup(&mut gpu);
+        gpu.compress(min_distance, 0.01).unwrap();
+        gpu.set_inline_tables(Some(on));
+        let all = gpu.evaluate_frames(frames, models.len()).unwrap();
+        assert_eq!(gpu.tables_looked_up(), on, "looked up");
+        Pass {
+            evaluations: all,
+            fallbacks: gpu.table_fallbacks(),
+            block_sums: gpu.block_sums_shared(),
+        }
+    })
+}
+
+/// The two of [`looked_up_and_stored`] agree, frame by frame and model by
+/// model, and fell back to the networks as often.
+fn agree(label: &str, both: &[Pass; 2], tolerance: (f64, f64)) {
+    let [looked_up, stored] = both;
+    assert_eq!(
+        looked_up.fallbacks, stored.fallbacks,
+        "{label}: table fallbacks"
+    );
+    let (looked_up, stored) = (&looked_up.evaluations, &stored.evaluations);
+    assert_eq!(looked_up.len(), stored.len(), "{label}");
+    for (index, (a, b)) in looked_up.iter().zip(stored).enumerate() {
+        assert_eq!(a.len(), b.len(), "{label}");
+        for (model, (x, y)) in a.iter().zip(b).enumerate() {
+            compare(
+                &format!("{label}, frame {index}, model {model}"),
+                x,
+                y,
+                tolerance,
+            );
+        }
+    }
+}
+
+/// With tables the descriptor and force kernels of se_e2_a can look the
+/// embedding values up themselves (float32 by default) or read what a kernel
+/// of the tables stored for every row (float64). Both evaluate the quintics
+/// alike, so they agree to the order of the sums of the forces, within the
+/// tolerance of float64 in both precisions: for nets wider than a warp and
+/// than a block, odd numbers of slots, many slots, committees in uneven
+/// chunks, a batch with a frame beyond the tables, hybrids, types without
+/// slots, atoms without neighbors and atoms whose slots are all filled.
+#[test]
+fn tables_looked_up_by_the_kernels_match_the_stored_values() {
+    let Some(device) = device() else { return };
+    let triclinic = [[9.0, 0.0, 0.0], [1.5, 8.5, 0.0], [-1.0, 0.8, 9.2]];
+    let lattice = [[7.0, 0.0, 0.0], [0.5, 7.0, 0.0], [0.0, 0.0, 7.0]];
+    let as_it_is: &dyn Fn(&mut GpuPotential<f64>) = &|_| {};
+
+    // The default of each precision, and no lookups without tables or
+    // with them read stored.
+    let small = model(2, vec![80, 160], 4.5, 6);
+    let some = frame(triclinic, 5, 2, true, 16);
+    let mut single = GpuPotential::<f32>::new(&small, device.clone()).unwrap();
+    assert!(single.inline_tables());
+    single.set_inline_tables(Some(false));
+    assert!(!single.inline_tables());
+    single.set_inline_tables(None);
+    assert!(single.inline_tables());
+    single.eval(&some).unwrap();
+    assert!(!single.tables_looked_up(), "no tables yet");
+    single.compress(0.8, 0.01).unwrap();
+    single.eval(&some).unwrap();
+    assert!(single.tables_looked_up());
+    // A frame beyond the tables (from 0.8 Å they reach to 0.16) goes to the
+    // nets, and its last pass looked nothing up.
+    let mut beyond = some.clone();
+    beyond.positions[1] = [
+        beyond.positions[0][0] + 0.1,
+        beyond.positions[0][1],
+        beyond.positions[0][2],
+    ];
+    single.eval(&beyond).unwrap();
+    assert_eq!(single.table_fallbacks(), 1);
+    assert!(!single.tables_looked_up(), "a frame beyond the tables");
+    single.eval(&some).unwrap();
+    assert!(single.tables_looked_up());
+    let mut double = GpuPotential::<f64>::new(&small, device.clone()).unwrap();
+    assert!(!double.inline_tables());
+    double.compress(0.8, 0.01).unwrap();
+    double.eval(&some).unwrap();
+    assert!(!double.tables_looked_up());
+
+    // Nets of 40 outputs (more than a warp), of 136 (more than a block of
+    // the descriptor kernel has threads) and of 100, as trained models have,
+    // in both precisions.
+    for (width, axis, seed) in [(40, 6, 31), (136, 5, 33), (100, 16, 35)] {
+        let wide = common::model_of_width(2, vec![40, 80], 4.0, seed, width, axis);
+        let frames = [frame(lattice, 3, 2, true, seed + 1)];
+        let both = looked_up_and_stored::<f64>(&device, &[&wide], &[&frames[0]], 0.8, as_it_is);
+        agree(&format!("{width} outputs"), &both, FLOAT64);
+        let both = looked_up_and_stored::<f32>(&device, &[&wide], &[&frames[0]], 0.8, &|_| {});
+        agree(&format!("{width} outputs, float32"), &both, FLOAT64);
+    }
+
+    // An odd number of slots (41 and 80): what the force kernel keeps for
+    // the lookups ends off the eight-byte grid, and the sums of its blocks,
+    // in float64, follow from the next multiple of eight.
+    let odd = model(2, vec![41, 80], 4.0, 71);
+    let some_odd = frame(lattice, 3, 2, true, 72);
+    let across = |gpu: &mut GpuPotential<f64>| gpu.set_block_sums_centers(Some(1_000_000));
+    let both = looked_up_and_stored::<f64>(&device, &[&odd], &[&some_odd], 0.8, &across);
+    assert!(both.iter().all(|pass| pass.block_sums), "odd slots");
+    agree("odd slots", &both, FLOAT64);
+    let both = looked_up_and_stored::<f32>(&device, &[&odd], &[&some_odd], 0.8, &|gpu| {
+        gpu.set_block_sums_centers(Some(1_000_000))
+    });
+    assert!(
+        both.iter().all(|pass| pass.block_sums),
+        "odd slots, float32"
+    );
+    agree("odd slots, float32", &both, FLOAT64);
+
+    // Many slots (1,500 of one type) with a narrow net: the blocks still
+    // have room for the lookups.
+    let many = common::model_of_width(1, vec![1500], 4.0, 63, 16, 4);
+    let cubic = [[8.0, 0.0, 0.0], [0.0, 8.0, 0.0], [0.0, 0.0, 8.0]];
+    let packed = frame(cubic, 4, 1, true, 64);
+    let both = looked_up_and_stored::<f32>(&device, &[&many], &[&packed], 0.8, &|_| {});
+    agree("1,500 slots, float32", &both, FLOAT64);
+
+    // A committee of three in chunks of eleven atoms (125 atoms, the last
+    // chunk of four), in both precisions.
+    let models = committee_models(3);
+    let members: Vec<&Model> = models.iter().collect();
+    let large = frame(triclinic, 5, 2, true, 41);
+    let both = looked_up_and_stored::<f64>(&device, &members, &[&large], 0.8, &|gpu| {
+        gpu.set_chunk_atoms(33)
+    });
+    agree("a committee in chunks", &both, FLOAT64);
+    let both = looked_up_and_stored::<f32>(&device, &members, &[&large], 0.8, &|gpu| {
+        gpu.set_chunk_atoms(33)
+    });
+    agree("a committee in chunks, float32", &both, FLOAT64);
+
+    // A batch whose second frame has a pair closer than tables from 2 Å
+    // reach (0.4 Å): the frames go one at a time, that one with the nets.
+    let assorted = assorted_frames();
+    let mut close = assorted[3].clone();
+    close.positions[1] = [
+        close.positions[0][0] + 0.3,
+        close.positions[0][1],
+        close.positions[0][2],
+    ];
+    let batch = [&assorted[0], &close, &assorted[1], &assorted[2]];
+    let both = looked_up_and_stored::<f64>(&device, &members, &batch, 2.0, as_it_is);
+    assert_eq!(both[0].fallbacks, 1, "the frame beyond the tables");
+    agree("a batch with a frame beyond the tables", &both, FLOAT64);
+    let both = looked_up_and_stored::<f32>(&device, &members, &batch, 2.0, &|_| {});
+    assert_eq!(both[0].fallbacks, 1, "the frame beyond the tables, float32");
+    agree(
+        "a batch with a frame beyond the tables, float32",
+        &both,
+        FLOAT64,
+    );
+
+    // A hybrid: its se_e2_a part reads its own table of the list.
+    let hybrid = three_kinds(201);
+    let frames = [
+        frame(lattice, 3, 2, false, 202),
+        frame(triclinic, 4, 2, true, 203),
+    ];
+    let both = looked_up_and_stored::<f64>(
+        &device,
+        &[&hybrid],
+        &[&frames[0], &frames[1]],
+        0.8,
+        as_it_is,
+    );
+    agree("a hybrid", &both, FLOAT64);
+
+    // A type without slots, between two with.
+    let mut periodic = frame(lattice, 3, 2, true, 24);
+    for name in &mut periodic.species {
+        if name == "H" {
+            *name = "C".into();
+        }
+    }
+    let between = model(3, vec![60, 0, 60], 4.0, 25);
+    let both = looked_up_and_stored::<f64>(&device, &[&between], &[&periodic], 0.8, as_it_is);
+    agree("a type without slots", &both, FLOAT64);
+
+    // Atoms without neighbors (two far apart in the open), and atoms whose
+    // slots are all filled: one type (with several the search takes the
+    // nearest of any type first, which need not fill the slots of each),
+    // room for 6 of some twenty neighbors.
+    let tight = model(1, vec![6], 4.0, 22);
+    let mut sparse = frame(cubic, 2, 1, false, 36);
+    sparse.positions.truncate(2);
+    sparse.species.truncate(2);
+    sparse.positions[1] = [30.0, 30.0, 30.0];
+    let dense = frame(cubic, 4, 1, true, 35);
+    let both = looked_up_and_stored::<f64>(&device, &[&tight], &[&sparse, &dense], 0.8, as_it_is);
+    agree(
+        "atoms alone and atoms with every slot filled",
+        &both,
+        FLOAT64,
+    );
+    let alone = &both[0].evaluations[0][0];
+    assert!(
+        alone.forces.iter().flatten().all(|f| *f == 0.0),
+        "{alone:?}"
+    );
+
+    // A descriptor whose force blocks have no room for what the lookup
+    // keeps (2,000 slots in float32) reads the stored values instead.
+    let crowded = model(1, vec![2000], 4.0, 61);
+    let mut gpu = GpuPotential::<f32>::new(&crowded, device.clone()).unwrap();
+    gpu.compress(0.8, 0.01).unwrap();
+    gpu.eval(&dense).unwrap();
+    assert!(gpu.inline_tables() && !gpu.tables_looked_up());
 }

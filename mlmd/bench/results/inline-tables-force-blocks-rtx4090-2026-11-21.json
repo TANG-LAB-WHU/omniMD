@@ -1,0 +1,502 @@
+{
+ "date": "2026-11-21",
+ "device": "NVIDIA GeForce RTX 4090",
+ "one_setting_at_a_time": {
+  "date": "2026-11-21",
+  "device": "NVIDIA GeForce RTX 4090",
+  "what": "limits.py EXE OUT.json [ROUNDS]: the limits of the force kernel of se_e2_a, re-measured with its kernels looking the\ntables up (float32 with tables, 2026-11-21).\n\nOne build of omnimd-native-gpu-eval with --precision float32 --compress 0.5 in six settings: as it is (`default`,\ntwice a round: `default again` shows what the machine adds), every pass with the narrow blocks (--wide-forces 0)\nand with the wide ones (--wide-forces 1000000), and every pass with each warp reducing its own sums\n(--block-sums 0) and with the sums across the warps of a block (--block-sums 1000000). Alternated in ROUNDS rounds\n(5), the order reversed every other round, the least of each kept. Cases: the trained HAP se_e2_a model on the\nthree frames of the engine benchmarks, on batches of 1 to 6 copies of the 88-atom frame, and on that frame\nreplicated to 704 atoms; a committee of four on the 88- and 224-atom frames; the water model on 192 and 1,536\natoms. `centers` are the atoms of a pass times its models. Environment: ONLY (words of case names, by comma).",
+  "rounds": 5,
+  "build": "omnimd-native-gpu-eval of this change (branch fused-table), built 2026-11-21 17:58; the commit has the same code but for documentation and a test-only fix after the build",
+  "frames_outside_the_tables": 0,
+  "tables_looked_up": [
+   "True"
+  ],
+  "us_per_evaluation": [
+   {
+    "case": "HAP se_e2_a, 88 atoms",
+    "centers": 88,
+    "default": 140.65,
+    "narrow": 146.82,
+    "wide": 141.22,
+    "by_warp": 144.46,
+    "across": 140.79,
+    "default_again": 141.46
+   },
+   {
+    "case": "HAP se_e2_a, 169 atoms",
+    "centers": 169,
+    "default": 173.73,
+    "narrow": 179.67,
+    "wide": 174.45,
+    "by_warp": 179.06,
+    "across": 174.06,
+    "default_again": 174.6
+   },
+   {
+    "case": "HAP se_e2_a, 224 atoms",
+    "centers": 224,
+    "default": 192.23,
+    "narrow": 197.08,
+    "wide": 191.74,
+    "by_warp": 198.43,
+    "across": 192.54,
+    "default_again": 192.59
+   },
+   {
+    "case": "HAP se_e2_a, 1 frames of 88 atoms",
+    "centers": 88,
+    "default": 140.36,
+    "narrow": 147.66,
+    "wide": 139.45,
+    "by_warp": 142.1,
+    "across": 141.51,
+    "default_again": 140.89
+   },
+   {
+    "case": "HAP se_e2_a, 2 frames of 88 atoms",
+    "centers": 176,
+    "default": 171.64,
+    "narrow": 176.11,
+    "wide": 170.78,
+    "by_warp": 177.64,
+    "across": 171.95,
+    "default_again": 172.42
+   },
+   {
+    "case": "HAP se_e2_a, 3 frames of 88 atoms",
+    "centers": 264,
+    "default": 232.02,
+    "narrow": 230.96,
+    "wide": 234.23,
+    "by_warp": 234.63,
+    "across": 233.51,
+    "default_again": 233.54
+   },
+   {
+    "case": "HAP se_e2_a, 4 frames of 88 atoms",
+    "centers": 352,
+    "default": 268.14,
+    "narrow": 260.46,
+    "wide": 269.11,
+    "by_warp": 263.56,
+    "across": 268.94,
+    "default_again": 271.67
+   },
+   {
+    "case": "HAP se_e2_a, 6 frames of 88 atoms",
+    "centers": 528,
+    "default": 352.51,
+    "narrow": 352.35,
+    "wide": 359.89,
+    "by_warp": 354.51,
+    "across": 357.11,
+    "default_again": 354.08
+   },
+   {
+    "case": "HAP se_e2_a, 704 atoms",
+    "centers": 704,
+    "default": 417.28,
+    "narrow": 414.16,
+    "wide": 424.59,
+    "by_warp": 416.28,
+    "across": 422.72,
+    "default_again": 416.24
+   },
+   {
+    "case": "HAP committee of four, 88 atoms",
+    "centers": 352,
+    "default": 312.2,
+    "narrow": 298.7,
+    "wide": 312.26,
+    "by_warp": 305.12,
+    "across": 310.43,
+    "default_again": 313.42
+   },
+   {
+    "case": "HAP committee of four, 224 atoms",
+    "centers": 896,
+    "default": 518.18,
+    "narrow": 517.34,
+    "wide": 529.65,
+    "by_warp": 516.56,
+    "across": 527.77,
+    "default_again": 518.29
+   },
+   {
+    "case": "water se_e2_a, 192 atoms",
+    "centers": 192,
+    "default": 182.2,
+    "narrow": 187.27,
+    "wide": 183.68,
+    "by_warp": 189.29,
+    "across": 181.17,
+    "default_again": 182.38
+   },
+   {
+    "case": "water se_e2_a, 1,536 atoms",
+    "centers": 1536,
+    "default": 660.42,
+    "narrow": 658.02,
+    "wide": 670.93,
+    "by_warp": 654.52,
+    "across": 659.53,
+    "default_again": 660.42
+   }
+  ]
+ },
+ "width_and_sums_together": {
+  "date": "2026-11-21",
+  "device": "NVIDIA GeForce RTX 4090",
+  "what": "limits2.py EXE OUT.json [ROUNDS]: the width of the blocks of the se_e2_a force kernel that looks the tables up, and\nthe sums of its blocks, both at once, about where the limits are (float32 with tables, 2026-11-21).\n\nOne build of omnimd-native-gpu-eval with --precision float32 --compress 0.5 in six settings: as it is (`default`,\ntwice a round as a control), and the four pairs of the wide or narrow blocks (--wide-forces 1000000 or 0) with the\nsums across the warps of a block or by each warp (--block-sums 1000000 or 0). Alternated in ROUNDS rounds (5), the\norder reversed every other round, the least of each kept. Cases: the trained HAP se_e2_a model on batches of 1 to 6\ncopies of the 88-atom frame and of 1 and 2 copies of the 169-atom frame, on the 224-atom frame, a committee of four\non the 88-atom frame, and the water model on batches of 1 and 2 frames of 192 atoms. `centers` are the atoms of a\npass times its models.",
+  "rounds": 5,
+  "build": "omnimd-native-gpu-eval of this change (branch fused-table), built 2026-11-21 17:58; the commit has the same code but for documentation and a test-only fix after the build",
+  "tables_looked_up": [
+   "True"
+  ],
+  "us_per_evaluation": [
+   {
+    "case": "HAP 88, 1 of 88 atoms",
+    "centers": 88,
+    "default": 141.67,
+    "wide, across": 140.37,
+    "narrow, across": 146.6,
+    "wide, by warp": 142.52,
+    "narrow, by warp": 147.1,
+    "default again": 138.57
+   },
+   {
+    "case": "HAP 169, 1 of 169 atoms",
+    "centers": 169,
+    "default": 173.13,
+    "wide, across": 172.97,
+    "narrow, across": 178.53,
+    "wide, by warp": 177.35,
+    "narrow, by warp": 181.68,
+    "default again": 173.22
+   },
+   {
+    "case": "HAP 88, 2 of 88 atoms",
+    "centers": 176,
+    "default": 171.14,
+    "wide, across": 171.12,
+    "narrow, across": 176.74,
+    "wide, by warp": 178.17,
+    "narrow, by warp": 178.72,
+    "default again": 170.44
+   },
+   {
+    "case": "water 192, 1 of 192 atoms",
+    "centers": 192,
+    "default": 182.7,
+    "wide, across": 183.11,
+    "narrow, across": 186.2,
+    "wide, by warp": 188.6,
+    "narrow, by warp": 188.82,
+    "default again": 182.65
+   },
+   {
+    "case": "HAP 224",
+    "centers": 224,
+    "default": 191.43,
+    "wide, across": 191.14,
+    "narrow, across": 196.67,
+    "wide, by warp": 196.81,
+    "narrow, by warp": 199.6,
+    "default again": 192.68
+   },
+   {
+    "case": "HAP 88, 3 of 88 atoms",
+    "centers": 264,
+    "default": 232.68,
+    "wide, across": 232.92,
+    "narrow, across": 229.19,
+    "wide, by warp": 233.8,
+    "narrow, by warp": 233.4,
+    "default again": 231.74
+   },
+   {
+    "case": "HAP 169, 2 of 169 atoms",
+    "centers": 338,
+    "default": 264.43,
+    "wide, across": 266.44,
+    "narrow, across": 256.15,
+    "wide, by warp": 259.06,
+    "narrow, by warp": 258.8,
+    "default again": 265.16
+   },
+   {
+    "case": "HAP 88, 4 of 88 atoms",
+    "centers": 352,
+    "default": 269.0,
+    "wide, across": 267.5,
+    "narrow, across": 260.06,
+    "wide, by warp": 264.68,
+    "narrow, by warp": 264.61,
+    "default again": 268.34
+   },
+   {
+    "case": "HAP committee of four, 88 atoms",
+    "centers": 352,
+    "default": 311.87,
+    "wide, across": 312.05,
+    "narrow, across": 300.13,
+    "wide, by warp": 305.29,
+    "narrow, by warp": 305.99,
+    "default again": 313.11
+   },
+   {
+    "case": "water 192, 2 of 192 atoms",
+    "centers": 384,
+    "default": 281.55,
+    "wide, across": 272.85,
+    "narrow, across": 276.61,
+    "wide, by warp": 281.18,
+    "narrow, by warp": 280.61,
+    "default again": 280.4
+   },
+   {
+    "case": "HAP 88, 6 of 88 atoms",
+    "centers": 528,
+    "default": 350.97,
+    "wide, across": 354.87,
+    "narrow, across": 355.14,
+    "wide, by warp": 359.77,
+    "narrow, by warp": 349.29,
+    "default again": 351.64
+   }
+  ]
+ },
+ "before_and_after": {
+  "date": "2026-11-21",
+  "device": "NVIDIA GeForce RTX 4090",
+  "what": "blocks_ab.py OLD NEW OUT.json [ROUNDS]: the build before and the build after the se_e2_a kernels that look the\ntables up, where the limit of the wide blocks of the force kernel was measured with stored values and the lookups\nchange what the blocks keep (float32 with tables, 2026-11-21).\n\nTwo builds of omnimd-native-gpu-eval with --precision float32 --compress 0.5 and no other setting, alternated in\nROUNDS rounds (5) in one session, the order reversed every other round; the build before runs twice a round\n(`before` and `before again`). The least time of each is kept, and the median recorded. Cases: the trained HAP\nse_e2_a model on batches of 1 to 6 copies of the 88-atom frame and of 1 and 2 copies of the 169-atom frame, on the\n224-atom frame and its 704-atom replica, a committee of four on the 88- and 224-atom frames, and the water model on\nbatches of 1 and 2 frames of 192 atoms. `centers` are the atoms of a pass times its models.",
+  "rounds": 5,
+  "builds": {
+   "before": "omnimd-native-gpu-eval of 0e57a4f (shawn_dev before this change, run/prev-0e57a4f)",
+   "after": "omnimd-native-gpu-eval of this change (branch fused-table), built 2026-11-21 17:58; the commit has the same code but for documentation and a test-only fix after the build"
+  },
+  "us_per_evaluation": [
+   {
+    "case": "HAP 88, 1 of 88 atoms",
+    "centers": 88,
+    "after_looked_up": true,
+    "before": {
+     "best": 151.67,
+     "median": 159.02
+    },
+    "after": {
+     "best": 140.56,
+     "median": 141.92
+    },
+    "before_again": {
+     "best": 150.3,
+     "median": 153.79
+    }
+   },
+   {
+    "case": "HAP 169, 1 of 169 atoms",
+    "centers": 169,
+    "after_looked_up": true,
+    "before": {
+     "best": 184.65,
+     "median": 187.24
+    },
+    "after": {
+     "best": 174.61,
+     "median": 178.58
+    },
+    "before_again": {
+     "best": 184.2,
+     "median": 185.46
+    }
+   },
+   {
+    "case": "HAP 88, 2 of 88 atoms",
+    "centers": 176,
+    "after_looked_up": true,
+    "before": {
+     "best": 185.81,
+     "median": 186.56
+    },
+    "after": {
+     "best": 173.44,
+     "median": 178.81
+    },
+    "before_again": {
+     "best": 184.01,
+     "median": 186.2
+    }
+   },
+   {
+    "case": "water 192, 1 of 192 atoms",
+    "centers": 192,
+    "after_looked_up": true,
+    "before": {
+     "best": 195.76,
+     "median": 196.78
+    },
+    "after": {
+     "best": 183.85,
+     "median": 184.57
+    },
+    "before_again": {
+     "best": 194.64,
+     "median": 196.29
+    }
+   },
+   {
+    "case": "HAP 224",
+    "centers": 224,
+    "after_looked_up": true,
+    "before": {
+     "best": 205.39,
+     "median": 210.28
+    },
+    "after": {
+     "best": 194.4,
+     "median": 196.59
+    },
+    "before_again": {
+     "best": 207.0,
+     "median": 208.67
+    }
+   },
+   {
+    "case": "HAP 88, 3 of 88 atoms",
+    "centers": 264,
+    "after_looked_up": true,
+    "before": {
+     "best": 238.75,
+     "median": 240.24
+    },
+    "after": {
+     "best": 234.08,
+     "median": 237.68
+    },
+    "before_again": {
+     "best": 239.2,
+     "median": 241.12
+    }
+   },
+   {
+    "case": "HAP 169, 2 of 169 atoms",
+    "centers": 338,
+    "after_looked_up": true,
+    "before": {
+     "best": 272.16,
+     "median": 276.27
+    },
+    "after": {
+     "best": 265.17,
+     "median": 268.78
+    },
+    "before_again": {
+     "best": 273.56,
+     "median": 275.16
+    }
+   },
+   {
+    "case": "HAP 88, 4 of 88 atoms",
+    "centers": 352,
+    "after_looked_up": true,
+    "before": {
+     "best": 275.46,
+     "median": 276.68
+    },
+    "after": {
+     "best": 268.62,
+     "median": 272.44
+    },
+    "before_again": {
+     "best": 275.12,
+     "median": 278.56
+    }
+   },
+   {
+    "case": "HAP committee of four, 88 atoms",
+    "centers": 352,
+    "after_looked_up": true,
+    "before": {
+     "best": 343.09,
+     "median": 345.26
+    },
+    "after": {
+     "best": 312.79,
+     "median": 315.32
+    },
+    "before_again": {
+     "best": 345.01,
+     "median": 346.69
+    }
+   },
+   {
+    "case": "water 192, 2 of 192 atoms",
+    "centers": 384,
+    "after_looked_up": true,
+    "before": {
+     "best": 306.55,
+     "median": 307.08
+    },
+    "after": {
+     "best": 280.65,
+     "median": 282.14
+    },
+    "before_again": {
+     "best": 302.33,
+     "median": 306.35
+    }
+   },
+   {
+    "case": "HAP 88, 6 of 88 atoms",
+    "centers": 528,
+    "after_looked_up": true,
+    "before": {
+     "best": 409.38,
+     "median": 409.91
+    },
+    "after": {
+     "best": 356.27,
+     "median": 357.95
+    },
+    "before_again": {
+     "best": 408.4,
+     "median": 411.6
+    }
+   },
+   {
+    "case": "HAP 704",
+    "centers": 704,
+    "after_looked_up": true,
+    "before": {
+     "best": 509.32,
+     "median": 510.08
+    },
+    "after": {
+     "best": 416.95,
+     "median": 418.48
+    },
+    "before_again": {
+     "best": 506.77,
+     "median": 510.87
+    }
+   },
+   {
+    "case": "HAP committee of four, 224 atoms",
+    "centers": 896,
+    "after_looked_up": true,
+    "before": {
+     "best": 642.87,
+     "median": 643.62
+    },
+    "after": {
+     "best": 516.53,
+     "median": 519.5
+    },
+    "before_again": {
+     "best": 642.97,
+     "median": 648.76
+    }
+   }
+  ]
+ }
+}

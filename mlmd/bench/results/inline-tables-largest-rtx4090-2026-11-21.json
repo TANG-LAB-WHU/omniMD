@@ -1,0 +1,133 @@
+{
+ "date": "2026-11-21",
+ "device": "NVIDIA GeForce RTX 4090",
+ "what": "largest.py OLD NEW OUT.json: the water frame of 98,304 atoms, the largest of the cases, on the build before the se_e2_a\nkernels that look the tables up and the build after: evaluated once in float32 with tables (the build after looks the\ntables up, and once more held to the stored values), and the same frame with one pair 0.3 A apart and tables from 2 A\n(which reach to 0.4 A), so that the evaluation leaves the tables and falls back to the exact nets in chunks sized for\nthem. The largest differences of the energy, the forces and the virial from those of the build before (eV, eV/A, eV),\nthe notes of the fallbacks, and the time of an evaluation in float32 with tables (--bench 20, twice each).",
+ "builds": {
+  "before": "omnimd-native-gpu-eval of 0e57a4f (shawn_dev before this change, run/prev-0e57a4f)",
+  "after": "omnimd-native-gpu-eval of this change (branch fused-table), built 2026-11-21 17:58; the commit has the same code but for documentation and a test-only fix after the build"
+ },
+ "frame": "cases/water-98304.jsonl",
+ "model": "cases/water-se_e2_a-float64.native.json",
+ "largest_differences": [
+  {
+   "case": "float32 with tables",
+   "before_args": [
+    "--precision",
+    "float32",
+    "--compress",
+    "0.5"
+   ],
+   "after_args": [
+    "--precision",
+    "float32",
+    "--compress",
+    "0.5"
+   ],
+   "notes_before": [
+    "precision: network f32, chunk 79733 atoms, embedding tabulated"
+   ],
+   "notes_after": [
+    "precision: network f32, chunk 79733 atoms, embedding tabulated, looked up by the kernels"
+   ],
+   "energy": {
+    "largest_difference": 0.0,
+    "largest_value": 5102829.214101876
+   },
+   "forces": {
+    "largest_difference": 6.938893903907228e-18,
+    "largest_value": 0.006737279745812689
+   },
+   "virial": {
+    "largest_difference": 1.4210854715202004e-14,
+    "largest_value": 77.72465041030821
+   }
+  },
+  {
+   "case": "float32 with tables, after held to the stored values",
+   "before_args": [
+    "--precision",
+    "float32",
+    "--compress",
+    "0.5"
+   ],
+   "after_args": [
+    "--precision",
+    "float32",
+    "--compress",
+    "0.5",
+    "--inline-tables",
+    "off"
+   ],
+   "notes_before": [
+    "precision: network f32, chunk 79733 atoms, embedding tabulated"
+   ],
+   "notes_after": [
+    "precision: network f32, chunk 79733 atoms, embedding tabulated"
+   ],
+   "energy": {
+    "largest_difference": 0.0,
+    "largest_value": 5102829.214101876
+   },
+   "forces": {
+    "largest_difference": 6.071532165918825e-18,
+    "largest_value": 0.006737279745812688
+   },
+   "virial": {
+    "largest_difference": 2.842170943040401e-14,
+    "largest_value": 77.72465041030821
+   }
+  },
+  {
+   "case": "float32, a pair beyond the tables: the exact nets",
+   "before_args": [
+    "--precision",
+    "float32",
+    "--compress",
+    "2.0"
+   ],
+   "after_args": [
+    "--precision",
+    "float32",
+    "--compress",
+    "2.0"
+   ],
+   "notes_before": [
+    "precision: network f32, chunk 79733 atoms, embedding tabulated",
+    "note: frame 1 left the embedding table range; the exact networks were used"
+   ],
+   "notes_after": [
+    "precision: network f32, chunk 79733 atoms, embedding tabulated, looked up by the kernels",
+    "note: frame 1 left the embedding table range; the exact networks were used"
+   ],
+   "energy": {
+    "largest_difference": 0.0,
+    "largest_value": 5102829.245060946
+   },
+   "forces": {
+    "largest_difference": 2.7755575615628914e-17,
+    "largest_value": 0.18011150544217827
+   },
+   "virial": {
+    "largest_difference": 7.105427357601002e-15,
+    "largest_value": 77.72305024223374
+   }
+  }
+ ],
+ "ms_per_evaluation": [
+  {
+   "case": "float32 with tables",
+   "before": [
+    41.068,
+    40.893
+   ],
+   "after": [
+    24.616,
+    24.755
+   ],
+   "after_looked_up": [
+    true,
+    true
+   ]
+  }
+ ]
+}

@@ -30,7 +30,10 @@
 //! every descriptor, the most centers of a pass whose force kernel forms the
 //! sums of a block across its warps in shared memory (0: every warp reduces
 //! its own, as before 2026-11-19); without it se_e2_a has a limit and the
-//! others none.
+//! others none. `--inline-tables on|off` has the descriptor and force
+//! kernels of se_e2_a look the embedding values up in the tables themselves
+//! (on), or read what a kernel of the tables stored for every row (off),
+//! instead of by the precision (on in float32, off in float64).
 //!
 //! `--member` adds a model of the same architecture: the models are then
 //! evaluated together as a committee, and each output line is the array of
@@ -54,7 +57,7 @@ use std::time::Instant;
 const USAGE: &str = "usage: omnimd-native-gpu-eval MODEL.json [--precision float64|float32] \
                      [--bench K] [--profile] [--chunk ATOMS] [--compress RMIN[:STEP]] \
                      [--fused-fitting ROWS] [--grouped-fitting on|off] [--tiled-fitting on|off] [--wide-forces CENTERS] \
-                     [--block-sums CENTERS] [--member MODEL.json]... [--batch FRAMES] \
+                     [--block-sums CENTERS] [--inline-tables on|off] [--member MODEL.json]... [--batch FRAMES] \
                      [--bench-batches N,N,...] < frames.jsonl";
 
 struct Options {
@@ -72,6 +75,7 @@ struct Options {
     tiled_fitting: Option<bool>,
     wide_forces: Option<usize>,
     block_sums: Option<usize>,
+    inline_tables: Option<bool>,
 }
 
 fn options() -> Result<Options, Box<dyn std::error::Error>> {
@@ -91,6 +95,7 @@ fn options() -> Result<Options, Box<dyn std::error::Error>> {
         tiled_fitting: None,
         wide_forces: None,
         block_sums: None,
+        inline_tables: None,
     };
     while let Some(flag) = args.next() {
         let mut value = || args.next().ok_or(USAGE);
@@ -130,6 +135,15 @@ fn options() -> Result<Options, Box<dyn std::error::Error>> {
                         return Err(
                             format!("--grouped-fitting takes on or off, not {other:?}").into()
                         )
+                    }
+                })
+            }
+            "--inline-tables" => {
+                options.inline_tables = Some(match value()?.as_str() {
+                    "on" => true,
+                    "off" => false,
+                    other => {
+                        return Err(format!("--inline-tables takes on or off, not {other:?}").into())
                     }
                 })
             }
@@ -181,6 +195,9 @@ fn evaluate<P: Scalar>(
     if let Some(centers) = options.block_sums {
         gpu.set_block_sums_centers(Some(centers));
     }
+    if options.inline_tables.is_some() {
+        gpu.set_inline_tables(options.inline_tables);
+    }
     let mut build_seconds = 0.0;
     if let Some((min_distance, step)) = options.compress {
         let start = Instant::now();
@@ -196,10 +213,10 @@ fn evaluate<P: Scalar>(
         "precision: network {}, chunk {} atoms, embedding {}{}",
         P::SUFFIX,
         gpu.chunk_atoms(),
-        if gpu.is_compressed() {
-            "tabulated"
-        } else {
-            "exact"
+        match (gpu.is_compressed(), gpu.looks_up_tables()) {
+            (true, true) => "tabulated, looked up by the kernels",
+            (true, false) => "tabulated",
+            (false, _) => "exact",
         },
         match (members, options.batch) {
             (1, 1) => String::new(),
@@ -247,6 +264,7 @@ fn evaluate<P: Scalar>(
                     "precision": P::SUFFIX, "ms_per_eval": ms, "evaluations": passes,
                     "ms_per_frame_and_model": ms / (size * members) as f64,
                     "table_fallbacks": gpu.table_fallbacks(),
+                    "tables_looked_up": gpu.tables_looked_up(),
                     "count_downloads": gpu.count_downloads()})
             );
         }
@@ -299,6 +317,7 @@ fn evaluate<P: Scalar>(
             let mut record = serde_json::json!({"frame": first_line + 1, "natoms": natoms,
                 "precision": P::SUFFIX, "ms_per_eval": ms, "evaluations": options.bench,
                 "table_fallbacks": gpu.table_fallbacks(),
+                "tables_looked_up": gpu.tables_looked_up(),
                 "count_downloads": gpu.count_downloads()});
             if members > 1 || options.batch > 1 {
                 record["frames"] = frames.len().into();

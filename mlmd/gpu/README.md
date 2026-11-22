@@ -10,7 +10,7 @@ NVRTC at run time (and cached on disk), launched through `cudarc`.
 | `Device`, `KernelCache` | context, stream, cuBLAS handle; compiled kernels by source hash, in memory and on disk |
 | `NeighborSearch`, `NeighborList` | cell-list search with DeePMD's selection, for one system or several that do not see each other; the search keeps its buffers between calls |
 | `ScalarNetwork` | embedding nets, value and tangent in one launch |
-| `CellTable` | embedding nets as quintic tables in pieces of uneven length, each as long as its net allows (a trained net turns within a hundredth of a unit in some places and not at all in most; the θ of se_e3 spans thousands of units): the piece of an input is found from its sign, its exponent and its first bits, with nothing rounded on the way in float32 or float64. A table may have pieces on one side of zero only, and reach less far than its pieces go; an input beyond is flagged. `CELL_LOOKUP` is the lookup as CUDA source, for kernels that read such tables themselves |
+| `CellTable` | embedding nets as quintic tables in pieces of uneven length, each as long as its net allows (a trained net turns within a hundredth of a unit in some places and not at all in most; the θ of se_e3 spans thousands of units): the piece of an input is found from its sign, its exponent and its first bits, with nothing rounded on the way in float32 or float64. A table may have pieces on one side of zero only, and reach less far than its pieces go; an input beyond is flagged. `CELL_LOOKUP` is the lookup as CUDA source, for kernels that read such tables themselves, with `cell_value` and `cell_tangent` (the quintic of a piece and its slope), which the kernel of the tables evaluates too, so that a kernel that looks a value up gets the number that kernel would have stored |
 | `GradientNetwork` | fitting nets, forward and backward (few atoms): one launch, or three with a wide first layer in tiles through shared memory and the other layers two rows a block |
 | `GroupedNetwork` | fitting nets layer by layer on cuBLAS (many atoms), all nets of a layer in one grouped product (cuBLAS 12.5 and later) |
 | `DenseNetwork` | fitting nets layer by layer on cuBLAS a net at a time (many atoms, older cuBLAS) |
@@ -296,6 +296,25 @@ What follows for the kernels:
   With few atoms the latency of a load counts instead: copying an atom's
   environment rows and neighbor counts to shared memory before the sums took
   5% off a pass of 88 atoms and nothing off one of 98,304.
+- In float32, evaluate a table where its value is used. With tables, a
+  kernel evaluated the quintics of se_e2_a's embedding for every neighbor
+  slot and stored each value and its slope, 200 numbers a slot with 100
+  outputs; the descriptor kernel read the values back and the force kernel
+  both. Over a million rows of 100 outputs (`embedding_table_costs`,
+  nanoseconds a row): in float32, storing both took 1.04 to 1.10 and
+  reading them back 0.49 for the values and 0.95 for both, about 2.5 in
+  all, where evaluating the quintics in the kernels that use them took 0.34
+  to 0.52 for the values and 0.36 to 0.52 for values and slopes, 0.7 to 1.0
+  in all. In float64 the arithmetic outweighs the memory: 2.5 for the values
+  and 5.8 for both against 3.7 to store and 1.0 and 1.95 to read back, 8.3
+  against 6.6. So in float32 the descriptor and force kernels of se_e2_a
+  find the piece and the place of each slot once and evaluate the quintics
+  of its outputs themselves, and in float64 they read stored values
+  (`native::gpu_model::GpuPotential::inline_tables`). Evaluations in
+  float32 with tables became 5% to 8% shorter for the HAP frames of 88 to
+  224 atoms, 37% for 5,632 atoms and 40% for 12,288 waters. In float64,
+  looking the tables up made evaluations 2.3% and 1.7% longer for 88 HAP
+  atoms and 192 waters and 1.3% shorter for 5,632 HAP atoms.
 - Do no work for empty neighbor slots. With `sel` sized for the densest
   environment most slots are empty (65% in the HAP systems); their embedding
   row is the same for a pair of types, so it is evaluated once per model and

@@ -1,0 +1,309 @@
+{
+ "date": "2026-11-21",
+ "device": "NVIDIA GeForce RTX 4090",
+ "what": "eval_ab.py OLD NEW OUT.json [ROUNDS]: evaluations before and after the se_e2_a kernels that look the tables up.\n\nTwo builds of omnimd-native-gpu-eval, alternated in ROUNDS rounds (5) in one session, the order reversed every\nother round; the build before runs twice a round (`before` and `before again`), so that the two show what the\nmachine adds. The least time of each is kept, and the median recorded. Cases: the trained HAP se_e2_a model on the\nthree HAP frames of the engine benchmarks and on the 88-atom frame replicated to 704, 2,376 and 5,632 atoms, and the\nwater se_e2_a model on frames of 192, 1,536 and 12,288 atoms, all in float32 with tables (where the build after looks\nthe tables up by default). Controls on paths the change leaves as they were (the build after reads stored values\nthere): HAP 88 and 5,632 and water 1,536 in float64 with tables, and water 1,536 in float64 with the exact nets.\nAnd cases with the build after held to the other way (`--inline-tables`): float32 reading stored values (HAP 5,632),\nand float64 looking the tables up (HAP 88 and 5,632, water 192).\n",
+ "rounds": 5,
+ "builds": {
+  "before": "omnimd-native-gpu-eval of 0e57a4f (shawn_dev before this change, run/prev-0e57a4f)",
+  "after": "omnimd-native-gpu-eval of this change (branch fused-table), built 2026-11-21 17:58; the commit has the same code but for documentation and a test-only fix after the build"
+ },
+ "us_per_evaluation": [
+  {
+   "case": "HAP 88, float32 with tables",
+   "before": {
+    "best": 154.42,
+    "median": 163.54
+   },
+   "after": {
+    "best": 142.76,
+    "median": 144.62
+   },
+   "before_again": {
+    "best": 153.95,
+    "median": 164.77
+   }
+  },
+  {
+   "case": "HAP 169, float32 with tables",
+   "before": {
+    "best": 185.43,
+    "median": 186.99
+   },
+   "after": {
+    "best": 175.42,
+    "median": 179.05
+   },
+   "before_again": {
+    "best": 185.3,
+    "median": 188.86
+   }
+  },
+  {
+   "case": "HAP 224, float32 with tables",
+   "before": {
+    "best": 207.62,
+    "median": 210.6
+   },
+   "after": {
+    "best": 195.41,
+    "median": 196.74
+   },
+   "before_again": {
+    "best": 206.66,
+    "median": 209.87
+   }
+  },
+  {
+   "case": "HAP 704, float32 with tables",
+   "before": {
+    "best": 511.83,
+    "median": 515.72
+   },
+   "after": {
+    "best": 417.15,
+    "median": 419.08
+   },
+   "before_again": {
+    "best": 509.73,
+    "median": 513.03
+   }
+  },
+  {
+   "case": "HAP 2,376, float32 with tables",
+   "before": {
+    "best": 1265.58,
+    "median": 1271.34
+   },
+   "after": {
+    "best": 887.45,
+    "median": 897.1
+   },
+   "before_again": {
+    "best": 1264.66,
+    "median": 1279.55
+   }
+  },
+  {
+   "case": "HAP 5,632, float32 with tables",
+   "before": {
+    "best": 2413.14,
+    "median": 2426.62
+   },
+   "after": {
+    "best": 1520.18,
+    "median": 1532.49
+   },
+   "before_again": {
+    "best": 2411.47,
+    "median": 2415.09
+   }
+  },
+  {
+   "case": "water 192, float32 with tables",
+   "before": {
+    "best": 198.6,
+    "median": 200.74
+   },
+   "after": {
+    "best": 184.3,
+    "median": 185.8
+   },
+   "before_again": {
+    "best": 197.26,
+    "median": 199.56
+   }
+  },
+  {
+   "case": "water 1,536, float32 with tables",
+   "before": {
+    "best": 932.76,
+    "median": 947.6
+   },
+   "after": {
+    "best": 675.03,
+    "median": 681.8
+   },
+   "before_again": {
+    "best": 932.27,
+    "median": 945.29
+   }
+  },
+  {
+   "case": "water 12,288, float32 with tables",
+   "before": {
+    "best": 5179.21,
+    "median": 5236.11
+   },
+   "after": {
+    "best": 3105.73,
+    "median": 3158.49
+   },
+   "before_again": {
+    "best": 5221.05,
+    "median": 5241.9
+   }
+  },
+  {
+   "case": "control: HAP 88, float64 with tables",
+   "before": {
+    "best": 403.73,
+    "median": 406.52
+   },
+   "after": {
+    "best": 406.9,
+    "median": 407.71
+   },
+   "before_again": {
+    "best": 404.27,
+    "median": 406.88
+   }
+  },
+  {
+   "case": "control: HAP 5,632, float64 with tables",
+   "before": {
+    "best": 15376.5,
+    "median": 15393.52
+   },
+   "after": {
+    "best": 15385.11,
+    "median": 15410.59
+   },
+   "before_again": {
+    "best": 15381.54,
+    "median": 15409.45
+   }
+  },
+  {
+   "case": "control: water 1,536, float64 with tables",
+   "before": {
+    "best": 4588.09,
+    "median": 4600.89
+   },
+   "after": {
+    "best": 4594.44,
+    "median": 4602.59
+   },
+   "before_again": {
+    "best": 4582.16,
+    "median": 4599.92
+   }
+  },
+  {
+   "case": "control: water 1,536, float64",
+   "before": {
+    "best": 8471.73,
+    "median": 8479.44
+   },
+   "after": {
+    "best": 8468.89,
+    "median": 8484.46
+   },
+   "before_again": {
+    "best": 8456.25,
+    "median": 8492.76
+   }
+  },
+  {
+   "case": "held: HAP 5,632, float32 with tables, stored",
+   "before": {
+    "best": 2398.97,
+    "median": 2415.06
+   },
+   "after": {
+    "best": 2401.89,
+    "median": 2421.36
+   },
+   "before_again": {
+    "best": 2413.24,
+    "median": 2423.59
+   },
+   "after_arguments": [
+    "--inline-tables",
+    "off"
+   ]
+  },
+  {
+   "case": "held: HAP 5,632, float64 with tables, looked up",
+   "before": {
+    "best": 15379.4,
+    "median": 15398.94
+   },
+   "after": {
+    "best": 15173.62,
+    "median": 15200.55
+   },
+   "before_again": {
+    "best": 15380.39,
+    "median": 15398.94
+   },
+   "after_arguments": [
+    "--inline-tables",
+    "on"
+   ]
+  },
+  {
+   "case": "held: HAP 88, float64 with tables, looked up",
+   "before": {
+    "best": 403.89,
+    "median": 406.75
+   },
+   "after": {
+    "best": 413.1,
+    "median": 414.38
+   },
+   "before_again": {
+    "best": 405.31,
+    "median": 406.04
+   },
+   "after_arguments": [
+    "--inline-tables",
+    "on"
+   ]
+  },
+  {
+   "case": "held: water 192, float64 with tables, looked up",
+   "before": {
+    "best": 727.34,
+    "median": 728.37
+   },
+   "after": {
+    "best": 739.72,
+    "median": 744.08
+   },
+   "before_again": {
+    "best": 727.64,
+    "median": 728.37
+   },
+   "after_arguments": [
+    "--inline-tables",
+    "on"
+   ]
+  }
+ ],
+ "check_of_the_session": {
+  "what": "shift.py OUT.json [ROUNDS]: whether the build before this change (0e57a4f) is slower than the build of the\ngrouped products before their review (a2c045f), or the session is: both, and the build of this change, alternated\non the HAP frames of 88 and 224 atoms and water of 1,536, float32 with tables (2026-11-21). The build before took longer here than its predecessor did in the record of the grouped products (fitting-grouped-eval, 05:40 the same day); this check ran after the comparison above, least of each, us.",
+  "rounds": 3,
+  "builds": {
+   "a2c045f": "omnimd-native-gpu-eval of a2c045f (run/prev-a2c045f, shawn_dev with the grouped products before their review)",
+   "0e57a4f": "omnimd-native-gpu-eval of 0e57a4f (shawn_dev before this change, run/prev-0e57a4f)",
+   "this change": "omnimd-native-gpu-eval of this change (branch fused-table), built 2026-11-21 17:58; the commit has the same code but for documentation and a test-only fix after the build"
+  },
+  "us_per_evaluation": {
+   "HAP 88": {
+    "a2c045f": 152.9,
+    "0e57a4f": 150.74,
+    "this change": 139.68
+   },
+   "HAP 224": {
+    "a2c045f": 203.43,
+    "0e57a4f": 204.72,
+    "this change": 191.54
+   },
+   "water 1,536": {
+    "a2c045f": 912.28,
+    "0e57a4f": 912.78,
+    "this change": 659.11
+   }
+  }
+ }
+}

@@ -1494,7 +1494,12 @@ omnimd-native-gpu-eval MODEL.json [--precision float64|float32] [--compress RMIN
   [embedding tables](native/README.md#embedding-tables)). Choose `RMIN` below the
   shortest distance you expect. The tables reach to a fifth of `RMIN`; a frame
   with an even closer pair is evaluated with the exact networks instead, so the
-  value affects speed only.
+  value affects speed only. With tables the descriptor and force kernels of
+  se_e2_a look the embedding values up in them themselves in float32, and in
+  float64, where that is cheaper, read what a kernel of the tables stored for
+  every neighbor; `--inline-tables on|off` has them do one or the other
+  whatever the precision. Both give the same numbers, and the `precision:`
+  line of the header says which a pass will do.
 - `--bench K` prints the mean time of K in-process evaluations per frame to
   standard error; `--profile` adds the times of the stages (`stages_ms`),
   means over as many further evaluations: the whole (`wall`), the host's

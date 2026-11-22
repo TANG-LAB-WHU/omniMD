@@ -1,0 +1,116 @@
+{
+ "date": "2026-11-21",
+ "device": "NVIDIA GeForce RTX 4090",
+ "what": "agree.py NEW OLD OUT.json: se_e2_a kernels that look the tables up against those that read stored values, on trained nets.\n\nFor each trained se_e2_a model (hap-iter0-pre/ens4-f32-0, trained by omniMD, and hap/model-0, the pipeline's iteration by\nDeePMD-kit) the 83 sealed-test frames (bench/cases/hap/frames.jsonl) are evaluated in float32 and float64: with NEW looking\nthe tables up (--inline-tables on) and reading them stored (--inline-tables off), with OLD (the build before, which reads\nthem stored), all with tables from 0.5 A, and with NEW's exact nets. Printed and recorded: the largest difference over the\nframes of the energy per atom, of a force component and of a virial component for each pair.",
+ "builds": {
+  "new": "omnimd-native-gpu-eval of this change (branch fused-table), built 2026-11-21 17:58; the commit has the same code but for documentation and a test-only fix after the build",
+  "old": "omnimd-native-gpu-eval of 0e57a4f (shawn_dev before this change, run/prev-0e57a4f)"
+ },
+ "frames": "cases/hap/frames.jsonl (83 frames)",
+ "results": [
+  {
+   "model": "ens4-f32-0",
+   "precision": "float32",
+   "path_line": "precision: network f32, chunk 48781 atoms, embedding tabulated, looked up by the kernels",
+   "inline_vs_stored": {
+    "energy_per_atom": 0.0,
+    "force": 8.43769498715119e-15,
+    "virial": 0.0
+   },
+   "inline_vs_old": {
+    "energy_per_atom": 0.0,
+    "force": 9.325873406851315e-15,
+    "virial": 0.0
+   },
+   "inline_vs_exact": {
+    "energy_per_atom": 1.5713951804421164e-07,
+    "force": 9.121006288914657e-06,
+    "virial": 5.228803097168111e-05
+   },
+   "stored_vs_exact": {
+    "energy_per_atom": 1.5713951804421164e-07,
+    "force": 9.121006288914657e-06,
+    "virial": 5.228803097168111e-05
+   },
+   "largest_force": 6.1115623998907935
+  },
+  {
+   "model": "ens4-f32-0",
+   "precision": "float64",
+   "path_line": "precision: network f64, chunk 24398 atoms, embedding tabulated, looked up by the kernels",
+   "inline_vs_stored": {
+    "energy_per_atom": 0.0,
+    "force": 6.8833827526759706e-15,
+    "virial": 0.0
+   },
+   "inline_vs_old": {
+    "energy_per_atom": 0.0,
+    "force": 7.993605777301127e-15,
+    "virial": 0.0
+   },
+   "inline_vs_exact": {
+    "energy_per_atom": 1.3473995581821158e-13,
+    "force": 8.818146213229738e-11,
+    "virial": 3.660751701772824e-10
+   },
+   "stored_vs_exact": {
+    "energy_per_atom": 1.3473995581821158e-13,
+    "force": 8.818101804308753e-11,
+    "virial": 3.660751701772824e-10
+   },
+   "largest_force": 6.111563551287955
+  },
+  {
+   "model": "model-0",
+   "precision": "float32",
+   "path_line": "precision: network f32, chunk 48781 atoms, embedding tabulated, looked up by the kernels",
+   "inline_vs_stored": {
+    "energy_per_atom": 0.0,
+    "force": 7.549516567451064e-15,
+    "virial": 0.0
+   },
+   "inline_vs_old": {
+    "energy_per_atom": 0.0,
+    "force": 6.661338147750939e-15,
+    "virial": 0.0
+   },
+   "inline_vs_exact": {
+    "energy_per_atom": 9.006924099392361e-08,
+    "force": 7.918878600410295e-06,
+    "virial": 7.085862469580206e-05
+   },
+   "stored_vs_exact": {
+    "energy_per_atom": 9.006924099392361e-08,
+    "force": 7.918878600410295e-06,
+    "virial": 7.085862469580206e-05
+   },
+   "largest_force": 6.108884075535927
+  },
+  {
+   "model": "model-0",
+   "precision": "float64",
+   "path_line": "precision: network f64, chunk 24398 atoms, embedding tabulated, looked up by the kernels",
+   "inline_vs_stored": {
+    "energy_per_atom": 0.0,
+    "force": 5.523359547510154e-15,
+    "virial": 0.0
+   },
+   "inline_vs_old": {
+    "energy_per_atom": 0.0,
+    "force": 6.217248937900877e-15,
+    "virial": 0.0
+   },
+   "inline_vs_exact": {
+    "energy_per_atom": 9.094947017729283e-14,
+    "force": 7.757661180107789e-11,
+    "virial": 3.496758438359393e-10
+   },
+   "stored_vs_exact": {
+    "energy_per_atom": 9.094947017729283e-14,
+    "force": 7.757661180107789e-11,
+    "virial": 3.496758438359393e-10
+   },
+   "largest_force": 6.1088818037904895
+  }
+ ]
+}

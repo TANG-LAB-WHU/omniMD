@@ -76,6 +76,20 @@ __device__ int cell_piece(T x, int table, int bits, const int* shape, const T* r
     *du = x < T(0) ? -inverse : inverse;
     return base[cell] + (int)whole;
 }
+
+// The quintic of an output, `c` its six coefficients, at the place `u` in
+// its piece, and its derivative along the input, du/dx being `du`. Every
+// kernel that stores values of a table or uses them where it looks them up
+// evaluates them so, and gets the same numbers.
+template <typename T>
+__device__ T cell_value(const T* c, T u) {
+    return c[0] + u * (c[1] + u * (c[2] + u * (c[3] + u * (c[4] + u * c[5]))));
+}
+template <typename T>
+__device__ T cell_tangent(const T* c, T u, T du) {
+    return du
+        * (c[1] + u * (T(2) * c[2] + u * (T(3) * c[3] + u * (T(4) * c[4] + u * T(5) * c[5]))));
+}
 "#;
 
 const CELL_SOURCE: &str = r#"
@@ -98,9 +112,8 @@ __device__ void cell_table(const T* x, const int* ids, long long rows, const T* 
     for (int m = lane; m < width; m += 32) {
         const T* c = of_piece + m * 6;
         long long idx = row * width + m;
-        out[idx] = c[0] + u * (c[1] + u * (c[2] + u * (c[3] + u * (c[4] + u * c[5]))));
-        dout[idx] = du
-            * (c[1] + u * (T(2) * c[2] + u * (T(3) * c[3] + u * (T(4) * c[4] + u * T(5) * c[5]))));
+        out[idx] = cell_value(c, u);
+        dout[idx] = cell_tangent(c, u, du);
     }
 }
 

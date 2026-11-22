@@ -1,0 +1,175 @@
+{
+ "date": "2026-11-21",
+ "device": "NVIDIA GeForce RTX 4090",
+ "what": "embedding_table_costs in mlmd/gpu/tests/costs.rs (cargo test --release -p omnimd-gpu --test costs -- --ignored --nocapture embedding_table_costs): a million rows of 100 outputs, a warp a row; the quintic of every output looked up (value, value and tangent), the values and tangents written as the kernel of the tables does, and one or two stored values read; tables of 178 pieces (the water model) and 4,576 (a trained HAP model), the pieces of the rows at random (runs of 1) or in runs of 64 rows.",
+ "rows": [
+  {
+   "precision": "f32",
+   "what": "178 pieces, runs of 1: value",
+   "us": 462.0,
+   "ns_a_row": 0.441
+  },
+  {
+   "precision": "f32",
+   "what": "178 pieces, runs of 1: value and tangent",
+   "us": 459.8,
+   "ns_a_row": 0.438
+  },
+  {
+   "precision": "f32",
+   "what": "178 pieces, runs of 1: written (table kernel)",
+   "us": 1089.4,
+   "ns_a_row": 1.039
+  },
+  {
+   "precision": "f32",
+   "what": "178 pieces, runs of 64: value",
+   "us": 375.9,
+   "ns_a_row": 0.359
+  },
+  {
+   "precision": "f32",
+   "what": "178 pieces, runs of 64: value and tangent",
+   "us": 404.0,
+   "ns_a_row": 0.385
+  },
+  {
+   "precision": "f32",
+   "what": "178 pieces, runs of 64: written (table kernel)",
+   "us": 1098.0,
+   "ns_a_row": 1.047
+  },
+  {
+   "precision": "f32",
+   "what": "4576 pieces, runs of 1: value",
+   "us": 544.1,
+   "ns_a_row": 0.519
+  },
+  {
+   "precision": "f32",
+   "what": "4576 pieces, runs of 1: value and tangent",
+   "us": 549.3,
+   "ns_a_row": 0.524
+  },
+  {
+   "precision": "f32",
+   "what": "4576 pieces, runs of 1: written (table kernel)",
+   "us": 1088.8,
+   "ns_a_row": 1.038
+  },
+  {
+   "precision": "f32",
+   "what": "4576 pieces, runs of 64: value",
+   "us": 351.8,
+   "ns_a_row": 0.335
+  },
+  {
+   "precision": "f32",
+   "what": "4576 pieces, runs of 64: value and tangent",
+   "us": 378.2,
+   "ns_a_row": 0.361
+  },
+  {
+   "precision": "f32",
+   "what": "4576 pieces, runs of 64: written (table kernel)",
+   "us": 1155.8,
+   "ns_a_row": 1.102
+  },
+  {
+   "precision": "f32",
+   "what": "stored: one load",
+   "us": 508.4,
+   "ns_a_row": 0.485
+  },
+  {
+   "precision": "f32",
+   "what": "stored: two loads",
+   "us": 991.3,
+   "ns_a_row": 0.945
+  },
+  {
+   "precision": "f64",
+   "what": "178 pieces, runs of 1: value",
+   "us": 2708.4,
+   "ns_a_row": 2.583
+  },
+  {
+   "precision": "f64",
+   "what": "178 pieces, runs of 1: value and tangent",
+   "us": 6084.3,
+   "ns_a_row": 5.802
+  },
+  {
+   "precision": "f64",
+   "what": "178 pieces, runs of 1: written (table kernel)",
+   "us": 3865.8,
+   "ns_a_row": 3.687
+  },
+  {
+   "precision": "f64",
+   "what": "178 pieces, runs of 64: value",
+   "us": 2587.8,
+   "ns_a_row": 2.468
+  },
+  {
+   "precision": "f64",
+   "what": "178 pieces, runs of 64: value and tangent",
+   "us": 6081.8,
+   "ns_a_row": 5.8
+  },
+  {
+   "precision": "f64",
+   "what": "178 pieces, runs of 64: written (table kernel)",
+   "us": 3889.8,
+   "ns_a_row": 3.71
+  },
+  {
+   "precision": "f64",
+   "what": "4576 pieces, runs of 1: value",
+   "us": 2625.2,
+   "ns_a_row": 2.504
+  },
+  {
+   "precision": "f64",
+   "what": "4576 pieces, runs of 1: value and tangent",
+   "us": 6069.6,
+   "ns_a_row": 5.788
+  },
+  {
+   "precision": "f64",
+   "what": "4576 pieces, runs of 1: written (table kernel)",
+   "us": 3903.8,
+   "ns_a_row": 3.723
+  },
+  {
+   "precision": "f64",
+   "what": "4576 pieces, runs of 64: value",
+   "us": 2608.9,
+   "ns_a_row": 2.488
+  },
+  {
+   "precision": "f64",
+   "what": "4576 pieces, runs of 64: value and tangent",
+   "us": 6065.9,
+   "ns_a_row": 5.785
+  },
+  {
+   "precision": "f64",
+   "what": "4576 pieces, runs of 64: written (table kernel)",
+   "us": 3881.0,
+   "ns_a_row": 3.701
+  },
+  {
+   "precision": "f64",
+   "what": "stored: one load",
+   "us": 1026.9,
+   "ns_a_row": 0.979
+  },
+  {
+   "precision": "f64",
+   "what": "stored: two loads",
+   "us": 2047.0,
+   "ns_a_row": 1.952
+  }
+ ]
+}

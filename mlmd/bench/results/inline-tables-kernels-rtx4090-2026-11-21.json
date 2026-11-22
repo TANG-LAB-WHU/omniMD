@@ -1,0 +1,539 @@
+{
+ "date": "2026-11-21",
+ "device": "NVIDIA GeForce RTX 4090",
+ "what": "kprof.py EXE OUTDIR hap88 hap5632 water12288 on each build: every kernel and copy under Nsight Systems (nsys profile --trace=cuda, no sampling; nsys stats cuda_gpu_kern_sum and cuda_gpu_mem_time_sum), the total of each over the run divided by its evaluations (the --bench ones, a warm-up and the one for the output); float32 with tables from 0.5 A, the HAP model ens4-f32-0 on its 88-atom frame and that frame replicated to 5,632 atoms, the water model on 12,288 atoms. The two builds ran one after the other, not alternated, and kernels the change leaves as they were moved between them: in water the products of the grouped fitting from 773.8 to 738.0 us and the environment kernel from 122.7 to 138.0 us.",
+ "builds": {
+  "before": "omnimd-native-gpu-eval of 0e57a4f (shawn_dev before this change, run/prev-0e57a4f)",
+  "after": "omnimd-native-gpu-eval of this change (branch fused-table), built 2026-11-21 17:58; the commit has the same code but for documentation and a test-only fix after the build"
+ },
+ "us_per_evaluation": {
+  "hap88": {
+   "before": {
+    "cuda_gpu_kern_sum": {
+     "total": 108.4,
+     "evaluations": 2002,
+     "rows": [
+      {
+       "name": "gradient_pairs_f32",
+       "us": 29.7,
+       "calls": 1.0,
+       "average_us": 29.66
+      },
+      {
+       "name": "tile_backward_f32",
+       "us": 18.9,
+       "calls": 1.0,
+       "average_us": 18.9
+      },
+      {
+       "name": "se_e2_a_backward_f32",
+       "us": 18.8,
+       "calls": 1.0,
+       "average_us": 18.79
+      },
+      {
+       "name": "tile_forward_f32",
+       "us": 10.7,
+       "calls": 1.0,
+       "average_us": 10.67
+      },
+      {
+       "name": "neighbor_search",
+       "us": 10.3,
+       "calls": 1.0,
+       "average_us": 10.3
+      },
+      {
+       "name": "se_e2_a_descriptor_f32",
+       "us": 9.0,
+       "calls": 1.0,
+       "average_us": 8.98
+      },
+      {
+       "name": "cell_table_f32",
+       "us": 8.1,
+       "calls": 1.0,
+       "average_us": 8.07
+      },
+      {
+       "name": "se_e2_a_env_f32",
+       "us": 3.0,
+       "calls": 1.0,
+       "average_us": 3.02
+      },
+      {
+       "name": "scalar_network_f32",
+       "us": 0.0,
+       "calls": 0.0,
+       "average_us": 12.93
+      }
+     ]
+    },
+    "cuda_gpu_mem_time_sum": {
+     "total": 4.9,
+     "evaluations": 2002,
+     "rows": [
+      {
+       "name": "[CUDA memcpy Host-to-Device]",
+       "us": 2.3,
+       "calls": 1.0,
+       "average_us": 2.19
+      },
+      {
+       "name": "[CUDA memcpy Device-to-Host]",
+       "us": 2.0,
+       "calls": 1.0,
+       "average_us": 1.96
+      },
+      {
+       "name": "[CUDA memset]",
+       "us": 0.7,
+       "calls": 1.0,
+       "average_us": 0.66
+      }
+     ]
+    }
+   },
+   "after": {
+    "cuda_gpu_kern_sum": {
+     "total": 103.0,
+     "evaluations": 2002,
+     "rows": [
+      {
+       "name": "gradient_pairs_f32",
+       "us": 29.5,
+       "calls": 1.0,
+       "average_us": 29.53
+      },
+      {
+       "name": "tile_backward_f32",
+       "us": 18.7,
+       "calls": 1.0,
+       "average_us": 18.67
+      },
+      {
+       "name": "se_e2_a_table_backward_f32",
+       "us": 18.6,
+       "calls": 1.0,
+       "average_us": 18.61
+      },
+      {
+       "name": "se_e2_a_table_descriptor_f32",
+       "us": 12.4,
+       "calls": 1.0,
+       "average_us": 12.4
+      },
+      {
+       "name": "tile_forward_f32",
+       "us": 10.6,
+       "calls": 1.0,
+       "average_us": 10.58
+      },
+      {
+       "name": "neighbor_search",
+       "us": 10.2,
+       "calls": 1.0,
+       "average_us": 10.17
+      },
+      {
+       "name": "se_e2_a_env_f32",
+       "us": 3.0,
+       "calls": 1.0,
+       "average_us": 3.0
+      },
+      {
+       "name": "scalar_network_f32",
+       "us": 0.0,
+       "calls": 0.0,
+       "average_us": 12.13
+      }
+     ]
+    },
+    "cuda_gpu_mem_time_sum": {
+     "total": 4.8,
+     "evaluations": 2002,
+     "rows": [
+      {
+       "name": "[CUDA memcpy Host-to-Device]",
+       "us": 2.2,
+       "calls": 1.0,
+       "average_us": 2.12
+      },
+      {
+       "name": "[CUDA memcpy Device-to-Host]",
+       "us": 1.9,
+       "calls": 1.0,
+       "average_us": 1.91
+      },
+      {
+       "name": "[CUDA memset]",
+       "us": 0.7,
+       "calls": 1.0,
+       "average_us": 0.65
+      }
+     ]
+    }
+   }
+  },
+  "hap5632": {
+   "before": {
+    "cuda_gpu_kern_sum": {
+     "total": 2051.0,
+     "evaluations": 202,
+     "rows": [
+      {
+       "name": "se_e2_a_backward_f32",
+       "us": 597.8,
+       "calls": 1.0,
+       "average_us": 597.77
+      },
+      {
+       "name": "cell_table_f32",
+       "us": 512.0,
+       "calls": 1.0,
+       "average_us": 511.99
+      },
+      {
+       "name": "void cutlass::Kernel2<cutlass_80_simt_sgemm_grouped_128x128_8x4_align1>(T1::Params)",
+       "us": 420.9,
+       "calls": 6.0,
+       "average_us": 70.15
+      },
+      {
+       "name": "se_e2_a_descriptor_f32",
+       "us": 318.6,
+       "calls": 1.0,
+       "average_us": 318.61
+      },
+      {
+       "name": "neighbor_search",
+       "us": 105.3,
+       "calls": 1.0,
+       "average_us": 105.34
+      },
+      {
+       "name": "se_e2_a_env_f32",
+       "us": 52.5,
+       "calls": 1.0,
+       "average_us": 52.46
+      },
+      {
+       "name": "grouped_epilogue_f32",
+       "us": 22.9,
+       "calls": 2.0,
+       "average_us": 11.46
+      },
+      {
+       "name": "grouped_head_f32",
+       "us": 12.2,
+       "calls": 1.0,
+       "average_us": 12.19
+      },
+      {
+       "name": "grouped_scale_f32",
+       "us": 8.7,
+       "calls": 2.0,
+       "average_us": 4.35
+      },
+      {
+       "name": "scalar_network_f32",
+       "us": 0.1,
+       "calls": 0.0,
+       "average_us": 11.81
+      }
+     ]
+    },
+    "cuda_gpu_mem_time_sum": {
+     "total": 59.1,
+     "evaluations": 202,
+     "rows": [
+      {
+       "name": "[CUDA memcpy Host-to-Device]",
+       "us": 34.5,
+       "calls": 7.4,
+       "average_us": 4.65
+      },
+      {
+       "name": "[CUDA memcpy Device-to-Host]",
+       "us": 23.4,
+       "calls": 1.0,
+       "average_us": 23.39
+      },
+      {
+       "name": "[CUDA memset]",
+       "us": 1.3,
+       "calls": 1.0,
+       "average_us": 1.26
+      }
+     ]
+    }
+   },
+   "after": {
+    "cuda_gpu_kern_sum": {
+     "total": 1180.8,
+     "evaluations": 202,
+     "rows": [
+      {
+       "name": "void cutlass::Kernel2<cutlass_80_simt_sgemm_grouped_128x128_8x4_align1>(T1::Params)",
+       "us": 415.2,
+       "calls": 6.0,
+       "average_us": 69.21
+      },
+      {
+       "name": "se_e2_a_table_backward_f32",
+       "us": 372.6,
+       "calls": 1.0,
+       "average_us": 372.61
+      },
+      {
+       "name": "se_e2_a_table_descriptor_f32",
+       "us": 189.3,
+       "calls": 1.0,
+       "average_us": 189.33
+      },
+      {
+       "name": "neighbor_search",
+       "us": 106.2,
+       "calls": 1.0,
+       "average_us": 106.22
+      },
+      {
+       "name": "se_e2_a_env_f32",
+       "us": 52.6,
+       "calls": 1.0,
+       "average_us": 52.56
+      },
+      {
+       "name": "grouped_epilogue_f32",
+       "us": 23.8,
+       "calls": 2.0,
+       "average_us": 11.88
+      },
+      {
+       "name": "grouped_head_f32",
+       "us": 12.4,
+       "calls": 1.0,
+       "average_us": 12.38
+      },
+      {
+       "name": "grouped_scale_f32",
+       "us": 8.7,
+       "calls": 2.0,
+       "average_us": 4.33
+      },
+      {
+       "name": "scalar_network_f32",
+       "us": 0.1,
+       "calls": 0.0,
+       "average_us": 12.83
+      }
+     ]
+    },
+    "cuda_gpu_mem_time_sum": {
+     "total": 54.7,
+     "evaluations": 202,
+     "rows": [
+      {
+       "name": "[CUDA memcpy Host-to-Device]",
+       "us": 30.1,
+       "calls": 7.4,
+       "average_us": 4.06
+      },
+      {
+       "name": "[CUDA memcpy Device-to-Host]",
+       "us": 23.3,
+       "calls": 1.0,
+       "average_us": 23.31
+      },
+      {
+       "name": "[CUDA memset]",
+       "us": 1.3,
+       "calls": 1.0,
+       "average_us": 1.26
+      }
+     ]
+    }
+   }
+  },
+  "water12288": {
+   "before": {
+    "cuda_gpu_kern_sum": {
+     "total": 4417.4,
+     "evaluations": 102,
+     "rows": [
+      {
+       "name": "se_e2_a_backward_f32",
+       "us": 1310.2,
+       "calls": 1.0,
+       "average_us": 1310.17
+      },
+      {
+       "name": "cell_table_f32",
+       "us": 1085.3,
+       "calls": 1.0,
+       "average_us": 1085.3
+      },
+      {
+       "name": "void cutlass::Kernel2<cutlass_80_simt_sgemm_grouped_128x128_8x4_align1>(T1::Params)",
+       "us": 773.8,
+       "calls": 6.0,
+       "average_us": 128.96
+      },
+      {
+       "name": "se_e2_a_descriptor_f32",
+       "us": 699.4,
+       "calls": 1.0,
+       "average_us": 699.4
+      },
+      {
+       "name": "neighbor_search",
+       "us": 336.6,
+       "calls": 1.0,
+       "average_us": 336.59
+      },
+      {
+       "name": "se_e2_a_env_f32",
+       "us": 122.7,
+       "calls": 1.0,
+       "average_us": 122.68
+      },
+      {
+       "name": "grouped_epilogue_f32",
+       "us": 41.3,
+       "calls": 2.0,
+       "average_us": 20.64
+      },
+      {
+       "name": "grouped_head_f32",
+       "us": 25.6,
+       "calls": 1.0,
+       "average_us": 25.61
+      },
+      {
+       "name": "grouped_scale_f32",
+       "us": 22.5,
+       "calls": 2.0,
+       "average_us": 11.26
+      },
+      {
+       "name": "scalar_network_f32",
+       "us": 0.1,
+       "calls": 0.0,
+       "average_us": 10.21
+      }
+     ]
+    },
+    "cuda_gpu_mem_time_sum": {
+     "total": 93.7,
+     "evaluations": 102,
+     "rows": [
+      {
+       "name": "[CUDA memcpy Device-to-Host]",
+       "us": 52.0,
+       "calls": 1.0,
+       "average_us": 51.97
+      },
+      {
+       "name": "[CUDA memcpy Host-to-Device]",
+       "us": 40.5,
+       "calls": 7.5,
+       "average_us": 5.39
+      },
+      {
+       "name": "[CUDA memset]",
+       "us": 1.3,
+       "calls": 1.0,
+       "average_us": 1.24
+      }
+     ]
+    }
+   },
+   "after": {
+    "cuda_gpu_kern_sum": {
+     "total": 2319.3,
+     "evaluations": 102,
+     "rows": [
+      {
+       "name": "se_e2_a_table_backward_f32",
+       "us": 774.3,
+       "calls": 1.0,
+       "average_us": 774.34
+      },
+      {
+       "name": "void cutlass::Kernel2<cutlass_80_simt_sgemm_grouped_128x128_8x4_align1>(T1::Params)",
+       "us": 738.0,
+       "calls": 6.0,
+       "average_us": 123.01
+      },
+      {
+       "name": "neighbor_search",
+       "us": 332.5,
+       "calls": 1.0,
+       "average_us": 332.48
+      },
+      {
+       "name": "se_e2_a_table_descriptor_f32",
+       "us": 260.4,
+       "calls": 1.0,
+       "average_us": 260.4
+      },
+      {
+       "name": "se_e2_a_env_f32",
+       "us": 138.0,
+       "calls": 1.0,
+       "average_us": 137.96
+      },
+      {
+       "name": "grouped_epilogue_f32",
+       "us": 33.7,
+       "calls": 2.0,
+       "average_us": 16.85
+      },
+      {
+       "name": "grouped_scale_f32",
+       "us": 21.3,
+       "calls": 2.0,
+       "average_us": 10.67
+      },
+      {
+       "name": "grouped_head_f32",
+       "us": 20.9,
+       "calls": 1.0,
+       "average_us": 20.9
+      },
+      {
+       "name": "scalar_network_f32",
+       "us": 0.1,
+       "calls": 0.0,
+       "average_us": 10.14
+      }
+     ]
+    },
+    "cuda_gpu_mem_time_sum": {
+     "total": 93.6,
+     "evaluations": 102,
+     "rows": [
+      {
+       "name": "[CUDA memcpy Device-to-Host]",
+       "us": 51.7,
+       "calls": 1.0,
+       "average_us": 51.72
+      },
+      {
+       "name": "[CUDA memcpy Host-to-Device]",
+       "us": 40.7,
+       "calls": 7.5,
+       "average_us": 5.42
+      },
+      {
+       "name": "[CUDA memset]",
+       "us": 1.2,
+       "calls": 1.0,
+       "average_us": 1.2
+      }
+     ]
+    }
+   }
+  }
+ }
+}

@@ -1,3 +1,247 @@
+# The se_e2_a kernels look their tables up themselves, 2026-11-21
+
+With tables in float32, three kernels around the embedding of se_e2_a took
+most of a large evaluation. A kernel of the tables evaluated the quintic of
+every output for every neighbor slot and stored its value and its slope,
+200 numbers a slot with 100 outputs; the descriptor kernel read the values
+back and the force kernel both. Under Nsight Systems the three took 1,428
+of the 2,051 µs that the kernels of an evaluation of 5,632 HAP atoms took,
+and 3,095 of 4,417 µs for 12,288 waters. Now, in float32, the descriptor
+and force kernels look the values up in the tables themselves and the
+kernel of the tables does not run; in float64 they read stored values as
+before, which is cheaper there. Both ways give the same numbers but for the
+order of their sums. An evaluation in float32 with tables is 5% to 8%
+shorter for the HAP frames of 88 to 224 atoms, 37% for 5,632 atoms and 40%
+for 12,288 waters.
+
+**What a lookup costs.** A probe (`embedding_table_costs` in
+`gpu/tests/costs.rs`, record
+`embedding-table-costs-rtx4090-2026-11-21.json`) prices each step over a
+million rows of 100 outputs, a warp a row as in the kernels, with tables of
+178 pieces (the water model) and of 4,576 (a trained HAP model), the pieces
+of the rows at random or in runs of 64 rows (ns a row, the range over the
+tables and the runs):
+
+| | look the value up | the value and its slope | write both, as the kernel of the tables | read one stored | read two |
+|---|---:|---:|---:|---:|---:|
+| float32 | 0.34–0.52 | 0.36–0.52 | 1.04–1.10 | 0.49 | 0.95 |
+| float64 | 2.47–2.58 | 5.79–5.80 | 3.69–3.72 | 0.98 | 1.95 |
+
+In float32 the stored values cost about 2.5 ns a row (written once, the
+values read by the descriptor kernel and both by the force kernel) and the
+lookups 0.7 to 1.0: a value costs no more to look up than to read, and its
+slope comes almost free. In float64 the arithmetic outweighs the memory,
+8.3 against 6.6.
+
+**How.** The descriptor kernel finds the piece of the table and the place
+in it for each neighbor slot of its atom once and keeps them in shared
+memory, a place in the precision of the nets and a four-byte piece a slot;
+it then evaluates the quintic of each output where it read the row before
+(`cell_value`). The force kernel finds the piece, the place and the
+derivative of the place for each slot in a first step, and evaluates the
+value and the slope of each output in the second (`cell_value` and
+`cell_tangent`). These are the functions the kernel of the tables uses
+(`gpu/src/table.rs`), so the results differ only by the order in which they
+add: over the 83 frames below the energies and virials came out bit for bit
+and the forces within 8.4e-15 eV/Å, and in the largest frame the virial
+within 1.4e-14 eV, no more than with both builds reading stored values. A
+neighbor outside the tables raises the flag in the descriptor kernel, as it
+did in the kernel of the tables, and the frame goes to the exact nets.
+Where the blocks have no room in shared memory for what the lookups keep
+(in float32 beyond 1,432 slots with nets of 100 outputs, 1,516 with 16),
+the kernels read stored values; the chunks of a pass are sized for the
+stored values either way. `GpuPotential::set_inline_tables` and
+`--inline-tables on|off` choose the way whatever the precision, and the
+`precision:` line of `omnimd-native-gpu-eval` says which a pass takes
+(`embedding tabulated, looked up by the kernels`).
+
+**Agreement** (the 83 sealed-test HAP frames with both trained se_e2_a
+models, `hap-iter0-pre/ens4-f32-0` trained by omniMD and `hap/model-0` by
+DeePMD-kit, tables from 0.5 Å, in float32 and float64; record
+`inline-tables-agreement-rtx4090-2026-11-21.json`): looked up and stored,
+the energies and virials are the same and the forces within 8.4e-15 eV/Å;
+against the build before, which reads stored values, within 9.3e-15 eV/Å.
+Against the exact nets both ways stand where the tables stood: in float32
+1.6e-7 eV per atom and 9.1e-6 eV/Å with ens4-f32-0, 9.0e-8 and 7.9e-6 with
+model-0; in float64 1.3e-13 and 8.8e-11.
+
+**Evaluations of one frame** (`omnimd-native-gpu-eval --bench`, the build
+before and this one alternated in five rounds, the build before twice a
+round; least of each, µs; held to the performance cores; record
+`inline-tables-eval-rtx4090-2026-11-21.json`, with the medians):
+
+| frame | before | after | before again |
+|---|---:|---:|---:|
+| HAP 88 atoms, float32 with tables | 154.4 | 142.8 | 153.9 |
+| HAP 169 atoms, float32 with tables | 185.4 | 175.4 | 185.3 |
+| HAP 224 atoms, float32 with tables | 207.6 | 195.4 | 206.7 |
+| HAP 704 atoms, float32 with tables | 511.8 | 417.1 | 509.7 |
+| HAP 2,376 atoms, float32 with tables | 1,265.6 | 887.5 | 1,264.7 |
+| HAP 5,632 atoms, float32 with tables | 2,413.1 | 1,520.2 | 2,411.5 |
+| water 192 atoms, float32 with tables | 198.6 | 184.3 | 197.3 |
+| water 1,536 atoms, float32 with tables | 932.8 | 675.0 | 932.3 |
+| water 12,288 atoms, float32 with tables | 5,179.2 | 3,105.7 | 5,221.1 |
+| HAP 88 atoms, float64 with tables | 403.7 | 406.9 | 404.3 |
+| HAP 5,632 atoms, float64 with tables | 15,376.5 | 15,385.1 | 15,381.5 |
+| water 1,536 atoms, float64 with tables | 4,588.1 | 4,594.4 | 4,582.2 |
+| water 1,536 atoms, float64 | 8,471.7 | 8,468.9 | 8,456.2 |
+| HAP 5,632 atoms, float32 with tables, held to stored values | 2,399.0 | 2,401.9 | 2,413.2 |
+| HAP 88 atoms, float64 with tables, held to lookups | 403.9 | 413.1 | 405.3 |
+| water 192 atoms, float64 with tables, held to lookups | 727.3 | 739.7 | 727.6 |
+| HAP 5,632 atoms, float64 with tables, held to lookups | 15,379.4 | 15,173.6 | 15,380.4 |
+
+The HAP frames are those of the engine benchmarks and the 88-atom one
+replicated, with `hap-iter0-pre/ens4-f32-0`; the water frames with the
+water model. Float32 with tables gains 5% to 8% up to 224 atoms, 18.5% at
+704, 30% at 2,376 and 37% at 5,632; water 7% at 192, 28% at 1,536 and 40%
+at 12,288. Float64, where the path is that of before, stays within 0.8%
+(HAP 88 atoms with tables; medians 407.7 against 406.5 and 406.9), and so
+does float32 held to stored values. Lookups in float64 made an evaluation
+2.3% and 1.7% longer for 88 HAP atoms and 192 waters and 1.3% shorter for
+5,632 HAP atoms, so float64 keeps the stored values.
+
+Only times of one session are compared. In this one the build before took
+longer than the grouped products had in their record that morning (154.4
+against 138.5 µs for 88 atoms): run after the comparison, the build of the
+grouped products before their review (a2c045f) and the build before
+(0e57a4f) took the same, 152.9 and 150.7 µs for 88 HAP atoms, 203.4 and
+204.7 for 224, 912.3 and 912.8 for 1,536 waters, and this change 139.7,
+191.5 and 659.1 (in the record as `check_of_the_session`). The machine was
+slower, not the review.
+
+**The largest case**, the water frame of 98,304 atoms (record
+`inline-tables-largest-rtx4090-2026-11-21.json`): float32 with tables took
+40.9 ms an evaluation before and 24.6 after (`--bench 20` twice each, the
+least). The energy is the same, the forces within 6.9e-18 eV/Å and the
+virial within 1.4e-14 eV of 78; held to the stored values, within 6.1e-18
+and 2.8e-14. With one pair 0.3 Å apart and tables from 2 Å, the frame
+leaves the tables, both builds evaluate it with the exact nets, and the
+energy is the same and the forces within 2.8e-17 eV/Å.
+
+**Kernel by kernel** (Nsight Systems, µs an evaluation; record
+`inline-tables-kernels-rtx4090-2026-11-21.json`):
+
+| case | kernel of the tables | descriptor | forces | all kernels |
+|---|---:|---:|---:|---:|
+| HAP 88 atoms, before | 8.1 | 9.0 | 18.8 | 108.4 |
+| HAP 88 atoms, after | | 12.4 | 18.6 | 103.0 |
+| HAP 5,632 atoms, before | 512.0 | 318.6 | 597.8 | 2,051.0 |
+| HAP 5,632 atoms, after | | 189.3 | 372.6 | 1,180.8 |
+| water 12,288 atoms, before | 1,085.3 | 699.4 | 1,310.2 | 4,417.4 |
+| water 12,288 atoms, after | | 260.4 | 774.3 | 2,319.3 |
+
+With many atoms the descriptor kernel takes less time evaluating the
+quintics than it took reading their values, and the force kernel less than
+it took reading values and slopes. At 88 atoms the kernels take 5.4 µs less
+and an evaluation 11.7 µs less; the rest is presumably the kernel of the
+tables no longer issued and waited for, which was not measured apart. The
+two builds ran one after the other, and kernels the change leaves as they
+were moved between them: in water the grouped products of the fitting took
+738.0 µs after against 773.8 and the environment kernel 138.0 against
+122.7.
+
+**The blocks of the force kernel.** Its limits (blocks of 256 threads up to
+`WIDE_FORCE_CENTERS_F32`, 352 centers, and the sums of a block across its
+warps up to `BLOCK_SUMS_CENTERS`, 352) were measured with stored values.
+With the lookups, both changed alone and in pairs (record
+`inline-tables-force-blocks-rtx4090-2026-11-21.json`, five rounds each,
+least of each, µs; wide and narrow are 256 and 128 threads, across and by
+warp where the sums of a block are formed):
+
+| case (centers) | as it is | wide, across | narrow, across | wide, by warp | narrow, by warp | as it is again |
+|---|---:|---:|---:|---:|---:|---:|
+| HAP 2 × 88 (176) | 171.1 | 171.1 | 176.7 | 178.2 | 178.7 | 170.4 |
+| water 192 (192) | 182.7 | 183.1 | 186.2 | 188.6 | 188.8 | 182.7 |
+| HAP 224 (224) | 191.4 | 191.1 | 196.7 | 196.8 | 199.6 | 192.7 |
+| HAP 3 × 88 (264) | 232.7 | 232.9 | 229.2 | 233.8 | 233.4 | 231.7 |
+| HAP 2 × 169 (338) | 264.4 | 266.4 | 256.1 | 259.1 | 258.8 | 265.2 |
+| HAP 4 × 88 (352) | 269.0 | 267.5 | 260.1 | 264.7 | 264.6 | 268.3 |
+| HAP committee of four, 88 atoms (352) | 311.9 | 312.1 | 300.1 | 305.3 | 306.0 | 313.1 |
+| water 2 × 192 (384) | 281.6 | 272.9 | 276.6 | 281.2 | 280.6 | 280.4 |
+| HAP 6 × 88 (528) | 351.0 | 354.9 | 355.1 | 359.8 | 349.3 | 351.6 |
+
+For HAP the sums across the warps keep their limit (at 528 centers each
+warp's own sums are best), but the wide blocks do not: from 264 to 352
+centers the narrow ones took 0.5% to 4.3% less (changed alone, 231.0
+against 232.0 at 264, 260.5 against 268.1 at 352 and 298.7 against 312.2
+for the committee). Two frames of water, 384 centers, past both limits,
+took 3.1% less in wide blocks with the sums across the warps. No one number
+of centers serves both models, so the limits stay.
+
+Against the build before, with the limits as they are (the same cases and
+the HAP frame of 704 and a committee of four on 224 atoms, the two builds
+alternated in five rounds, the build before twice a round; least of each;
+`before_and_after` in the same record), this change gains at every size:
+least for the HAP batches from 264 to 352 centers, 2.0% to 2.6% (234.1
+against 238.8 µs at 264, 268.6 against 275.5 at 352), where the narrower
+blocks would take 0.5% to 4.3% more off; 5.4% to 7.3% from 88 to 224
+centers; 8.8% for the committee of four on 88 atoms and 8.4% for two frames
+of water (352 and 384); 13% to 20% from 528 to 896.
+
+A count by hand (not measured) suggests why. A multiprocessor of the RTX
+4090 (128 of them) has 100 KB of shared memory for its blocks, 1 KB of it
+reserved for each block. A wide block of the HAP model with the lookups and
+the sums across its warps keeps about 34.7 KB, so two fit, 256 blocks at
+once; with the stored values three fit, 384. A block of the water model
+fits three either way. A pass whose centers all fit at once gains from the
+wide blocks, and one that takes a second wave of them loses: with the
+lookups that puts HAP's limit between 224 and 264 centers and water's at
+384, and with stored values HAP's at 384 in float32 and 256 in float64
+(where two fit), near the measured 352 and 224. A rule by the blocks a pass
+can keep at once (`cuOccupancyMaxActiveBlocksPerMultiprocessor` times the
+multiprocessors) would replace the count of centers for the width of the
+blocks, and may serve for the sums of a block as well.
+
+**Tests.** A parity test
+(`tables_looked_up_by_the_kernels_match_the_stored_values` in
+`native/tests/gpu_parity.rs`) evaluates each case with the lookups and with
+the stored values, holds them together within the tolerance of float64 in
+both precisions, and checks which way each pass went: the default models;
+nets of 40, 136 and 100 outputs, wider than a warp and than a block; odd
+numbers of slots (41 and 80), where what the lookups keep ends off the
+eight-byte grid on which the sums of the block follow; 1,500 slots of one
+type with a narrow net; a committee of three in chunks of eleven atoms (the
+last of four); a batch whose second frame leaves the tables, that one going
+to the nets; a hybrid; a type without slots; atoms without neighbors and
+atoms whose slots are all filled; and 2,000 slots in float32, where the
+blocks have no room and the stored values are read. A unit test
+(`shared_memory_of_the_lookups`) holds the shared memory of both kernels to
+sizes worked out by hand; it runs in CI with the GPU feature, without a
+card. Under compute-sanitizer the new test is clean in memcheck and
+racecheck; initcheck reports 51 copies to the host of buffers that hold
+bytes no kernel wrote (padding), and no kernel that reads such bytes.
+
+The test of the stages of a profiled evaluation asked that the device's
+time over them be at least half the host's time issuing them; it failed in
+2 of the 30 runs of a round of mutations, at a third. Of 200 profiled
+evaluations of 12 atoms, each in a process of its own, 8 had the device
+below half, down to a quarter: 6 of 100 with the lookups and 2 of 100 with
+stored values, so both paths do it (record
+`profiled-device-share-rtx4090-2026-11-21.json`, with 25 runs of each way
+on 12 and 88 atoms before them, where only 12 atoms with the lookups fell
+below half, twice). The device now and then reaches the first mark late.
+The test now asks it of the largest share of six evaluations.
+
+Mutations of `native/src/gpu_model.rs`, in two rounds. Of 30 in the first
+(the lookups of each slot, the layouts and sizes of the shared memory, the
+choice of the way and what the embedding stage skips), 28 were caught; the
+two that launched the kernels with no shared memory for the lookups by an
+illegal address on the device, which took the other tests of the process
+down with it (32 of 35 failed). Two shortened the shared memory of the
+lookups by the four-byte pieces, in the descriptor kernel and in the force
+kernel: the first was caught only by the test of the stages failing at
+random, the second not at all. The unit test of the sizes came of it. All
+nine of the second round were caught: those two, which now fail the unit
+test and the parity tests, the launches of both kernels given no shared
+memory for the lookups, the choice of the way where the review moved it,
+the pass with the exact nets after a frame left the tables (two mutations),
+and the eight-byte grid of the sums of a block in the kernel and on the
+host; the last only by the unit test.
+
+The GPU suites pass in release and debug on the code as committed (293
+tests in 52 binaries with the GPU features); all 54 binaries of the
+workspace pass without them (238 tests).
+
 # The fitting nets of many rows in grouped cuBLAS products, 2026-11-21
 
 Of a large evaluation in float32, the fitting nets were the stage that
