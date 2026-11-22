@@ -6,8 +6,8 @@ mod common;
 use common::{device, frame, model};
 use omnimd_ml_contract::{Committee, Evaluation, Frame, Potential, Units};
 use omnimd_native::gpu_model::{
-    force_way, ForceBlocks, GpuPotential, StageTimes, BLOCK_SUMS_CENTERS, FORCE_WAYS,
-    WIDE_FORCE_CENTERS_F32, WIDE_FORCE_CENTERS_F64,
+    force_way, ForceBlocks, GpuPotential, StageTimes, BLOCK_SUMS_CENTERS, DEVICE_SUMS_CENTERS,
+    FORCE_WAYS, WIDE_FORCE_CENTERS_F32, WIDE_FORCE_CENTERS_F64,
 };
 use omnimd_native::{Activation, Model, NativePotential, Residual};
 use std::time::Instant;
@@ -710,6 +710,231 @@ fn truncation_in_a_batch_is_reported_for_the_batch() {
     compare("dense", &together[1], &alone[1], (1e-13, 1e-11));
     gpu.eval_batch(&[&sparse, &sparse]).unwrap();
     assert!(!gpu.last_truncated());
+}
+
+/// The frames of the tests of the frame sums: the assorted frames and one of
+/// 1,000 atoms, 667 of type 0, in segments of 256, 256 and 155 atoms, and 333
+/// of type 1, in segments of 256 and 77.
+fn frames_to_sum() -> (Frame, Vec<Frame>) {
+    let lattice = [[14.4, 0.0, 0.0], [0.0, 14.4, 0.0], [0.0, 0.0, 14.4]];
+    (frame(lattice, 10, 2, true, 37), assorted_frames())
+}
+
+/// The sums of every frame, its energy and its virial, are the same to the
+/// last bit whether the device forms them or the host does (see
+/// `GpuPotential::device_sums_centers`): in batches of an odd number of
+/// frames, one of them with several segments of each type, for both models
+/// of a committee, in chunks that cut through the frames and the types, in
+/// both precisions. The force blocks form their sums in shared memory here,
+/// so that the virial of every center is the same in every pass; the forces,
+/// which the blocks add to with atomics, are the same to rounding.
+#[test]
+fn the_device_and_the_host_sum_the_frames_alike() {
+    let Some(device) = device() else { return };
+    let models = committee_models(2);
+    let members: Vec<&Model> = models.iter().collect();
+    let (large, frames) = frames_to_sum();
+    let batch = [&frames[0], &large, &frames[1], &frames[2], &frames[3]];
+    sums_alike::<f64>(&device, &members, &batch, "float64", 2);
+    sums_alike::<f32>(&device, &members, &batch, "float32", 2);
+
+    // By default the host sums the frames of a pass of fewer than
+    // DEVICE_SUMS_CENTERS centers, the device those of the others.
+    let mut gpu = GpuPotential::<f32>::committee(&members, device.clone()).unwrap();
+    assert_eq!(gpu.device_sums_centers(), None);
+    assert!(!gpu.sums_on_device(), "before the first pass");
+    let mut cut = large.clone();
+    for (atoms, on_device) in [
+        (DEVICE_SUMS_CENTERS, true),
+        (DEVICE_SUMS_CENTERS - 1, false),
+    ] {
+        cut.positions.truncate(atoms);
+        cut.species.truncate(atoms);
+        gpu.evaluate_frames(&[&cut], 1).unwrap();
+        assert_eq!(gpu.sums_on_device(), on_device, "{atoms} atoms, one model");
+    }
+    // The models count: half as many atoms for two.
+    cut.positions.truncate(DEVICE_SUMS_CENTERS / 2);
+    cut.species.truncate(DEVICE_SUMS_CENTERS / 2);
+    gpu.evaluate_frames(&[&cut], 2).unwrap();
+    assert!(gpu.sums_on_device(), "two models");
+    // Each frame alone, summed by the host (the large one by the device),
+    // and in a batch, by the device, with the fitting nets in the fused
+    // kernel for both passes, which evaluates a row the same in any of them:
+    // the same energy wherever the frame's atoms of a type start in the pass.
+    gpu.set_fused_fitting_max_rows(usize::MAX);
+    let together = gpu.evaluate_frames(&batch, 2).unwrap();
+    assert!(gpu.sums_on_device());
+    for (index, frame) in batch.iter().enumerate() {
+        let alone = gpu.evaluate_frames(&[*frame], 2).unwrap();
+        assert_eq!(gpu.sums_on_device(), index == 1, "frame {index}");
+        for member in 0..2 {
+            let (a, b) = (&alone[0][member], &together[index][member]);
+            let label = format!("frame {index}, model {member}");
+            assert_eq!(a.energy.to_bits(), b.energy.to_bits(), "{label}");
+            compare(&label, a, b, (1e-15, 1e-11));
+        }
+    }
+    // A number set: passes of that many centers and more on the device.
+    let centers = 2 * frames[0].positions.len();
+    for (set, on_device) in [(centers, true), (centers + 1, false), (0, true)] {
+        gpu.set_device_sums_centers(Some(set));
+        assert_eq!(gpu.device_sums_centers(), Some(set));
+        gpu.evaluate_frames(&[&frames[0]], 2).unwrap();
+        assert_eq!(
+            gpu.sums_on_device(),
+            on_device,
+            "{set} set, {centers} centers"
+        );
+    }
+    gpu.set_device_sums_centers(None);
+    gpu.evaluate_frames(&[&frames[0]], 2).unwrap();
+    assert!(!gpu.sums_on_device(), "the default again");
+
+    // The status of each frame from either. Coincident atoms fail the batch
+    // and name their frame, though they are two of a thousand, past the
+    // first warp and the first segment of their types: atom 651 is the 435th
+    // of type 0, atom 889 the 297th of type 1.
+    let mut bad = large.clone();
+    bad.positions[889] = bad.positions[651];
+    let mut gpu = GpuPotential::<f64>::committee(&members, device.clone()).unwrap();
+    for centers in [0, usize::MAX] {
+        gpu.set_device_sums_centers(Some(centers));
+        for (batch, named) in [
+            ([&frames[0], &bad, &frames[1]], "frame 1 of the batch"),
+            ([&frames[0], &frames[1], &bad], "frame 2 of the batch"),
+        ] {
+            let error = gpu.evaluate_frames(&batch, 2).unwrap_err().to_string();
+            assert!(
+                error.contains(named) && error.contains("coincident"),
+                "{centers} set: {error}"
+            );
+            assert_eq!(gpu.sums_on_device(), centers == 0);
+        }
+    }
+    // A batch truncates where one of its frames does, in either half of the
+    // word of its status.
+    let model = model(2, vec![4, 6], 4.0, 22);
+    let lattice = [[8.0, 0.0, 0.0], [0.0, 8.0, 0.0], [0.0, 0.0, 8.0]];
+    let dense = frame(lattice, 4, 2, true, 35);
+    let mut sparse = frame(lattice, 2, 2, false, 36);
+    sparse.positions.truncate(2);
+    sparse.species.truncate(2);
+    sparse.positions[1] = [30.0, 30.0, 30.0];
+    let mut gpu = GpuPotential::<f64>::new(&model, device).unwrap();
+    for centers in [0, usize::MAX] {
+        gpu.set_device_sums_centers(Some(centers));
+        for (batch, truncated) in [
+            ([&sparse, &dense, &sparse], true),
+            ([&sparse, &sparse, &dense], true),
+            ([&sparse, &sparse, &sparse], false),
+        ] {
+            gpu.eval_batch(&batch).unwrap();
+            assert_eq!(gpu.last_truncated(), truncated, "{centers} set");
+            assert_eq!(gpu.sums_on_device(), centers == 0);
+        }
+    }
+}
+
+/// The blocks of the device's sums finish in another order in every pass,
+/// and the last block of a frame reads what the others wrote: many passes,
+/// each the same as the host's to the bit.
+#[test]
+fn the_device_sums_the_frames_alike_in_every_pass() {
+    let Some(device) = device() else { return };
+    let models = committee_models(2);
+    let members: Vec<&Model> = models.iter().collect();
+    let (large, frames) = frames_to_sum();
+    let batch = [&frames[0], &large, &frames[1], &frames[2], &frames[3]];
+    sums_alike::<f64>(&device, &members, &batch, "float64", 200);
+    sums_alike::<f32>(&device, &members, &batch, "float32", 200);
+}
+
+/// The same for a frame of many blocks, which finish together: 12,167 atoms,
+/// 8,111 of type 0 and 4,056 of type 1 (32 and 16 segments), in one chunk
+/// and in three.
+#[test]
+fn the_device_sums_large_frames_alike_every_time() {
+    large_frames_alike(23, 40);
+}
+
+/// The same for 97,336 atoms (254 and 127 segments), by hand: `cargo test
+/// --release -p omnimd-native --features gpu --test gpu_parity -- --ignored
+/// largest`.
+#[test]
+#[ignore]
+fn the_device_sums_the_largest_frames_alike_every_time() {
+    large_frames_alike(46, 10);
+}
+
+fn large_frames_alike(grid: usize, passes: usize) {
+    let Some(device) = device() else { return };
+    let model = model(2, vec![80, 160], 4.5, 41);
+    // Atoms 1.6 A apart: at most some 90 neighbors, which fit the slots.
+    let side = 1.6 * grid as f64;
+    let lattice = [[side, 0.0, 0.0], [0.0, side, 0.0], [0.0, 0.0, side]];
+    let large = frame(lattice, grid, 2, true, 38);
+    let atoms = large.positions.len();
+    let mut gpu = GpuPotential::<f32>::new(&model, device).unwrap();
+    gpu.set_block_sums_centers(Some(usize::MAX));
+    for chunk in [None, Some(atoms.div_ceil(3))] {
+        if let Some(chunk) = chunk {
+            gpu.set_chunk_atoms(chunk);
+        }
+        gpu.set_device_sums_centers(Some(usize::MAX));
+        let by_host = gpu.evaluate_frames(&[&large], 1).unwrap();
+        assert!(!gpu.sums_on_device());
+        gpu.set_device_sums_centers(Some(0));
+        for pass in 0..passes {
+            let by_device = gpu.evaluate_frames(&[&large], 1).unwrap();
+            assert!(gpu.sums_on_device() && gpu.block_sums_shared());
+            let label = format!("{atoms} atoms, chunks {chunk:?}, pass {pass}");
+            same_sums(&label, &by_device, &by_host);
+        }
+        assert!(!gpu.last_truncated(), "the neighbors fit the slots");
+    }
+}
+
+/// Both ways of the frame sums over `batch` for every model of `members`,
+/// with and without chunks: the host's once, then the device's `passes`
+/// times, each the same to the bit.
+fn sums_alike<P: omnimd_gpu::Scalar>(
+    device: &std::sync::Arc<omnimd_gpu::Device>,
+    members: &[&Model],
+    batch: &[&Frame],
+    label: &str,
+    passes: usize,
+) {
+    let mut gpu = GpuPotential::<P>::committee(members, device.clone()).unwrap();
+    gpu.set_block_sums_centers(Some(usize::MAX));
+    for chunk in [100_000, 97] {
+        gpu.set_chunk_atoms(chunk);
+        gpu.set_device_sums_centers(Some(usize::MAX));
+        let by_host = gpu.evaluate_frames(batch, members.len()).unwrap();
+        assert!(!gpu.sums_on_device(), "{label}");
+        gpu.set_device_sums_centers(Some(0));
+        for pass in 0..passes {
+            let by_device = gpu.evaluate_frames(batch, members.len()).unwrap();
+            assert!(gpu.sums_on_device(), "{label}");
+            assert!(gpu.block_sums_shared(), "{label}: sums of the force blocks");
+            let label = format!("{label}, chunks of {chunk}, pass {pass}");
+            same_sums(&label, &by_device, &by_host);
+        }
+    }
+}
+
+/// The same energies and virials to the bit, the same forces to rounding.
+fn same_sums(label: &str, got: &[Vec<Evaluation>], expected: &[Vec<Evaluation>]) {
+    assert_eq!(got.len(), expected.len(), "{label}");
+    for (index, (a, b)) in got.iter().zip(expected).enumerate() {
+        for (member, (a, b)) in a.iter().zip(b).enumerate() {
+            let label = format!("{label}, frame {index}, model {member}");
+            assert_eq!(a.energy.to_bits(), b.energy.to_bits(), "{label}");
+            let bits = |e: &Evaluation| e.virial.map(|row| row.map(f64::to_bits));
+            assert_eq!(bits(a), bits(b), "{label}");
+            compare(&label, a, b, (1e-15, 1e-11));
+        }
+    }
 }
 
 /// Models of one architecture with weights, statistics and biases of their

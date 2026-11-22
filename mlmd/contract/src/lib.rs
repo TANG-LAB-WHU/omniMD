@@ -169,7 +169,12 @@ impl Frame {
         if n != self.species.len() {
             return Err(Error("positions/species count mismatch".into()));
         }
-        if self.positions.iter().flatten().any(|v| !v.is_finite()) {
+        // Without a stop at the first one, so that the check runs over
+        // several values at once.
+        let finite = self.positions.iter().fold(true, |all, p| {
+            all & p[0].is_finite() & p[1].is_finite() & p[2].is_finite()
+        });
+        if !finite {
             return Err(Error("coordinates contain nonfinite values".into()));
         }
         if let Some(h) = &self.cell {
@@ -196,13 +201,21 @@ impl Frame {
     pub fn type_ids(&self, model: &ModelMetadata) -> Result<Vec<i32>> {
         self.validate()?;
         model.validate()?;
+        // The type map holds element symbols of one or two letters, so a
+        // name is matched by its length and bytes as one integer: no call
+        // to compare strings for every atom. Longer names match nothing.
+        let key = |name: &str| match *name.as_bytes() {
+            [a] => 1 << 16 | u32::from(a),
+            [a, b] => 2 << 16 | u32::from(b) << 8 | u32::from(a),
+            _ => u32::MAX,
+        };
+        let keys: Vec<u32> = model.type_map.iter().map(|s| key(s)).collect();
         self.species
             .iter()
             .map(|name| {
-                model
-                    .type_map
-                    .iter()
-                    .position(|s| s == name)
+                let wanted = key(name);
+                keys.iter()
+                    .position(|&k| k == wanted && k != u32::MAX)
                     .map(|i| i as i32)
                     .ok_or_else(|| Error(format!("element {name:?} is not in model type map")))
             })
@@ -253,6 +266,31 @@ mod tests {
         let mut f = frame();
         f.species[0] = "X".into();
         assert!(f.type_ids(&m).is_err());
+        // Names that share bytes with a symbol of the map are not it.
+        for name in ["", "O\0", "\0O", "Ho", "OH", "HH", "Oxygen", "o"] {
+            f.species[0] = name.into();
+            assert!(f.type_ids(&m).is_err(), "{name:?}");
+        }
+        // Two-letter symbols, and a symbol after a longer name.
+        let m = ModelMetadata {
+            type_map: vec!["Ca".into(), "C".into(), "Cl".into()],
+            ..m
+        };
+        let mut f = frame();
+        f.species = vec!["Cl".into(), "C".into()];
+        assert_eq!(f.type_ids(&m).unwrap(), vec![2, 1]);
+        f.species = vec!["Ca".into(), "Cl".into()];
+        assert_eq!(f.type_ids(&m).unwrap(), vec![0, 2]);
+        f.species = vec!["Cal".into(), "C".into()];
+        assert!(f.type_ids(&m).is_err());
+        // A nonfinite coordinate anywhere fails the frame.
+        for at in 0..6 {
+            for bad in [f64::NAN, f64::INFINITY, f64::NEG_INFINITY] {
+                let mut f = frame();
+                f.positions[at / 3][at % 3] = bad;
+                assert!(f.validate().is_err(), "{at} {bad}");
+            }
+        }
     }
     /// Energy = its offset plus the first coordinate; counts its calls.
     struct Shifted {

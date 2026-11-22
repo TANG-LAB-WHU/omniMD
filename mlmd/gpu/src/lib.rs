@@ -250,6 +250,51 @@ fn check_len(name: &str, actual: usize, needed: usize) -> Result<()> {
     Ok(())
 }
 
+/// Page-locked host memory that results are copied into, kept from one
+/// evaluation to the next ([`Device::download_into`]). A copy to pageable
+/// memory goes through the driver's own staging buffer, and a fresh `Vec`
+/// pays for its pages on every copy: the 1.28 MB of results of 12,288 water
+/// atoms (float32 with tables, RTX 4090) took 264 us from the end of the
+/// force kernel to the host's next step that way, 142 into a `Vec` used
+/// again, and 89 into this buffer (`bench/results/SUMMARY.md`). Its memory
+/// is cached on the host, so reading it is as fast as reading a `Vec`.
+pub struct HostBuffer<T> {
+    /// The context the memory was allocated in, kept alive until the memory
+    /// is freed there.
+    context: Arc<CudaContext>,
+    pointer: *mut T,
+    len: usize,
+}
+
+// SAFETY: the buffer owns its memory alone, as a `Vec` does, and the device
+// writes to it only inside `Device::download_into`, which waits for the copy
+// before it returns.
+unsafe impl<T: Send> Send for HostBuffer<T> {}
+unsafe impl<T: Sync> Sync for HostBuffer<T> {}
+
+impl<T> HostBuffer<T> {
+    /// Elements allocated (zero before the first download).
+    pub fn capacity(&self) -> usize {
+        self.len
+    }
+
+    fn release(&mut self) {
+        if !self.pointer.is_null() {
+            // A failure here leaves nothing to do but to go on.
+            let _ = self.context.bind_to_thread();
+            let _ = unsafe { cudarc::driver::result::free_host(self.pointer.cast()) };
+            self.pointer = std::ptr::null_mut();
+            self.len = 0;
+        }
+    }
+}
+
+impl<T> Drop for HostBuffer<T> {
+    fn drop(&mut self) {
+        self.release();
+    }
+}
+
 pub struct Device {
     context: Arc<CudaContext>,
     stream: Arc<CudaStream>,
@@ -468,6 +513,75 @@ impl Device {
         self.stream
             .clone_dtoh(device)
             .map_err(cuda_error("device-to-host copy"))
+    }
+
+    /// An empty [`HostBuffer`]: [`Self::download_into`] allocates it.
+    pub fn host_buffer<T: DeviceRepr>(&self) -> HostBuffer<T> {
+        HostBuffer {
+            context: self.context.clone(),
+            pointer: std::ptr::null_mut(),
+            len: 0,
+        }
+    }
+
+    /// Copies `device` into the start of `host`, which first grows to fit
+    /// it if need be, and waits for the copy; returns the copied elements,
+    /// which the caller may also write. A buffer allocated in the context of
+    /// another GPU is freed there and allocated again in this one (handles of
+    /// one GPU share its context, and so the buffer).
+    pub fn download_into<'a, T: DeviceRepr>(
+        &self,
+        device: &impl DevicePtr<T>,
+        host: &'a mut HostBuffer<T>,
+    ) -> Result<&'a mut [T]> {
+        let len = device.len();
+        if len == 0 {
+            return Ok(&mut []);
+        }
+        if host.len < len || *host.context != *self.context {
+            // Freed in the context it was allocated in, which the buffer
+            // kept alive; the new memory keeps this one alive.
+            host.release();
+            host.context = self.context.clone();
+            let bytes = len
+                .checked_mul(std::mem::size_of::<T>())
+                .ok_or_else(|| Error(format!("{len} elements do not fit host memory")))?;
+            // Flags 0: cached on the host. The default of cudarc's pinned
+            // slices, write-combined, makes every host read go to memory.
+            self.context
+                .bind_to_thread()
+                .map_err(cuda_error("context binding"))?;
+            let pointer = unsafe { cudarc::driver::result::malloc_host(bytes, 0) }
+                .map_err(cuda_error("page-locked host allocation"))?;
+            host.pointer = pointer.cast();
+            host.len = len;
+        }
+        // The copy goes in this device's context, whatever the thread had
+        // current (cudarc's own copies bind it on every call too).
+        self.context
+            .bind_to_thread()
+            .map_err(cuda_error("context binding"))?;
+        {
+            let (source, _record) = device.device_ptr(&self.stream);
+            // SAFETY: `host` holds at least `len` elements, which nothing
+            // else reads or writes until this call returns. The copy goes
+            // through the pointer: no reference is formed to memory that it
+            // has not written yet (new page-locked memory is uninitialized).
+            unsafe {
+                cudarc::driver::sys::cuMemcpyDtoHAsync_v2(
+                    host.pointer.cast(),
+                    source,
+                    len * std::mem::size_of::<T>(),
+                    self.stream.cu_stream(),
+                )
+            }
+            .result()
+            .map_err(cuda_error("device-to-host copy"))?;
+        }
+        self.synchronize()?;
+        // SAFETY: the copy wrote all `len` elements, and the stream's wait
+        // returned after it.
+        Ok(unsafe { std::slice::from_raw_parts_mut(host.pointer, len) })
     }
 
     pub fn zeros<T: DeviceRepr + ValidAsZeroBits>(&self, len: usize) -> Result<CudaSlice<T>> {

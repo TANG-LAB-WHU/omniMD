@@ -48,7 +48,10 @@
 //! has the descriptor and force kernels of se_e2_a look the embedding
 //! values up in the tables themselves (on), or read what a kernel of the
 //! tables stored for every row (off), instead of by the precision (on in
-//! float32, off in float64).
+//! float32, off in float64). `--device-sums CENTERS` sets the fewest centers
+//! (atoms of a pass times models) whose sums of every frame the device forms
+//! instead of the host (0: every pass); the bench lines say where the last
+//! pass had them formed (`sums_on_device`).
 //!
 //! `--member` adds a model of the same architecture: the models are then
 //! evaluated together as a committee, and each output line is the array of
@@ -72,8 +75,8 @@ use std::time::Instant;
 const USAGE: &str = "usage: omnimd-native-gpu-eval MODEL.json [--precision float64|float32] \
                      [--bench K] [--profile] [--chunk ATOMS] [--compress RMIN[:STEP]] \
                      [--fused-fitting ROWS] [--grouped-fitting on|off] [--tiled-fitting on|off] [--wide-forces CENTERS] \
-                     [--block-sums CENTERS] [--inline-tables on|off] [--member MODEL.json]... [--batch FRAMES] \
-                     [--bench-batches N,N,...] < frames.jsonl";
+                     [--block-sums CENTERS] [--inline-tables on|off] [--device-sums CENTERS] \
+                     [--member MODEL.json]... [--batch FRAMES] [--bench-batches N,N,...] < frames.jsonl";
 
 struct Options {
     model: String,
@@ -91,6 +94,7 @@ struct Options {
     wide_forces: Option<usize>,
     block_sums: Option<usize>,
     inline_tables: Option<bool>,
+    device_sums: Option<usize>,
 }
 
 fn options() -> Result<Options, Box<dyn std::error::Error>> {
@@ -111,6 +115,7 @@ fn options() -> Result<Options, Box<dyn std::error::Error>> {
         wide_forces: None,
         block_sums: None,
         inline_tables: None,
+        device_sums: None,
     };
     while let Some(flag) = args.next() {
         let mut value = || args.next().ok_or(USAGE);
@@ -142,6 +147,7 @@ fn options() -> Result<Options, Box<dyn std::error::Error>> {
             "--fused-fitting" => options.fused_fitting = Some(value()?.parse()?),
             "--wide-forces" => options.wide_forces = Some(value()?.parse()?),
             "--block-sums" => options.block_sums = Some(value()?.parse()?),
+            "--device-sums" => options.device_sums = Some(value()?.parse()?),
             "--grouped-fitting" => {
                 options.grouped_fitting = Some(match value()?.as_str() {
                     "on" => true,
@@ -213,6 +219,9 @@ fn evaluate<P: Scalar>(
     }
     if options.inline_tables.is_some() {
         gpu.set_inline_tables(options.inline_tables);
+    }
+    if options.device_sums.is_some() {
+        gpu.set_device_sums_centers(options.device_sums);
     }
     let mut build_seconds = 0.0;
     if let Some((min_distance, step)) = options.compress {
@@ -297,6 +306,7 @@ fn evaluate<P: Scalar>(
                     "tables_looked_up": gpu.tables_looked_up(),
                     "force_threads": gpu.force_threads(),
                     "force_sums": gpu.force_sums(),
+                    "sums_on_device": gpu.sums_on_device(),
                     "count_downloads": gpu.count_downloads()})
             );
         }
@@ -352,6 +362,7 @@ fn evaluate<P: Scalar>(
                 "tables_looked_up": gpu.tables_looked_up(),
                 "force_threads": gpu.force_threads(),
                 "force_sums": gpu.force_sums(),
+                "sums_on_device": gpu.sums_on_device(),
                 "count_downloads": gpu.count_downloads()});
             if members > 1 || options.batch > 1 {
                 record["frames"] = frames.len().into();

@@ -76,6 +76,57 @@ fn roundtrip_is_bit_exact() {
     assert_eq!(zeros, vec![0.0f32; 17]);
 }
 
+/// The copy back into page-locked memory: the elements as they were, the
+/// buffer grown only for a longer copy, a copy from a thread that has no
+/// context current, and a buffer taken to another handle of the same GPU,
+/// which shares its context and so the buffer, and back.
+#[test]
+fn results_come_back_through_page_locked_memory() {
+    let Some(device) = device() else { return };
+    let host_values = values(1000, 7);
+    let same = |got: &[f64], expected: &[f64]| {
+        got.len() == expected.len()
+            && got
+                .iter()
+                .zip(expected)
+                .all(|(a, b)| a.to_bits() == b.to_bits())
+    };
+    let on_device = device.upload(&host_values).unwrap();
+    let mut host = device.host_buffer::<f64>();
+    assert_eq!(host.capacity(), 0);
+    let back = device.download_into(&on_device, &mut host).unwrap();
+    assert!(same(back, &host_values));
+    assert_eq!(host.capacity(), 1000);
+    let back = device
+        .download_into(&on_device.slice(..10), &mut host)
+        .unwrap();
+    assert!(same(back, &host_values[..10]));
+    assert_eq!(host.capacity(), 1000, "a shorter copy keeps the buffer");
+    assert!(device
+        .download_into(&on_device.slice(..0), &mut host)
+        .unwrap()
+        .is_empty());
+    std::thread::scope(|scope| {
+        scope
+            .spawn(|| {
+                let back = device.download_into(&on_device, &mut host).unwrap();
+                assert!(same(back, &host_values), "from a thread of its own");
+            })
+            .join()
+            .unwrap();
+    });
+    let other = Device::new(0).unwrap();
+    let reversed: Vec<f64> = host_values.iter().rev().copied().collect();
+    let on_other = other.upload(&reversed).unwrap();
+    let back = other.download_into(&on_other, &mut host).unwrap();
+    assert!(same(back, &reversed), "another handle");
+    assert_eq!(host.capacity(), 1000, "the same context, the same buffer");
+    drop(on_other);
+    drop(other);
+    let back = device.download_into(&on_device, &mut host).unwrap();
+    assert!(same(back, &host_values), "the first handle again");
+}
+
 /// The multiprocessors of the device as the driver counts them and the
 /// shared memory of each, the same for a sibling handle; the desktop RTX
 /// 4090 has 128 of 100 KB (its laptop and D models, named otherwise, have

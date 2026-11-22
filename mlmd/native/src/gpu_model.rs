@@ -50,9 +50,9 @@ use crate::adaptive_table::{NetTable, TableOptions, TableSpan};
 use crate::{Activation, Descriptor, DescriptorKind, Model, Network, Residual, RADIAL_RESCALE};
 use omnimd_gpu::{
     Activation as DeviceActivation, Cell, CellSegments, CellTable, CudaFunction, CudaSlice,
-    CudaViewMut, DenseLayer, DenseNetwork, Device, GradientNetwork, GroupedNetwork, LaunchConfig,
-    LayerParameters, Mark, NeighborList, NeighborSearch, PushKernelArg, Scalar, ScalarNetwork,
-    CELL_LOOKUP, GROUPED_MAX_GROUPS,
+    CudaViewMut, DenseLayer, DenseNetwork, Device, GradientNetwork, GroupedNetwork, HostBuffer,
+    LaunchConfig, LayerParameters, Mark, NeighborList, NeighborSearch, PushKernelArg, Scalar,
+    ScalarNetwork, CELL_LOOKUP, GROUPED_MAX_GROUPS,
 };
 use omnimd_ml_contract::{
     Committee, Error, Evaluation, Frame, ModelMetadata, Potential, Result, Units,
@@ -68,6 +68,10 @@ pub(crate) fn source() -> &'static str {
 }
 
 const KERNELS: &str = r#"
+// Threads of a block of the kernel of the frame sums; see FRAME_SUMS_THREADS
+// on the host.
+#define FRAME_SUMS_THREADS 128
+
 // A division or a square root in double precision costs the device as much
 // as some sixty multiplications, so the kernels multiply by reciprocals that
 // are worked out once (`inv_range` = 1 / (rmax - rmin), `dstd_inv` = 1 / dstd,
@@ -1249,6 +1253,118 @@ extern "C" __global__ void hybrid_slots(const int* index, const double* delta,
     }
 }
 
+// What the host needs of the centers of a pass, summed on the device so that
+// their virials and energies stay there: for every frame and model the
+// energies of the frame's atoms of each type and the frame's virial,
+// sums[(frame * members + model) * (ntypes + 9) + ...], and for every frame
+// the status bits of its atoms together, frame_status[frame].
+//
+// The atoms of a frame of one type are cut into segments of at most twice
+// as many atoms as a block has threads, and a block sums one segment for
+// one model: a thread its atoms (at its own offsets in the segment), then
+// the block, a value at a time across the warps lane by lane and then
+// within a warp, into partial[(segment * members + model) * 10] (the
+// energy, then the virial) and, for model 0, the status bits into
+// partial_bits[segment]. The last block of a frame and model to be done
+// (counted in `done`, cleared before) adds up the segments of the frame in
+// their order. A frame's sums so depend neither on the frames around it in
+// a batch nor on the chunks of the pass. Double precision is slow on some
+// cards (1/64 of float32 on an RTX 4090), so the frame is spread over many
+// blocks, and a block reduces its ten sums once instead of each in turn
+// across all of its warps.
+//
+// layout: for every segment {frame, type, first atom among the atoms sorted
+// by type, atoms}, then for every frame {first segment, segments}, then the
+// chunks of the pass ({first, end} each), whose energies are [model][atom
+// of the chunk].
+template <typename P>
+__device__ void frame_sums_impl(const double* virial, const P* atomic, const int* status,
+        const int* layout, int segments, int frames, int ntypes, int members, int chunks,
+        int natoms, double* partial, int* partial_bits, int* done, double* sums,
+        int* frame_status) {
+    __shared__ double held[10 * FRAME_SUMS_THREADS];
+    __shared__ int bits_held[FRAME_SUMS_THREADS];
+    __shared__ int last;
+    int segment = blockIdx.x, model = blockIdx.y;
+    const int* entry = layout + 4 * segment;
+    int frame = entry[0], first = entry[2], count = entry[3];
+    const int* of_frame = layout + 4 * segments + 2 * frame;
+    const int* chunk = layout + 4 * segments + 2 * frames;
+    double energy = 0.0, vir[9] = {0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0};
+    int bits = 0;
+    for (int a = threadIdx.x; a < count; a += blockDim.x) {
+        int k = first + a;
+        // The chunk of atom k: the last one that starts at or before it.
+        int c = 0;
+        for (int lo = 1, hi = chunks - 1; lo <= hi;) {
+            int mid = (lo + hi) >> 1;
+            if (chunk[2 * mid] <= k) {
+                c = mid;
+                lo = mid + 1;
+            } else {
+                hi = mid - 1;
+            }
+        }
+        int start = chunk[2 * c], size = chunk[2 * c + 1] - start;
+        energy += (double)atomic[(long long)members * start + (long long)model * size + (k - start)];
+        const double* v = virial + 9 * ((long long)model * natoms + k);
+        for (int e = 0; e < 9; ++e) vir[e] += v[e];
+        bits |= status[k];
+    }
+    int threads = blockDim.x, lane = threadIdx.x & 31, warp = threadIdx.x >> 5, warps = threads >> 5;
+    held[threadIdx.x] = energy;
+    for (int e = 0; e < 9; ++e) held[(1 + e) * threads + threadIdx.x] = vir[e];
+    bits_held[threadIdx.x] = bits;
+    __syncthreads();
+    double* out = partial + ((long long)segment * members + model) * 10;
+    for (int value = warp; value < 10; value += warps) {
+        double sum = 0.0;
+        for (int w = 0; w < warps; ++w) sum += held[value * threads + 32 * w + lane];
+        sum = warp_sum(sum);
+        if (lane == 0) out[value] = sum;
+    }
+    if (model == 0 && warp == 0) {
+        int all = 0;
+        for (int w = 0; w < warps; ++w) all |= bits_held[32 * w + lane];
+        for (int offset = 16; offset > 0; offset >>= 1) all |= __shfl_down_sync(0xffffffffu, all, offset);
+        if (lane == 0) partial_bits[segment] = all;
+    }
+    // What this block wrote is seen by every block before it counts as done:
+    // every thread that wrote fences, and the count comes after the barrier.
+    // (The fences are fence.sc, which all threads of the device see in one
+    // order, so those of the threads that wrote come before that of the last
+    // block, which reads after its own fence and from L2.)
+    __threadfence();
+    __syncthreads();
+    if (threadIdx.x == 0) last = atomicAdd(&done[frame * members + model], 1) == of_frame[1] - 1;
+    __syncthreads();
+    if (!last) return;
+    __threadfence();
+    // The last block of the frame and model: its segments in their order,
+    // a thread for each type's energy, each part of the virial and the bits.
+    int from = of_frame[0], to = of_frame[0] + of_frame[1];
+    double* to_host = sums + ((long long)frame * members + model) * (ntypes + 9);
+    for (int task = threadIdx.x; task < ntypes + 10; task += threads) {
+        double sum = 0.0;
+        int all = 0;
+        for (int g = from; g < to; ++g) {
+            const double* of = partial + ((long long)g * members + model) * 10;
+            if (task < ntypes) {
+                if (layout[4 * g + 1] == task) sum += __ldcg(of);
+            } else if (task < ntypes + 9) {
+                sum += __ldcg(of + 1 + task - ntypes);
+            } else {
+                all |= __ldcg(partial_bits + g);
+            }
+        }
+        if (task < ntypes + 9) {
+            to_host[task] = sum;
+        } else if (model == 0) {
+            frame_status[frame] = all;
+        }
+    }
+}
+
 // The `_rows` kernels take the row table of `slot_row` (and the number of
 // types it is laid out by), are launched one model deep and keep the
 // environment and B in double precision (the trainer's); the others skip
@@ -1260,6 +1376,13 @@ extern "C" __global__ void hybrid_slots(const int* index, const double* delta,
 // tangent of θ, of the tangent of D and of the adjoints of the rows are the
 // trainer's, one model deep and over all atoms of a frame.
 #define INSTANTIATE(P, S)                                                                      \
+extern "C" __global__ void frame_sums_##S(const double* virial, const P* atomic,                  \
+        const int* status, const int* layout, int segments, int frames, int ntypes,               \
+        int members, int chunks, int natoms, double* partial, int* partial_bits, int* done,       \
+        double* sums, int* frame_status) {                                                        \
+    frame_sums_impl<P>(virial, atomic, status, layout, segments, frames, ntypes, members,         \
+                       chunks, natoms, partial, partial_bits, done, sums, frame_status);          \
+}                                                                                                 \
 extern "C" __global__ void se_e2_a_env_##S(const int* index, const double* delta,                 \
         const double* dist, const int* atype, const double* davg, const double* dstd_inv,         \
         const int* slot_type, const int* slot_local, const int* sel, const int* offset,           \
@@ -2054,6 +2177,8 @@ pub struct Stages {
     pub descriptor: f64,
     pub fitting: f64,
     pub forces: f64,
+    /// The sums of the frames where the device forms them (see
+    /// [`GpuPotential::device_sums_centers`]) and the copy of the results.
     pub download: f64,
 }
 
@@ -2237,8 +2362,35 @@ pub struct GpuPotential<P: Scalar> {
     tables_looked_up: bool,
     /// Neighbor search with its device buffers, kept between evaluations.
     search: NeighborSearch,
+    /// Page-locked host memory the results are copied into, kept between
+    /// evaluations.
+    results_host: HostBuffer<u64>,
+    /// The kernel of the sums of every frame (`frame_sums_impl` in the
+    /// kernels) and the layout it was last given, on the host and on the
+    /// device: it goes up again only when it changes.
+    frame_sums: CudaFunction,
+    sums_layout: Option<(Vec<i32>, CudaSlice<i32>)>,
+    /// Passes of at least this many centers (atoms times models) have the
+    /// device form the sums of their frames, the others the host (None:
+    /// [`DEVICE_SUMS_CENTERS`]), and whether the last pass had the device.
+    device_sums_centers: Option<usize>,
+    sums_on_device: bool,
+    /// Host memory of the sort of the atoms by type, kept between
+    /// evaluations.
+    sort_scratch: SortScratch,
     last_truncated: bool,
     profile: Option<StageTimes>,
+}
+
+/// The atoms of a pass sorted by type (see `GpuPotential::run`): the frame
+/// and the index in it of every atom, its position, its type and, for a
+/// batch, its frame again as the search takes it.
+#[derive(Default)]
+struct SortScratch {
+    source: Vec<(u32, u32)>,
+    positions: Vec<[f64; 3]>,
+    sorted_types: Vec<i32>,
+    system: Vec<i32>,
 }
 
 /// One descriptor of the models on the device: its embedding nets and what
@@ -2361,12 +2513,187 @@ unsafe fn view_as<'a, S>(
         .ok_or_else(|| Error("result buffer is smaller than its layout".into()))
 }
 
+/// Threads of a block of the kernel of the frame sums (`FRAME_SUMS_THREADS`
+/// in the kernels, which keep ten doubles and an int a thread in shared
+/// memory). A
+/// block sums a segment of a frame's atoms of one type, of at most
+/// [`FRAME_SUMS_SEGMENT`] atoms.
+const FRAME_SUMS_THREADS: u32 = 128;
+const FRAME_SUMS_SEGMENT: usize = 2 * FRAME_SUMS_THREADS as usize;
+
+/// Passes of fewer centers (the atoms of all frames times the models) than
+/// this have the host form the sums of their frames (see
+/// `frame_sums_on_host`) from the whole buffer of results, the others the
+/// device. Measured on an RTX 4090 with HAP and water models in float32 and
+/// float64, one model or a committee, the two ways alternated and the
+/// device's run a second time as control (within 0.93% of the first): the
+/// host was faster up to 224 centers (by 0.13 to 5.8%), the two within
+/// 0.73% at 264, and the device faster at 352 (by 0.31 to 1.6%), at 384
+/// (0.35%) and beyond (by 0.12 to 6.7%, the most at 1,056), but for one
+/// case of 768, 0.24% slower (4.2% faster in a first run, in which the two
+/// were within 0.69% at 352). The record:
+/// `bench/results/host-path-rtx4090-2026-11-22.json`. On the device's path
+/// a batch whose frames change from pass to pass (in number, or in atoms of
+/// a type) uploads the layout of its sums again, one more small copy.
+pub const DEVICE_SUMS_CENTERS: usize = 384;
+
+/// Segments of the frame sums: those of every frame's atoms of each type.
+fn sums_segments(counts: &[usize]) -> usize {
+    counts
+        .iter()
+        .map(|&count| count.div_ceil(FRAME_SUMS_SEGMENT))
+        .sum()
+}
+
+/// What the kernel of the frame sums reads of a pass (see `frame_sums_impl`
+/// in the kernels): for every segment its frame, its type, its first atom
+/// among all atoms sorted by type (within a type the frames follow each
+/// other) and its atoms; then for every frame its first segment and its
+/// segments; then the first atom and the end of every chunk. `counts` holds
+/// the atoms of each type in each frame, `block` the first atom of each type.
+fn sums_layout(
+    counts: &[usize],
+    block: &[usize],
+    ntypes: usize,
+    chunks: &[(usize, usize)],
+) -> Vec<i32> {
+    let frames = counts.len() / ntypes.max(1);
+    let mut segments = Vec::new();
+    let mut of_frames = Vec::with_capacity(2 * frames);
+    let mut next = block[..ntypes].to_vec();
+    for (frame, of_frame) in counts.chunks_exact(ntypes).enumerate() {
+        of_frames.extend([(segments.len() / 4) as i32, 0]);
+        for (t, &count) in of_frame.iter().enumerate() {
+            for start in (0..count).step_by(FRAME_SUMS_SEGMENT) {
+                let atoms = FRAME_SUMS_SEGMENT.min(count - start);
+                segments.extend([frame, t, next[t] + start, atoms].map(|n| n as i32));
+            }
+            next[t] += count;
+        }
+        let first = of_frames[2 * frame] as usize;
+        of_frames[2 * frame + 1] = (segments.len() / 4 - first) as i32;
+    }
+    segments.extend(of_frames);
+    for &(first, end) in chunks {
+        segments.extend([first as i32, end as i32]);
+    }
+    segments
+}
+
+/// What the kernel of the frame sums (`frame_sums_impl` in the kernels)
+/// writes, formed on the host from the same numbers in the same order, and
+/// so the same to the last bit: a thread of a block sums its atoms of a
+/// segment, the threads are added lane by lane across the warps and then
+/// within a warp as `warp_sum` does, and the segments of a frame are added
+/// in their order. `layout` and `shape` ([segments, frames, types, models,
+/// chunks, atoms]) are what the kernel would be given, and `read` the words
+/// of the virials, the status of the atoms and the atomic energies that it
+/// would read; the sums and the status of every frame go into `sums` and
+/// `frame_status` as it would write them.
+///
+/// The threads without atoms, and the lanes they leave empty, give the
+/// kernel's sums zeros, which are left out here: a sum that begins at zero
+/// is never the negative zero, and adding zero to anything else leaves it
+/// as it is.
+fn frame_sums_on_host<P: Scalar>(
+    layout: &[i32],
+    shape: [usize; 6],
+    read: [&[u64]; 3],
+    sums: &mut [u64],
+    frame_status: &mut [u64],
+) {
+    const LANES: usize = 32;
+    const THREADS: usize = FRAME_SUMS_THREADS as usize;
+    let [segments, frames, ntypes, members, chunks, natoms] = shape;
+    let [virial, status, energies] = read;
+    let atomic = P::from_words(energies, members * natoms);
+    let at = |index: usize| layout[index] as usize;
+    let (frames_at, chunks_at) = (4 * segments, 4 * segments + 2 * frames);
+    // What every block leaves of its segment and model: the energy, then
+    // the virial; and the status bits of each segment.
+    let mut partial = vec![[0.0f64; 10]; segments * members];
+    let mut partial_bits = vec![0i32; segments];
+    let mut held = [[0.0f64; 10]; THREADS];
+    for segment in 0..segments {
+        let (first, count) = (at(4 * segment + 2), at(4 * segment + 3));
+        let busy = count.min(THREADS);
+        for model in 0..members {
+            for (thread, sum) in held[..busy].iter_mut().enumerate() {
+                *sum = [0.0; 10];
+                for k in (first + thread..first + count).step_by(THREADS) {
+                    // The chunk of atom k: the last one that starts at or
+                    // before it.
+                    let chunk = (1..chunks)
+                        .rev()
+                        .find(|&c| at(chunks_at + 2 * c) <= k)
+                        .unwrap_or(0);
+                    let (start, end) = (at(chunks_at + 2 * chunk), at(chunks_at + 2 * chunk + 1));
+                    sum[0] +=
+                        atomic[members * start + model * (end - start) + (k - start)].to_f64();
+                    let of_atom = &virial[9 * (model * natoms + k)..][..9];
+                    for (to, &word) in sum[1..].iter_mut().zip(of_atom) {
+                        *to += f64::from_bits(word);
+                    }
+                    if model == 0 {
+                        partial_bits[segment] |= int_at(status, k);
+                    }
+                }
+            }
+            for value in 0..10 {
+                let mut lanes = [0.0f64; LANES];
+                for (lane, sum) in lanes.iter_mut().enumerate().take(busy) {
+                    for thread in (lane..busy).step_by(LANES) {
+                        *sum += held[thread][value];
+                    }
+                }
+                let mut offset = LANES / 2;
+                while offset > 0 {
+                    for lane in 0..offset {
+                        lanes[lane] += lanes[lane + offset];
+                    }
+                    offset /= 2;
+                }
+                partial[segment * members + model][value] = lanes[0];
+            }
+        }
+    }
+    for frame in 0..frames {
+        let from = at(frames_at + 2 * frame);
+        let own = from..from + at(frames_at + 2 * frame + 1);
+        for model in 0..members {
+            let to_host = &mut sums[(frame * members + model) * (ntypes + 9)..][..ntypes + 9];
+            for (task, word) in to_host.iter_mut().enumerate() {
+                let mut sum = 0.0;
+                for g in own.clone() {
+                    let of = &partial[g * members + model];
+                    if task >= ntypes {
+                        sum += of[1 + task - ntypes];
+                    } else if at(4 * g + 1) == task {
+                        sum += of[0];
+                    }
+                }
+                *word = sum.to_bits();
+            }
+        }
+        let bits = own.fold(0, |all, g| all | partial_bits[g]);
+        set_int_at(frame_status, frame, bits);
+    }
+}
+
 /// The `index`th int of a buffer of 64-bit words, as it lies in memory.
 fn int_at(words: &[u64], index: usize) -> i32 {
     let bytes = words[index / 2].to_ne_bytes();
     let mut raw = [0; 4];
     raw.copy_from_slice(&bytes[4 * (index % 2)..][..4]);
     i32::from_ne_bytes(raw)
+}
+
+/// Writes the `index`th int of a buffer of 64-bit words, as it lies in
+/// memory.
+fn set_int_at(words: &mut [u64], index: usize, value: i32) {
+    let mut bytes = words[index / 2].to_ne_bytes();
+    bytes[4 * (index % 2)..][..4].copy_from_slice(&value.to_ne_bytes());
+    words[index / 2] = u64::from_ne_bytes(bytes);
 }
 
 fn layer_parameters<P: Scalar>(network: &Network, mut input: usize) -> Vec<LayerParameters<P>> {
@@ -3244,6 +3571,14 @@ impl<P: Scalar> GpuPotential<P> {
             inline_tables: None,
             tables_looked_up: false,
             search: NeighborSearch::new(d.rcut, &d.sel)?,
+            results_host: device.host_buffer(),
+            frame_sums: device
+                .kernels()
+                .function(source(), &format!("frame_sums_{}", P::SUFFIX))?,
+            sums_layout: None,
+            device_sums_centers: None,
+            sums_on_device: false,
+            sort_scratch: SortScratch::default(),
             last_truncated: false,
             profile: None,
             device,
@@ -3408,6 +3743,30 @@ impl<P: Scalar> GpuPotential<P> {
     /// across their warps in shared memory. False before the first launch.
     pub fn block_sums_shared(&self) -> bool {
         self.block_sums_shared
+    }
+
+    /// The fewest centers of a pass (the atoms of all its frames times the
+    /// models) whose sums of every frame, the energies of each type and the
+    /// virial, the device forms, when a number was set: the virials and
+    /// energies of the atoms of fewer are copied to the host and summed
+    /// there. `None` is how a potential starts: [`DEVICE_SUMS_CENTERS`].
+    /// The sums are the same to the last bit either way: the host adds the
+    /// same numbers in the order of the kernel.
+    pub fn device_sums_centers(&self) -> Option<usize> {
+        self.device_sums_centers
+    }
+
+    /// Override [`Self::device_sums_centers`]; `Some(0)` has the device sum
+    /// the frames of every pass, `Some(usize::MAX)` of none, and `None`
+    /// restores the default.
+    pub fn set_device_sums_centers(&mut self, centers: Option<usize>) {
+        self.device_sums_centers = centers;
+    }
+
+    /// Whether the device formed the sums of the frames of the last pass
+    /// (see [`Self::device_sums_centers`]). False before the first.
+    pub fn sums_on_device(&self) -> bool {
+        self.sums_on_device
     }
 
     /// The blocks of the force kernel of every descriptor (in the order of
@@ -3684,19 +4043,23 @@ impl<P: Scalar> GpuPotential<P> {
             false => e,
         };
         let mut frame_types = Vec::with_capacity(frames.len());
-        // First atom of each center type among all atoms of the batch.
-        let mut block = vec![0usize; ntypes + 1];
+        // Atoms of each center type in each frame.
+        let mut counts = vec![0usize; frames.len() * ntypes];
         for (index, frame) in frames.iter().enumerate() {
             let types = frame
                 .type_ids(&self.metadata)
                 .map_err(|e| in_batch(index, e))?;
+            let of_frame = &mut counts[index * ntypes..(index + 1) * ntypes];
             for &t in &types {
-                block[t as usize + 1] += 1;
+                of_frame[t as usize] += 1;
             }
             frame_types.push(types);
         }
+        // First atom of each center type among all atoms of the batch.
+        let mut block = vec![0usize; ntypes + 1];
         for t in 0..ntypes {
-            block[t + 1] += block[t];
+            let atoms: usize = counts.iter().skip(t).step_by(ntypes).sum();
+            block[t + 1] = block[t] + atoms;
         }
         let natoms = block[ntypes];
         if i32::try_from(natoms.saturating_mul(members)).is_err() {
@@ -3708,10 +4071,20 @@ impl<P: Scalar> GpuPotential<P> {
         // a contiguous block; within a type the frames follow each other and
         // the atoms of a frame keep their order.
         let mut cursor = block.clone();
-        let mut source = vec![(0u32, 0u32); natoms];
-        let mut positions = vec![[0.0; 3]; natoms];
-        let mut sorted_types = vec![0i32; natoms];
-        let mut system = vec![0i32; if batch { natoms } else { 0 }];
+        // The sort writes every entry (it is a permutation), so what the
+        // last evaluation left in these buffers does no harm; kept, they
+        // cost no allocation, zero fill or freeing per evaluation.
+        let mut scratch = std::mem::take(&mut self.sort_scratch);
+        let SortScratch {
+            source,
+            positions,
+            sorted_types,
+            system,
+        } = &mut scratch;
+        source.resize(natoms, (0, 0));
+        positions.resize(natoms, [0.0; 3]);
+        sorted_types.resize(natoms, 0);
+        system.resize(if batch { natoms } else { 0 }, 0);
         for (index, (frame, types)) in frames.iter().zip(&frame_types).enumerate() {
             for (atom, &t) in types.iter().enumerate() {
                 let k = cursor[t as usize];
@@ -3731,36 +4104,60 @@ impl<P: Scalar> GpuPotential<P> {
         let stream = device.stream();
         clock.begin()?;
 
-        // Everything that goes back to the host, in one buffer for a single
-        // copy: the forces of each model [members][natoms][3] and the
-        // table-range flag (cleared together), the virial of each center
-        // [members][natoms][9], the neighbor status of each atom (ints) and
-        // the atomic energies (`P`, chunk by chunk, see below).
+        // What goes back to the host lies at the start of one buffer, for a
+        // single copy: the forces of each model [members][natoms][3] and the
+        // table-range flag (cleared together), then the sums of every frame
+        // and model and the status of every frame (ints), which the kernel
+        // of the frame sums forms from what follows and stays on the device:
+        // its partial sums, the virial of each center [members][natoms][9],
+        // the neighbor status of each atom (ints) and the atomic energies
+        // (`P`, chunk by chunk, see below). A pass of fewer centers than
+        // `device_sums_centers` copies the whole buffer instead, and the
+        // host forms the sums.
         let centers = members * natoms;
-        let cleared_words = 3 * centers + 1;
+        let segments = sums_segments(&counts);
+        // The table-range flag, then how many blocks of the frame sums are
+        // done with each frame and model.
+        let flags = 1 + frames.len() * members;
+        let cleared_words = 3 * centers + flags.div_ceil(2);
+        let sum_words = frames.len() * members * (ntypes + 9);
+        let frame_status_words = frames.len().div_ceil(2);
+        let returned = cleared_words + sum_words + frame_status_words;
+        let partial_words = 10 * segments * members + segments.div_ceil(2);
         let status_words = natoms.div_ceil(2);
         let energy_words = (centers * std::mem::size_of::<P>()).div_ceil(8);
         let mut results = unsafe {
-            device.alloc_uninit::<u64>(cleared_words + 9 * centers + status_words + energy_words)?
+            device.alloc_uninit::<u64>(
+                returned + partial_words + 9 * centers + status_words + energy_words,
+            )?
         };
         let (mut cleared, mut rest) = results.split_at_mut(cleared_words);
         stream.memset_zeros(&mut cleared).map_err(copy_error)?;
         let (mut force_words, mut flag_words) = cleared.split_at_mut(3 * centers);
+        let (mut sum_part, mut rest) = rest.split_at_mut(sum_words);
+        let (mut frame_status_part, mut rest) = rest.split_at_mut(frame_status_words);
+        let (mut partial_part, mut rest) = rest.split_at_mut(10 * segments * members);
+        let (mut partial_bits_part, mut rest) = rest.split_at_mut(segments.div_ceil(2));
         let (mut virial_words, mut rest) = rest.split_at_mut(9 * centers);
         let (mut status_part, mut energy_part) = rest.split_at_mut(status_words);
         // SAFETY: float64, float32 and int32 are plain numbers that fit the
         // alignment of the words they are laid over.
         let mut force = unsafe { view_as::<f64>(&mut force_words, 3 * centers)? };
-        let mut outside_table = unsafe { view_as::<i32>(&mut flag_words, 1)? };
+        let mut flag_ints = unsafe { view_as::<i32>(&mut flag_words, flags)? };
+        let (mut outside_table, mut done) = flag_ints.split_at_mut(1);
         let mut virial = unsafe { view_as::<f64>(&mut virial_words, 9 * centers)? };
         let mut status = unsafe { view_as::<i32>(&mut status_part, natoms)? };
         let mut atomic = unsafe { view_as::<P>(&mut energy_part, centers)? };
+        let mut sums = unsafe { view_as::<f64>(&mut sum_part, sum_words)? };
+        let mut frame_status = unsafe { view_as::<i32>(&mut frame_status_part, frames.len())? };
+        let mut partial = unsafe { view_as::<f64>(&mut partial_part, 10 * segments * members)? };
+        let mut partial_bits = unsafe { view_as::<i32>(&mut partial_bits_part, segments)? };
 
         let list: &NeighborList = self.search.run_systems_mirrored(
             device,
-            &positions,
-            &sorted_types,
-            &system,
+            positions,
+            sorted_types,
+            system,
             &cells,
             &mut status,
         )?;
@@ -4551,71 +4948,118 @@ impl<P: Scalar> GpuPotential<P> {
             }
         }
 
-        let words = device.download(&results)?;
-        clock.lap(|t| &mut t.download)?;
-        let (cleared, rest) = words.split_at(cleared_words);
-        let (virial_words, rest) = rest.split_at(9 * centers);
-        let (status_part, energy_part) = rest.split_at(status_words);
-        // The neighbor status of each frame: its atoms' bits together.
-        let mut status = vec![0; frames.len()];
-        for (k, &(frame, _)) in source.iter().enumerate() {
-            status[frame as usize] |= int_at(status_part, k);
+        // The sums of every frame and model: by the device (see
+        // `frame_sums_impl`), or for a pass of few centers by the host from
+        // the whole buffer, in the same order (see `frame_sums_on_host`).
+        let layout = sums_layout(&counts, &block, ntypes, &chunks);
+        let shape = [
+            segments,
+            frames.len(),
+            ntypes,
+            members,
+            chunks.len(),
+            natoms,
+        ];
+        self.sums_on_device = centers >= self.device_sums_centers.unwrap_or(DEVICE_SUMS_CENTERS);
+        let on_host = match self.sums_on_device {
+            false => Some(layout),
+            true => {
+                if self
+                    .sums_layout
+                    .as_ref()
+                    .is_none_or(|(host, _)| *host != layout)
+                {
+                    let on_device = device.upload(&layout)?;
+                    self.sums_layout = Some((layout, on_device));
+                }
+                None
+            }
+        };
+        if let (None, Some((_, layout))) = (&on_host, &self.sums_layout) {
+            let shape = shape.map(|n| n as i32);
+            let mut launch = stream.launch_builder(&self.frame_sums);
+            launch
+                .arg(&mut virial)
+                .arg(&mut atomic)
+                .arg(&mut status)
+                .arg(layout);
+            for n in &shape {
+                launch.arg(n);
+            }
+            launch
+                .arg(&mut partial)
+                .arg(&mut partial_bits)
+                .arg(&mut done)
+                .arg(&mut sums)
+                .arg(&mut frame_status);
+            let config = LaunchConfig {
+                grid_dim: (segments as u32, members as u32, 1),
+                block_dim: (FRAME_SUMS_THREADS, 1, 1),
+                shared_mem_bytes: 0,
+            };
+            unsafe { launch.launch(config) }
+                .map(drop)
+                .map_err(launch_error("frame sums"))?;
         }
+
+        let copied = match on_host {
+            Some(_) => results.len(),
+            None => returned,
+        };
+        let words = device.download_into(&results.slice(..copied), &mut self.results_host)?;
+        clock.lap(|t| &mut t.download)?;
+        let (words, kept) = words.split_at_mut(returned);
+        let (cleared, rest) = words.split_at_mut(cleared_words);
+        let (sum_part, frame_status_part) = rest.split_at_mut(sum_words);
+        if let Some(layout) = &on_host {
+            let (virial_part, rest) = kept[partial_words..].split_at(9 * centers);
+            let (status_part, energy_part) = rest.split_at(status_words);
+            let read = [virial_part, status_part, energy_part];
+            frame_sums_on_host::<P>(layout, shape, read, sum_part, frame_status_part);
+        }
+        let (cleared, sum_part, frame_status_part) = (&*cleared, &*sum_part, &*frame_status_part);
         self.last_truncated = false;
-        for (index, &bits) in status.iter().enumerate() {
+        for index in 0..frames.len() {
+            let bits = int_at(frame_status_part, index);
             self.last_truncated |= NeighborList::status(bits).map_err(|e| in_batch(index, e))?;
         }
         if tabulated && int_at(&cleared[3 * centers..], 0) != 0 {
+            self.sort_scratch = scratch;
             return Ok(None);
         }
-        let atomic = P::from_words(energy_part, centers);
-        // The energy of an atom for a model: the energies of a chunk are
-        // [model][local atom], chunk after chunk.
-        let energy_at = |model: usize, k: usize| {
-            let (first, end) = chunks[chunks.partition_point(|&(first, _)| first <= k) - 1];
-            atomic[members * first + model * (end - first) + (k - first)].to_f64()
-        };
+        let bias = &self.bias;
         let mut all: Vec<Vec<Evaluation>> = frames
             .iter()
-            .map(|frame| {
+            .enumerate()
+            .map(|(index, frame)| {
                 (0..members)
-                    .map(|_| Evaluation {
-                        energy: 0.0,
-                        forces: vec![[0.0; 3]; frame.positions.len()],
-                        virial: [[0.0; 3]; 3],
-                        units: Units::EvAngstrom,
+                    .map(|model| {
+                        let of =
+                            &sum_part[(index * members + model) * (ntypes + 9)..][..ntypes + 9];
+                        // The energies of one type at a time, then its bias,
+                        // as for a single frame.
+                        let mut energy = 0.0;
+                        for t in 0..ntypes {
+                            energy += f64::from_bits(of[t])
+                                + bias[model * ntypes + t] * counts[index * ntypes + t] as f64;
+                        }
+                        Evaluation {
+                            energy,
+                            forces: vec![[0.0; 3]; frame.positions.len()],
+                            virial: std::array::from_fn(|a| {
+                                std::array::from_fn(|b| f64::from_bits(of[ntypes + 3 * a + b]))
+                            }),
+                            units: Units::EvAngstrom,
+                        }
                     })
                     .collect()
             })
             .collect();
-        // Sums of one type at a time, then its bias, as for a single frame.
-        let mut sums = vec![0.0; frames.len() * members];
-        let mut counts = vec![0usize; frames.len()];
-        for t in 0..ntypes {
-            sums.fill(0.0);
-            counts.fill(0);
-            for (k, &(frame, _)) in source.iter().enumerate().take(block[t + 1]).skip(block[t]) {
-                let frame = frame as usize;
-                counts[frame] += 1;
-                for model in 0..members {
-                    sums[frame * members + model] += energy_at(model, k);
-                }
-            }
-            for (frame, evaluations) in all.iter_mut().enumerate() {
-                for (model, evaluation) in evaluations.iter_mut().enumerate() {
-                    evaluation.energy += sums[frame * members + model]
-                        + self.bias[model * ntypes + t] * counts[frame] as f64;
-                }
-            }
-        }
         for (k, &(frame, atom)) in source.iter().enumerate() {
             for (model, evaluation) in all[frame as usize].iter_mut().enumerate() {
                 let center = model * natoms + k;
                 evaluation.forces[atom as usize] =
                     std::array::from_fn(|c| f64::from_bits(cleared[3 * center + c]));
-                for (e, v) in virial_words[9 * center..9 * center + 9].iter().enumerate() {
-                    evaluation.virial[e / 3][e % 3] += f64::from_bits(*v);
-                }
             }
         }
         for (index, (frame, evaluations)) in frames.iter().zip(&all).enumerate() {
@@ -4625,6 +5069,7 @@ impl<P: Scalar> GpuPotential<P> {
                     .map_err(|e| in_batch(index, e))?;
             }
         }
+        self.sort_scratch = scratch;
         Ok(Some(all))
     }
 }
@@ -4783,10 +5228,266 @@ impl<P: Scalar> Committee for GpuPotential<P> {
 #[cfg(test)]
 mod tests {
     use super::{
-        angular_descriptor_shared, angular_table_shared, force_way, in_parallel, pair_chunks,
-        pair_starts, FittingPath, FittingRule, BLOCK, FORCE_WAYS, GROUPED_MAX_GROUPS, WIDE_BLOCK,
+        angular_descriptor_shared, angular_table_shared, force_way, frame_sums_on_host,
+        in_parallel, int_at, pair_chunks, pair_starts, set_int_at, sums_layout, sums_segments,
+        FittingPath, FittingRule, Scalar, BLOCK, FORCE_WAYS, FRAME_SUMS_THREADS,
+        GROUPED_MAX_GROUPS, WIDE_BLOCK,
     };
     use FittingPath::{Fused, Grouped, NetByNet};
+
+    /// Atoms of each type in three frames of two types: the first type of
+    /// the first frame in two segments, a frame without the first type, one
+    /// atom of it in the last. All atoms sorted by type start the types at
+    /// 0 and 301, and two chunks cut through the first segment.
+    const COUNTS: [usize; 6] = [300, 5, 0, 7, 1, 130];
+    const BLOCK_STARTS: [usize; 3] = [0, 301, 443];
+    const CHUNKS: [(usize, usize); 2] = [(0, 150), (150, 443)];
+
+    #[test]
+    fn the_frame_sums_are_laid_out_by_frame_type_and_segment() {
+        let layout = sums_layout(&COUNTS, &BLOCK_STARTS, 2, &CHUNKS);
+        assert_eq!(sums_segments(&COUNTS), 6);
+        // {frame, type, first atom, atoms} of every segment, then {first
+        // segment, segments} of every frame, then {first, end} of every
+        // chunk.
+        let segments = [
+            [0, 0, 0, 256],
+            [0, 0, 256, 44],
+            [0, 1, 301, 5],
+            [1, 1, 306, 7],
+            [2, 0, 300, 1],
+            [2, 1, 313, 130],
+        ];
+        let frames = [[0, 3], [3, 1], [4, 2]];
+        let chunks = [[0, 150], [150, 443]];
+        let expected: Vec<i32> = segments
+            .iter()
+            .flatten()
+            .chain(frames.iter().flatten())
+            .chain(chunks.iter().flatten())
+            .copied()
+            .collect();
+        assert_eq!(layout, expected);
+    }
+
+    /// The words of `values` as a buffer of the device holds them.
+    fn words_of<T: Copy>(values: &[T]) -> Vec<u64> {
+        let bytes = std::mem::size_of_val(values);
+        let mut words = vec![0u64; bytes.div_ceil(8)];
+        // SAFETY: plain numbers, copied byte for byte into words that have
+        // room for them.
+        unsafe {
+            std::ptr::copy_nonoverlapping(
+                values.as_ptr().cast::<u8>(),
+                words.as_mut_ptr().cast::<u8>(),
+                bytes,
+            );
+        }
+        words
+    }
+
+    /// `frame_sums_impl` step by step as the device runs it: every thread of
+    /// a block with its zeros, the binary search for the chunk of an atom,
+    /// and `warp_sum` with the lanes past the end adding their own values.
+    fn kernel_sums<P: Scalar>(
+        layout: &[i32],
+        shape: [usize; 6],
+        virial: &[f64],
+        atomic: &[P],
+        status: &[i32],
+    ) -> (Vec<f64>, Vec<i32>) {
+        let [segments, frames, ntypes, members, chunks, natoms] = shape;
+        let threads = FRAME_SUMS_THREADS as usize;
+        let at = |index: usize| layout[index] as usize;
+        let chunk_at = |c: usize| 4 * segments + 2 * frames + 2 * c;
+        let mut partial = vec![[0.0f64; 10]; segments * members];
+        let mut partial_bits = vec![0i32; segments];
+        for segment in 0..segments {
+            let (first, count) = (at(4 * segment + 2), at(4 * segment + 3));
+            for model in 0..members {
+                let mut held = vec![[0.0f64; 10]; threads];
+                let mut bits_held = vec![0i32; threads];
+                for thread in 0..threads {
+                    let (mut sum, mut bits) = ([0.0f64; 10], 0);
+                    let mut a = thread;
+                    while a < count {
+                        let k = first + a;
+                        let (mut c, mut lo, mut hi) = (0, 1, chunks as i64 - 1);
+                        while lo <= hi {
+                            let mid = (lo + hi) >> 1;
+                            if at(chunk_at(mid as usize)) <= k {
+                                c = mid as usize;
+                                lo = mid + 1;
+                            } else {
+                                hi = mid - 1;
+                            }
+                        }
+                        let start = at(chunk_at(c));
+                        let size = at(chunk_at(c) + 1) - start;
+                        sum[0] += atomic[members * start + model * size + (k - start)].to_f64();
+                        for e in 0..9 {
+                            sum[1 + e] += virial[9 * (model * natoms + k) + e];
+                        }
+                        bits |= status[k];
+                        a += threads;
+                    }
+                    held[thread] = sum;
+                    bits_held[thread] = bits;
+                }
+                for value in 0..10 {
+                    let mut lanes: Vec<f64> = (0..32)
+                        .map(|lane| {
+                            let mut sum = 0.0;
+                            for warp in 0..threads / 32 {
+                                sum += held[32 * warp + lane][value];
+                            }
+                            sum
+                        })
+                        .collect();
+                    let mut offset = 16;
+                    while offset > 0 {
+                        lanes = (0..32)
+                            .map(|lane| {
+                                lanes[lane]
+                                    + lanes[if lane + offset < 32 {
+                                        lane + offset
+                                    } else {
+                                        lane
+                                    }]
+                            })
+                            .collect();
+                        offset >>= 1;
+                    }
+                    partial[segment * members + model][value] = lanes[0];
+                }
+                if model == 0 {
+                    partial_bits[segment] = bits_held.iter().fold(0, |all, &bits| all | bits);
+                }
+            }
+        }
+        let mut sums = vec![0.0; frames * members * (ntypes + 9)];
+        let mut frame_status = vec![0; frames];
+        for frame in 0..frames {
+            let from = at(4 * segments + 2 * frame);
+            let to = from + at(4 * segments + 2 * frame + 1);
+            for model in 0..members {
+                for task in 0..ntypes + 10 {
+                    let (mut sum, mut all) = (0.0, 0);
+                    for g in from..to {
+                        let of = &partial[g * members + model];
+                        if task < ntypes {
+                            if at(4 * g + 1) == task {
+                                sum += of[0];
+                            }
+                        } else if task < ntypes + 9 {
+                            sum += of[1 + task - ntypes];
+                        } else {
+                            all |= partial_bits[g];
+                        }
+                    }
+                    if task < ntypes + 9 {
+                        sums[(frame * members + model) * (ntypes + 9) + task] = sum;
+                    } else if model == 0 {
+                        frame_status[frame] = all;
+                    }
+                }
+            }
+        }
+        (sums, frame_status)
+    }
+
+    /// `frame_sums_on_host` against the kernel step by step, to the bit, and
+    /// against plain sums, to rounding, for two models in precision `P`.
+    fn host_sums_as_the_kernel<P: Scalar>(label: &str) {
+        let (frames, ntypes, members, natoms) = (3, 2, 2, 443);
+        let layout = sums_layout(&COUNTS, &BLOCK_STARTS, ntypes, &CHUNKS);
+        let segments = sums_segments(&COUNTS);
+        let shape = [segments, frames, ntypes, members, CHUNKS.len(), natoms];
+        // Numbers of many sizes and both signs, zeros of both signs among
+        // them, some of them the negatives of others.
+        let mut state = 0x2545_f491_4f6c_dd1d_u64;
+        let mut number = |scale: f64| {
+            state ^= state << 13;
+            state ^= state >> 7;
+            state ^= state << 17;
+            let unit = (state >> 11) as f64 / (1u64 << 53) as f64 - 0.5;
+            match state % 16 {
+                0 => 0.0,
+                1 => -0.0,
+                _ => unit * scale * 10f64.powi((state % 7) as i32 - 3),
+            }
+        };
+        let mut virial: Vec<f64> = (0..9 * members * natoms).map(|_| number(1.0)).collect();
+        for k in (0..virial.len()).step_by(37).skip(1) {
+            virial[k] = -virial[k - 9];
+        }
+        let atomic: Vec<P> = (0..members * natoms)
+            .map(|_| P::from_f64(number(100.0) - 90.0))
+            .collect();
+        let status: Vec<i32> = (0..natoms)
+            .map(|k| match (k % 97, k % 89) {
+                (13, _) => 2,
+                (_, 5) => 4,
+                _ => 0,
+            })
+            .collect();
+        let (expected, expected_status) = kernel_sums(&layout, shape, &virial, &atomic, &status);
+
+        let mut status_words = vec![0u64; natoms.div_ceil(2)];
+        for (k, &bits) in status.iter().enumerate() {
+            set_int_at(&mut status_words, k, bits);
+        }
+        let (virial_words, energy_words) = (words_of(&virial), words_of(&atomic));
+        let read = [&virial_words[..], &status_words[..], &energy_words[..]];
+        let mut sums = vec![u64::MAX; frames * members * (ntypes + 9)];
+        let mut frame_status = vec![u64::MAX; frames.div_ceil(2)];
+        frame_sums_on_host::<P>(&layout, shape, read, &mut sums, &mut frame_status);
+        let bits: Vec<u64> = expected.iter().map(|v| v.to_bits()).collect();
+        assert_eq!(sums, bits, "{label}");
+        for (frame, &bits) in expected_status.iter().enumerate() {
+            assert_eq!(int_at(&frame_status, frame), bits, "{label}, frame {frame}");
+        }
+        // No status bits in the second frame, both kinds in the first.
+        assert_eq!(expected_status, [6, 0, 6], "{label}");
+
+        // The same sums in another order, to rounding: the atoms of every
+        // segment in turn.
+        let mut plain = vec![(0.0f64, 0.0f64); frames * members * (ntypes + 9)];
+        for segment in layout[..4 * segments].chunks_exact(4) {
+            let [frame, t, first, count] = [0, 1, 2, 3].map(|i| segment[i] as usize);
+            for model in 0..members {
+                let of = &mut plain[(frame * members + model) * (ntypes + 9)..][..ntypes + 9];
+                for k in first..first + count {
+                    let (start, end) = if k < CHUNKS[1].0 {
+                        CHUNKS[0]
+                    } else {
+                        CHUNKS[1]
+                    };
+                    let energy = atomic[members * start + model * (end - start) + (k - start)];
+                    let energy = energy.to_f64();
+                    of[t] = (of[t].0 + energy, of[t].1 + energy.abs());
+                    for e in 0..9 {
+                        let v = virial[9 * (model * natoms + k) + e];
+                        of[ntypes + e] = (of[ntypes + e].0 + v, of[ntypes + e].1 + v.abs());
+                    }
+                }
+            }
+        }
+        for (index, (&got, &(sum, scale))) in expected.iter().zip(&plain).enumerate() {
+            assert!(
+                (got - sum).abs() <= 1e-13 * scale,
+                "{label}, sum {index}: {got} against {sum}"
+            );
+        }
+        // A type without atoms in a frame sums to zero.
+        assert_eq!(expected[2 * (ntypes + 9)].to_bits(), 0, "{label}");
+    }
+
+    #[test]
+    fn the_host_sums_the_frames_as_the_kernel_does() {
+        host_sums_as_the_kernel::<f64>("float64");
+        host_sums_as_the_kernel::<f32>("float32");
+    }
 
     /// Float32 models of five center types (those of HAP), with every path.
     fn five_types() -> FittingRule {
