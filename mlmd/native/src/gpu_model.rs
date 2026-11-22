@@ -1454,12 +1454,14 @@ INSTANTIATE(double, f64)
 "#;
 
 const BLOCK: u32 = 128;
-/// Threads of a block of the force kernel of a two-body descriptor in a pass
-/// of few centers (see [`WIDE_FORCE_CENTERS_F32`]).
+/// Threads of a wide block of the force kernel of a two-body descriptor
+/// (see [`FORCE_WAYS`]).
 const WIDE_BLOCK: u32 = 256;
-/// Float32 passes of at most this many centers (the atoms of a chunk times
-/// the models) give the force kernel of an se_e2_a or se_e2_r descriptor
-/// blocks of [`WIDE_BLOCK`] threads instead of [`BLOCK`].
+/// Where the driver does not say what the device keeps of a force kernel at
+/// once, float32 passes of at most this many centers (the atoms of a chunk
+/// times the models) give the force kernel of an se_e2_a or se_e2_r
+/// descriptor blocks of [`WIDE_BLOCK`] threads instead of [`BLOCK`]; where
+/// it says, [`force_way`] chooses.
 ///
 /// That kernel is a block per center, and one of its steps takes the
 /// neighbor slots of the center a warp each, the warps of the block in
@@ -1479,29 +1481,151 @@ const WIDE_BLOCK: u32 = 256;
 /// 2026-11-21, `bench/results/inline-tables-force-blocks-rtx4090-2026-11-21.json`)
 /// the narrower blocks took 0.5% to 4.3% less with the HAP model from 264 to
 /// 352 centers, and the wider ones with the sums across the warps 3.1% less
-/// with the water model at 384, past both limits. A limit by the blocks the
-/// device keeps at once may serve both (see the summary of the results).
+/// with the water model at 384, past both limits. The blocks the device
+/// keeps at once serve both (see [`force_way`]).
 pub const WIDE_FORCE_CENTERS_F32: usize = 352;
 /// The same for float64 passes. There the wider blocks took 1.6% to 4.4% off
 /// an evaluation with se_e2_r up to 224 centers, less than 1% from 264 to
 /// 352, and added 1.7% at 528. They left one with se_e2_a within 1.7% at
 /// every size but one: a committee of 352 centers, 4% longer.
 pub const WIDE_FORCE_CENTERS_F64: usize = 224;
-/// Passes of at most this many centers give the force kernel of an se_e2_a
-/// descriptor room in shared memory for the sums of a block across its warps
-/// (twelve doubles a thread, see `block_sums` in the kernels). The force
-/// kernels of se_e2_r and se_e3 have it in a pass of any size.
+/// Where the driver does not say what the device keeps of a force kernel at
+/// once, passes of at most this many centers give the force kernel of an
+/// se_e2_a descriptor room in shared memory for the sums of a block across
+/// its warps (twelve doubles a thread, see `block_sums` in the kernels), and
+/// that of se_e2_r has it in a pass of any size; where it says,
+/// [`force_way`] chooses. The force kernels of se_e3 have it in a pass of
+/// any size either way.
 ///
 /// Measured on an RTX 4090 with the HAP models and tables, whole evaluations
 /// with the sums across the warps against every warp reducing its own
 /// (`bench/results/hap-eval-block-sums-rtx4090-2026-11-19.json`): with
 /// se_e2_a 1.8% to 3.7% shorter in float32 up to 352 centers and 0.2% to
 /// 1.4% in float64, and 2.8% to 3.7% longer at 528; with se_e2_r up to 4.7%
-/// shorter and never longer; with se_e3 up to 3.9% shorter, and longer only
-/// in float64 at 88 centers (1.4% and 3.1% in two cases).
+/// shorter and never longer from 54 to 528 centers (from 792 to 968, where
+/// the narrow blocks with the sums need a second wave and those without do
+/// not, 0.1% to 2.1% longer in float32 and between 0.3% shorter and 1.7%
+/// longer in float64: `bench/results/force-ways-rtx4090-2026-11-22.json`);
+/// with se_e3 up to 3.9% shorter, and longer only in float64 at 88 centers
+/// (1.4% and 3.1% in two cases).
 pub const BLOCK_SUMS_CENTERS: usize = 352;
 /// Static shared-memory limit per block without opting in to more.
 const SHARED_LIMIT: usize = 48 * 1024;
+
+/// A way to launch the force kernel of an se_e2_a or se_e2_r descriptor:
+/// the threads of a block, and whether a block forms its sums across its
+/// warps in shared memory (see `block_sums` in the kernels).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub struct ForceBlocks {
+    pub threads: u32,
+    pub sums: bool,
+}
+
+/// The four ways of [`ForceBlocks`] in the order a pass prefers them: the
+/// wide blocks with the sums across the warps, the narrow ones with them,
+/// the wide ones without, the narrow ones without (see [`force_way`]).
+pub const FORCE_WAYS: [ForceBlocks; 4] = [
+    ForceBlocks {
+        threads: WIDE_BLOCK,
+        sums: true,
+    },
+    ForceBlocks {
+        threads: BLOCK,
+        sums: true,
+    },
+    ForceBlocks {
+        threads: WIDE_BLOCK,
+        sums: false,
+    },
+    ForceBlocks {
+        threads: BLOCK,
+        sums: false,
+    },
+];
+
+/// The blocks of a force kernel with `own` bytes of shared memory besides
+/// the sums of a block that one multiprocessor keeps at once, in each way
+/// of [`FORCE_WAYS`]: zero for a way past [`SHARED_LIMIT`], None when the
+/// driver does not say.
+fn resident_force_blocks(function: &CudaFunction, own: usize) -> Option<[u32; 4]> {
+    let mut blocks = [0; 4];
+    for (way, resident) in FORCE_WAYS.iter().zip(&mut blocks) {
+        let shared = own
+            + match way.sums {
+                true => block_sums_shared(way.threads),
+                false => 0,
+            };
+        if shared <= SHARED_LIMIT {
+            *resident = function
+                .occupancy_max_active_blocks_per_multiprocessor(way.threads, shared, None)
+                .ok()?;
+        }
+    }
+    Some(blocks)
+}
+
+/// The way of the force kernel of an se_e2_a or se_e2_r descriptor in a
+/// pass of `blocks` blocks (its centers times the models): the first of
+/// [`FORCE_WAYS`] that the overrides leave (`wide` and `sums`, where set)
+/// and whose blocks the device keeps all at once. `capacity` holds what it
+/// keeps of each way, in their order: the blocks one multiprocessor keeps
+/// times the multiprocessors, zero for a way without room for its sums.
+/// Past every way that is left, the pass takes the narrow blocks (the wide
+/// ones where `wide` says so), with the sums across the warps where
+/// `sums_past` (or `sums`) says so and they have room.
+///
+/// A pass whose blocks the device keeps all at once is done with its
+/// slowest block; one that needs a second wave of them waits for it. The
+/// wide blocks (a center's slots in half the turns) and the sums across the
+/// warps (no warp reducing its own) shorten a block but take more of a
+/// multiprocessor, so in float32 they gain while every block of the pass
+/// fits (the wide blocks without the sums only up to about 224 blocks: from
+/// 264 they came out between 0.8% shorter and 2.8% longer, though the
+/// device still kept them all), and a way that keeps them all mostly beats
+/// a faster one that does not. In float64 the two widths with the sums
+/// came out within 1.5% of each other while both fit, and the wide ones
+/// stay first. Measured on an RTX 4090 against the limits of centers that
+/// chose before, in two runs
+/// (`bench/results/force-ways-rtx4090-2026-11-22.json`: the HAP and water
+/// models, 88 to 1,536 centers, both precisions, every way forced as
+/// well): where the two choose differently an evaluation was 0.4% to 4.1%
+/// shorter in float32 and between 1.3% shorter and 0.4% longer in float64,
+/// and the way chosen here was the fastest of the four forced or within
+/// 1.5% of it. Past every way the narrow blocks keep their sums for
+/// se_e2_r (`sums_past`) and go without for se_e2_a, which suits the water
+/// model and not quite the HAP one (`bench/results/SUMMARY.md`).
+pub fn force_way(
+    blocks: usize,
+    capacity: [usize; 4],
+    wide: Option<bool>,
+    sums: Option<bool>,
+    sums_past: bool,
+) -> ForceBlocks {
+    let left = |way: &ForceBlocks| {
+        wide.is_none_or(|wide| wide == (way.threads == WIDE_BLOCK))
+            && sums.is_none_or(|sums| sums == way.sums)
+    };
+    if let Some((way, _)) = FORCE_WAYS
+        .iter()
+        .zip(capacity)
+        .find(|&(way, at_once)| left(way) && blocks <= at_once)
+    {
+        return *way;
+    }
+    let threads = match wide {
+        Some(true) => WIDE_BLOCK,
+        _ => BLOCK,
+    };
+    let room = FORCE_WAYS
+        .iter()
+        .zip(capacity)
+        .any(|(way, at_once)| way.threads == threads && way.sums && at_once > 0);
+    ForceBlocks {
+        threads,
+        sums: sums.unwrap_or(sums_past) && room,
+    }
+}
+
 /// The embedding tables reach from `min_distance` down to
 /// `min_distance / TAIL_REACH` (DeePMD's default for the part of its tables
 /// below the shortest distance of the training data: extrapolate 5).
@@ -2095,11 +2219,15 @@ pub struct GpuPotential<P: Scalar> {
     /// host instead.
     layout_atoms: usize,
     count_downloads: usize,
-    /// Passes of at most this many centers give the force kernel of a
-    /// two-body descriptor its wider blocks, and the threads of a block of
-    /// that kernel at its last launch (zero before the first).
-    wide_force_centers: usize,
+    /// Where set, passes of at most this many centers give the force kernel
+    /// of a two-body descriptor its wide blocks and the others the narrow
+    /// ones (None: [`force_way`] chooses, or [`WIDE_FORCE_CENTERS_F32`] or
+    /// `_F64` where the driver does not say), and the threads of a block of
+    /// that kernel at its last launch (zero before the first) and whether it
+    /// formed the sums of its blocks across their warps then.
+    wide_force_centers: Option<usize>,
     force_threads: u32,
+    force_sums: bool,
     block_sums_centers: Option<usize>,
     block_sums_shared: bool,
     /// With tables, whether the kernels of se_e2_a look the embedding values
@@ -2167,6 +2295,12 @@ struct Part<P: Scalar> {
     kernels: Kernels,
     /// Dynamic shared memory of the force kernel, bytes.
     backward_shared: usize,
+    /// se_e2_a and se_e2_r: the blocks of the force kernel one
+    /// multiprocessor keeps at once in each way of [`FORCE_WAYS`], for the
+    /// kernel that reads stored values and for the one that looks the tables
+    /// up (see [`resident_force_blocks`]). None for se_e3, for a kernel the
+    /// descriptor does not have, and where the driver did not say.
+    force_residence: [Option<[u32; 4]>; 2],
     /// hybrid: this descriptor's own table of the neighbor list, when its
     /// slots or its cutoff are not those of the list.
     view: Option<View>,
@@ -2562,6 +2696,18 @@ impl<P: Scalar> Part<P> {
                 false => None,
             },
         };
+        let force_residence = match kind {
+            DescriptorKind::SeE3 => [None, None],
+            DescriptorKind::SeE2A | DescriptorKind::SeE2R => [
+                resident_force_blocks(&kernels.backward, backward_shared),
+                kernels.inline_backward.as_ref().and_then(|function| {
+                    resident_force_blocks(
+                        function,
+                        backward_shared + angular_table_shared::<P>(slots),
+                    )
+                }),
+            ],
+        };
         // A descriptor with the slots and the cutoff of the list reads the
         // list as it is; any other, its own table of it.
         let view = match d.sel == list_sel && d.rcut == list_rcut {
@@ -2611,6 +2757,7 @@ impl<P: Scalar> Part<P> {
             offset_d: device.upload(&offsets)?,
             kernels,
             backward_shared,
+            force_residence,
             view,
         })
     }
@@ -2640,6 +2787,44 @@ impl<P: Scalar> Part<P> {
             && self.kind == DescriptorKind::SeE2A
             && self.backward_shared + angular_table_shared::<P>(self.slots) <= SHARED_LIMIT
             && angular_descriptor_shared::<P>(self.slots, self.width, ntypes, true) <= SHARED_LIMIT
+    }
+
+    /// The way of the force kernel of this two-body descriptor in a pass of
+    /// `blocks` blocks, launched as the kernel that looks the tables up
+    /// (`lookup`) or the other, within what the overrides set (`wide`,
+    /// `sums`): by [`force_way`] with what the device and its
+    /// `multiprocessors` keep at once; by [`WIDE_FORCE_CENTERS_F32`] (or
+    /// `_F64`) and [`BLOCK_SUMS_CENTERS`] where the driver did not say.
+    fn force_way(
+        &self,
+        lookup: bool,
+        blocks: usize,
+        (wide, sums): (Option<bool>, Option<bool>),
+        multiprocessors: usize,
+    ) -> ForceBlocks {
+        let radial = self.kind == DescriptorKind::SeE2R;
+        if let Some(resident) = self.force_residence[usize::from(lookup)] {
+            let capacity = resident.map(|blocks| blocks as usize * multiprocessors);
+            return force_way(blocks, capacity, wide, sums, radial);
+        }
+        let limit = match std::mem::size_of::<P>() {
+            4 => WIDE_FORCE_CENTERS_F32,
+            _ => WIDE_FORCE_CENTERS_F64,
+        };
+        let threads = match wide.unwrap_or(blocks <= limit) {
+            true => WIDE_BLOCK,
+            false => BLOCK,
+        };
+        let own = self.backward_shared
+            + match lookup {
+                true => angular_table_shared::<P>(self.slots),
+                false => 0,
+            };
+        ForceBlocks {
+            threads,
+            sums: sums.unwrap_or(radial || blocks <= BLOCK_SUMS_CENTERS)
+                && own + block_sums_shared(threads) <= SHARED_LIMIT,
+        }
     }
 
     /// The neighbor slots the kernels of this descriptor read (neighbors,
@@ -3051,12 +3236,9 @@ impl<P: Scalar> GpuPotential<P> {
             chunk_pairs,
             layout_atoms: LAYOUT_ATOMS,
             count_downloads: 0,
-            wide_force_centers: if std::mem::size_of::<P>() == 4 {
-                WIDE_FORCE_CENTERS_F32
-            } else {
-                WIDE_FORCE_CENTERS_F64
-            },
+            wide_force_centers: None,
             force_threads: 0,
+            force_sums: false,
             block_sums_centers: None,
             block_sums_shared: false,
             inline_tables: None,
@@ -3148,19 +3330,24 @@ impl<P: Scalar> GpuPotential<P> {
         self.count_downloads
     }
 
-    /// Passes of at most this many centers (the atoms of a chunk times the
-    /// models) give the force kernel of an se_e2_a or se_e2_r descriptor
-    /// wider blocks: [`WIDE_FORCE_CENTERS_F32`] in float32 and
-    /// [`WIDE_FORCE_CENTERS_F64`] in float64. The forces are the same to
+    /// The most centers of a pass (the atoms of a chunk times the models)
+    /// whose force kernels of se_e2_a and se_e2_r take the wide blocks, when
+    /// one number was set; the others take the narrow ones. Where the driver
+    /// says what the device keeps at once, the sums across the warps are
+    /// still chosen by it among the ways of that width, so the number can
+    /// change them too (see [`force_way`]). `None` is how a potential
+    /// starts: the width goes with the sums by the blocks the device keeps
+    /// at once (see [`FORCE_WAYS`]), or by [`WIDE_FORCE_CENTERS_F32`] or
+    /// `_F64` where the driver does not say. The forces are the same to
     /// rounding either way: the block of a center sums what its neighbors
     /// give in another order.
-    pub fn wide_force_centers(&self) -> usize {
+    pub fn wide_force_centers(&self) -> Option<usize> {
         self.wide_force_centers
     }
 
-    /// Override [`Self::wide_force_centers`]; zero keeps every pass to the
-    /// narrower blocks.
-    pub fn set_wide_force_centers(&mut self, centers: usize) {
+    /// Override [`Self::wide_force_centers`]; `Some(0)` keeps every pass to
+    /// the narrow blocks, `None` restores the default.
+    pub fn set_wide_force_centers(&mut self, centers: Option<usize>) {
         self.wide_force_centers = centers;
     }
 
@@ -3172,13 +3359,28 @@ impl<P: Scalar> GpuPotential<P> {
         self.force_threads
     }
 
+    /// Whether the force kernel of a two-body descriptor formed the sums of
+    /// its blocks across their warps at its last launch: with
+    /// [`Self::force_threads`], the way of [`FORCE_WAYS`] it took. False
+    /// before the first launch and for a model without such a descriptor.
+    /// [`Self::block_sums_shared`] tells the same of the force kernel
+    /// launched last, which in a hybrid may be that of se_e3.
+    pub fn force_sums(&self) -> bool {
+        self.force_sums
+    }
+
     /// The most centers of a pass (the atoms of a chunk times the models)
     /// whose force kernels form the sums of a block across its warps in
-    /// shared memory, when one number was set for every descriptor. `None`
-    /// is how a potential starts: the kernel of se_e2_a up to
-    /// [`BLOCK_SUMS_CENTERS`], those of se_e2_r and se_e3 in any pass. A
-    /// kernel whose block has no room for the sums within the limit of
-    /// shared memory goes without at any number. The forces and the virial
+    /// shared memory, when one number was set for every descriptor. Where
+    /// the driver says what the device keeps at once, the width of the
+    /// two-body kernels is still chosen by it among the ways left, so the
+    /// number can change the width too (see [`force_way`]). `None` is how a
+    /// potential starts: the kernels of se_e2_a and se_e2_r by the blocks
+    /// the device keeps at once, together with the width of the blocks (see
+    /// [`FORCE_WAYS`]; where the driver does not say, se_e2_a up to
+    /// [`BLOCK_SUMS_CENTERS`] and se_e2_r in any pass), the kernel of se_e3
+    /// in any pass. A kernel whose block has no room for the sums within the
+    /// limit of shared memory goes without at any number. The forces and the virial
     /// are the same to rounding either way: the sums of a block are formed
     /// in another order.
     pub fn block_sums_centers(&self) -> Option<usize> {
@@ -3191,10 +3393,41 @@ impl<P: Scalar> GpuPotential<P> {
         self.block_sums_centers = centers;
     }
 
+    /// Drop what the driver said the device keeps of the force kernels at
+    /// once, as if it had not said: the passes then go by
+    /// [`WIDE_FORCE_CENTERS_F32`] (or `_F64`) and [`BLOCK_SUMS_CENTERS`].
+    /// For tests.
+    #[doc(hidden)]
+    pub fn forget_force_residence(&mut self) {
+        for part in &mut self.parts {
+            part.force_residence = [None, None];
+        }
+    }
+
     /// Whether the force kernel launched last formed the sums of its blocks
     /// across their warps in shared memory. False before the first launch.
     pub fn block_sums_shared(&self) -> bool {
         self.block_sums_shared
+    }
+
+    /// The blocks of the force kernel of every descriptor (in the order of
+    /// a hybrid's list) that the device keeps at once in each way of
+    /// [`FORCE_WAYS`]: what one multiprocessor keeps times the
+    /// multiprocessors, zero for a way without room in shared memory. For
+    /// the kernel a pass launches, which with tables in use (`compressed`)
+    /// is the one that looks them up where [`Self::looks_up_tables`] says
+    /// so. None for se_e3 and where the driver did not say.
+    pub fn force_capacity(&self, compressed: bool) -> Vec<Option<[usize; 4]>> {
+        let (on, ntypes) = (self.inline_tables(), self.sel.len());
+        let multiprocessors = self.device.multiprocessors() as usize;
+        self.parts
+            .iter()
+            .map(|part| {
+                let kernel = usize::from(part.looks_up(compressed, on, ntypes));
+                part.force_residence[kernel]
+                    .map(|blocks| blocks.map(|b| b as usize * multiprocessors))
+            })
+            .collect()
     }
 
     /// Model compression (DeePMD `dp compress`): replaces every embedding
@@ -3440,6 +3673,7 @@ impl<P: Scalar> GpuPotential<P> {
         compressed: bool,
     ) -> Result<Option<Vec<Vec<Evaluation>>>> {
         let ntypes = self.sel.len();
+        let multiprocessors = device.multiprocessors() as usize;
         // se_e2_a with tables: whether its kernels look the embedding values
         // up themselves (see `inline_tables`).
         let inline_on = self.inline_tables();
@@ -4130,6 +4364,9 @@ impl<P: Scalar> GpuPotential<P> {
                         None => 0,
                     };
                 let mut launch = stream.launch_builder(function);
+                // The sums across the warps of the two-body kernels go with
+                // the width of their blocks.
+                let mut two_body_sums = None;
                 let block_dim = match part.kind {
                     DescriptorKind::SeE3 => {
                         let (Some(pairs), Some((weight, dtheta))) =
@@ -4267,25 +4504,33 @@ impl<P: Scalar> GpuPotential<P> {
                             .arg(&ntypes_i)
                             .arg(&natoms_i)
                             .arg(&stride_i);
-                        // A block per center and model: a pass of few is
-                        // sooner done with wider ones (see
-                        // `WIDE_FORCE_CENTERS_F32`).
-                        self.force_threads = match members * count <= self.wide_force_centers {
-                            true => WIDE_BLOCK,
-                            false => BLOCK,
-                        };
-                        self.force_threads
+                        // A block per center and model, as wide and with the
+                        // sums across its warps as the device keeps all of
+                        // them at once (see `force_way`).
+                        let blocks = members * count;
+                        let set = (
+                            self.wide_force_centers.map(|limit| blocks <= limit),
+                            self.block_sums_centers.map(|limit| blocks <= limit),
+                        );
+                        let way = part.force_way(lookup.is_some(), blocks, set, multiprocessors);
+                        self.force_threads = way.threads;
+                        self.force_sums = way.sums;
+                        two_body_sums = Some(way.sums);
+                        way.threads
                     }
                 };
                 // The last argument of every force kernel: bit 0 has it add
                 // to the virial, bit 1 says that its blocks have room for
                 // their sums across the warps.
                 let with_sums = own_shared + block_sums_shared(block_dim);
-                let limit = self.block_sums_centers.unwrap_or(match part.kind {
-                    DescriptorKind::SeE2A => BLOCK_SUMS_CENTERS,
-                    DescriptorKind::SeE2R | DescriptorKind::SeE3 => usize::MAX,
-                });
-                self.block_sums_shared = members * count <= limit && with_sums <= SHARED_LIMIT;
+                self.block_sums_shared = match two_body_sums {
+                    Some(sums) => sums,
+                    None => {
+                        self.block_sums_centers
+                            .is_none_or(|limit| members * count <= limit)
+                            && with_sums <= SHARED_LIMIT
+                    }
+                };
                 let (shared, add_i) = match self.block_sums_shared {
                     true => (with_sums, add | 2),
                     false => (own_shared, add),
@@ -4538,8 +4783,8 @@ impl<P: Scalar> Committee for GpuPotential<P> {
 #[cfg(test)]
 mod tests {
     use super::{
-        angular_descriptor_shared, angular_table_shared, in_parallel, pair_chunks, pair_starts,
-        FittingPath, FittingRule, GROUPED_MAX_GROUPS,
+        angular_descriptor_shared, angular_table_shared, force_way, in_parallel, pair_chunks,
+        pair_starts, FittingPath, FittingRule, BLOCK, FORCE_WAYS, GROUPED_MAX_GROUPS, WIDE_BLOCK,
     };
     use FittingPath::{Fused, Grouped, NetByNet};
 
@@ -4769,5 +5014,73 @@ mod tests {
             angular_descriptor_shared::<f64>(121, 16, 2, true),
             4 * 137 * 8 + 121 * 12 + 8 + 4
         );
+    }
+
+    #[test]
+    fn force_ways_by_the_blocks_kept_at_once() {
+        let [wide_sums, narrow_sums, wide, narrow] = FORCE_WAYS;
+        assert_eq!((wide_sums.threads, wide_sums.sums), (WIDE_BLOCK, true));
+        assert_eq!((narrow.threads, narrow.sums), (BLOCK, false));
+        // What an RTX 4090 keeps of the HAP se_e2_a model in float32 with
+        // lookups, and of the HAP se_e2_r model.
+        let hap = [256, 512, 384, 896];
+        let radial = [384, 768, 512, 1024];
+        for (blocks, expected) in [
+            (1, wide_sums),
+            (88, wide_sums),
+            (256, wide_sums),
+            (257, narrow_sums),
+            (512, narrow_sums),
+            (513, narrow),
+            (896, narrow),
+        ] {
+            for sums_past in [false, true] {
+                let way = force_way(blocks, hap, None, None, sums_past);
+                assert_eq!(way, expected, "{blocks} blocks");
+            }
+        }
+        // Past one wave of every way: the narrow blocks, with the sums
+        // where the descriptor keeps them past it.
+        assert_eq!(force_way(897, hap, None, None, false), narrow);
+        assert_eq!(force_way(897, hap, None, None, true), narrow_sums);
+        assert_eq!(force_way(384, radial, None, None, true), wide_sums);
+        assert_eq!(force_way(768, radial, None, None, true), narrow_sums);
+        assert_eq!(force_way(769, radial, None, None, true), narrow);
+        assert_eq!(force_way(1025, radial, None, None, true), narrow_sums);
+        // No room for the sums: the wide blocks without them come first,
+        // and the sums stay off past every way.
+        let roomless = [0, 0, 384, 896];
+        assert_eq!(force_way(384, roomless, None, None, true), wide);
+        assert_eq!(force_way(385, roomless, None, None, true), narrow);
+        assert_eq!(force_way(897, roomless, None, None, true), narrow);
+        assert_eq!(force_way(897, roomless, None, Some(true), true), narrow);
+        // Room for the sums of the narrow blocks only.
+        let narrow_room = [0, 512, 384, 896];
+        assert_eq!(force_way(88, narrow_room, None, None, false), narrow_sums);
+        assert_eq!(force_way(600, narrow_room, Some(true), None, true), wide);
+        // A width set by the override.
+        assert_eq!(force_way(88, hap, Some(false), None, false), narrow_sums);
+        assert_eq!(force_way(600, hap, Some(false), None, false), narrow);
+        assert_eq!(force_way(1000, hap, Some(false), None, true), narrow_sums);
+        assert_eq!(force_way(88, hap, Some(true), None, false), wide_sums);
+        assert_eq!(force_way(300, hap, Some(true), None, false), wide);
+        assert_eq!(force_way(400, hap, Some(true), None, false), wide);
+        assert_eq!(force_way(400, hap, Some(true), None, true), wide_sums);
+        // The sums set by the override.
+        assert_eq!(force_way(88, hap, None, Some(false), true), wide);
+        assert_eq!(force_way(400, hap, None, Some(false), true), narrow);
+        assert_eq!(force_way(300, hap, None, Some(true), false), narrow_sums);
+        assert_eq!(force_way(600, hap, None, Some(true), false), narrow_sums);
+        // Past every way left, the sums set off stay off even where the
+        // descriptor keeps them past it.
+        assert_eq!(force_way(1025, radial, None, Some(false), true), narrow);
+        assert_eq!(force_way(1025, radial, Some(true), Some(false), true), wide);
+        assert_eq!(force_way(1025, radial, Some(true), None, true), wide_sums);
+        // Both set: that way at any size.
+        assert_eq!(
+            force_way(5000, hap, Some(true), Some(true), false),
+            wide_sums
+        );
+        assert_eq!(force_way(1, hap, Some(false), Some(false), true), narrow);
     }
 }

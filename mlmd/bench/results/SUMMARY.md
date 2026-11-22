@@ -1,3 +1,192 @@
+# The force kernels take the blocks the device keeps at once, 2026-11-22
+
+The force kernel of se_e2_a and se_e2_r runs a block for each center and
+model, and two limits of centers chose how it was launched: blocks of 256
+threads instead of 128 up to 352 centers in float32 and 224 in float64
+(`WIDE_FORCE_CENTERS_F32` and `_F64`), and for se_e2_a the twelve sums of a
+block formed across its warps in shared memory up to 352
+(`BLOCK_SUMS_CENTERS`). Once the kernels of se_e2_a looked their tables up
+(2026-11-21), a block took more shared memory, and no one number of centers
+served both the HAP and the water model. Both limits stood for one thing:
+how many blocks of the pass the device keeps at once. The driver says that
+for a kernel, a size of block and its shared memory
+(`cuOccupancyMaxActiveBlocksPerMultiprocessor`); times the 128
+multiprocessors it is how many blocks a pass can have before a second wave
+of them. Each two-body descriptor now asks it for its force kernels (for
+se_e2_a both the one that reads stored values and the one that looks the
+tables up; se_e2_r has only the first) in four ways: wide blocks with the
+sums across the warps, narrow ones with them, wide ones without, narrow
+ones without. A pass takes the first way that keeps all its blocks at once,
+and past every way the narrow blocks, with the sums for se_e2_r only
+(`native::gpu_model::force_way`). In two runs, the choice changed in 31 of
+the 64 cases measured: in float32 all 23 got shorter, by 0.4% to 4.1%, and
+in float64 the 8 came out between 1.3% shorter and 0.4% longer. Elsewhere
+the times are those of the build before within the noise of the machine.
+The limits remain for a driver that does not answer, and `--wide-forces`
+and `--block-sums` still set a width or the sums by centers: each its own
+half of the way, the other still chosen among the ways it leaves, so the
+two together force one.
+
+**What the device keeps** of the force kernel at once, in blocks on the
+card (the header line `force blocks at once` of `omnimd-native-gpu-eval`;
+the se_e2_a of the hybrid has the numbers of the HAP se_e2_a model, and
+se_e3 has kernels of its own). The tables are looked up by default in
+float32 and stored in float64 (`--inline-tables` sets either):
+
+| model | precision | embedding | wide, sums | narrow, sums | wide | narrow |
+|---|---|---|---:|---:|---:|---:|
+| HAP se_e2_a | float32 | exact, or tables stored | 384 | 512 | 384 | 896 |
+| HAP se_e2_a | float32 | tables looked up | 256 | 512 | 384 | 896 |
+| HAP se_e2_a | float64 | exact, or tables stored | 256 | 384 | 384 | 768 |
+| HAP se_e2_a | float64 | tables looked up | 256 | 384 | 384 | 640 |
+| HAP se_e2_r | both | any | 384 | 768 | 512 | 1,024 |
+| water se_e2_a | float32 | exact, or tables stored | 384 | 640 | 384 | 896 |
+| water se_e2_a | float32 | tables looked up | 384 | 512 | 384 | 896 |
+| water se_e2_a | float64 | exact, or tables stored | 256 | 512 | 384 | 768 |
+| water se_e2_a | float64 | tables looked up | 256 | 384 | 384 | 768 |
+| water se_e2_r | float32 | any | 384 | 896 | 512 | 1,024 |
+| water se_e2_r | float64 | any | 384 | 768 | 512 | 1,024 |
+
+A wide block of the HAP model with lookups and the sums across its warps
+keeps 34,656 bytes (33.8 KB) of shared memory, so a multiprocessor (100 KB,
+1 KB reserved for each block) keeps two; the water model has fewer
+neighbor slots (138 against 212; its nets are as wide) and it keeps three.
+Without the sums the registers bound it in float32: the kernel takes 72 a
+thread (`ptxas -v`), 2,304 a warp, so the 65,536 of a multiprocessor hold
+three wide blocks or seven narrow ones; the kernel of se_e2_r takes 62,
+which round to 2,048 a warp: four and eight, as the device keeps in
+float64 too. In float64 the kernel of se_e2_a keeps three wide blocks
+without the sums but six narrow ones (five with the lookups of the HAP
+model, where shared memory bounds them), and the stored values leave room
+for two wide blocks with the sums.
+
+**Before and after** (record `force-ways-rtx4090-2026-11-22.json`): two
+runs of five rounds each, alternating the build before twice (`old` and
+`old again`), the new build, and the new build with each way forced
+(`--wide-forces` 0 or 1000000 with `--block-sums` 0 or 1000000), least of
+each, µs. The cases where the rule and the limits choose differently;
+`before` is the lesser of the two runs of the build before in the second
+run (which favors it), `now` the new build, `change` the one against the
+other in the second run and in the first, and the last column the new
+build forced to its way against forced to the way of before:
+
+| case (centers) | before → now | before | now | change | change, first run | the two ways forced |
+|---|---|---:|---:|---:|---:|---:|
+| HAP se_e2_a float32 tables, 88 × 3 (264) | wide, sums → narrow, sums | 229.4 | 227.5 | −0.8% | −1.3% | −1.5% |
+| HAP se_e2_a float32 tables, 88 × 4 (352) | wide, sums → narrow, sums | 265.6 | 256.3 | −3.5% | −3.5% | −3.4% |
+| HAP se_e2_a float32 tables, 88 × 5 (440) | narrow → narrow, sums | 300.9 | 296.7 | −1.4% | −1.0% | −2.1% |
+| HAP se_e2_a float32 tables, 169 × 2 (338) | wide, sums → narrow, sums | 263.8 | 254.4 | −3.6% | −3.3% | −4.7% |
+| HAP se_e2_a float32 tables, 169 × 3 (507) | narrow → narrow, sums | 338.1 | 335.6 | −0.7% | −1.4% | −2.8% |
+| HAP se_e2_a float32 tables, 224 × 2 (448) | narrow → narrow, sums | 308.2 | 303.4 | −1.6% | −2.4% | −1.7% |
+| HAP se_e2_a float32 tables, 160+224 × 2 (384) | narrow → narrow, sums | 275.6 | 268.3 | −2.7% | −1.4% | −1.6% |
+| HAP se_e2_a float32 exact, 88 × 5 (440) | narrow → narrow, sums | 451.9 | 447.1 | −1.0% | −1.2% | −1.4% |
+| HAP se_e2_a float32 exact, 169 × 3 (507) | narrow → narrow, sums | 531.6 | 526.5 | −1.0% | −0.4% | +0.2% |
+| HAP se_e2_a float32 exact, 160+224 × 2 (384) | narrow → wide, sums | 401.7 | 393.0 | −2.2% | −2.4% | −2.5% |
+| HAP se_e2_a float64 tables, 80 × 3 (240) | narrow, sums → wide, sums | 719.7 | 722.5 | +0.4% | −0.5% | −0.1% |
+| HAP se_e2_a float64 tables, 160+224 × 2 (384) | narrow → narrow, sums | 1,106.2 | 1,108.0 | +0.2% | −0.2% | −0.2% |
+| HAP se_e2_r float32 tables, 88 × 9 (792) | narrow, sums → narrow | 343.9 | 341.9 | −0.6% | −1.4% | −1.9% |
+| HAP se_e2_r float32 tables, 88 × 10 (880) | narrow, sums → narrow | 433.9 | 423.9 | −2.3% | −1.2% | −1.8% |
+| HAP se_e2_r float32 tables, 88 × 11 (968) | narrow, sums → narrow | 454.5 | 452.3 | −0.5% | −1.5% | −1.7% |
+| HAP se_e2_r float32 tables, 160+224 × 2 (384) | narrow, sums → wide, sums | 193.2 | 187.2 | −3.1% | −2.5% | −3.3% |
+| HAP se_e2_r float64 tables, 88 × 3 (264) | narrow, sums → wide, sums | 393.9 | 394.0 | 0.0% | −0.6% | −0.7% |
+| HAP se_e2_r float64 tables, 88 × 4 (352) | narrow, sums → wide, sums | 429.1 | 428.7 | −0.1% | −0.1% | +0.1% |
+| HAP se_e2_r float64 tables, 88 × 9 (792) | narrow, sums → narrow | 1,006.2 | 1,000.9 | −0.5% | 0.0% | −1.7% |
+| HAP se_e2_r float64 tables, 88 × 11 (968) | narrow, sums → narrow | 1,190.8 | 1,196.1 | +0.4% | +0.3% | −0.8% |
+| HAP se_e2_r float64 tables, 160+224 × 2 (384) | narrow, sums → wide, sums | 453.7 | 451.0 | −0.6% | −1.3% | −1.5% |
+| HAP se_e2_a with se_e3 float32 tables, 88 × 3 (264) | wide, sums → narrow, sums | 315.7 | 313.2 | −0.8% | −0.8% | −0.9% |
+| HAP se_e2_a with se_e3 float32 tables, 88 × 4 (352) | wide, sums → narrow, sums | 358.2 | 348.9 | −2.6% | −2.9% | −1.8% |
+| HAP se_e2_a with se_e3 float32 tables, 88 × 5 (440) | narrow → narrow, sums | 425.2 | 422.2 | −0.7% | −1.5% | −1.5% * |
+| HAP committee of four float32 tables, 88 (352) | wide, sums → narrow, sums | 311.6 | 301.1 | −3.4% | −4.1% | −2.7% |
+| water se_e2_a float32 tables, 192 × 2 (384) | narrow → wide, sums | 277.1 | 269.4 | −2.8% | −2.5% | −2.6% |
+| water se_e2_a float32 exact, 192 × 2 (384) | narrow → wide, sums | 394.1 | 385.0 | −2.3% | −1.6% | −2.1% |
+| water se_e2_a float32 exact, 192 × 3 (576) | narrow → narrow, sums | 579.1 | 576.7 | −0.4% | −0.5% | −0.9% |
+| water se_e2_a float64 tables, 192 × 2 (384) | narrow → narrow, sums | 1,133.7 | 1,133.4 | 0.0% | −0.2% | −0.5% |
+| water se_e2_r float32 tables, 192 × 2 (384) | narrow, sums → wide, sums | 198.9 | 194.3 | −2.3% | −2.3% | −2.5% |
+| water se_e2_r float32 tables, 192 × 5 (960) | narrow, sums → narrow | 516.6 | 507.6 | −1.7% | −0.5% | −1.9% |
+
+\*: the two ways forced there differ in the sums of se_e3 as well, which
+`--block-sums` sets for every descriptor; that case is left out of the
+spans of the ways forced below.
+
+Where the two choose differently, `change` spans −3.6% to +0.4% in the
+second run (median −1.0%) and −4.1% to +0.3% in the first (median −1.3%);
+the new build forced to each of the two ways, −4.7% to +0.2% and −3.8% to
++0.3%. Where they choose alike: −1.1% to +1.9% (median +0.1%) and −0.3% to
++3.6% (median +0.5%), against the build before against itself, −1.6% to
++1.4% and −2.0% to +3.2%. Of the four ways forced, the rule's was the
+fastest in 51 of 60 cases in the second run and 48 in the first (the
+hybrid apart, whose forced ways set the sums of se_e3 too), and otherwise
+within 1.4% (1.5% in the first).
+
+**What this leaves open.** Where the wide blocks have no room in shared
+memory for their sums (large `sel` with the lookups: 1,000 slots of a net
+of 16 outputs in float32), the rule takes the narrow blocks with the sums
+before the wide ones without. For passes of fewer blocks than
+multiprocessors that order is the wrong one for the HAP model: at 88 blocks
+the wide blocks without the sums took 1.4% and 3.1% less than the narrow
+ones with them (two runs), and at 176 and 224 they took 0.3% to 1.1% more.
+No model in use has such a `sel`. Where only the narrow blocks without the
+sums keep every block at once (the rule takes them), they were 0.6% to 4.1%
+faster than the wide ones with the sums for single HAP models in float32
+(528 to 968 centers) and 1.1% to 5.1% for the committee of four (676 and
+896), between 0.6% slower and 1.8% faster for the HAP models in float64
+(440 to 968), and about even for water (−1.5% to +1.3% from 576 to 960).
+Past every way se_e2_a goes without the sums: 0.8% and 1.9% faster for
+water at 1,536 centers, but 0.6% and 1.4% slower for HAP at 968.
+
+**Tests.** `force_ways_by_the_blocks_kept_at_once` (a unit test of
+`gpu_model.rs`) takes the rule through the edges of every way with what the
+RTX 4090 keeps of the HAP models, with the overrides, without room for the
+sums and past every way. On the device,
+`the_two_body_force_kernels_take_the_ways_the_device_keeps_at_once`
+(`native/tests/gpu_parity.rs`) checks what the driver reports (no more
+blocks with the sums than without, fewer of the wide blocks than of the
+narrow ones, with the sums as well where they have room) and, for se_e2_a
+and se_e2_r exact in both precisions and with tables in float32, the way of
+passes on both sides of what each way keeps, every way forced with the same
+forces to rounding, the overrides one center either side of a pass, and
+chunks; a committee whose models count as centers, for the rule and for the
+width set; a model of 1,000 slots whose lookups leave the wide blocks no
+room for their sums, of which what a multiprocessor keeps in every way is
+held against its shared memory (`Device::shared_memory_per_multiprocessor`)
+rather than against what the driver says; the limits of centers where the
+driver does not say, with both overrides; and an se_e3 model, which reports
+no two-body way. `the_sums_of_a_force_block_are_formed_either_way` now
+expects of each pass what the rule makes of what the device reports, and of
+a hybrid the way of its last two-body descriptor apart from the kernel
+launched last. `the_multiprocessors_are_counted` (`gpu/tests/device.rs`)
+counts them and their shared memory for a device and its sibling handle
+(128 of 100 KB on a desktop RTX 4090).
+
+**Mutations.** 46 mutants of the rule (`force_way`, `FORCE_WAYS`), of what
+the driver is asked and for which kernel, of the wiring of a pass (its
+blocks with the models of a committee, the overrides, the kernel launched,
+the multiprocessors, the way reported), of the limits of centers where the
+driver does not say, and of the count of multiprocessors and their shared
+memory in the gpu crate: the tests above catch 45. The one left asks the
+driver for blocks with more than 48 KB of shared memory, where it answers
+no blocks without the opt-in that these kernels never take, so it changes
+nothing. A review of the change (finders, then a check of each finding
+against the code) found the tests tied to what an RTX 4090 keeps, the width
+set for a committee and the sums set off past every way untested, and the
+bench lines pairing the width of se_e2_a with the sums of se_e3 in a
+hybrid; the tests above and `force_sums` (whether the last two-body pass
+formed the sums, which the bench lines print beside `force_threads`) came
+of it. A second review recomputed every number of this section and of the
+docs from the record and checked the fixes, and another agent then tried to
+refute each of its findings. All 17 held. Most were of wording (the water
+model's slots, the registers in float32, one flag changing both halves of
+the way, above); in the tests, a check of what the driver reports (fewer
+narrow blocks with the sums than without) that a device with more shared
+memory a multiprocessor than the RTX 4090 may fail, a check that held by
+construction, and the two-body way of a hybrid untested. The bound by the
+shared memory, the checks of the hybrids and of se_e3, and five of the
+mutants came of it.
+
+The GPU suites pass in release and debug on the code as committed (295
+tests in 52 binaries with the GPU features); all 54 binaries of the
+workspace pass without them (239 tests).
+
 # The se_e2_a kernels look their tables up themselves, 2026-11-21
 
 With tables in float32, three kernels around the embedding of se_e2_a took

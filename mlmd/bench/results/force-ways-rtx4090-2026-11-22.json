@@ -1,0 +1,2568 @@
+{
+ "date": "2026-11-22",
+ "device": "NVIDIA GeForce RTX 4090",
+ "blocks_at_once": {
+  "what": "probe.py EXE OUT.json: the blocks of the force kernels the device keeps at once, as the eval binary reports them.\n\nFor every model and precision (with tables, looked up and stored, and without), one evaluation of one frame, and the\nheader line `force blocks at once (...)` read back. No timing.",
+  "build": "omnimd-native-gpu-eval of branch force-occupancy, final build 2026-11-22 03:18 (after the first review; the code committed differs from it in comments, the tests and Device::shared_memory_per_multiprocessor, which is read once as the device opens and used by the tests only)",
+  "note": "force_blocks: the blocks of the force kernel the device keeps at once in each way (wide blocks with the sums across the warps, narrow ones with them, wide ones without, narrow ones without): what one multiprocessor keeps (cuOccupancyMaxActiveBlocksPerMultiprocessor) times the multiprocessors; per descriptor, \"-\" for one without (se_e3). Settings: exact nets, tables looked up by the kernels (--inline-tables on), tables stored (--inline-tables off).",
+  "rows": [
+   {
+    "model": "HAP se_e2_a (ens4-f32-0)",
+    "precision": "float32",
+    "setting": "exact",
+    "embedding": "exact",
+    "force_blocks": "384 512 384 896 on 128 multiprocessors"
+   },
+   {
+    "model": "HAP se_e2_a (ens4-f32-0)",
+    "precision": "float32",
+    "setting": "tables, looked up",
+    "embedding": "tabulated, looked up by the kernels",
+    "force_blocks": "256 512 384 896 on 128 multiprocessors"
+   },
+   {
+    "model": "HAP se_e2_a (ens4-f32-0)",
+    "precision": "float32",
+    "setting": "tables, stored",
+    "embedding": "tabulated",
+    "force_blocks": "384 512 384 896 on 128 multiprocessors"
+   },
+   {
+    "model": "HAP se_e2_a (ens4-f32-0)",
+    "precision": "float64",
+    "setting": "exact",
+    "embedding": "exact",
+    "force_blocks": "256 384 384 768 on 128 multiprocessors"
+   },
+   {
+    "model": "HAP se_e2_a (ens4-f32-0)",
+    "precision": "float64",
+    "setting": "tables, looked up",
+    "embedding": "tabulated, looked up by the kernels",
+    "force_blocks": "256 384 384 640 on 128 multiprocessors"
+   },
+   {
+    "model": "HAP se_e2_a (ens4-f32-0)",
+    "precision": "float64",
+    "setting": "tables, stored",
+    "embedding": "tabulated",
+    "force_blocks": "256 384 384 768 on 128 multiprocessors"
+   },
+   {
+    "model": "HAP se_e2_r (ser1-f32-0)",
+    "precision": "float32",
+    "setting": "exact",
+    "embedding": "exact",
+    "force_blocks": "384 768 512 1024 on 128 multiprocessors"
+   },
+   {
+    "model": "HAP se_e2_r (ser1-f32-0)",
+    "precision": "float32",
+    "setting": "tables, looked up",
+    "embedding": "tabulated",
+    "force_blocks": "384 768 512 1024 on 128 multiprocessors"
+   },
+   {
+    "model": "HAP se_e2_r (ser1-f32-0)",
+    "precision": "float32",
+    "setting": "tables, stored",
+    "embedding": "tabulated",
+    "force_blocks": "384 768 512 1024 on 128 multiprocessors"
+   },
+   {
+    "model": "HAP se_e2_r (ser1-f32-0)",
+    "precision": "float64",
+    "setting": "exact",
+    "embedding": "exact",
+    "force_blocks": "384 768 512 1024 on 128 multiprocessors"
+   },
+   {
+    "model": "HAP se_e2_r (ser1-f32-0)",
+    "precision": "float64",
+    "setting": "tables, looked up",
+    "embedding": "tabulated",
+    "force_blocks": "384 768 512 1024 on 128 multiprocessors"
+   },
+   {
+    "model": "HAP se_e2_r (ser1-f32-0)",
+    "precision": "float64",
+    "setting": "tables, stored",
+    "embedding": "tabulated",
+    "force_blocks": "384 768 512 1024 on 128 multiprocessors"
+   },
+   {
+    "model": "HAP se_e2_a with se_e3 (full-hp-f32-0)",
+    "precision": "float32",
+    "setting": "exact",
+    "embedding": "exact",
+    "force_blocks": "384 512 384 896; - on 128 multiprocessors"
+   },
+   {
+    "model": "HAP se_e2_a with se_e3 (full-hp-f32-0)",
+    "precision": "float32",
+    "setting": "tables, looked up",
+    "embedding": "tabulated, looked up by the kernels",
+    "force_blocks": "256 512 384 896; - on 128 multiprocessors"
+   },
+   {
+    "model": "HAP se_e2_a with se_e3 (full-hp-f32-0)",
+    "precision": "float32",
+    "setting": "tables, stored",
+    "embedding": "tabulated",
+    "force_blocks": "384 512 384 896; - on 128 multiprocessors"
+   },
+   {
+    "model": "HAP se_e2_a with se_e3 (full-hp-f32-0)",
+    "precision": "float64",
+    "setting": "exact",
+    "embedding": "exact",
+    "force_blocks": "256 384 384 768; - on 128 multiprocessors"
+   },
+   {
+    "model": "HAP se_e2_a with se_e3 (full-hp-f32-0)",
+    "precision": "float64",
+    "setting": "tables, looked up",
+    "embedding": "tabulated, looked up by the kernels",
+    "force_blocks": "256 384 384 640; - on 128 multiprocessors"
+   },
+   {
+    "model": "HAP se_e2_a with se_e3 (full-hp-f32-0)",
+    "precision": "float64",
+    "setting": "tables, stored",
+    "embedding": "tabulated",
+    "force_blocks": "256 384 384 768; - on 128 multiprocessors"
+   },
+   {
+    "model": "water se_e2_a",
+    "precision": "float32",
+    "setting": "exact",
+    "embedding": "exact",
+    "force_blocks": "384 640 384 896 on 128 multiprocessors"
+   },
+   {
+    "model": "water se_e2_a",
+    "precision": "float32",
+    "setting": "tables, looked up",
+    "embedding": "tabulated, looked up by the kernels",
+    "force_blocks": "384 512 384 896 on 128 multiprocessors"
+   },
+   {
+    "model": "water se_e2_a",
+    "precision": "float32",
+    "setting": "tables, stored",
+    "embedding": "tabulated",
+    "force_blocks": "384 640 384 896 on 128 multiprocessors"
+   },
+   {
+    "model": "water se_e2_a",
+    "precision": "float64",
+    "setting": "exact",
+    "embedding": "exact",
+    "force_blocks": "256 512 384 768 on 128 multiprocessors"
+   },
+   {
+    "model": "water se_e2_a",
+    "precision": "float64",
+    "setting": "tables, looked up",
+    "embedding": "tabulated, looked up by the kernels",
+    "force_blocks": "256 384 384 768 on 128 multiprocessors"
+   },
+   {
+    "model": "water se_e2_a",
+    "precision": "float64",
+    "setting": "tables, stored",
+    "embedding": "tabulated",
+    "force_blocks": "256 512 384 768 on 128 multiprocessors"
+   },
+   {
+    "model": "water se_e2_r",
+    "precision": "float32",
+    "setting": "exact",
+    "embedding": "exact",
+    "force_blocks": "384 896 512 1024 on 128 multiprocessors"
+   },
+   {
+    "model": "water se_e2_r",
+    "precision": "float32",
+    "setting": "tables, looked up",
+    "embedding": "tabulated",
+    "force_blocks": "384 896 512 1024 on 128 multiprocessors"
+   },
+   {
+    "model": "water se_e2_r",
+    "precision": "float32",
+    "setting": "tables, stored",
+    "embedding": "tabulated",
+    "force_blocks": "384 896 512 1024 on 128 multiprocessors"
+   },
+   {
+    "model": "water se_e2_r",
+    "precision": "float64",
+    "setting": "exact",
+    "embedding": "exact",
+    "force_blocks": "384 768 512 1024 on 128 multiprocessors"
+   },
+   {
+    "model": "water se_e2_r",
+    "precision": "float64",
+    "setting": "tables, looked up",
+    "embedding": "tabulated",
+    "force_blocks": "384 768 512 1024 on 128 multiprocessors"
+   },
+   {
+    "model": "water se_e2_r",
+    "precision": "float64",
+    "setting": "tables, stored",
+    "embedding": "tabulated",
+    "force_blocks": "384 768 512 1024 on 128 multiprocessors"
+   }
+  ]
+ },
+ "notes": [
+  "way_of_new is the way of the last pass of a two-body force kernel of the new build, from its bench lines: `force_threads` with `force_sums` in the second run; the build of the first run printed `block_sums`, which is that of the force kernel launched last (in the hybrid, the one of se_e3, which forms the sums in every pass; its two-body ways in these cases had the sums as well).",
+  "The forced ways set the sums with --block-sums, which sets them for every descriptor: in the hybrid, the ways forced without the sums take them from se_e3 as well.",
+  "Changes are quoted against the lesser of `old` and `old again`, which favors the build before."
+ ],
+ "first_run": {
+  "date": "2026-11-22",
+  "device": "NVIDIA GeForce RTX 4090",
+  "what": "ways.py OLD NEW OUT.json [ROUNDS]: the force blocks chosen by the blocks the device keeps at once, before and after,\nwith every way forced (2026-11-22).\n\nTwo builds of omnimd-native-gpu-eval: OLD (the limits of centers) twice a round (`old`, `old again`: what the two\ndiffer by is what the machine adds), NEW as it is (`new`) and NEW with each way of the force kernel forced\n(--wide-forces 1000000 or 0 with --block-sums 1000000 or 0: `wide+sums`, `narrow+sums`, `wide`, `narrow`).\nAlternated in ROUNDS rounds (5), the order reversed every other round, the least of each kept. Cases: the trained\nHAP models (se_e2_a, se_e2_r, a hybrid with se_e3, a committee of four) on batches of the sealed-test frames, and\nthe water models on batches of 192 waters and on 1,536, in float32 and float64, with tables (--compress 0.5) and\nfor se_e2_a in float32 also without; sizes on both sides of what the device keeps of each way. `centers` are the\natoms of a pass times its models. The card is checked for other users before every round (tools/ht/gpu_busy.ps1).\nEnvironment: ONLY (words of case names, by comma).",
+  "rounds": 5,
+  "builds": {
+   "old": "omnimd-native-gpu-eval of 99aa9b4 (shawn_dev before this change, run/prev-99aa9b4)",
+   "new": "omnimd-native-gpu-eval of branch force-occupancy, built 2026-11-22 01:40 (the rule by residency, before review)"
+  },
+  "seconds_waited_for_the_card": [
+   0,
+   0,
+   0,
+   0,
+   0
+  ],
+  "us_per_evaluation": [
+   {
+    "case": "HAP se_e2_a f32 tables, 88 x1",
+    "centers": 88,
+    "capacity": "256 512 384 896 on 128 multiprocessors",
+    "way_of_new": [
+     {
+      "threads": 256,
+      "sums": true
+     }
+    ],
+    "old": 142.13,
+    "new": 138.53,
+    "wide+sums": 139.43,
+    "narrow+sums": 146.16,
+    "wide": 141.68,
+    "narrow": 146.37,
+    "old again": 137.76
+   },
+   {
+    "case": "HAP se_e2_a f32 tables, 88 x2",
+    "centers": 176,
+    "capacity": "256 512 384 896 on 128 multiprocessors",
+    "way_of_new": [
+     {
+      "threads": 256,
+      "sums": true
+     }
+    ],
+    "old": 173.75,
+    "new": 173.47,
+    "wide+sums": 173.08,
+    "narrow+sums": 179.04,
+    "wide": 180.03,
+    "narrow": 182.14,
+    "old again": 172.67
+   },
+   {
+    "case": "HAP se_e2_a f32 tables, 88 x3",
+    "centers": 264,
+    "capacity": "256 512 384 896 on 128 multiprocessors",
+    "way_of_new": [
+     {
+      "threads": 128,
+      "sums": true
+     }
+    ],
+    "old": 230.39,
+    "new": 227.14,
+    "wide+sums": 231.7,
+    "narrow+sums": 227.48,
+    "wide": 233.12,
+    "narrow": 232.5,
+    "old again": 230.18
+   },
+   {
+    "case": "HAP se_e2_a f32 tables, 88 x4",
+    "centers": 352,
+    "capacity": "256 512 384 896 on 128 multiprocessors",
+    "way_of_new": [
+     {
+      "threads": 128,
+      "sums": true
+     }
+    ],
+    "old": 266.51,
+    "new": 254.97,
+    "wide+sums": 266.04,
+    "narrow+sums": 257.57,
+    "wide": 260.45,
+    "narrow": 261.15,
+    "old again": 264.3
+   },
+   {
+    "case": "HAP se_e2_a f32 tables, 88 x5",
+    "centers": 440,
+    "capacity": "256 512 384 896 on 128 multiprocessors",
+    "way_of_new": [
+     {
+      "threads": 128,
+      "sums": true
+     }
+    ],
+    "old": 302.9,
+    "new": 297.09,
+    "wide+sums": 300.91,
+    "narrow+sums": 296.33,
+    "wide": 308.08,
+    "narrow": 300.46,
+    "old again": 300.06
+   },
+   {
+    "case": "HAP se_e2_a f32 tables, 88 x6",
+    "centers": 528,
+    "capacity": "256 512 384 896 on 128 multiprocessors",
+    "way_of_new": [
+     {
+      "threads": 128,
+      "sums": false
+     }
+    ],
+    "old": 350.23,
+    "new": 350.32,
+    "wide+sums": 355.88,
+    "narrow+sums": 355.06,
+    "wide": 357.66,
+    "narrow": 350.64,
+    "old again": 346.91
+   },
+   {
+    "case": "HAP se_e2_a f32 tables, 88 x8",
+    "centers": 704,
+    "capacity": "256 512 384 896 on 128 multiprocessors",
+    "way_of_new": [
+     {
+      "threads": 128,
+      "sums": false
+     }
+    ],
+    "old": 422.39,
+    "new": 424.17,
+    "wide+sums": 429.7,
+    "narrow+sums": 431.1,
+    "wide": 429.06,
+    "narrow": 418.08,
+    "old again": 416.25
+   },
+   {
+    "case": "HAP se_e2_a f32 tables, 88 x10",
+    "centers": 880,
+    "capacity": "256 512 384 896 on 128 multiprocessors",
+    "way_of_new": [
+     {
+      "threads": 128,
+      "sums": false
+     }
+    ],
+    "old": 519.52,
+    "new": 516.58,
+    "wide+sums": 537.96,
+    "narrow+sums": 529.68,
+    "wide": 527.2,
+    "narrow": 516.91,
+    "old again": 513.62
+   },
+   {
+    "case": "HAP se_e2_a f32 tables, 88 x11",
+    "centers": 968,
+    "capacity": "256 512 384 896 on 128 multiprocessors",
+    "way_of_new": [
+     {
+      "threads": 128,
+      "sums": false
+     }
+    ],
+    "old": 560.83,
+    "new": 560.83,
+    "wide+sums": 576.38,
+    "narrow+sums": 562.01,
+    "wide": 574.87,
+    "narrow": 565.28,
+    "old again": 560.04
+   },
+   {
+    "case": "HAP se_e2_a f32 tables, 169 x1",
+    "centers": 169,
+    "capacity": "256 512 384 896 on 128 multiprocessors",
+    "way_of_new": [
+     {
+      "threads": 256,
+      "sums": true
+     }
+    ],
+    "old": 176.49,
+    "new": 176.78,
+    "wide+sums": 174.34,
+    "narrow+sums": 179.72,
+    "wide": 181.89,
+    "narrow": 184.83,
+    "old again": 176.47
+   },
+   {
+    "case": "HAP se_e2_a f32 tables, 169 x2",
+    "centers": 338,
+    "capacity": "256 512 384 896 on 128 multiprocessors",
+    "way_of_new": [
+     {
+      "threads": 128,
+      "sums": true
+     }
+    ],
+    "old": 264.39,
+    "new": 255.67,
+    "wide+sums": 265.16,
+    "narrow+sums": 255.65,
+    "wide": 260.27,
+    "narrow": 259.47,
+    "old again": 264.71
+   },
+   {
+    "case": "HAP se_e2_a f32 tables, 169 x3",
+    "centers": 507,
+    "capacity": "256 512 384 896 on 128 multiprocessors",
+    "way_of_new": [
+     {
+      "threads": 128,
+      "sums": true
+     }
+    ],
+    "old": 341.62,
+    "new": 333.93,
+    "wide+sums": 336.36,
+    "narrow+sums": 332.86,
+    "wide": 341.2,
+    "narrow": 339.63,
+    "old again": 338.57
+   },
+   {
+    "case": "HAP se_e2_a f32 tables, 224 x1",
+    "centers": 224,
+    "capacity": "256 512 384 896 on 128 multiprocessors",
+    "way_of_new": [
+     {
+      "threads": 256,
+      "sums": true
+     }
+    ],
+    "old": 193.48,
+    "new": 195.93,
+    "wide+sums": 194.85,
+    "narrow+sums": 199.75,
+    "wide": 201.97,
+    "narrow": 202.97,
+    "old again": 196.04
+   },
+   {
+    "case": "HAP se_e2_a f32 tables, 224 x2",
+    "centers": 448,
+    "capacity": "256 512 384 896 on 128 multiprocessors",
+    "way_of_new": [
+     {
+      "threads": 128,
+      "sums": true
+     }
+    ],
+    "old": 310.3,
+    "new": 302.67,
+    "wide+sums": 309.23,
+    "narrow+sums": 303.75,
+    "wide": 312.79,
+    "narrow": 309.43,
+    "old again": 310.01
+   },
+   {
+    "case": "HAP se_e2_a f32 tables, 224 x4",
+    "centers": 896,
+    "capacity": "256 512 384 896 on 128 multiprocessors",
+    "way_of_new": [
+     {
+      "threads": 128,
+      "sums": false
+     }
+    ],
+    "old": 528.86,
+    "new": 529.02,
+    "wide+sums": 550.45,
+    "narrow+sums": 540.14,
+    "wide": 544.36,
+    "narrow": 529.57,
+    "old again": 526.57
+   },
+   {
+    "case": "HAP se_e2_a f32 tables, 160+224 x2",
+    "centers": 384,
+    "capacity": "256 512 384 896 on 128 multiprocessors",
+    "way_of_new": [
+     {
+      "threads": 128,
+      "sums": true
+     }
+    ],
+    "old": 278.27,
+    "new": 271.51,
+    "wide+sums": 280.08,
+    "narrow+sums": 272.62,
+    "wide": 275.38,
+    "narrow": 276.54,
+    "old again": 275.44
+   },
+   {
+    "case": "HAP se_e2_a f32 exact, 88 x4",
+    "centers": 352,
+    "capacity": "384 512 384 896 on 128 multiprocessors",
+    "way_of_new": [
+     {
+      "threads": 256,
+      "sums": true
+     }
+    ],
+    "old": 356.7,
+    "new": 355.8,
+    "wide+sums": 355.89,
+    "narrow+sums": 360.09,
+    "wide": 364.32,
+    "narrow": 364.12,
+    "old again": 357.85
+   },
+   {
+    "case": "HAP se_e2_a f32 exact, 88 x5",
+    "centers": 440,
+    "capacity": "384 512 384 896 on 128 multiprocessors",
+    "way_of_new": [
+     {
+      "threads": 128,
+      "sums": true
+     }
+    ],
+    "old": 453.66,
+    "new": 447.81,
+    "wide+sums": 452.51,
+    "narrow+sums": 449.01,
+    "wide": 459.48,
+    "narrow": 451.38,
+    "old again": 453.19
+   },
+   {
+    "case": "HAP se_e2_a f32 exact, 88 x6",
+    "centers": 528,
+    "capacity": "384 512 384 896 on 128 multiprocessors",
+    "way_of_new": [
+     {
+      "threads": 128,
+      "sums": false
+     }
+    ],
+    "old": 548.69,
+    "new": 551.06,
+    "wide+sums": 553.14,
+    "narrow+sums": 564.04,
+    "wide": 563.52,
+    "narrow": 549.65,
+    "old again": 547.99
+   },
+   {
+    "case": "HAP se_e2_a f32 exact, 169 x3",
+    "centers": 507,
+    "capacity": "384 512 384 896 on 128 multiprocessors",
+    "way_of_new": [
+     {
+      "threads": 128,
+      "sums": true
+     }
+    ],
+    "old": 532.15,
+    "new": 529.99,
+    "wide+sums": 536.83,
+    "narrow+sums": 529.94,
+    "wide": 549.02,
+    "narrow": 533.5,
+    "old again": 533.08
+   },
+   {
+    "case": "HAP se_e2_a f32 exact, 160+224 x2",
+    "centers": 384,
+    "capacity": "384 512 384 896 on 128 multiprocessors",
+    "way_of_new": [
+     {
+      "threads": 256,
+      "sums": true
+     }
+    ],
+    "old": 403.68,
+    "new": 393.97,
+    "wide+sums": 393.21,
+    "narrow+sums": 397.86,
+    "wide": 402.93,
+    "narrow": 402.53,
+    "old again": 404.48
+   },
+   {
+    "case": "HAP se_e2_a f64 tables, 80 x3",
+    "centers": 240,
+    "capacity": "256 384 384 768 on 128 multiprocessors",
+    "way_of_new": [
+     {
+      "threads": 256,
+      "sums": true
+     }
+    ],
+    "old": 725.32,
+    "new": 717.14,
+    "wide+sums": 724.77,
+    "narrow+sums": 724.4,
+    "wide": 729.54,
+    "narrow": 728.0,
+    "old again": 721.04
+   },
+   {
+    "case": "HAP se_e2_a f64 tables, 88 x2",
+    "centers": 176,
+    "capacity": "256 384 384 768 on 128 multiprocessors",
+    "way_of_new": [
+     {
+      "threads": 256,
+      "sums": true
+     }
+    ],
+    "old": 698.67,
+    "new": 697.91,
+    "wide+sums": 697.63,
+    "narrow+sums": 696.42,
+    "wide": 702.43,
+    "narrow": 703.05,
+    "old again": 694.97
+   },
+   {
+    "case": "HAP se_e2_a f64 tables, 88 x3",
+    "centers": 264,
+    "capacity": "256 384 384 768 on 128 multiprocessors",
+    "way_of_new": [
+     {
+      "threads": 128,
+      "sums": true
+     }
+    ],
+    "old": 1022.97,
+    "new": 1020.77,
+    "wide+sums": 1022.33,
+    "narrow+sums": 1020.64,
+    "wide": 1033.28,
+    "narrow": 1026.72,
+    "old again": 1017.79
+   },
+   {
+    "case": "HAP se_e2_a f64 tables, 88 x4",
+    "centers": 352,
+    "capacity": "256 384 384 768 on 128 multiprocessors",
+    "way_of_new": [
+     {
+      "threads": 128,
+      "sums": true
+     }
+    ],
+    "old": 1079.66,
+    "new": 1080.61,
+    "wide+sums": 1089.74,
+    "narrow+sums": 1080.08,
+    "wide": 1097.13,
+    "narrow": 1084.35,
+    "old again": 1076.13
+   },
+   {
+    "case": "HAP se_e2_a f64 tables, 88 x5",
+    "centers": 440,
+    "capacity": "256 384 384 768 on 128 multiprocessors",
+    "way_of_new": [
+     {
+      "threads": 128,
+      "sums": false
+     }
+    ],
+    "old": 1604.09,
+    "new": 1601.09,
+    "wide+sums": 1603.88,
+    "narrow+sums": 1668.69,
+    "wide": 1623.32,
+    "narrow": 1603.29,
+    "old again": 1593.66
+   },
+   {
+    "case": "HAP se_e2_a f64 tables, 88 x6",
+    "centers": 528,
+    "capacity": "256 384 384 768 on 128 multiprocessors",
+    "way_of_new": [
+     {
+      "threads": 128,
+      "sums": false
+     }
+    ],
+    "old": 1695.3,
+    "new": 1704.03,
+    "wide+sums": 1691.4,
+    "narrow+sums": 1741.08,
+    "wide": 1701.59,
+    "narrow": 1694.22,
+    "old again": 1689.66
+   },
+   {
+    "case": "HAP se_e2_a f64 tables, 160+224 x2",
+    "centers": 384,
+    "capacity": "256 384 384 768 on 128 multiprocessors",
+    "way_of_new": [
+     {
+      "threads": 128,
+      "sums": true
+     }
+    ],
+    "old": 1115.51,
+    "new": 1108.08,
+    "wide+sums": 1143.99,
+    "narrow+sums": 1107.8,
+    "wide": 1123.54,
+    "narrow": 1111.32,
+    "old again": 1110.8
+   },
+   {
+    "case": "HAP se_e2_r f32 tables, 88 x4",
+    "centers": 352,
+    "capacity": "384 768 512 1024 on 128 multiprocessors",
+    "way_of_new": [
+     {
+      "threads": 256,
+      "sums": true
+     }
+    ],
+    "old": 180.89,
+    "new": 180.45,
+    "wide+sums": 180.14,
+    "narrow+sums": 187.26,
+    "wide": 189.12,
+    "narrow": 190.73,
+    "old again": 180.87
+   },
+   {
+    "case": "HAP se_e2_r f32 tables, 88 x5",
+    "centers": 440,
+    "capacity": "384 768 512 1024 on 128 multiprocessors",
+    "way_of_new": [
+     {
+      "threads": 128,
+      "sums": true
+     }
+    ],
+    "old": 209.3,
+    "new": 212.34,
+    "wide+sums": 217.0,
+    "narrow+sums": 208.98,
+    "wide": 217.41,
+    "narrow": 215.64,
+    "old again": 209.56
+   },
+   {
+    "case": "HAP se_e2_r f32 tables, 88 x6",
+    "centers": 528,
+    "capacity": "384 768 512 1024 on 128 multiprocessors",
+    "way_of_new": [
+     {
+      "threads": 128,
+      "sums": true
+     }
+    ],
+    "old": 261.34,
+    "new": 262.51,
+    "wide+sums": 268.62,
+    "narrow+sums": 261.85,
+    "wide": 275.31,
+    "narrow": 266.08,
+    "old again": 262.22
+   },
+   {
+    "case": "HAP se_e2_r f32 tables, 88 x9",
+    "centers": 792,
+    "capacity": "384 768 512 1024 on 128 multiprocessors",
+    "way_of_new": [
+     {
+      "threads": 128,
+      "sums": false
+     }
+    ],
+    "old": 348.04,
+    "new": 343.2,
+    "wide+sums": 353.89,
+    "narrow+sums": 348.27,
+    "wide": 356.55,
+    "narrow": 347.86,
+    "old again": 347.94
+   },
+   {
+    "case": "HAP se_e2_r f32 tables, 88 x10",
+    "centers": 880,
+    "capacity": "384 768 512 1024 on 128 multiprocessors",
+    "way_of_new": [
+     {
+      "threads": 128,
+      "sums": false
+     }
+    ],
+    "old": 433.72,
+    "new": 428.52,
+    "wide+sums": 436.45,
+    "narrow+sums": 434.16,
+    "wide": 442.29,
+    "narrow": 428.32,
+    "old again": 435.72
+   },
+   {
+    "case": "HAP se_e2_r f32 tables, 88 x11",
+    "centers": 968,
+    "capacity": "384 768 512 1024 on 128 multiprocessors",
+    "way_of_new": [
+     {
+      "threads": 128,
+      "sums": false
+     }
+    ],
+    "old": 460.71,
+    "new": 453.96,
+    "wide+sums": 456.19,
+    "narrow+sums": 461.85,
+    "wide": 471.75,
+    "narrow": 452.41,
+    "old again": 461.29
+   },
+   {
+    "case": "HAP se_e2_r f32 tables, 88 x12",
+    "centers": 1056,
+    "capacity": "384 768 512 1024 on 128 multiprocessors",
+    "way_of_new": [
+     {
+      "threads": 128,
+      "sums": true
+     }
+    ],
+    "old": 503.79,
+    "new": 505.98,
+    "wide+sums": 500.44,
+    "narrow+sums": 503.68,
+    "wide": 514.28,
+    "narrow": 508.9,
+    "old again": 503.86
+   },
+   {
+    "case": "HAP se_e2_r f32 tables, 160+224 x2",
+    "centers": 384,
+    "capacity": "384 768 512 1024 on 128 multiprocessors",
+    "way_of_new": [
+     {
+      "threads": 256,
+      "sums": true
+     }
+    ],
+    "old": 193.84,
+    "new": 189.05,
+    "wide+sums": 188.12,
+    "narrow+sums": 193.9,
+    "wide": 197.28,
+    "narrow": 197.45,
+    "old again": 194.02
+   },
+   {
+    "case": "HAP se_e2_r f64 tables, 88 x3",
+    "centers": 264,
+    "capacity": "384 768 512 1024 on 128 multiprocessors",
+    "way_of_new": [
+     {
+      "threads": 256,
+      "sums": true
+     }
+    ],
+    "old": 394.45,
+    "new": 392.12,
+    "wide+sums": 394.64,
+    "narrow+sums": 395.48,
+    "wide": 405.67,
+    "narrow": 399.69,
+    "old again": 395.16
+   },
+   {
+    "case": "HAP se_e2_r f64 tables, 88 x4",
+    "centers": 352,
+    "capacity": "384 768 512 1024 on 128 multiprocessors",
+    "way_of_new": [
+     {
+      "threads": 256,
+      "sums": true
+     }
+    ],
+    "old": 430.94,
+    "new": 430.56,
+    "wide+sums": 431.89,
+    "narrow+sums": 432.1,
+    "wide": 439.11,
+    "narrow": 432.79,
+    "old again": 432.86
+   },
+   {
+    "case": "HAP se_e2_r f64 tables, 88 x6",
+    "centers": 528,
+    "capacity": "384 768 512 1024 on 128 multiprocessors",
+    "way_of_new": [
+     {
+      "threads": 128,
+      "sums": true
+     }
+    ],
+    "old": 662.47,
+    "new": 669.05,
+    "wide+sums": 671.92,
+    "narrow+sums": 663.67,
+    "wide": 691.33,
+    "narrow": 672.37,
+    "old again": 663.53
+   },
+   {
+    "case": "HAP se_e2_r f64 tables, 88 x9",
+    "centers": 792,
+    "capacity": "384 768 512 1024 on 128 multiprocessors",
+    "way_of_new": [
+     {
+      "threads": 128,
+      "sums": false
+     }
+    ],
+    "old": 1014.18,
+    "new": 1001.31,
+    "wide+sums": 1002.56,
+    "narrow+sums": 1013.76,
+    "wide": 1012.53,
+    "narrow": 999.61,
+    "old again": 1000.84
+   },
+   {
+    "case": "HAP se_e2_r f64 tables, 88 x11",
+    "centers": 968,
+    "capacity": "384 768 512 1024 on 128 multiprocessors",
+    "way_of_new": [
+     {
+      "threads": 128,
+      "sums": false
+     }
+    ],
+    "old": 1205.01,
+    "new": 1200.29,
+    "wide+sums": 1196.53,
+    "narrow+sums": 1195.37,
+    "wide": 1214.53,
+    "narrow": 1199.16,
+    "old again": 1197.04
+   },
+   {
+    "case": "HAP se_e2_r f64 tables, 160+224 x2",
+    "centers": 384,
+    "capacity": "384 768 512 1024 on 128 multiprocessors",
+    "way_of_new": [
+     {
+      "threads": 256,
+      "sums": true
+     }
+    ],
+    "old": 456.48,
+    "new": 450.66,
+    "wide+sums": 449.72,
+    "narrow+sums": 455.93,
+    "wide": 459.81,
+    "narrow": 461.41,
+    "old again": 457.47
+   },
+   {
+    "case": "HAP se_e2_a with se_e3 f32 tables, 88 x1",
+    "centers": 88,
+    "capacity": "256 512 384 896; - on 128 multiprocessors",
+    "way_of_new": [
+     {
+      "threads": 256,
+      "sums": true
+     }
+    ],
+    "old": 206.85,
+    "new": 208.58,
+    "wide+sums": 208.6,
+    "narrow+sums": 216.17,
+    "wide": 213.05,
+    "narrow": 218.17,
+    "old again": 209.01
+   },
+   {
+    "case": "HAP se_e2_a with se_e3 f32 tables, 88 x3",
+    "centers": 264,
+    "capacity": "256 512 384 896; - on 128 multiprocessors",
+    "way_of_new": [
+     {
+      "threads": 128,
+      "sums": true
+     }
+    ],
+    "old": 318.66,
+    "new": 313.97,
+    "wide+sums": 317.49,
+    "narrow+sums": 314.67,
+    "wide": 327.56,
+    "narrow": 326.44,
+    "old again": 316.54
+   },
+   {
+    "case": "HAP se_e2_a with se_e3 f32 tables, 88 x4",
+    "centers": 352,
+    "capacity": "256 512 384 896; - on 128 multiprocessors",
+    "way_of_new": [
+     {
+      "threads": 128,
+      "sums": true
+     }
+    ],
+    "old": 361.63,
+    "new": 350.97,
+    "wide+sums": 358.9,
+    "narrow+sums": 349.01,
+    "wide": 362.0,
+    "narrow": 364.18,
+    "old again": 361.7
+   },
+   {
+    "case": "HAP se_e2_a with se_e3 f32 tables, 88 x5",
+    "centers": 440,
+    "capacity": "256 512 384 896; - on 128 multiprocessors",
+    "way_of_new": [
+     {
+      "threads": 128,
+      "sums": true
+     }
+    ],
+    "old": 425.7,
+    "new": 419.19,
+    "wide+sums": 427.15,
+    "narrow+sums": 420.33,
+    "wide": 435.83,
+    "narrow": 430.21,
+    "old again": 426.71
+   },
+   {
+    "case": "HAP committee of four f32 tables, 88",
+    "centers": 352,
+    "capacity": "256 512 384 896 on 128 multiprocessors",
+    "way_of_new": [
+     {
+      "threads": 128,
+      "sums": true
+     }
+    ],
+    "old": 314.41,
+    "new": 300.54,
+    "wide+sums": 313.52,
+    "narrow+sums": 301.56,
+    "wide": 305.37,
+    "narrow": 305.85,
+    "old again": 313.53
+   },
+   {
+    "case": "HAP committee of four f32 tables, 169",
+    "centers": 676,
+    "capacity": "256 512 384 896 on 128 multiprocessors",
+    "way_of_new": [
+     {
+      "threads": 128,
+      "sums": false
+     }
+    ],
+    "old": 448.02,
+    "new": 447.57,
+    "wide+sums": 450.9,
+    "narrow+sums": 458.74,
+    "wide": 455.83,
+    "narrow": 445.84,
+    "old again": 446.5
+   },
+   {
+    "case": "HAP committee of four f32 tables, 224",
+    "centers": 896,
+    "capacity": "256 512 384 896 on 128 multiprocessors",
+    "way_of_new": [
+     {
+      "threads": 128,
+      "sums": false
+     }
+    ],
+    "old": 512.55,
+    "new": 509.03,
+    "wide+sums": 532.07,
+    "narrow+sums": 524.01,
+    "wide": 526.06,
+    "narrow": 507.03,
+    "old again": 508.42
+   },
+   {
+    "case": "HAP committee of four f64 tables, 88",
+    "centers": 352,
+    "capacity": "256 384 384 768 on 128 multiprocessors",
+    "way_of_new": [
+     {
+      "threads": 128,
+      "sums": true
+     }
+    ],
+    "old": 1104.68,
+    "new": 1126.03,
+    "wide+sums": 1172.33,
+    "narrow+sums": 1132.79,
+    "wide": 1123.73,
+    "narrow": 1186.56,
+    "old again": 1120.77
+   },
+   {
+    "case": "water se_e2_a f32 tables, 192 x1",
+    "centers": 192,
+    "capacity": "384 512 384 896 on 128 multiprocessors",
+    "way_of_new": [
+     {
+      "threads": 256,
+      "sums": true
+     }
+    ],
+    "old": 184.64,
+    "new": 185.86,
+    "wide+sums": 185.4,
+    "narrow+sums": 189.94,
+    "wide": 191.5,
+    "narrow": 191.84,
+    "old again": 184.56
+   },
+   {
+    "case": "water se_e2_a f32 tables, 192 x2",
+    "centers": 384,
+    "capacity": "384 512 384 896 on 128 multiprocessors",
+    "way_of_new": [
+     {
+      "threads": 256,
+      "sums": true
+     }
+    ],
+    "old": 278.63,
+    "new": 269.84,
+    "wide+sums": 270.22,
+    "narrow+sums": 273.58,
+    "wide": 277.66,
+    "narrow": 276.51,
+    "old again": 276.71
+   },
+   {
+    "case": "water se_e2_a f32 tables, 192 x3",
+    "centers": 576,
+    "capacity": "384 512 384 896 on 128 multiprocessors",
+    "way_of_new": [
+     {
+      "threads": 128,
+      "sums": false
+     }
+    ],
+    "old": 373.92,
+    "new": 373.86,
+    "wide+sums": 371.18,
+    "narrow+sums": 378.73,
+    "wide": 383.24,
+    "narrow": 371.63,
+    "old again": 372.74
+   },
+   {
+    "case": "water se_e2_a f32 tables, 192 x4",
+    "centers": 768,
+    "capacity": "384 512 384 896 on 128 multiprocessors",
+    "way_of_new": [
+     {
+      "threads": 128,
+      "sums": false
+     }
+    ],
+    "old": 464.61,
+    "new": 481.15,
+    "wide+sums": 464.03,
+    "narrow+sums": 477.61,
+    "wide": 472.37,
+    "narrow": 471.06,
+    "old again": 474.08
+   },
+   {
+    "case": "water se_e2_a f32 tables, 1536 x1",
+    "centers": 1536,
+    "capacity": "384 512 384 896 on 128 multiprocessors",
+    "way_of_new": [
+     {
+      "threads": 128,
+      "sums": false
+     }
+    ],
+    "old": 661.08,
+    "new": 660.31,
+    "wide+sums": 655.44,
+    "narrow+sums": 662.51,
+    "wide": 668.39,
+    "narrow": 650.12,
+    "old again": 642.9
+   },
+   {
+    "case": "water se_e2_a f32 exact, 192 x2",
+    "centers": 384,
+    "capacity": "384 640 384 896 on 128 multiprocessors",
+    "way_of_new": [
+     {
+      "threads": 256,
+      "sums": true
+     }
+    ],
+    "old": 392.54,
+    "new": 386.4,
+    "wide+sums": 387.16,
+    "narrow+sums": 391.0,
+    "wide": 394.35,
+    "narrow": 392.85,
+    "old again": 393.9
+   },
+   {
+    "case": "water se_e2_a f32 exact, 192 x3",
+    "centers": 576,
+    "capacity": "384 640 384 896 on 128 multiprocessors",
+    "way_of_new": [
+     {
+      "threads": 128,
+      "sums": true
+     }
+    ],
+    "old": 577.73,
+    "new": 574.69,
+    "wide+sums": 582.61,
+    "narrow+sums": 574.71,
+    "wide": 594.49,
+    "narrow": 578.18,
+    "old again": 582.12
+   },
+   {
+    "case": "water se_e2_a f64 tables, 192 x1",
+    "centers": 192,
+    "capacity": "256 512 384 768 on 128 multiprocessors",
+    "way_of_new": [
+     {
+      "threads": 256,
+      "sums": true
+     }
+    ],
+    "old": 722.66,
+    "new": 722.42,
+    "wide+sums": 722.15,
+    "narrow+sums": 723.07,
+    "wide": 728.75,
+    "narrow": 725.66,
+    "old again": 720.45
+   },
+   {
+    "case": "water se_e2_a f64 tables, 192 x2",
+    "centers": 384,
+    "capacity": "256 512 384 768 on 128 multiprocessors",
+    "way_of_new": [
+     {
+      "threads": 128,
+      "sums": true
+     }
+    ],
+    "old": 1138.17,
+    "new": 1135.65,
+    "wide+sums": 1138.65,
+    "narrow+sums": 1138.43,
+    "wide": 1145.05,
+    "narrow": 1139.59,
+    "old again": 1138.58
+   },
+   {
+    "case": "water se_e2_a f64 tables, 192 x3",
+    "centers": 576,
+    "capacity": "256 512 384 768 on 128 multiprocessors",
+    "way_of_new": [
+     {
+      "threads": 128,
+      "sums": false
+     }
+    ],
+    "old": 1788.68,
+    "new": 1789.07,
+    "wide+sums": 1776.49,
+    "narrow+sums": 1809.25,
+    "wide": 1791.25,
+    "narrow": 1782.98,
+    "old again": 1781.42
+   },
+   {
+    "case": "water se_e2_r f32 tables, 192 x2",
+    "centers": 384,
+    "capacity": "384 896 512 1024 on 128 multiprocessors",
+    "way_of_new": [
+     {
+      "threads": 256,
+      "sums": true
+     }
+    ],
+    "old": 200.57,
+    "new": 194.27,
+    "wide+sums": 193.24,
+    "narrow+sums": 199.41,
+    "wide": 203.28,
+    "narrow": 202.03,
+    "old again": 198.82
+   },
+   {
+    "case": "water se_e2_r f32 tables, 192 x3",
+    "centers": 576,
+    "capacity": "384 896 512 1024 on 128 multiprocessors",
+    "way_of_new": [
+     {
+      "threads": 128,
+      "sums": true
+     }
+    ],
+    "old": 295.53,
+    "new": 294.95,
+    "wide+sums": 301.09,
+    "narrow+sums": 299.07,
+    "wide": 308.0,
+    "narrow": 304.17,
+    "old again": 296.18
+   },
+   {
+    "case": "water se_e2_r f32 tables, 192 x5",
+    "centers": 960,
+    "capacity": "384 896 512 1024 on 128 multiprocessors",
+    "way_of_new": [
+     {
+      "threads": 128,
+      "sums": false
+     }
+    ],
+    "old": 515.5,
+    "new": 512.98,
+    "wide+sums": 516.91,
+    "narrow+sums": 522.72,
+    "wide": 532.72,
+    "narrow": 517.98,
+    "old again": 517.16
+   },
+   {
+    "case": "water se_e2_r f32 tables, 192 x6",
+    "centers": 1152,
+    "capacity": "384 896 512 1024 on 128 multiprocessors",
+    "way_of_new": [
+     {
+      "threads": 128,
+      "sums": true
+     }
+    ],
+    "old": 618.76,
+    "new": 614.7,
+    "wide+sums": 618.53,
+    "narrow+sums": 619.25,
+    "wide": 628.44,
+    "narrow": 624.35,
+    "old again": 613.17
+   }
+  ]
+ },
+ "second_run": {
+  "date": "2026-11-22",
+  "device": "NVIDIA GeForce RTX 4090",
+  "what": "ways.py OLD NEW OUT.json [ROUNDS]: the force blocks chosen by the blocks the device keeps at once, before and after,\nwith every way forced (2026-11-22).\n\nTwo builds of omnimd-native-gpu-eval: OLD (the limits of centers) twice a round (`old`, `old again`: what the two\ndiffer by is what the machine adds), NEW as it is (`new`) and NEW with each way of the force kernel forced\n(--wide-forces 1000000 or 0 with --block-sums 1000000 or 0: `wide+sums`, `narrow+sums`, `wide`, `narrow`).\nAlternated in ROUNDS rounds (5), the order reversed every other round, the least of each kept. Cases: the trained\nHAP models (se_e2_a, se_e2_r, a hybrid with se_e3, a committee of four) on batches of the sealed-test frames, and\nthe water models on batches of 192 waters and on 1,536, in float32 and float64, with tables (--compress 0.5) and\nfor se_e2_a in float32 also without; sizes on both sides of what the device keeps of each way. `centers` are the\natoms of a pass times its models. The card is checked for other users before every round (tools/ht/gpu_busy.ps1).\n`way_of_new`: the way of the last two-body pass of `new`, from the bench lines (`force_threads`, `force_sums`; the\nbuild of the first run printed `block_sums` instead, which is that of the force kernel launched last: in the hybrid,\nthe one of se_e3, which forms the sums in every pass). The forced ways of the hybrid set the sums of se_e3 as well.\nEnvironment: ONLY (words of case names, by comma).",
+  "rounds": 5,
+  "builds": {
+   "old": "omnimd-native-gpu-eval of 99aa9b4 (shawn_dev before this change, run/prev-99aa9b4)",
+   "new": "omnimd-native-gpu-eval of branch force-occupancy, final build 2026-11-22 03:18 (after the first review; the code committed differs from it in comments, the tests and Device::shared_memory_per_multiprocessor, which is read once as the device opens and used by the tests only)"
+  },
+  "seconds_waited_for_the_card": [
+   0,
+   0,
+   0,
+   0,
+   0
+  ],
+  "us_per_evaluation": [
+   {
+    "case": "HAP se_e2_a f32 tables, 88 x1",
+    "centers": 88,
+    "capacity": "256 512 384 896 on 128 multiprocessors",
+    "way_of_new": [
+     {
+      "threads": 256,
+      "sums": true
+     }
+    ],
+    "old": 139.6,
+    "new": 141.5,
+    "wide+sums": 141.48,
+    "narrow+sums": 145.67,
+    "wide": 143.67,
+    "narrow": 149.84,
+    "old again": 140.04
+   },
+   {
+    "case": "HAP se_e2_a f32 tables, 88 x2",
+    "centers": 176,
+    "capacity": "256 512 384 896 on 128 multiprocessors",
+    "way_of_new": [
+     {
+      "threads": 256,
+      "sums": true
+     }
+    ],
+    "old": 171.61,
+    "new": 173.5,
+    "wide+sums": 174.23,
+    "narrow+sums": 178.48,
+    "wide": 179.01,
+    "narrow": 181.47,
+    "old again": 174.43
+   },
+   {
+    "case": "HAP se_e2_a f32 tables, 88 x3",
+    "centers": 264,
+    "capacity": "256 512 384 896 on 128 multiprocessors",
+    "way_of_new": [
+     {
+      "threads": 128,
+      "sums": true
+     }
+    ],
+    "old": 229.38,
+    "new": 227.47,
+    "wide+sums": 232.58,
+    "narrow+sums": 228.98,
+    "wide": 231.87,
+    "narrow": 232.31,
+    "old again": 230.91
+   },
+   {
+    "case": "HAP se_e2_a f32 tables, 88 x4",
+    "centers": 352,
+    "capacity": "256 512 384 896 on 128 multiprocessors",
+    "way_of_new": [
+     {
+      "threads": 128,
+      "sums": true
+     }
+    ],
+    "old": 265.55,
+    "new": 256.31,
+    "wide+sums": 267.2,
+    "narrow+sums": 258.12,
+    "wide": 261.95,
+    "narrow": 261.67,
+    "old again": 266.77
+   },
+   {
+    "case": "HAP se_e2_a f32 tables, 88 x5",
+    "centers": 440,
+    "capacity": "256 512 384 896 on 128 multiprocessors",
+    "way_of_new": [
+     {
+      "threads": 128,
+      "sums": true
+     }
+    ],
+    "old": 300.87,
+    "new": 296.74,
+    "wide+sums": 303.28,
+    "narrow+sums": 295.98,
+    "wide": 308.12,
+    "narrow": 302.39,
+    "old again": 302.15
+   },
+   {
+    "case": "HAP se_e2_a f32 tables, 88 x6",
+    "centers": 528,
+    "capacity": "256 512 384 896 on 128 multiprocessors",
+    "way_of_new": [
+     {
+      "threads": 128,
+      "sums": false
+     }
+    ],
+    "old": 346.73,
+    "new": 352.15,
+    "wide+sums": 359.26,
+    "narrow+sums": 352.18,
+    "wide": 359.47,
+    "narrow": 351.15,
+    "old again": 349.19
+   },
+   {
+    "case": "HAP se_e2_a f32 tables, 88 x8",
+    "centers": 704,
+    "capacity": "256 512 384 896 on 128 multiprocessors",
+    "way_of_new": [
+     {
+      "threads": 128,
+      "sums": false
+     }
+    ],
+    "old": 417.07,
+    "new": 420.1,
+    "wide+sums": 427.98,
+    "narrow+sums": 430.62,
+    "wide": 432.29,
+    "narrow": 421.45,
+    "old again": 421.53
+   },
+   {
+    "case": "HAP se_e2_a f32 tables, 88 x10",
+    "centers": 880,
+    "capacity": "256 512 384 896 on 128 multiprocessors",
+    "way_of_new": [
+     {
+      "threads": 128,
+      "sums": false
+     }
+    ],
+    "old": 515.99,
+    "new": 516.21,
+    "wide+sums": 534.8,
+    "narrow+sums": 526.29,
+    "wide": 528.64,
+    "narrow": 515.61,
+    "old again": 516.45
+   },
+   {
+    "case": "HAP se_e2_a f32 tables, 88 x11",
+    "centers": 968,
+    "capacity": "256 512 384 896 on 128 multiprocessors",
+    "way_of_new": [
+     {
+      "threads": 128,
+      "sums": false
+     }
+    ],
+    "old": 559.18,
+    "new": 560.51,
+    "wide+sums": 575.28,
+    "narrow+sums": 557.24,
+    "wide": 576.25,
+    "narrow": 565.08,
+    "old again": 559.93
+   },
+   {
+    "case": "HAP se_e2_a f32 tables, 169 x1",
+    "centers": 169,
+    "capacity": "256 512 384 896 on 128 multiprocessors",
+    "way_of_new": [
+     {
+      "threads": 256,
+      "sums": true
+     }
+    ],
+    "old": 175.47,
+    "new": 176.47,
+    "wide+sums": 175.48,
+    "narrow+sums": 179.43,
+    "wide": 181.37,
+    "narrow": 183.19,
+    "old again": 176.84
+   },
+   {
+    "case": "HAP se_e2_a f32 tables, 169 x2",
+    "centers": 338,
+    "capacity": "256 512 384 896 on 128 multiprocessors",
+    "way_of_new": [
+     {
+      "threads": 128,
+      "sums": true
+     }
+    ],
+    "old": 263.85,
+    "new": 254.4,
+    "wide+sums": 264.85,
+    "narrow+sums": 252.35,
+    "wide": 259.87,
+    "narrow": 258.9,
+    "old again": 263.78
+   },
+   {
+    "case": "HAP se_e2_a f32 tables, 169 x3",
+    "centers": 507,
+    "capacity": "256 512 384 896 on 128 multiprocessors",
+    "way_of_new": [
+     {
+      "threads": 128,
+      "sums": true
+     }
+    ],
+    "old": 342.05,
+    "new": 335.61,
+    "wide+sums": 337.46,
+    "narrow+sums": 331.04,
+    "wide": 340.36,
+    "narrow": 340.6,
+    "old again": 338.12
+   },
+   {
+    "case": "HAP se_e2_a f32 tables, 224 x1",
+    "centers": 224,
+    "capacity": "256 512 384 896 on 128 multiprocessors",
+    "way_of_new": [
+     {
+      "threads": 256,
+      "sums": true
+     }
+    ],
+    "old": 193.13,
+    "new": 193.96,
+    "wide+sums": 194.71,
+    "narrow+sums": 199.12,
+    "wide": 200.7,
+    "narrow": 202.57,
+    "old again": 194.64
+   },
+   {
+    "case": "HAP se_e2_a f32 tables, 224 x2",
+    "centers": 448,
+    "capacity": "256 512 384 896 on 128 multiprocessors",
+    "way_of_new": [
+     {
+      "threads": 128,
+      "sums": true
+     }
+    ],
+    "old": 308.65,
+    "new": 303.42,
+    "wide+sums": 310.19,
+    "narrow+sums": 304.15,
+    "wide": 312.96,
+    "narrow": 309.41,
+    "old again": 308.24
+   },
+   {
+    "case": "HAP se_e2_a f32 tables, 224 x4",
+    "centers": 896,
+    "capacity": "256 512 384 896 on 128 multiprocessors",
+    "way_of_new": [
+     {
+      "threads": 128,
+      "sums": false
+     }
+    ],
+    "old": 527.73,
+    "new": 527.43,
+    "wide+sums": 549.08,
+    "narrow+sums": 541.5,
+    "wide": 542.18,
+    "narrow": 527.64,
+    "old again": 530.36
+   },
+   {
+    "case": "HAP se_e2_a f32 tables, 160+224 x2",
+    "centers": 384,
+    "capacity": "256 512 384 896 on 128 multiprocessors",
+    "way_of_new": [
+     {
+      "threads": 128,
+      "sums": true
+     }
+    ],
+    "old": 275.62,
+    "new": 268.3,
+    "wide+sums": 281.51,
+    "narrow+sums": 271.64,
+    "wide": 274.26,
+    "narrow": 275.93,
+    "old again": 275.86
+   },
+   {
+    "case": "HAP se_e2_a f32 exact, 88 x4",
+    "centers": 352,
+    "capacity": "384 512 384 896 on 128 multiprocessors",
+    "way_of_new": [
+     {
+      "threads": 256,
+      "sums": true
+     }
+    ],
+    "old": 352.64,
+    "new": 352.76,
+    "wide+sums": 353.07,
+    "narrow+sums": 357.69,
+    "wide": 363.11,
+    "narrow": 360.74,
+    "old again": 352.4
+   },
+   {
+    "case": "HAP se_e2_a f32 exact, 88 x5",
+    "centers": 440,
+    "capacity": "384 512 384 896 on 128 multiprocessors",
+    "way_of_new": [
+     {
+      "threads": 128,
+      "sums": true
+     }
+    ],
+    "old": 454.12,
+    "new": 447.15,
+    "wide+sums": 451.02,
+    "narrow+sums": 446.8,
+    "wide": 457.17,
+    "narrow": 453.24,
+    "old again": 451.88
+   },
+   {
+    "case": "HAP se_e2_a f32 exact, 88 x6",
+    "centers": 528,
+    "capacity": "384 512 384 896 on 128 multiprocessors",
+    "way_of_new": [
+     {
+      "threads": 128,
+      "sums": false
+     }
+    ],
+    "old": 547.97,
+    "new": 549.19,
+    "wide+sums": 557.03,
+    "narrow+sums": 564.6,
+    "wide": 562.1,
+    "narrow": 549.94,
+    "old again": 548.03
+   },
+   {
+    "case": "HAP se_e2_a f32 exact, 169 x3",
+    "centers": 507,
+    "capacity": "384 512 384 896 on 128 multiprocessors",
+    "way_of_new": [
+     {
+      "threads": 128,
+      "sums": true
+     }
+    ],
+    "old": 531.6,
+    "new": 526.47,
+    "wide+sums": 534.63,
+    "narrow+sums": 531.92,
+    "wide": 547.45,
+    "narrow": 530.8,
+    "old again": 535.22
+   },
+   {
+    "case": "HAP se_e2_a f32 exact, 160+224 x2",
+    "centers": 384,
+    "capacity": "384 512 384 896 on 128 multiprocessors",
+    "way_of_new": [
+     {
+      "threads": 256,
+      "sums": true
+     }
+    ],
+    "old": 401.67,
+    "new": 393.01,
+    "wide+sums": 392.44,
+    "narrow+sums": 398.63,
+    "wide": 402.45,
+    "narrow": 402.32,
+    "old again": 402.54
+   },
+   {
+    "case": "HAP se_e2_a f64 tables, 80 x3",
+    "centers": 240,
+    "capacity": "256 384 384 768 on 128 multiprocessors",
+    "way_of_new": [
+     {
+      "threads": 256,
+      "sums": true
+     }
+    ],
+    "old": 719.7,
+    "new": 722.5,
+    "wide+sums": 720.33,
+    "narrow+sums": 721.31,
+    "wide": 729.92,
+    "narrow": 724.33,
+    "old again": 719.79
+   },
+   {
+    "case": "HAP se_e2_a f64 tables, 88 x2",
+    "centers": 176,
+    "capacity": "256 384 384 768 on 128 multiprocessors",
+    "way_of_new": [
+     {
+      "threads": 256,
+      "sums": true
+     }
+    ],
+    "old": 695.88,
+    "new": 693.04,
+    "wide+sums": 695.73,
+    "narrow+sums": 698.15,
+    "wide": 703.33,
+    "narrow": 699.9,
+    "old again": 696.15
+   },
+   {
+    "case": "HAP se_e2_a f64 tables, 88 x3",
+    "centers": 264,
+    "capacity": "256 384 384 768 on 128 multiprocessors",
+    "way_of_new": [
+     {
+      "threads": 128,
+      "sums": true
+     }
+    ],
+    "old": 1021.52,
+    "new": 1017.92,
+    "wide+sums": 1020.03,
+    "narrow+sums": 1019.38,
+    "wide": 1029.24,
+    "narrow": 1025.36,
+    "old again": 1018.67
+   },
+   {
+    "case": "HAP se_e2_a f64 tables, 88 x4",
+    "centers": 352,
+    "capacity": "256 384 384 768 on 128 multiprocessors",
+    "way_of_new": [
+     {
+      "threads": 128,
+      "sums": true
+     }
+    ],
+    "old": 1075.01,
+    "new": 1073.76,
+    "wide+sums": 1090.06,
+    "narrow+sums": 1086.16,
+    "wide": 1092.85,
+    "narrow": 1086.2,
+    "old again": 1082.41
+   },
+   {
+    "case": "HAP se_e2_a f64 tables, 88 x5",
+    "centers": 440,
+    "capacity": "256 384 384 768 on 128 multiprocessors",
+    "way_of_new": [
+     {
+      "threads": 128,
+      "sums": false
+     }
+    ],
+    "old": 1600.54,
+    "new": 1603.13,
+    "wide+sums": 1603.62,
+    "narrow+sums": 1669.53,
+    "wide": 1617.72,
+    "narrow": 1611.66,
+    "old again": 1610.86
+   },
+   {
+    "case": "HAP se_e2_a f64 tables, 88 x6",
+    "centers": 528,
+    "capacity": "256 384 384 768 on 128 multiprocessors",
+    "way_of_new": [
+     {
+      "threads": 128,
+      "sums": false
+     }
+    ],
+    "old": 1699.86,
+    "new": 1699.11,
+    "wide+sums": 1696.74,
+    "narrow+sums": 1743.4,
+    "wide": 1701.72,
+    "narrow": 1706.41,
+    "old again": 1704.44
+   },
+   {
+    "case": "HAP se_e2_a f64 tables, 160+224 x2",
+    "centers": 384,
+    "capacity": "256 384 384 768 on 128 multiprocessors",
+    "way_of_new": [
+     {
+      "threads": 128,
+      "sums": true
+     }
+    ],
+    "old": 1106.19,
+    "new": 1107.97,
+    "wide+sums": 1137.71,
+    "narrow+sums": 1108.36,
+    "wide": 1113.42,
+    "narrow": 1110.67,
+    "old again": 1109.25
+   },
+   {
+    "case": "HAP se_e2_r f32 tables, 88 x4",
+    "centers": 352,
+    "capacity": "384 768 512 1024 on 128 multiprocessors",
+    "way_of_new": [
+     {
+      "threads": 256,
+      "sums": true
+     }
+    ],
+    "old": 181.52,
+    "new": 179.26,
+    "wide+sums": 180.33,
+    "narrow+sums": 184.82,
+    "wide": 188.56,
+    "narrow": 188.63,
+    "old again": 181.21
+   },
+   {
+    "case": "HAP se_e2_r f32 tables, 88 x5",
+    "centers": 440,
+    "capacity": "384 768 512 1024 on 128 multiprocessors",
+    "way_of_new": [
+     {
+      "threads": 128,
+      "sums": true
+     }
+    ],
+    "old": 209.75,
+    "new": 211.38,
+    "wide+sums": 215.96,
+    "narrow+sums": 209.49,
+    "wide": 218.11,
+    "narrow": 212.27,
+    "old again": 210.97
+   },
+   {
+    "case": "HAP se_e2_r f32 tables, 88 x6",
+    "centers": 528,
+    "capacity": "384 768 512 1024 on 128 multiprocessors",
+    "way_of_new": [
+     {
+      "threads": 128,
+      "sums": true
+     }
+    ],
+    "old": 261.72,
+    "new": 261.01,
+    "wide+sums": 266.28,
+    "narrow+sums": 265.02,
+    "wide": 277.25,
+    "narrow": 270.2,
+    "old again": 263.56
+   },
+   {
+    "case": "HAP se_e2_r f32 tables, 88 x9",
+    "centers": 792,
+    "capacity": "384 768 512 1024 on 128 multiprocessors",
+    "way_of_new": [
+     {
+      "threads": 128,
+      "sums": false
+     }
+    ],
+    "old": 348.59,
+    "new": 341.85,
+    "wide+sums": 351.03,
+    "narrow+sums": 346.13,
+    "wide": 356.64,
+    "narrow": 339.48,
+    "old again": 343.94
+   },
+   {
+    "case": "HAP se_e2_r f32 tables, 88 x10",
+    "centers": 880,
+    "capacity": "384 768 512 1024 on 128 multiprocessors",
+    "way_of_new": [
+     {
+      "threads": 128,
+      "sums": false
+     }
+    ],
+    "old": 434.48,
+    "new": 423.88,
+    "wide+sums": 433.17,
+    "narrow+sums": 432.67,
+    "wide": 434.93,
+    "narrow": 424.83,
+    "old again": 433.9
+   },
+   {
+    "case": "HAP se_e2_r f32 tables, 88 x11",
+    "centers": 968,
+    "capacity": "384 768 512 1024 on 128 multiprocessors",
+    "way_of_new": [
+     {
+      "threads": 128,
+      "sums": false
+     }
+    ],
+    "old": 454.94,
+    "new": 452.29,
+    "wide+sums": 454.44,
+    "narrow+sums": 455.76,
+    "wide": 470.62,
+    "narrow": 447.93,
+    "old again": 454.51
+   },
+   {
+    "case": "HAP se_e2_r f32 tables, 88 x12",
+    "centers": 1056,
+    "capacity": "384 768 512 1024 on 128 multiprocessors",
+    "way_of_new": [
+     {
+      "threads": 128,
+      "sums": true
+     }
+    ],
+    "old": 503.12,
+    "new": 503.59,
+    "wide+sums": 498.68,
+    "narrow+sums": 502.9,
+    "wide": 515.22,
+    "narrow": 508.63,
+    "old again": 501.35
+   },
+   {
+    "case": "HAP se_e2_r f32 tables, 160+224 x2",
+    "centers": 384,
+    "capacity": "384 768 512 1024 on 128 multiprocessors",
+    "way_of_new": [
+     {
+      "threads": 256,
+      "sums": true
+     }
+    ],
+    "old": 193.24,
+    "new": 187.2,
+    "wide+sums": 187.76,
+    "narrow+sums": 194.23,
+    "wide": 195.63,
+    "narrow": 196.55,
+    "old again": 193.58
+   },
+   {
+    "case": "HAP se_e2_r f64 tables, 88 x3",
+    "centers": 264,
+    "capacity": "384 768 512 1024 on 128 multiprocessors",
+    "way_of_new": [
+     {
+      "threads": 256,
+      "sums": true
+     }
+    ],
+    "old": 395.26,
+    "new": 393.99,
+    "wide+sums": 392.39,
+    "narrow+sums": 395.12,
+    "wide": 402.81,
+    "narrow": 398.53,
+    "old again": 393.91
+   },
+   {
+    "case": "HAP se_e2_r f64 tables, 88 x4",
+    "centers": 352,
+    "capacity": "384 768 512 1024 on 128 multiprocessors",
+    "way_of_new": [
+     {
+      "threads": 256,
+      "sums": true
+     }
+    ],
+    "old": 431.56,
+    "new": 428.72,
+    "wide+sums": 431.25,
+    "narrow+sums": 430.87,
+    "wide": 439.9,
+    "narrow": 436.75,
+    "old again": 429.12
+   },
+   {
+    "case": "HAP se_e2_r f64 tables, 88 x6",
+    "centers": 528,
+    "capacity": "384 768 512 1024 on 128 multiprocessors",
+    "way_of_new": [
+     {
+      "threads": 128,
+      "sums": true
+     }
+    ],
+    "old": 663.5,
+    "new": 661.86,
+    "wide+sums": 679.84,
+    "narrow+sums": 663.78,
+    "wide": 689.88,
+    "narrow": 669.51,
+    "old again": 670.54
+   },
+   {
+    "case": "HAP se_e2_r f64 tables, 88 x9",
+    "centers": 792,
+    "capacity": "384 768 512 1024 on 128 multiprocessors",
+    "way_of_new": [
+     {
+      "threads": 128,
+      "sums": false
+     }
+    ],
+    "old": 1006.2,
+    "new": 1000.88,
+    "wide+sums": 1003.56,
+    "narrow+sums": 1011.54,
+    "wide": 1015.93,
+    "narrow": 994.66,
+    "old again": 1013.22
+   },
+   {
+    "case": "HAP se_e2_r f64 tables, 88 x11",
+    "centers": 968,
+    "capacity": "384 768 512 1024 on 128 multiprocessors",
+    "way_of_new": [
+     {
+      "threads": 128,
+      "sums": false
+     }
+    ],
+    "old": 1190.75,
+    "new": 1196.1,
+    "wide+sums": 1204.61,
+    "narrow+sums": 1193.64,
+    "wide": 1212.62,
+    "narrow": 1183.67,
+    "old again": 1195.72
+   },
+   {
+    "case": "HAP se_e2_r f64 tables, 160+224 x2",
+    "centers": 384,
+    "capacity": "384 768 512 1024 on 128 multiprocessors",
+    "way_of_new": [
+     {
+      "threads": 256,
+      "sums": true
+     }
+    ],
+    "old": 454.89,
+    "new": 451.02,
+    "wide+sums": 450.51,
+    "narrow+sums": 457.51,
+    "wide": 461.23,
+    "narrow": 459.15,
+    "old again": 453.67
+   },
+   {
+    "case": "HAP se_e2_a with se_e3 f32 tables, 88 x1",
+    "centers": 88,
+    "capacity": "256 512 384 896; - on 128 multiprocessors",
+    "way_of_new": [
+     {
+      "threads": 256,
+      "sums": true
+     }
+    ],
+    "old": 207.24,
+    "new": 205.52,
+    "wide+sums": 209.38,
+    "narrow+sums": 212.27,
+    "wide": 210.12,
+    "narrow": 215.68,
+    "old again": 205.57
+   },
+   {
+    "case": "HAP se_e2_a with se_e3 f32 tables, 88 x3",
+    "centers": 264,
+    "capacity": "256 512 384 896; - on 128 multiprocessors",
+    "way_of_new": [
+     {
+      "threads": 128,
+      "sums": true
+     }
+    ],
+    "old": 315.74,
+    "new": 313.24,
+    "wide+sums": 316.66,
+    "narrow+sums": 313.67,
+    "wide": 326.75,
+    "narrow": 325.3,
+    "old again": 317.12
+   },
+   {
+    "case": "HAP se_e2_a with se_e3 f32 tables, 88 x4",
+    "centers": 352,
+    "capacity": "256 512 384 896; - on 128 multiprocessors",
+    "way_of_new": [
+     {
+      "threads": 128,
+      "sums": true
+     }
+    ],
+    "old": 358.17,
+    "new": 348.86,
+    "wide+sums": 357.7,
+    "narrow+sums": 351.34,
+    "wide": 362.44,
+    "narrow": 361.96,
+    "old again": 359.09
+   },
+   {
+    "case": "HAP se_e2_a with se_e3 f32 tables, 88 x5",
+    "centers": 440,
+    "capacity": "256 512 384 896; - on 128 multiprocessors",
+    "way_of_new": [
+     {
+      "threads": 128,
+      "sums": true
+     }
+    ],
+    "old": 425.22,
+    "new": 422.18,
+    "wide+sums": 424.16,
+    "narrow+sums": 422.34,
+    "wide": 434.24,
+    "narrow": 428.93,
+    "old again": 427.07
+   },
+   {
+    "case": "HAP committee of four f32 tables, 88",
+    "centers": 352,
+    "capacity": "256 512 384 896 on 128 multiprocessors",
+    "way_of_new": [
+     {
+      "threads": 128,
+      "sums": true
+     }
+    ],
+    "old": 312.02,
+    "new": 301.05,
+    "wide+sums": 311.34,
+    "narrow+sums": 302.94,
+    "wide": 304.21,
+    "narrow": 306.29,
+    "old again": 311.65
+   },
+   {
+    "case": "HAP committee of four f32 tables, 169",
+    "centers": 676,
+    "capacity": "256 512 384 896 on 128 multiprocessors",
+    "way_of_new": [
+     {
+      "threads": 128,
+      "sums": false
+     }
+    ],
+    "old": 445.1,
+    "new": 448.1,
+    "wide+sums": 453.36,
+    "narrow+sums": 455.93,
+    "wide": 449.0,
+    "narrow": 447.71,
+    "old again": 447.55
+   },
+   {
+    "case": "HAP committee of four f32 tables, 224",
+    "centers": 896,
+    "capacity": "256 512 384 896 on 128 multiprocessors",
+    "way_of_new": [
+     {
+      "threads": 128,
+      "sums": false
+     }
+    ],
+    "old": 506.91,
+    "new": 505.09,
+    "wide+sums": 531.76,
+    "narrow+sums": 517.25,
+    "wide": 518.45,
+    "narrow": 506.0,
+    "old again": 506.8
+   },
+   {
+    "case": "HAP committee of four f64 tables, 88",
+    "centers": 352,
+    "capacity": "256 384 384 768 on 128 multiprocessors",
+    "way_of_new": [
+     {
+      "threads": 128,
+      "sums": true
+     }
+    ],
+    "old": 1122.31,
+    "new": 1142.77,
+    "wide+sums": 1158.67,
+    "narrow+sums": 1140.51,
+    "wide": 1179.81,
+    "narrow": 1150.97,
+    "old again": 1135.28
+   },
+   {
+    "case": "water se_e2_a f32 tables, 192 x1",
+    "centers": 192,
+    "capacity": "384 512 384 896 on 128 multiprocessors",
+    "way_of_new": [
+     {
+      "threads": 256,
+      "sums": true
+     }
+    ],
+    "old": 185.26,
+    "new": 183.59,
+    "wide+sums": 183.75,
+    "narrow+sums": 188.35,
+    "wide": 190.12,
+    "narrow": 190.84,
+    "old again": 184.62
+   },
+   {
+    "case": "water se_e2_a f32 tables, 192 x2",
+    "centers": 384,
+    "capacity": "384 512 384 896 on 128 multiprocessors",
+    "way_of_new": [
+     {
+      "threads": 256,
+      "sums": true
+     }
+    ],
+    "old": 277.11,
+    "new": 269.39,
+    "wide+sums": 270.05,
+    "narrow+sums": 272.65,
+    "wide": 276.46,
+    "narrow": 277.23,
+    "old again": 277.12
+   },
+   {
+    "case": "water se_e2_a f32 tables, 192 x3",
+    "centers": 576,
+    "capacity": "384 512 384 896 on 128 multiprocessors",
+    "way_of_new": [
+     {
+      "threads": 128,
+      "sums": false
+     }
+    ],
+    "old": 374.97,
+    "new": 375.22,
+    "wide+sums": 373.24,
+    "narrow+sums": 378.57,
+    "wide": 381.81,
+    "narrow": 372.8,
+    "old again": 374.68
+   },
+   {
+    "case": "water se_e2_a f32 tables, 192 x4",
+    "centers": 768,
+    "capacity": "384 512 384 896 on 128 multiprocessors",
+    "way_of_new": [
+     {
+      "threads": 128,
+      "sums": false
+     }
+    ],
+    "old": 471.78,
+    "new": 466.97,
+    "wide+sums": 467.41,
+    "narrow+sums": 478.39,
+    "wide": 473.11,
+    "narrow": 463.53,
+    "old again": 465.41
+   },
+   {
+    "case": "water se_e2_a f32 tables, 1536 x1",
+    "centers": 1536,
+    "capacity": "384 512 384 896 on 128 multiprocessors",
+    "way_of_new": [
+     {
+      "threads": 128,
+      "sums": false
+     }
+    ],
+    "old": 656.63,
+    "new": 657.14,
+    "wide+sums": 654.08,
+    "narrow+sums": 658.62,
+    "wide": 668.25,
+    "narrow": 653.15,
+    "old again": 654.08
+   },
+   {
+    "case": "water se_e2_a f32 exact, 192 x2",
+    "centers": 384,
+    "capacity": "384 640 384 896 on 128 multiprocessors",
+    "way_of_new": [
+     {
+      "threads": 256,
+      "sums": true
+     }
+    ],
+    "old": 394.15,
+    "new": 384.99,
+    "wide+sums": 385.67,
+    "narrow+sums": 391.8,
+    "wide": 393.26,
+    "narrow": 393.88,
+    "old again": 394.09
+   },
+   {
+    "case": "water se_e2_a f32 exact, 192 x3",
+    "centers": 576,
+    "capacity": "384 640 384 896 on 128 multiprocessors",
+    "way_of_new": [
+     {
+      "threads": 128,
+      "sums": true
+     }
+    ],
+    "old": 579.11,
+    "new": 576.71,
+    "wide+sums": 583.15,
+    "narrow+sums": 576.36,
+    "wide": 591.61,
+    "narrow": 581.73,
+    "old again": 579.65
+   },
+   {
+    "case": "water se_e2_a f64 tables, 192 x1",
+    "centers": 192,
+    "capacity": "256 512 384 768 on 128 multiprocessors",
+    "way_of_new": [
+     {
+      "threads": 256,
+      "sums": true
+     }
+    ],
+    "old": 721.48,
+    "new": 721.14,
+    "wide+sums": 719.8,
+    "narrow+sums": 721.54,
+    "wide": 728.63,
+    "narrow": 724.06,
+    "old again": 721.88
+   },
+   {
+    "case": "water se_e2_a f64 tables, 192 x2",
+    "centers": 384,
+    "capacity": "256 512 384 768 on 128 multiprocessors",
+    "way_of_new": [
+     {
+      "threads": 128,
+      "sums": true
+     }
+    ],
+    "old": 1133.69,
+    "new": 1133.44,
+    "wide+sums": 1133.7,
+    "narrow+sums": 1135.97,
+    "wide": 1148.21,
+    "narrow": 1141.8,
+    "old again": 1138.96
+   },
+   {
+    "case": "water se_e2_a f64 tables, 192 x3",
+    "centers": 576,
+    "capacity": "256 512 384 768 on 128 multiprocessors",
+    "way_of_new": [
+     {
+      "threads": 128,
+      "sums": false
+     }
+    ],
+    "old": 1789.69,
+    "new": 1783.3,
+    "wide+sums": 1772.68,
+    "narrow+sums": 1818.41,
+    "wide": 1788.56,
+    "narrow": 1787.41,
+    "old again": 1785.16
+   },
+   {
+    "case": "water se_e2_r f32 tables, 192 x2",
+    "centers": 384,
+    "capacity": "384 896 512 1024 on 128 multiprocessors",
+    "way_of_new": [
+     {
+      "threads": 256,
+      "sums": true
+     }
+    ],
+    "old": 198.94,
+    "new": 194.3,
+    "wide+sums": 193.62,
+    "narrow+sums": 198.66,
+    "wide": 202.15,
+    "narrow": 201.95,
+    "old again": 198.95
+   },
+   {
+    "case": "water se_e2_r f32 tables, 192 x3",
+    "centers": 576,
+    "capacity": "384 896 512 1024 on 128 multiprocessors",
+    "way_of_new": [
+     {
+      "threads": 128,
+      "sums": true
+     }
+    ],
+    "old": 296.19,
+    "new": 295.89,
+    "wide+sums": 301.98,
+    "narrow+sums": 298.68,
+    "wide": 311.68,
+    "narrow": 304.48,
+    "old again": 297.55
+   },
+   {
+    "case": "water se_e2_r f32 tables, 192 x5",
+    "centers": 960,
+    "capacity": "384 896 512 1024 on 128 multiprocessors",
+    "way_of_new": [
+     {
+      "threads": 128,
+      "sums": false
+     }
+    ],
+    "old": 518.64,
+    "new": 507.6,
+    "wide+sums": 515.69,
+    "narrow+sums": 519.15,
+    "wide": 532.97,
+    "narrow": 509.08,
+    "old again": 516.59
+   },
+   {
+    "case": "water se_e2_r f32 tables, 192 x6",
+    "centers": 1152,
+    "capacity": "384 896 512 1024 on 128 multiprocessors",
+    "way_of_new": [
+     {
+      "threads": 128,
+      "sums": true
+     }
+    ],
+    "old": 605.22,
+    "new": 616.43,
+    "wide+sums": 614.16,
+    "narrow+sums": 614.23,
+    "wide": 635.89,
+    "narrow": 617.04,
+    "old again": 615.25
+   }
+  ]
+ }
+}

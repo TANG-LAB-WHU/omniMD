@@ -257,6 +257,8 @@ pub struct Device {
     kernels: KernelCache,
     name: String,
     capability: (i32, i32),
+    multiprocessors: u32,
+    shared_memory: u32,
 }
 
 impl Device {
@@ -310,6 +312,16 @@ impl Device {
             .compute_capability()
             .map_err(cuda_error("compute capability query"))?;
         let name = context.name().map_err(cuda_error("device name query"))?;
+        let multiprocessors = context
+            .attribute(
+                cudarc::driver::sys::CUdevice_attribute::CU_DEVICE_ATTRIBUTE_MULTIPROCESSOR_COUNT,
+            )
+            .map_err(cuda_error("multiprocessor count query"))?;
+        let shared_memory = context
+            .attribute(
+                cudarc::driver::sys::CUdevice_attribute::CU_DEVICE_ATTRIBUTE_MAX_SHARED_MEMORY_PER_MULTIPROCESSOR,
+            )
+            .map_err(cuda_error("shared memory query"))?;
         let kernels = KernelCache::new(context.clone(), capability);
         Ok(Self {
             context,
@@ -318,6 +330,8 @@ impl Device {
             kernels,
             name,
             capability,
+            multiprocessors: multiprocessors.max(1) as u32,
+            shared_memory: shared_memory.max(0) as u32,
         })
     }
 
@@ -340,11 +354,28 @@ impl Device {
             kernels: KernelCache::new(self.context.clone(), self.capability),
             name: self.name.clone(),
             capability: self.capability,
+            multiprocessors: self.multiprocessors,
+            shared_memory: self.shared_memory,
         })
     }
 
     pub fn name(&self) -> &str {
         &self.name
+    }
+
+    /// The streaming multiprocessors of the device (128 on an RTX 4090).
+    /// The blocks of a kernel that run at once are this many times what one
+    /// of them keeps, which the driver tells for a block size and its
+    /// shared memory (`CudaFunction::occupancy_max_active_blocks_per_multiprocessor`).
+    pub fn multiprocessors(&self) -> u32 {
+        self.multiprocessors
+    }
+
+    /// The shared memory of one multiprocessor in bytes (102,400 on an RTX
+    /// 4090). The blocks it keeps at once share it: each takes its own and
+    /// what the driver reserves for a block (1 KB on an RTX 4090).
+    pub fn shared_memory_per_multiprocessor(&self) -> u32 {
+        self.shared_memory
     }
 
     /// The version of the cuBLAS library, e.g. 120804 for 12.8.4.

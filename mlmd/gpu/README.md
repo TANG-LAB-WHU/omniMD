@@ -133,19 +133,49 @@ What follows for the kernels:
   force kernel of the two-body descriptors takes the neighbor slots of its
   atom a warp each, the warps of the block in turns: eight warps are
   through 212 slots in 27 turns where four take 53. With blocks of 256
-  threads instead of 128 a float32 evaluation is 4% to 6% shorter at 54 to
-  108 blocks and 1.2% to 5% at 162 to 352, and 1.6% to 3.2% longer at 528,
-  896 and 12,288. In float64 an evaluation with se_e2_r is 1.6% to 4.4%
+  threads instead of 128 a float32 evaluation with the tables stored was 4%
+  to 6% shorter at 54 to 108 blocks and 1.2% to 5% at 162 to 352, and 1.6%
+  to 3.2% longer at 528, 896 and 12,288 (2026-11-19). Since the kernels of
+  se_e2_a look the tables up in float32 (2026-11-21), the device keeps 256
+  of the HAP model's wide blocks with the sums at once instead of 384, and
+  from 264 blocks they lose there (next item); of the water model's it
+  still keeps 384. In float64 an evaluation with se_e2_r is 1.6% to 4.4%
   shorter up to 224 blocks and within 1% at 264 to 352, and one with
-  se_e2_a stays within 1.7% at every size but one. So the width goes by the
-  centers of the pass and the precision
-  (`native::gpu_model::WIDE_FORCE_CENTERS_F32` and
-  `WIDE_FORCE_CENTERS_F64`). While every warp of a block reduced its own
-  sums in double precision (see below), a block of eight warps did twice
-  the reductions of one of four, and the gain ended at 224 blocks in
-  float32 and at 108 in float64. Blocks of 512 threads were no better than
-  256 at 88 atoms and worse at 224, and wider blocks for the descriptor
-  kernel changed nothing. Why the gain ends where it does was not measured.
+  se_e2_a stays within 1.7% at every size but one. While every warp of a
+  block reduced its own sums in double precision (see below), a block of
+  eight warps did twice the reductions of one of four, and the gain ended
+  at 224 blocks in float32 and at 108 in float64. Blocks of 512 threads
+  were no better than 256 at 88 atoms and worse at 224, and wider blocks
+  for the descriptor kernel changed nothing.
+- Count the blocks the device keeps at once before choosing a block. A
+  multiprocessor keeps as many blocks of a kernel as its shared memory,
+  registers and threads hold, and a pass with more than the multiprocessors
+  (128) times that waits for a second wave, however short each block is. In
+  float32 the wide blocks with the sums of a block across its warps (below)
+  gain while the device keeps every block of the pass at once, and lose once
+  it does not: with the HAP model and tables, 2.2% to 4.6% less than the
+  narrow ones with the sums up to 224 blocks, 1.1% to 5.0% more from 264 to
+  507 (it keeps 256 of them). Without the sums the wide blocks stop gaining
+  sooner, by 264 blocks, where the device still keeps them all (384); in
+  float64 the two widths with the sums come out within 1.5% of each other
+  while both fit. The driver says how many a multiprocessor keeps of a
+  kernel for a size of block and its shared memory
+  (`cuOccupancyMaxActiveBlocksPerMultiprocessor`): of the force kernel of
+  the HAP se_e2_a model in float32 with tables, two wide blocks with the
+  sums, four narrow ones with them, three wide and seven narrow ones
+  without; of the water model three wide ones with the sums. So the force
+  kernels of se_e2_a and se_e2_r take the first of these four ways that
+  keeps all the blocks of the pass at once (`native::gpu_model::force_way`),
+  and past every way the narrow blocks, with the sums for se_e2_r only.
+  Against the limits of centers that chose before (`WIDE_FORCE_CENTERS_F32`,
+  `_F64` and `BLOCK_SUMS_CENTERS`, kept for a driver that does not say), the
+  choice changed in 31 of 64 cases: in float32 an evaluation was 0.4% to
+  4.1% shorter in all 23 (1.4% to 4.1% in the ten from 338 to 384 centers, a
+  committee of four on 88 atoms among them), and in float64 the 8 came out
+  between 1.3% shorter and 0.4% longer (two runs, against the lesser of two
+  runs of the build before). One number of centers could not serve both
+  models: HAP keeps two wide blocks with the sums at once where water keeps
+  three.
 - Give a chain of one center's work to several warps. The neighbor search
   had a warp for a center, which walked the columns of the center's stencil
   one after the other (27 cells in 9 columns for the 88-atom frame).
@@ -266,9 +296,10 @@ What follows for the kernels:
   the warps lane by lane and reduces once. In place in an evaluation in
   float32 the force kernel of se_e2_a went from 23 to 19 µs for 88 atoms
   and from 33 to 25 for 224. The room for the block's sums, twelve doubles
-  a thread, is not free: with se_e2_a an evaluation of 528 centers was 2.8%
-  to 3.7% longer with it, so such passes go without
-  (`native::gpu_model::BLOCK_SUMS_CENTERS`).
+  a thread, is not free: it leaves a multiprocessor room for fewer blocks,
+  and with se_e2_a an evaluation of 528 centers was 2.8% to 3.7% longer
+  with it. So the two-body kernels form the sums by the blocks the device
+  keeps at once, together with the width of the blocks (above).
 - Reduce over a block only after a barrier of the block. Where an atom has
   more neighbors than its block has threads, the threads leave the loop
   over the slots at different times. The force kernel of se_e3 (blocks of

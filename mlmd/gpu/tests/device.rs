@@ -76,6 +76,27 @@ fn roundtrip_is_bit_exact() {
     assert_eq!(zeros, vec![0.0f32; 17]);
 }
 
+/// The multiprocessors of the device as the driver counts them and the
+/// shared memory of each, the same for a sibling handle; the desktop RTX
+/// 4090 has 128 of 100 KB (its laptop and D models, named otherwise, have
+/// fewer multiprocessors).
+#[test]
+fn the_multiprocessors_are_counted() {
+    let Some(device) = device() else { return };
+    let count = device.multiprocessors();
+    let shared = device.shared_memory_per_multiprocessor();
+    assert!(
+        count >= 1 && shared >= 48 * 1024,
+        "{count} of {shared} bytes"
+    );
+    let sibling = device.sibling().unwrap();
+    assert_eq!(sibling.multiprocessors(), count);
+    assert_eq!(sibling.shared_memory_per_multiprocessor(), shared);
+    if device.name() == "NVIDIA GeForce RTX 4090" {
+        assert_eq!((count, shared), (128, 100 * 1024));
+    }
+}
+
 /// Two marks tell how long the device took over what was issued between
 /// them: a batch of products takes it some time, and no longer than the
 /// host took from the first mark to the last; marks with nothing between

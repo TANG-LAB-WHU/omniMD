@@ -24,16 +24,31 @@
 //! suits an RTX 4090. `--grouped-fitting on|off` has the cuBLAS path take
 //! all nets in grouped products, or one net at a time, always instead of by
 //! the default rule (which goes by the nets and rows of a chunk).
-//! `--wide-forces CENTERS` sets the most centers (atoms of a chunk times
-//! models) of a pass whose two-body force kernel gets its wider blocks (0:
-//! none); the default suits that card too. `--block-sums CENTERS` sets, for
-//! every descriptor, the most centers of a pass whose force kernel forms the
-//! sums of a block across its warps in shared memory (0: every warp reduces
-//! its own, as before 2026-11-19); without it se_e2_a has a limit and the
-//! others none. `--inline-tables on|off` has the descriptor and force
-//! kernels of se_e2_a look the embedding values up in the tables themselves
-//! (on), or read what a kernel of the tables stored for every row (off),
-//! instead of by the precision (on in float32, off in float64).
+//! `--tiled-fitting on|off` has the fused fitting kernel take its first
+//! layer in tiles always or never instead of by its size (on in float32 from
+//! 65,536 weights); `on` fails for a model whose fitting nets do not suit
+//! tiles. `--wide-forces CENTERS` sets the most centers (atoms of a chunk
+//! times models) of a pass whose two-body force kernel gets its wider blocks
+//! (0: none). `--block-sums CENTERS` sets, for every descriptor, the most
+//! centers of a pass whose force kernel forms the sums of a block across its
+//! warps in shared memory where the block has room (0: every warp reduces
+//! its own, as before 2026-11-19). Each sets only its own half of the way:
+//! where the driver says what the device keeps at once, the other half is
+//! still chosen by it among the ways the flag leaves (at 300 centers of the
+//! HAP se_e2_a model with tables, `--wide-forces 1000000` alone gives wide
+//! blocks without the sums, and so does `--block-sums 0` alone, where
+//! neither gives narrow blocks with the sums), so give both (0 or 1000000
+//! each) to force one way. Without either, the two-body kernels take the
+//! first of four ways whose blocks the device keeps all at once: wide blocks
+//! with the sums, narrow ones with them, wide ones without, narrow ones
+//! without (the header prints how many it keeps of each); past every way
+//! the narrow blocks, with the sums for se_e2_r only. se_e3 forms the sums
+//! in every pass. The bench lines give the way of the last two-body pass
+//! (`force_threads`, `force_sums`). `--inline-tables on|off`
+//! has the descriptor and force kernels of se_e2_a look the embedding
+//! values up in the tables themselves (on), or read what a kernel of the
+//! tables stored for every row (off), instead of by the precision (on in
+//! float32, off in float64).
 //!
 //! `--member` adds a model of the same architecture: the models are then
 //! evaluated together as a committee, and each output line is the array of
@@ -176,6 +191,7 @@ fn evaluate<P: Scalar>(
     models: &[&Model],
     device: Arc<Device>,
 ) -> Result<(), Box<dyn std::error::Error>> {
+    let multiprocessors = device.multiprocessors();
     let mut gpu = GpuPotential::<P>::committee(models, device)?;
     let members = gpu.models();
     if let Some(chunk) = options.chunk {
@@ -190,7 +206,7 @@ fn evaluate<P: Scalar>(
         }
     }
     if let Some(centers) = options.wide_forces {
-        gpu.set_wide_force_centers(centers);
+        gpu.set_wide_force_centers(Some(centers));
     }
     if let Some(centers) = options.block_sums {
         gpu.set_block_sums_centers(Some(centers));
@@ -230,6 +246,20 @@ fn evaluate<P: Scalar>(
             bytes as f64 / (1 << 20) as f64
         );
     }
+    let capacity = gpu.force_capacity(gpu.is_compressed());
+    if capacity.iter().any(Option::is_some) {
+        let parts: Vec<String> = capacity
+            .iter()
+            .map(|blocks| match blocks {
+                Some([a, b, c, d]) => format!("{a} {b} {c} {d}"),
+                None => "-".into(),
+            })
+            .collect();
+        eprintln!(
+            "force blocks at once (wide with sums, narrow with sums, wide, narrow): {} on {multiprocessors} multiprocessors",
+            parts.join("; ")
+        );
+    }
     let input = std::io::stdin();
     if !options.bench_batches.is_empty() {
         let mut frames: Vec<Frame> = Vec::new();
@@ -265,6 +295,8 @@ fn evaluate<P: Scalar>(
                     "ms_per_frame_and_model": ms / (size * members) as f64,
                     "table_fallbacks": gpu.table_fallbacks(),
                     "tables_looked_up": gpu.tables_looked_up(),
+                    "force_threads": gpu.force_threads(),
+                    "force_sums": gpu.force_sums(),
                     "count_downloads": gpu.count_downloads()})
             );
         }
@@ -318,6 +350,8 @@ fn evaluate<P: Scalar>(
                 "precision": P::SUFFIX, "ms_per_eval": ms, "evaluations": options.bench,
                 "table_fallbacks": gpu.table_fallbacks(),
                 "tables_looked_up": gpu.tables_looked_up(),
+                "force_threads": gpu.force_threads(),
+                "force_sums": gpu.force_sums(),
                 "count_downloads": gpu.count_downloads()});
             if members > 1 || options.batch > 1 {
                 record["frames"] = frames.len().into();

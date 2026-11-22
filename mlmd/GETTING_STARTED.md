@@ -1517,11 +1517,26 @@ omnimd-native-gpu-eval MODEL.json [--precision float64|float32] [--compress RMIN
   search. Model loading and JSON parsing are not included in either. Stage
   times printed before 2026-11-19 were taken with a wait for the device
   after every stage and are not comparable.
-- `--fused-fitting`, `--tiled-fitting`, `--wide-forces` and `--block-sums`
-  move limits that were measured on an RTX 4090, and `--grouped-fitting on|off`
-  has the fitting nets on cuBLAS take grouped products always or never
-  (for comparison; the default rule needs no flag); the header of
-  `native/src/bin/omnimd-native-gpu-eval.rs` says what each is.
+- `--fused-fitting` moves a limit that was measured on an RTX 4090, and
+  `--tiled-fitting on|off` has the fused fitting kernel take its first
+  layer in tiles always or never instead of by its size.
+  `--wide-forces CENTERS` sets by the centers of a pass whether the
+  two-body force kernel takes its wide blocks, and `--block-sums CENTERS`
+  whether a force kernel forms the sums of a block across its warps (for
+  every descriptor, where the block has room). Each sets only its own half
+  of the way: where the driver says what the device keeps at once, the
+  other half is still chosen by it among the ways the flag leaves, so one
+  flag alone can change both (at 300 centers of the HAP se_e2_a model with
+  tables, `--wide-forces 1000000` gives wide blocks without the sums,
+  where neither flag gives narrow blocks with the sums); give both (0 or
+  1000000 each) to force one of the four ways. The header line
+  `force blocks at once` prints what the device keeps of each way, and the
+  bench lines `force_threads` and `force_sums` give the way of the last
+  two-body pass.
+  `--grouped-fitting on|off` has the fitting nets on cuBLAS take grouped
+  products always or never. These are for comparison; the default rules
+  need no flag. The header of `native/src/bin/omnimd-native-gpu-eval.rs`
+  says what each is.
   `--fused-fitting` counts rows of the fitting nets (atoms times models)
   since 2026-11-21, no longer atoms.
 - Frames larger than the device memory budget are processed in chunks of atoms
