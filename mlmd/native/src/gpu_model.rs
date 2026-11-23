@@ -393,11 +393,14 @@ __device__ void block_sums(double* fi, double* vir, double* red, double* all, do
 //     `LANES` alone, not from the block. The evaluation's kernels take 8 lanes
 //     in float32 and 16 in float64, so that the one that looks the tables up
 //     and the one that reads their rows stored sum alike; the trainer's kernel
-//     of the rows takes 16 in both (since 2026-11-23; its rate in float32 came
-//     within 0.6% of that with 8). A warp to a slot (until 2026-11-22) waited
-//     on the loads of one slot after the other and added its five sums over
-//     32 lanes; the counts of lanes tried and what they gave are in
-//     `bench/results/SUMMARY.md` (2026-11-22 and 2026-11-23).
+//     of the rows takes 16 in both (since 2026-11-23: with them the trainer's
+//     best rate in float32 came out 0.56% lower than with 8, beyond the spread
+//     of 0.15% but within the 1% that the rule written before the timing
+//     allowed, so they stayed by the rule; no gain was measured). A warp to a
+//     slot (until 2026-11-22) waited on the loads of one slot after the other
+//     and added its five sums over 32 lanes; the counts of lanes tried and
+//     what they gave are in `bench/results/SUMMARY.md` (2026-11-22 and
+//     2026-11-23).
 //     Every lane of a warp runs as many rounds, as the shuffles take the
 //     whole warp: a group whose slot is empty or past the last adds zeros in
 //     them and writes nothing. What a first lane did in double precision here

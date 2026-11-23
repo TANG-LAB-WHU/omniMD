@@ -845,8 +845,10 @@ fn a_net_per_neighbor_type_takes_the_sum_of_the_gradients_of_its_rows() {
 
 /// Float32 networks give the loss and the gradient of float64 ones to their
 /// own precision: for se_e2_r, whose kernels lay out their shared memory by
-/// the size of a number, for nets that the central types share, and for an
-/// se_e2_a net whose outputs the lanes of a slot share unequally.
+/// the size of a number, for nets that the central types share, for an
+/// se_e2_a net whose outputs the lanes of a slot share unequally, and for one
+/// with an odd number of slots, where a group of lanes in the last round of
+/// the force kernel has no slot.
 #[test]
 fn float32_networks_follow_float64_ones_with_se_e2_r_and_shared_nets() {
     let Some(device) = device() else { return };
@@ -868,6 +870,12 @@ fn float32_networks_follow_float64_ones_with_se_e2_r_and_shared_nets() {
         (
             "se_e2_a, 20 outputs",
             common::model_of_width(2, vec![40, 80], 4.0, 75, 20, 4),
+        ),
+        // 121 slots (41 and 80): with 16 lanes a slot a warp takes two slots
+        // a round, so a group of the last round lies past the last slot.
+        (
+            "se_e2_a, an odd number of slots",
+            model(2, vec![41, 80], 4.0, 76),
         ),
     ];
     for (case, model) in cases {
