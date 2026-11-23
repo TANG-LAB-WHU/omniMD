@@ -1758,7 +1758,7 @@ fn resident_force_blocks(function: &CudaFunction, own: usize) -> Option<[u32; 4]
 /// shorter in float32 and between 1.3% shorter and 0.4% longer in float64,
 /// and the way chosen here was the fastest of the four forced or within
 /// 1.5% of it. Past every way the narrow blocks keep their sums for
-/// se_e2_r (`sums_past`), and for se_e2_a just past (see
+/// se_e2_r (`sums_past`), and for se_e2_a with tables just past (see
 /// [`angular_sums_past`]).
 pub fn force_way(
     blocks: usize,
@@ -1792,25 +1792,35 @@ pub fn force_way(
     }
 }
 
-/// Past every way of the force kernel of se_e2_a that the device keeps at
-/// once, a pass of at most this many times the blocks it keeps of the narrow
-/// blocks without the sums (their second wave at most a quarter full) takes
-/// them with the sums across the warps, and a larger pass without: see
-/// [`angular_sums_past`].
+/// Past every way of a force kernel of se_e2_a's tables that the device
+/// keeps at once, a pass of at most this many times the blocks it keeps of
+/// the narrow blocks without the sums (their second wave at most a quarter
+/// full) takes them with the sums across the warps, and a larger pass
+/// without: see [`angular_sums_past`]. The kernel of the exact nets takes
+/// no sums past every way.
 ///
 /// Measured on an RTX 4090, one build with the sums forced and without,
-/// least evaluations (`bench/results/force-sums-past-rtx4090-2026-11-23.json`):
+/// least evaluations (`bench/results/force-sums-past-rtx4090-2026-11-22.json`):
 /// the sums took 1.8% to 2.5% off the HAP model in float32 with tables at
 /// 968 to 1,056 blocks (896 at once without them), came within 1% from
 /// 1,120 to 1,536 (but at 1,408, where two runs without them differed by
 /// 3.6%), and added 1.4% at 1,792 and 2,112 and 3.2% and 3.9% to water at
 /// 12,288 and 98,304 atoms; in float64 with tables they took 1.3% off at 896
 /// blocks (768 at once) and came within 1% elsewhere, from 792 to 98,304.
+/// With the width set to the wide blocks (384 at once without the sums)
+/// they took 0.9% to 2.3% off at 440 and 448 blocks with tables
+/// (`bench/results/force-ways-rtx4090-2026-11-22.json`). With the exact
+/// nets, on their kernel of 16 lanes a slot (`exact_nets` of the first
+/// record), they came within 0.6% for HAP from 792 to 2,112 blocks in both
+/// precisions and for 12,288 water atoms, and took 1.3% off at 1,536 atoms
+/// (0.3% against a second run without them): no rule of the record gave
+/// that kernel the sums.
 pub const SE_E2A_SUMS_PAST_WAVES: f64 = 1.25;
 
-/// Whether the narrow blocks of an se_e2_a force kernel take the sums
-/// across the warps in a pass of `blocks` blocks past every way of the
-/// device, which keeps `without` of them at once without the sums (see
+/// Whether the narrow blocks of a force kernel of se_e2_a's tables (or its
+/// wide blocks, where the width is set) take the sums across the warps in a
+/// pass of `blocks` blocks past every way of the device, which keeps
+/// `without` of them at once without the sums (see
 /// [`SE_E2A_SUMS_PAST_WAVES`]).
 pub fn angular_sums_past(blocks: usize, without: usize) -> bool {
     blocks as f64 <= SE_E2A_SUMS_PAST_WAVES * without as f64
@@ -3250,14 +3260,16 @@ impl<P: Scalar> Part<P> {
         let radial = self.kind == DescriptorKind::SeE2R;
         if let Some(resident) = self.force_residence[kernel as usize] {
             let capacity = resident.map(|blocks| blocks as usize * multiprocessors);
-            // Past every way: the sums for se_e2_r, and for se_e2_a just past
-            // what the device keeps of the blocks it takes there without them
-            // (the narrow ones, or the wide where `wide` says so).
+            // Past every way: the sums for se_e2_r, and for the kernels of
+            // se_e2_a's tables just past what the device keeps of the blocks
+            // it takes there without them (the narrow ones, or the wide where
+            // `wide` says so); the kernel of the exact nets goes without.
             let without = capacity[match wide {
                 Some(true) => 2,
                 _ => 3,
             }];
-            let sums_past = radial || angular_sums_past(blocks, without);
+            let sums_past =
+                radial || (kernel != ForceKernel::Exact && angular_sums_past(blocks, without));
             return force_way(blocks, capacity, wide, sums, sums_past);
         }
         let limit = match std::mem::size_of::<P>() {
@@ -5971,8 +5983,10 @@ mod tests {
     #[test]
     fn se_e2_a_keeps_the_sums_just_past_every_way() {
         // What an RTX 4090 keeps of the narrow blocks without the sums of
-        // the HAP se_e2_a model in float32 (896) and in float64 (768): the
-        // sums up to a quarter of a wave more.
+        // the HAP se_e2_a model with tables in float32 (896) and in float64
+        // (768): the sums up to a quarter of a wave more. (The kernel of the
+        // exact nets goes without them past every way: `force_way` of a
+        // part, covered by the parity tests.)
         for (blocks, without, sums) in [
             (897, 896, true),
             (968, 896, true),
