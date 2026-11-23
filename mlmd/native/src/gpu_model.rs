@@ -1962,10 +1962,11 @@ struct Kernels {
 /// `force_residence`: the one that reads the embedding rows stored (se_e2_r
 /// always; se_e2_a for the rows of its tables when it does not look them
 /// up), the one of se_e2_a that looks its tables up, and the one of se_e2_a
-/// for the rows of the exact nets. The first two sum alike (8 lanes a slot in
-/// float32, 16 in float64), so that the tables give the same forces either
-/// way; the third has 16 lanes in both precisions, which nothing else must
-/// match.
+/// for the rows of the exact nets. Those of se_e2_a's tables, the first two,
+/// sum alike (8 lanes a slot in float32, 16 in float64), so that the tables
+/// give the same forces either way; the third has 16 lanes in both
+/// precisions, which nothing else must match. se_e2_r's stored kernel gives
+/// a slot a warp.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum ForceKernel {
     Stored = 0,
@@ -3899,9 +3900,10 @@ impl<P: Scalar> GpuPotential<P> {
     /// [`FORCE_WAYS`]: what one multiprocessor keeps times the
     /// multiprocessors, zero for a way without room in shared memory. For
     /// the kernel a pass launches: with tables in use (`compressed`) the one
-    /// that looks them up where [`Self::looks_up_tables`] says so, without
-    /// them se_e2_a's kernel of the rows of the exact nets. None for se_e3
-    /// and where the driver did not say.
+    /// that looks them up where [`Self::looks_up_tables`] says so and the
+    /// one that reads their stored rows where not, without them se_e2_a's
+    /// kernel of the rows of the exact nets. None for se_e3 and where the
+    /// driver did not say.
     pub fn force_capacity(&self, compressed: bool) -> Vec<Option<[usize; 4]>> {
         let (on, ntypes) = (self.inline_tables(), self.sel.len());
         let multiprocessors = self.device.multiprocessors() as usize;

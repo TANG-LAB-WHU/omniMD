@@ -42,7 +42,10 @@
 //! first of four ways whose blocks the device keeps all at once: wide blocks
 //! with the sums, narrow ones with them, wide ones without, narrow ones
 //! without (the header prints how many it keeps of each); past every way
-//! the narrow blocks, with the sums for se_e2_r only. se_e3 forms the sums
+//! the narrow blocks, with the sums for se_e2_r, and for se_e2_a in a pass
+//! of at most `SE_E2A_SUMS_PAST_WAVES` times the narrow blocks the device
+//! keeps at once without them (with the width set, the wide blocks by the
+//! same rule). se_e3 forms the sums
 //! in every pass. The bench lines give the way of the last two-body pass
 //! (`force_threads`, `force_sums`). `--inline-tables on|off`
 //! has the descriptor and force kernels of se_e2_a look the embedding

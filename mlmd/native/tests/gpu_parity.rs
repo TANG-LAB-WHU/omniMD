@@ -3570,20 +3570,24 @@ fn the_two_body_force_kernels_take_the_ways_the_device_keeps_at_once() {
     // Lookups that leave the wide blocks no room for their sums (1,000
     // slots of width 16 in float32: 20.6 KB of the force kernel's own, 12 KB
     // more for the lookups, 24 KB for the sums): a pass with the tables goes
-    // by what the device keeps of the kernel that looks them up.
+    // by what the device keeps of the kernel that looks them up. What it
+    // keeps of each kernel of the descriptor: the one that reads the stored
+    // rows of the tables (the tables in use, not looked up), the one that
+    // looks them up and the one of the exact nets.
     let roomy = model(2, vec![500, 500], 4.5, 65);
     let mut gpu = GpuPotential::<f32>::new(&roomy, device.clone()).unwrap();
     gpu.compress(2.0, 0.01).unwrap();
-    let (stored, looked_up) = match (
-        &gpu.force_capacity(false)[..],
-        &gpu.force_capacity(true)[..],
-    ) {
-        ([Some(stored)], [Some(looked_up)]) => (*stored, *looked_up),
+    let of = |gpu: &GpuPotential<f32>, compressed: bool| match &gpu.force_capacity(compressed)[..] {
+        [Some(capacity)] => *capacity,
         other => panic!("1,000 slots: {other:?}"),
     };
+    gpu.set_inline_tables(Some(false));
+    let stored = of(&gpu, true);
+    gpu.set_inline_tables(None);
+    let (looked_up, exact) = (of(&gpu, true), of(&gpu, false));
     assert!(
-        stored[0] > 0 && looked_up[0] == 0 && looked_up[1] > 0,
-        "{stored:?} {looked_up:?}"
+        stored[0] > 0 && exact[0] > 0 && looked_up[0] == 0 && looked_up[1] > 0,
+        "{stored:?} {exact:?} {looked_up:?}"
     );
     // What a multiprocessor keeps of each way, held against its shared
     // memory rather than against what the driver says: a block keeps at
@@ -3593,7 +3597,7 @@ fn the_two_body_force_kernels_take_the_ways_the_device_keeps_at_once() {
     // these blocks on an RTX 4090, where the sums leave room for fewer of
     // them than without.
     let shared = device.shared_memory_per_multiprocessor() as usize;
-    for (capacity, own) in [(stored, 20_000), (looked_up, 32_000)] {
+    for (capacity, own) in [(stored, 20_000), (exact, 20_000), (looked_up, 32_000)] {
         for (way, blocks) in FORCE_WAYS.iter().zip(capacity) {
             let sums = match way.sums {
                 true => 12 * 8 * way.threads as usize,
@@ -3772,8 +3776,8 @@ fn force_ways<P: omnimd_gpu::Scalar>(
         compare(label, got, &one, (1e-15, 1e-11));
     };
     // Batches up to and past what the device keeps of every way, and past
-    // the share of a wave more of the narrow blocks within which se_e2_a
-    // keeps their sums.
+    // the multiple of the narrow blocks it keeps without the sums
+    // (`SE_E2A_SUMS_PAST_WAVES`) within which se_e2_a keeps them.
     let far = (SE_E2A_SUMS_PAST_WAVES * narrow as f64) as usize / natoms + 1;
     let mut counts: Vec<usize> = capacity
         .iter()
@@ -3792,14 +3796,14 @@ fn force_ways<P: omnimd_gpu::Scalar>(
         same(&format!("{label}, {count} frames"), &got[count - 1][0]);
     }
     // Just past every way the narrow blocks with the sums, for se_e2_a too
-    // where a quarter of a wave more holds the pass; far past it with them
-    // for se_e2_r only.
+    // where the pass lies within that multiple; far past it with them for
+    // se_e2_r only.
     let past = |sums: bool| ForceBlocks {
         threads: 128,
         sums: sums && narrow_sums > 0,
     };
     let just = narrow / natoms + 1;
-    if 4 * just * natoms <= 5 * narrow {
+    if (just * natoms) as f64 <= SE_E2A_SUMS_PAST_WAVES * narrow as f64 {
         assert!(seen.contains(&(just, past(true))), "{label}: {seen:?}");
     }
     assert_eq!(seen.last(), Some(&(far, past(radial))), "{label}: {seen:?}");
@@ -3823,6 +3827,31 @@ fn force_ways<P: omnimd_gpu::Scalar>(
         let expected = part_way(natoms, capacity, Some(wide), None, radial);
         assert_eq!(way_of(gpu), expected, "{label}: wide {wide}");
     }
+    // The wide blocks set for every pass, past what the device keeps of them:
+    // the sums go by what it keeps of the wide blocks without them, for
+    // se_e2_a within the same multiple of them, for se_e2_r at any size.
+    gpu.set_wide_force_centers(Some(usize::MAX));
+    let just_wide = wide / natoms + 1;
+    let far_wide = (SE_E2A_SUMS_PAST_WAVES * wide as f64) as usize / natoms + 1;
+    let mut ways = Vec::new();
+    for count in [just_wide, far_wide] {
+        let got = gpu.evaluate_frames(&vec![frame; count], 1).unwrap();
+        let expected = part_way(count * natoms, capacity, Some(true), None, radial);
+        assert_eq!(way_of(gpu), expected, "{label}: wide, {count} frames");
+        ways.push(expected);
+        same(
+            &format!("{label}, wide, {count} frames"),
+            &got[count - 1][0],
+        );
+    }
+    let wide_past = |sums: bool| ForceBlocks {
+        threads: 256,
+        sums: sums && wide_sums > 0,
+    };
+    if (just_wide * natoms) as f64 <= SE_E2A_SUMS_PAST_WAVES * wide as f64 {
+        assert_eq!(ways[0], wide_past(true), "{label}: wide, just past");
+    }
+    assert_eq!(ways[1], wide_past(radial), "{label}: wide, far past");
     // The sums set, the width by the rule.
     gpu.set_wide_force_centers(None);
     for (limit, sums) in [(natoms - 1, false), (natoms, true)] {
