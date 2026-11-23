@@ -1,7 +1,7 @@
 {
  "date": "2026-11-22",
  "device": "NVIDIA GeForce RTX 4090",
- "host": "i9-14900K, the host side held to the performance cores",
+ "host": "i9-14900K; the host side held to the performance cores in fitting_paths, not in the nsys traces (kernels)",
  "what": "Where an evaluation of the water se_e2_a model goes at 12,288 and 98,304 atoms, measured before the third PR of the large-frame plan was chosen: the fitting paths alternated on one build (fitting_paths, under rule_fitting_paths), the kernels of the evaluation by nsys (kernels, under rule_pr_c) and the decision that applied both rules. Build: omnimd-native-gpu-eval of a08daf6 (TANG-LAB-WHU/omniMD#45). The rules and the decision are the texts as written then (rule-fit0.txt, rule-pr-c.txt, decision-pr-c.txt); see SUMMARY.md, 2026-11-23.",
  "beside_the_timings": "Two processes of `find / -maxdepth 6 -type d -name cudarc-...` (left by agents of an earlier review, one core each; stopping them was not allowed in the session) ran beside the timings of force-lanes-rtx4090-2026-11-22.json and were still running at its end (2026-11-22 22:25, checked); by 2026-11-23 00:28 they were gone (checked). No check was made between: whether they still ran beside the runs of this record (2026-11-22, the fitting paths ending 23:03, the traces 23:04 to 23:08) is not known.",
  "rule_fitting_paths": [
@@ -2565,5 +2565,6 @@
   "   - float64 at 98,304: the fused fitting kernel 174.1 ms of 249.0 (70%), at about 87% of the float64 rate by",
   "     the estimate of 2.0 MFLOP an atom; the stored tables (cell_table_f64) 33.6 ms; forces 27.9; descriptor",
   "     10.0; neighbor_search 2.46."
- ]
+ ],
+ "decision_note": "Two figures of the decision as written then, which no rule read. Its idle gap before the first kernel at 12,288 atoms, \"0.43 to 0.79 ms under nsys\", joins the least gap of the trace with the products a net at a time (0.43 ms; that trace is not in this record) to the largest of the default's, whose own gaps are 0.54 to 0.79 ms (kernels.float32_12288_atoms). Its split of the idle 3.2 ms at 98,304 atoms, \"1.55 + 0.25\", counts the upload twice: issue.neighbors (1.56 ms in fitting_paths) holds both the packing of the search input and its upload, about 0.25 ms of it under nsys; host_finish, host_prepare and issue.neighbors (0.90 + 0.66 + 1.56) make up the 3.2 ms with the launch of the search. See SUMMARY.md, 2026-11-23."
 }

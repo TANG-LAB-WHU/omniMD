@@ -2,7 +2,7 @@
  "date": "2026-11-23",
  "device": "NVIDIA GeForce RTX 4090",
  "host": "i9-14900K, the host side held to the performance cores",
- "what": "The change of PR C as it then stood (commit a71f562: the rows of the exact nets of se_e2_a with 16 lanes a slot in float32 in a force kernel of their own, the trainer's force kernel of the rows with 16 too, and the narrow blocks of se_e2_a's kernels of the tables with the sums across the warps just past every way the device keeps at once, SE_E2A_SUMS_PAST_WAVES = 1.25) against omnimd-native-gpu-eval and omnimd-native-gpu-train of a08daf6 (base, and base2 again as the control). The rules were written before any timing (rule, with its amendment after force-sums-past-rtx4090-2026-11-22.json's second decision), the decision after them (decision): the evaluation's 16 lanes and the sums failed their rules and were taken out, the trainer's 16 lanes stayed by their own, with no gain measured. The checks ran on the code as it merged (checks). See SUMMARY.md, 2026-11-23.",
+ "what": "The change of PR C as it then stood (commit a71f562: the rows of the exact nets of se_e2_a with 16 lanes a slot in float32 in a force kernel of their own, the trainer's force kernel of the rows with 16 too, and the narrow blocks of se_e2_a's kernels of the tables with the sums across the warps just past every way the device keeps at once, SE_E2A_SUMS_PAST_WAVES = 1.25) against omnimd-native-gpu-eval and omnimd-native-gpu-train of a08daf6 (base, and base2 again as the control). The rules were written before any timing (rule, with its amendment after force-sums-past-rtx4090-2026-11-22.json's second decision), the decision after them (decision): the evaluation's 16 lanes and the sums failed their rules and were taken out, the trainer's 16 lanes stayed by their own, with no gain measured. The checks ran on edbe6a0 (checks) and, after the review, on a1ba76f, which adds a float32 case of the trainer with an odd number of slots and words a comment of the kernels' source more fully (checks_after_review). See SUMMARY.md, 2026-11-23.",
  "beside_the_timings": "Two processes of `find / -maxdepth 6 -type d -name cudarc-...` (left by agents of an earlier review, one core each; stopping them was not allowed in the session) ran beside the timings of force-lanes-rtx4090-2026-11-22.json and were still running at its end (2026-11-22 22:25, checked); by 2026-11-23 00:28 they were gone (checked). These timings ran without them (checked at the start of the chain and at its end).",
  "rule": [
   "Written 2026-11-22 23:45, before any timing of PR C (branch force-exact-lanes, commit 7d1dee4 and its fixes). The timings:",
@@ -11400,7 +11400,7 @@
   "and 896 came 1.18% and 0.86% faster; 1,056 and 1,120 did not)."
  ],
  "checks": {
-  "what": "On the code as it merged (commit edbe6a0: the evaluation's code that of a08daf6, the trainer's force kernel of the rows of se_e2_a with 16 lanes a slot in float32): the suites in release and debug (suites); the PTX of every kernel the code compiles against that of a08daf6, each build with a kernel cache of its own, and ptxas -v for sm_89 of the se_e2_a force kernels of both (ptx, by tools/fit/ptx_compare.py); compute-sanitizer on the trainer's tests (compute_sanitizer). No round of mutants: what merged sets the number of lanes of one kernel, which the trainer's tests hold to float64 whatever it is.",
+  "what": "On commit edbe6a0 (the evaluation's code that of a08daf6, the trainer's force kernel of the rows of se_e2_a with 16 lanes a slot in float32): the workspace suite in release and the GPU suites in release and debug (suites); the PTX of the 76 kernels that omnimd-native-gpu-eval compiles (its 7 modules) against that of a08daf6, each build with a kernel cache of its own, and ptxas -v for sm_89 of the se_e2_a force kernels of a08daf6, of edbe6a0 (final) and of a71f562 (candidate, whose PTX was not kept) (ptx, by tools/fit/ptx_compare.py). The trainer's own modules (SOURCE of native/src/gpu_train.rs, 12 kernels, and gpu/src/train_set.rs, 6) were not compiled for that comparison; their source is that of a08daf6. Then compute-sanitizer on the trainer's tests (compute_sanitizer). No round of mutants: what merged sets the number of lanes of one kernel, which the trainer's tests hold to float64 whatever it is.",
   "suites": [
    "fmt: exit=0",
    "t1 [test --release --workspace]: exit=0, passed 240, suites with failures 0, failure lines 0",
@@ -11440,7 +11440,7 @@
    "candidate se_e2_a_backward_f32: 0 bytes stack frame, 0 bytes spill stores, 0 bytes spill loads; Used 72 registers, used 1 barriers, 536 bytes cmem[0], 8 bytes cmem[2]"
   ],
   "compute_sanitizer": {
-   "what": "compute-sanitizer 2025.1.0 on the test binaries of the code as it merged (gpu_train, gpu_parity; and device, the tests of the omnimd-gpu crate, from a build of 2026-11-22 whose crate is the same code: mlmd/gpu/src unchanged since 39cc586). memcheck of every kernel over five of the trainer's tests (memcheck, by tools/fit/sanitize_prc3.py); its racecheck of every kernel over the two in float32 passed its budget of 45 minutes and was stopped, and the test process it left stayed on the card (racecheck_every_kernel). Then synccheck and racecheck of se_e2_a_backward_rows_f32 alone, the one kernel whose PTX differs from a08daf6's, on the two tests in float32 (default_report, by tools/fit/sanitize_prc4.py): racecheck there showed nothing, but in its default report (--racecheck-report analysis), and a race planted in that kernel showed nothing in that report either (control): the barrier between the slots' sums and their readers left out where LANES is 16 and P is float (tools/fit/probe_race.py, a build never committed), the same filter and tests, 0 hazards displayed with the default report and 39,920 errors with --racecheck-report hazard; the filter is not the cause (kns, kne and regex alike). So racecheck ran again with its hazards reported, each run filtered to the kernels concerned and shown by nsys to have launches of them to check (racecheck_hazards, by tools/fit/sanitize_prc5.py): none found. synccheck ran again of every kernel over the five tests that memcheck took (synccheck, by tools/fit/sanitize_prc6.py; nothing was planted for synccheck or memcheck, so only racecheck has a positive control). Every racecheck of the project before 2026-11-23 used the default report (earlier_racechecks).",
+   "what": "compute-sanitizer 2025.1.0 on the test binaries of the code as it merged (gpu_train, gpu_parity; and device, the tests of the omnimd-gpu crate, from a build of 2026-11-22 whose crate is the same code: mlmd/gpu/src unchanged since 39cc586). memcheck of every kernel over five of the trainer's tests (memcheck, by tools/fit/sanitize_prc3.py); its racecheck of every kernel over the two in float32 passed its budget of 45 minutes and was stopped, and the test process it left stayed on the card (racecheck_every_kernel). Then synccheck and racecheck of se_e2_a_backward_rows_f32 alone, the one kernel of the evaluator's 76 whose PTX differs from a08daf6's, on the two tests in float32 (default_report, by tools/fit/sanitize_prc4.py): racecheck there showed nothing, but in its default report (--racecheck-report analysis), and a race planted in that kernel showed nothing in that report either (control): the barrier between the slots' sums and their readers left out where LANES is 16 and P is float (tools/fit/probe_race.py, a build never committed); with the same filter (kns=se_e2_a_backward_rows_f32) over the same two tests, 0 hazards displayed in the default report and 39,920 errors with --racecheck-report hazard; over float32_networks_keep_steps_below_their_own_precision alone, 0 hazards in the default report with the kernel named by kns=backward_rows, kne or regex, and 23,760 errors in the hazard report: the filter is not the cause. So racecheck ran again with its hazards reported, each run filtered to the kernels concerned and shown by nsys to have launches of them to check (racecheck_hazards, by tools/fit/sanitize_prc5.py): none found. synccheck ran again of every kernel over the five tests that memcheck took (synccheck, by tools/fit/sanitize_prc6.py; nothing was planted for synccheck or memcheck, so only racecheck has a positive control). Every racecheck of the project before 2026-11-23 used the default report, by the commands that ran them (earlier_racechecks).",
    "memcheck": [
     "memcheck gpu_train (5 tests run): exit 0, 22 s; test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 21 filtered out; finished in 21.85s | ========= ERROR SUMMARY: 0 errors"
    ],
@@ -11456,6 +11456,7 @@
     "synccheck of the trainer's tests and racecheck of the one kernel whose PTX differs from a08daf6's",
     "(se_e2_a_backward_rows_f32), by tools/fit/sanitize_prc4.py and its runs (sanitize-3.txt)."
    ],
+   "racecheck_every_kernel_correction": "sanitize-2-note.txt was written at 03:06, before the steps that its last sentence names as next. Those ran as default_report says: synccheck and racecheck of se_e2_a_backward_rows_f32 alone, over the two tests in float32.",
    "default_report": [
     "synccheck gpu_train, the kernel se_e2_a_backward_rows_f32 alone (2 tests run): exit 0, 6 s; test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 24 filtered out; finished in 5.11s | ========= ERROR SUMMARY: 0 errors",
     "racecheck gpu_train, the kernel se_e2_a_backward_rows_f32 alone (2 tests run): exit 0, 6 s; test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 24 filtered out; finished in 5.45s | ========= RACECHECK SUMMARY: 0 hazards displayed (0 errors, 0 warnings)"
@@ -11563,15 +11564,80 @@
    "synccheck": [
     "synccheck gpu_train (5 tests, every kernel): exit 0, 29 s; test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 21 filtered out; finished in 28.34s | ========= ERROR SUMMARY: 0 errors"
    ],
-   "earlier_racechecks": "tools/sk/sanitize.py, tools/fp/sanitize_fl.py and tools/fit/sanitize_prc*.py ran racecheck with its default report: the racechecks of force-lanes-rtx4090-2026-11-22.json (sanitizers) and those that SUMMARY.md reports for the force kernels of TANG-LAB-WHU/omniMD#45, the frame sums on the device and the lookups of the tables. They showed nothing, as the control did; racecheck_hazards takes their tests again with the hazards reported. The test of the copy into page-locked memory (results_come_back_through_page_locked_memory) launches no kernel, so racecheck has nothing to check there."
+   "earlier_racechecks": "Before 2026-11-23 03:35 racecheck ran with its default report (analysis) every time: none of the commands that ran it passes --racecheck-report. They are tools/sk/sanitize.py (the neighbor search of TANG-LAB-WHU/omniMD#37, run/sk), the command by hand for the lookups of the tables (2026-11-21, kept as tools/fit/sanitize_tables-2026-11-21.ps1 from the session's log), tools/fit/sanitize_sums.py (the frame sums on the device, 2026-11-22, run/hx; kept from the session's scratch space), tools/fp/sanitize_fl.py (the force kernels of TANG-LAB-WHU/omniMD#45: force-lanes-rtx4090-2026-11-22.json, sanitizers) and, for this record, tools/fit/sanitize_prc.py to sanitize_prc4.py and probe_race_run.sh. They showed nothing, as the control did in that report; racecheck_hazards takes their tests again with the hazards reported. The test of the copy into page-locked memory (results_come_back_through_page_locked_memory) launches no kernel, so racecheck has nothing to check there."
   },
   "compute_sanitizer_first_run": {
-   "what": "A first run, on commit 9281783 (the change as it then stood, with the evaluation's kernel of the exact nets of 16 lanes in float32, which did not merge): its log up to where it was stopped, in its racecheck of gpu_train after 28 minutes, to free the card for the timings.",
+   "what": "A first run (tools/fit/sanitize_prc.py), on the working tree after 7d1dee4 as built on 2026-11-22 at 23:49, before commit 9281783 (00:14), which changed gpu_parity.rs again: its kernels are those of 9281783 and 7d1dee4 (gpu_model.rs differs between them in doc comments only), with the evaluation's kernel of the exact nets of 16 lanes in float32, which did not merge. Its log up to where it was stopped, in its racecheck of gpu_train after 28 minutes (as the docstring of tools/fit/sanitize_prc2.py says), to free the card for the timings.",
    "log": [
     "memcheck gpu_parity: exit 0, 11 s; test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 31 filtered out; finished in 9.97s | ========= ERROR SUMMARY: 0 errors",
     "memcheck gpu_train: exit 0, 22 s; test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 22 filtered out; finished in 21.39s | ========= ERROR SUMMARY: 0 errors",
     "racecheck gpu_parity: exit 0, 564 s; test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 31 filtered out; finished in 563.77s | ========= RACECHECK SUMMARY: 0 hazards displayed (0 errors, 0 warnings)"
    ]
   }
+ },
+ "checks_after_review": {
+  "what": "On commit a1ba76f, after the review of the change: a float32 case of the trainer with an odd number of slots (41 and 80, so that a group of lanes in the last round of se_e2_a_backward_rows_f32 has no slot) in float32_networks_follow_float64_ones_with_se_e2_r_and_shared_nets, and a comment of the kernels' source in gpu_model.rs worded more fully. Every suite again (suites, by tools/suites.ps1); the PTX of the evaluator's 76 kernels against edbe6a0's (ptx, by tools/fit/ptx_compare.py); compute-sanitizer on that test: memcheck and synccheck of every kernel, racecheck with its hazards reported of the trainer's force kernels of the rows (compute_sanitizer, by tools/fit/sanitize_prc7.py); and nsys over it, the launches that the filter had to check (kernels_launched, by tools/fit/nsys_kernels.ps1). The chain: tools/fit/prc_review_chain.sh. The new case followed float64 to 1.0e-6 of the largest gradient entry, the others of the test to 7e-8 to 1.9e-7; a probe gave its model 5.0e-7 with 40 and 80 slots, and with other weights 8.8e-8 odd and 1.6e-7 even (probe_slots), so the weights set the error, not the odd slot. The next commit, df4760a, writes those figures into the comment of the test, nothing else; that test passed again on it.",
+  "suites": [
+   "fmt: exit=0",
+   "t1 [test --release --workspace]: exit=0, passed 240, suites with failures 0, failure lines 0",
+   "t2 [test --release -p omnimd-mlmd --features native-gpu]: exit=0, passed 93, suites with failures 0, failure lines 0",
+   "t3 [test --release -p omnimd-gpu -p omnimd-native --features omnimd-native/gpu]: exit=0, passed 208, suites with failures 0, failure lines 0",
+   "t4 [test -p omnimd-gpu -p omnimd-native --features omnimd-native/gpu]: exit=0, passed 208, suites with failures 0, failure lines 0",
+   "t5 [test -p omnimd-mlmd --features native-gpu]: exit=0, passed 93, suites with failures 0, failure lines 0",
+   "fmt check: exit 0, 0 lines"
+  ],
+  "ptx": [
+   "edbe6a0: 7 modules, 76 kernels",
+   "review: 7 modules, 76 kernels",
+   "review against edbe6a0: 76 kernels the same; differ: none; only edbe6a0: none; only review: none",
+   "edbe6a0 se_e2_a_backward_rows_f64: 0 bytes stack frame, 0 bytes spill stores, 0 bytes spill loads; Used 72 registers, used 1 barriers, 540 bytes cmem[0]",
+   "edbe6a0 se_e2_a_table_backward_f64: 0 bytes stack frame, 0 bytes spill stores, 0 bytes spill loads; Used 84 registers, used 1 barriers, 584 bytes cmem[0], 16 bytes cmem[2]",
+   "edbe6a0 se_e2_a_backward_f64: 0 bytes stack frame, 0 bytes spill stores, 0 bytes spill loads; Used 74 registers, used 1 barriers, 536 bytes cmem[0]",
+   "edbe6a0 se_e2_a_backward_rows_f32: 0 bytes stack frame, 0 bytes spill stores, 0 bytes spill loads; Used 72 registers, used 1 barriers, 540 bytes cmem[0], 8 bytes cmem[2]",
+   "edbe6a0 se_e2_a_table_backward_f32: 0 bytes stack frame, 0 bytes spill stores, 0 bytes spill loads; Used 72 registers, used 1 barriers, 584 bytes cmem[0], 8 bytes cmem[2]",
+   "edbe6a0 se_e2_a_backward_f32: 0 bytes stack frame, 0 bytes spill stores, 0 bytes spill loads; Used 72 registers, used 1 barriers, 536 bytes cmem[0], 8 bytes cmem[2]",
+   "review se_e2_a_backward_rows_f64: 0 bytes stack frame, 0 bytes spill stores, 0 bytes spill loads; Used 72 registers, used 1 barriers, 540 bytes cmem[0]",
+   "review se_e2_a_table_backward_f64: 0 bytes stack frame, 0 bytes spill stores, 0 bytes spill loads; Used 84 registers, used 1 barriers, 584 bytes cmem[0], 16 bytes cmem[2]",
+   "review se_e2_a_backward_f64: 0 bytes stack frame, 0 bytes spill stores, 0 bytes spill loads; Used 74 registers, used 1 barriers, 536 bytes cmem[0]",
+   "review se_e2_a_backward_rows_f32: 0 bytes stack frame, 0 bytes spill stores, 0 bytes spill loads; Used 72 registers, used 1 barriers, 540 bytes cmem[0], 8 bytes cmem[2]",
+   "review se_e2_a_table_backward_f32: 0 bytes stack frame, 0 bytes spill stores, 0 bytes spill loads; Used 72 registers, used 1 barriers, 584 bytes cmem[0], 8 bytes cmem[2]",
+   "review se_e2_a_backward_f32: 0 bytes stack frame, 0 bytes spill stores, 0 bytes spill loads; Used 72 registers, used 1 barriers, 536 bytes cmem[0], 8 bytes cmem[2]"
+  ],
+  "compute_sanitizer": [
+   "binary gpu_train-7fa51ed7f9f35804.exe (8,448,782 bytes, built 2026-11-23 05:07:33), test float32_networks_follow_float64_ones_with_se_e2_r_and_shared_nets",
+   "memcheck: exit 0, 6 s, memcheck",
+   "    se_e2_a, an odd number of slots: float32 loss off by 2.6e-7, gradient by 1.0e-6 of its largest entry",
+   "    test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 25 filtered out; finished in 5.57s",
+   "    ========= ERROR SUMMARY: 0 errors",
+   "racecheck: exit 0, 6 s, racecheck --racecheck-report hazard --kernel-name kns=backward_rows",
+   "    se_e2_a, an odd number of slots: float32 loss off by 2.6e-7, gradient by 1.0e-6 of its largest entry",
+   "    test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 25 filtered out; finished in 5.69s",
+   "    ========= RACECHECK SUMMARY: 0 hazards displayed (0 errors, 0 warnings)",
+   "synccheck: exit 0, 6 s, synccheck",
+   "    se_e2_a, an odd number of slots: float32 loss off by 2.6e-7, gradient by 1.0e-6 of its largest entry",
+   "    test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 25 filtered out; finished in 5.35s",
+   "    ========= ERROR SUMMARY: 0 errors"
+  ],
+  "kernels_launched": [
+   "profile: 4 s, tests: float32_networks_follow_float64_ones_with_se_e2_r_and_shared_nets",
+   "       6 launches  se_e2_a_backward_rows_f64",
+   "       4 launches  se_e2_r_backward_rows_f64",
+   "       3 launches  se_e2_a_backward_rows_f32",
+   "       2 launches  se_e2_r_backward_rows_f32"
+  ],
+  "probe_slots": [
+   "A probe of a1ba76f, not committed: float32_networks_follow_float64_ones_with_se_e2_r_and_shared_nets with three",
+   "cases more (the model of the odd number of slots with 40 and 80 slots, and both counts with the weights of seed 77),",
+   "release build, run 2026-11-23 05:16; the patch was reverted before the next commit. Its lines:",
+   "se_e2_r, wide embedding: float32 loss off by 1.4e-8, gradient by 7.4e-8 of its largest entry",
+   "se_e2_r, a net per neighbor type: float32 loss off by 3.7e-8, gradient by 9.9e-8 of its largest entry",
+   "se_e2_a, a net per neighbor type: float32 loss off by 1.1e-7, gradient by 1.9e-7 of its largest entry",
+   "se_e2_a, 20 outputs: float32 loss off by 1.1e-7, gradient by 1.9e-7 of its largest entry",
+   "se_e2_a, an odd number of slots: float32 loss off by 2.6e-7, gradient by 1.0e-6 of its largest entry",
+   "PROBE even 40 80 seed 76: float32 loss off by 1.8e-7, gradient by 5.0e-7 of its largest entry",
+   "PROBE odd 41 80 seed 77: float32 loss off by 3.5e-8, gradient by 8.8e-8 of its largest entry",
+   "PROBE even 40 80 seed 77: float32 loss off by 6.3e-8, gradient by 1.6e-7 of its largest entry",
+   "test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 25 filtered out; finished in 0.30s"
+  ]
  }
 }

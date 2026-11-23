@@ -175,8 +175,8 @@ Desktop's Linux VM on the same card, with the atoms held in place; "tables" are
   blocks. The trainer's force kernel takes 16 lanes in float32 since then,
   by a rule of its own, with no gain measured. Before them an evaluation of
   98,304 atoms was taken apart kernel by kernel: the neighbor search kernel
-  takes 13% of it, and the card idles about 3.2 ms (15%) between
-  evaluations
+  takes 13% of it, and the card idles about 3.2 ms between evaluations, 15%
+  of one under nsys
   ([summary](mlmd/bench/results/SUMMARY.md#where-a-large-frame-goes-and-two-follow-ups-of-the-lanes-not-kept-2026-11-23)).
 - The three-body descriptor se_e3 with the same cutoff and `sel` and embedding
   [10, 20, 40] costs 1.93 ms at 192 atoms and 13.4 ms at 1,536 in float32
