@@ -592,9 +592,10 @@ nothing else on the card):
   either way, and after an update the rows of the exported model are still
   alike and the model predicts what its trainer does.
 - Float32 networks give the loss and the gradient of float64 ones to their
-  precision for se_e2_r and for shared nets (the gradient within 2e-7 of its
-  largest entry), and a student se_e2_r network fits a teacher's labels in
-  both precisions and with shared nets.
+  precision for se_e2_r, for shared nets and for an se_e2_a net of 20
+  outputs, which the lanes of a slot in the force kernel share unequally
+  (the gradient within 2e-7 of its largest entry), and a student se_e2_r
+  network fits a teacher's labels in both precisions and with shared nets.
 - From requests: `se_e2_r` with a net per pair of types, `se_r` with
   `type_one_side` and a one-sided se_e2_a model train from fresh networks;
   the first two continue from their trained models, with the nets still

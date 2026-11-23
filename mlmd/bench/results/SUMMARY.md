@@ -16,8 +16,9 @@ same code and changed with it. The section of 2026-11-20 on the sums of the
 force kernels did not take the slots' step (10 to 14 µs of the kernel at
 88 to 224 atoms) apart; this one does, on water frames. Its runs are in the
 record `force-lanes-rtx4090-2026-11-22.json`, under the keys named in
-parentheses; all held the host side to the performance cores, with the card
-checked for other users before every round. The two processes left by
+parentheses; all held the host side to the performance cores, and the card
+was checked for other users before every round of the evaluations and
+once before the runs of the trainer. The two processes left by
 agents of an earlier review (a `find` over the whole disk, a core each) ran
 beside all of them, as beside the runs of the section after this one
 (`beside_the_timings`). "With tables" is as an evaluation runs them by
@@ -169,7 +170,7 @@ ran the way that was fastest when forced (they are 1.6% to 1.9% from a
 second run of that way), and one is a miss: se_e2_a in float32 with tables
 on eleven frames of 88 atoms, 968 centers, past what the device keeps at
 once in every way, took the narrow blocks without the sums (553.2 µs)
-where those with the sums took 534.5, 3.5% less. Against the build before,
+where those with the sums took 534.5, 3.4% less. Against the build before,
 the evaluations with se_e2_a were 0.7% to 6.7% shorter but at 968 centers
 (+0.1%) and for water with the exact nets on three frames (+0.3%); with
 se_e2_r, whose kernel did not change, −0.6% to +1.2%, the build before
@@ -267,7 +268,7 @@ which has a warp a slot still, and for the kernel of se_e3 that takes
 dE/dθ from stored rows, a warp a row. dB took
 111 µs of the kernel at 12,288 water atoms, 16 times its 7 at 1,536 for 8
 times the atoms. Past what the device keeps at once in every way (968
-centers), the narrow blocks with the sums were 3.5% faster than those
+centers), the narrow blocks with the sums took 3.4% less than those
 without.
 
 # The host's sums in the kernel's order, faster, 2026-11-22

@@ -250,9 +250,9 @@ What follows for the kernels:
   10% less) and 14% to 29% less for the HAP frames of 88 to 224 atoms (2%
   to 5%). With tables 4 lanes were about as fast as 8, but 30% slower on
   stored rows, which wait on their reads instead; 8 give up 3% to 5% of the
-  stage there (the exact networks in float32: 0.1% to 0.3% of an
-  evaluation), 16 nothing, but also a quarter to half of the gain with
-  tables. A vote of the warp that skips a round without a live slot (about
+  stage there (the exact networks in float32 at 1,536 and 12,288 water
+  atoms: 0.1% and 0.3% of an evaluation), 16 nothing, but also a quarter to
+  half of the gain with tables. A vote of the warp that skips a round without a live slot (about
   two thirds of the HAP slots are empty) took 13 to 16 points more off the
   HAP frames in float64 but added 5% at 1,536 water atoms, and stayed out
   ([timings](../bench/results/SUMMARY.md#the-force-kernel-of-se_e2_a-with-a-group-of-lanes-a-slot-2026-11-22)).

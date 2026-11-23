@@ -164,8 +164,8 @@ Desktop's Linux VM on the same card, with the atoms held in place; "tables" are
   took 2.50 ms against 2.77 at 12,288 atoms and 20.0 ms against 22.2 at
   98,304, in float64 32.4 ms against 34.6 and 257 against 274
   ([record](mlmd/bench/results/force-lanes-rtx4090-2026-11-22.json)). With
-  the exact networks in float32 the stage took 3% to 5% more, an evaluation
-  0.1% to 0.3%.
+  the exact networks in float32 the stage took 2.7% and 5.4% more at 1,536
+  and 12,288 atoms, an evaluation 0.1% and 0.3%.
 - The three-body descriptor se_e3 with the same cutoff and `sel` and embedding
   [10, 20, 40] costs 1.93 ms at 192 atoms and 13.4 ms at 1,536 in float32
   (DeepMD-kit: 27.5 and 209 ms), 9.42 and 70.1 ms in float64, and 833 ms at
