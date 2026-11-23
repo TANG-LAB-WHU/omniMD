@@ -910,7 +910,9 @@ fn float32_networks_follow_float64_ones_with_se_e2_r_and_shared_nets() {
             worst / scale
         );
         assert!(scale > 1e-6, "{case}: gradient is zero");
-        // Measured: 7e-8 to 2e-7 of the largest entry.
+        // Measured: 7e-8 to 1e-6 of the largest entry, the most for the odd
+        // number of slots, whose model gave 5e-7 with 40 and 80 slots (with
+        // the weights of seed 77, 9e-8 odd and 2e-7 even).
         assert!(
             worst < 2e-5 * scale,
             "{case}: {worst} against a largest entry of {scale}"
