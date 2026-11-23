@@ -1,3 +1,275 @@
+# The force kernel of se_e2_a with a group of lanes a slot, 2026-11-22
+
+The force kernel of se_e2_a is a block for each center: B to shared memory
+with the pieces of the slots' tables, dB from the adjoint of the descriptor
+(phase 1), five sums for every neighbor slot, dB contracted with the slot's
+embedding row and its slope (phase 2), the float64 Jacobian of each slot
+with the atomics of the neighbors' forces (phase 3), then the sums of the
+block. Phase 2 gave each slot a warp, its 32 lanes over the 100 outputs of
+the embedding, and added the five sums over the warp. A slot now has a
+group of 8 lanes in float32 and of 16 in float64, so that a warp takes four
+or two slots at once. The lanes of a group add their outputs in order and
+then each other by halves, so the sums of a slot follow from the number of
+lanes alone, and the kernel that looks the tables up and the one that reads
+them stored still sum alike. The trainer's force kernel of se_e2_a is the
+same code and changed with it. The section of 2026-11-20 on the sums of the
+force kernels did not take the slots' step (10 to 14 µs of the kernel at
+88 to 224 atoms) apart; this one does, on water frames. Its runs are in the
+record `force-lanes-rtx4090-2026-11-22.json`, under the keys named in
+parentheses; all held the host side to the performance cores, with the card
+checked for other users before every round. The two processes left by
+agents of an earlier review (a `find` over the whole disk, a core each) ran
+beside all of them, as beside the runs of the section after this one
+(`beside_the_timings`). "With tables" is as an evaluation runs them by
+default: looked up by the kernels in float32, stored in float64.
+
+**Where the kernel's time went** (`phases_before`). Builds of the kernel
+before (5490c4e) with probes: an environment variable has the evaluation
+launch the force kernel of se_e2_a four more times, each launch returning
+after a given step (the step travels in the high bits of an argument, so
+the compiler keeps every step), and the forces stage grows by four times
+the kernel up to that step. Water, float32, one model, three rounds
+alternated, medians, µs:
+
+| Kernel up to | 1,536 atoms, tables | 12,288 atoms, tables | 1,536 atoms, exact nets |
+| --- | ---: | ---: | ---: |
+| its launch, returning at once | 2.7 | 7.4 | 2.7 |
+| B copied, the pieces of the slots found | 5.8 | 27.8 | 3.4 |
+| dB (phase 1) | 12.8 | 139.2 | 10.8 |
+| the sums of the slots (phase 2) | 92.3 | 659.6 | 153.7 |
+| the Jacobians and the atomics (phase 3) | 96.5 | 683.2 | 175.4 |
+| the sums of the block: all of it | 103.0 | 725.5 | 198.4 |
+| Phase 2 alone | 79.5 | 520.4 | 142.9 |
+| Phase 2, share of the kernel | 77% | 72% | 72% |
+
+The measure is not exact: at 1,536 atoms with tables it puts the whole
+kernel at 103.0 µs, more than the forces stage of 98.0 without the probe.
+Under flags given only to the launches stopped after phase 2, phase 2 of
+two more probe builds, each against itself without a flag (the probe
+builds differ from each other by up to 16% in this phase), µs:
+
+| Phase 2 | 1,536 atoms, tables | 12,288 atoms, tables | 1,536 atoms, exact nets |
+| --- | ---: | ---: | ---: |
+| second probe build, no flag | 80.1 | 527.5 | 143.1 |
+| every slot of a block reads the row of slot 0 | 79.9 | 517.9 | 73.0 |
+| third probe build, no flag | 70.3 | 454.7 | 142.0 |
+| the six coefficients of an output read across the lanes | 73.1 | 456.0 | 144.0 |
+| no sums over the warp | 44.5 | 317.7 | 140.6 |
+| no fifth sum (the slopes of the quintics) | 70.9 | 449.8 | 141.3 |
+
+With tables, reads that hit the cache after the first slot, a layout of
+the coefficients read across the lanes and the fifth sum left out changed
+nothing; leaving out the sums over the warp took 37% and 30% off the step.
+On stored rows it was the reads: one row for every slot halved the step,
+and the sums over the warp did not count. So the step waited: a warp had
+one slot, and its lanes waited on the index of the slot, then its
+environment row, then the piece of the table or the row of the embedding,
+then five sums over 32 lanes, five steps each, one slot after the other.
+Of the water frame of 1,536 atoms 60.7% of the slots are filled, 83.8 a
+center; of the HAP frame of 88 atoms 35%.
+
+**The lanes of a slot** (`lanes_tried`). A prototype took the lanes of a
+slot from the environment, alternated with the build before in three
+rounds, forces stage, medians, µs:
+
+| Case | Build before | 16 lanes | 8 lanes | 4 lanes |
+| --- | ---: | ---: | ---: | ---: |
+| water 1,536, f32 tables | 97.3 | 79.6 (−18.1%) | 71.8 (−26.3%) | 70.8 (−27.3%) |
+| water 12,288, f32 tables | 756.0 | 550.9 (−27.1%) | 478.0 (−36.8%) | 465.3 (−38.5%) |
+| water 1,536, f32 exact nets | 209.1 | 208.8 (−0.1%) | 214.5 (+2.6%) | 272.5 (+30.3%) |
+| HAP 88, f32 tables | 20.5 | 18.2 (−11.4%) | 17.4 (−15.4%) | 17.6 (−14.1%) |
+| HAP 88, committee of four, f32 tables | 41.4 | 38.6 (−6.7%) | 35.0 (−15.3%) | 35.8 (−13.4%) |
+
+With tables 4 lanes were the fastest at 1,536 and 12,288 atoms and 8 nearly
+so, and 8 the fastest on the HAP frames; on stored rows 4 lost 30%, where 16
+kept the time of the build before and 8 gave up 2.6%. The tables looked up
+and stored must sum alike, so the two share the lanes: 8 in float32.
+
+Then a vote of the warp before the sums of a round, so that a round
+without a live slot in the warp skips them (the slots of a type are filled
+from its first, so the empty ones come in runs), and the lanes in float64:
+the groups without the vote, with it (8 lanes in float32, 16 in float64),
+and with the vote and 8 or 16 lanes in both precisions, alternated with the
+build before twice in three rounds; the rules of the choice were written
+down before the run (`decision_rules`). Forces stage, medians, µs:
+
+| Case | Build before | Groups | With the vote | Vote, 8 lanes | Vote, 16 lanes | Before, again |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| HAP 88, f64 tables | 63.0 | 45.9 (−27.0%) | 37.6 (−40.2%) | 34.0 (−45.9%) | 37.3 (−40.7%) | 62.9 (−0.1%) |
+| HAP 88, committee of four, f64 tables | 195.7 | 152.6 (−22.0%) | 123.3 (−37.0%) | 141.5 (−27.7%) | 122.3 (−37.5%) | 198.2 (+1.3%) |
+| HAP 169, f64 tables | 114.5 | 84.0 (−26.7%) | 65.9 (−42.4%) | 61.1 (−46.7%) | 65.8 (−42.6%) | 114.5 (+0.0%) |
+| HAP 224, f64 tables | 117.9 | 84.2 (−28.6%) | 67.0 (−43.1%) | 62.4 (−47.1%) | 67.0 (−43.2%) | 117.9 (−0.0%) |
+| water 1,536, f64 tables | 738.8 | 477.8 (−35.3%) | 501.5 (−32.1%) | 660.0 (−10.7%) | 501.2 (−32.2%) | 740.6 (+0.2%) |
+| water 12,288, f64 tables | 5,820.1 | 3,611.7 (−37.9%) | 3,266.9 (−43.9%) | 4,345.5 (−25.3%) | 3,254.2 (−44.1%) | 5,805.3 (−0.3%) |
+| HAP 88, f32 tables | 20.4 | 17.6 (−14.1%) | 17.3 (−15.5%) | 17.5 (−14.5%) | 18.0 (−12.1%) | 20.5 (+0.5%) |
+| HAP 88, committee of four, f32 tables | 41.1 | 34.8 (−15.4%) | 34.6 (−16.0%) | 34.5 (−16.1%) | 37.1 (−9.8%) | 41.2 (+0.0%) |
+| water 1,536, f32 tables | 97.4 | 71.6 (−26.5%) | 73.3 (−24.7%) | 72.8 (−25.3%) | 74.9 (−23.1%) | 97.3 (−0.1%) |
+| water 1,536, f32 exact nets | 209.1 | 214.9 (+2.8%) | 215.1 (+2.9%) | 215.0 (+2.8%) | 208.8 (−0.2%) | 209.4 (+0.1%) |
+
+(The vote with 8 lanes is the kernel of the vote in float32, with 16 in
+float64; each pair came out within 1.2% of itself.) The vote took a further
+13 to 16 points off the forces stage of the HAP frames in float64 and 6 off
+water at 12,288 atoms, but added 5.0% to it for water at 1,536 atoms in
+float64 and 2.4% in float32, more than the build before differed from
+itself: by the first rule it stays out. With the vote, 8 lanes in float64
+were 7% to 10% faster than 16 on one HAP model alone, 15% slower on the
+committee of four and 32% to 33% slower on water: 16 stay. The entry "Two or
+four neighbor slots of a warp at a time" under "What gave nothing" of
+2026-11-19, worse in float64 at 88 and 224 atoms, was a probe of a kernel
+whose first lane still turned the sums of a slot into double and whose
+every warp reduced its own sums of the block, both since changed; how its
+lanes were split is not recorded. With the kernel of now, 16 lanes in
+float64 take 22% to 29% off the forces stage of the HAP frames of 88 to
+224 atoms.
+
+**The kernel against the build before** (`force_kernel`): 5490c4e, this
+change and 5490c4e again, alternated in five rounds, every case in every
+round; medians, µs:
+
+| Case | Forces stage before | After | Change | Control | Evaluation before | After | Change | Control |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| water 192, f32 tables | 24.4 | 19.5 | −20.1% | +0.3% | 187.6 | 177.5 | −5.4% | −2.7% |
+| water 1,536, f32 tables | 97.4 | 71.9 | −26.2% | −0.0% | 606.6 | 578.4 | −4.7% | −0.1% |
+| water 12,288, f32 tables | 751.5 | 489.6 | −34.8% | +0.3% | 2,770.4 | 2,501.9 | −9.7% | +0.2% |
+| water 98,304, f32 tables | 5,927.7 | 3,819.6 | −35.6% | −0.4% | 22,199.2 | 20,000.5 | −9.9% | −0.3% |
+| water 1,536, f64 tables | 740.4 | 474.8 | −35.9% | −0.5% | 4,524.1 | 4,255.4 | −5.9% | +0.0% |
+| water 12,288, f64 tables | 5,782.2 | 3,611.8 | −37.5% | +0.1% | 34,553.7 | 32,359.4 | −6.4% | +0.0% |
+| water 98,304, f64 tables | 46,127.9 | 28,591.7 | −38.0% | +0.1% | 274,116.8 | 256,603.4 | −6.4% | +0.1% |
+| water 1,536, f32 exact nets | 208.9 | 214.5 | +2.7% | −0.0% | 1,220.1 | 1,221.0 | +0.1% | +0.1% |
+| water 12,288, f32 exact nets | 1,313.7 | 1,384.4 | +5.4% | +0.6% | 7,396.4 | 7,417.2 | +0.3% | −0.2% |
+| HAP 88, f32 tables | 20.6 | 17.3 | −16.1% | −1.2% | 139.6 | 135.0 | −3.3% | −0.2% |
+| HAP 88, committee of four, f32 tables | 42.1 | 35.9 | −14.6% | −0.0% | 300.5 | 293.4 | −2.4% | −0.3% |
+| HAP 169, f32 tables | 26.3 | 22.7 | −13.8% | −0.2% | 174.3 | 169.8 | −2.5% | −0.4% |
+| HAP 169, three models, f32 tables | 56.3 | 46.4 | −17.5% | +0.2% | 358.9 | 348.9 | −2.8% | −0.4% |
+| HAP 224, f32 tables | 27.4 | 23.2 | −15.2% | +0.1% | 191.2 | 187.4 | −2.0% | +0.5% |
+| HAP 88, f64 tables | 62.8 | 46.2 | −26.5% | +0.4% | 400.1 | 383.4 | −4.2% | −0.2% |
+| HAP 88, committee of four, f64 tables | 196.2 | 149.3 | −23.9% | +0.8% | 1,091.2 | 1,043.4 | −4.4% | −0.0% |
+| HAP 169, f64 tables | 114.8 | 84.2 | −26.7% | +0.1% | 707.9 | 672.9 | −4.9% | −0.2% |
+| HAP 224, f64 tables | 118.1 | 84.3 | −28.6% | +0.0% | 741.7 | 704.0 | −5.1% | +0.2% |
+
+The forces stage took 20% to 36% less in float32 with tables, from 192 to
+98,304 water atoms, and 36% to 38% less in float64; 14% to 18% less for
+the HAP frames in float32 and 24% to 29% in float64. An evaluation of
+12,288 water atoms in float32 with tables took 2.50 ms against 2.77, one of
+98,304 atoms 20.0 ms against 22.2; in float64 32.4 against 34.6 ms and 257
+against 274. The HAP evaluations were 2.0% to 3.3% shorter in float32 and
+4.2% to 5.1% in float64. With the exact nets in float32 the stage took 2.7%
+and 5.4% more, the evaluation 0.1% and 0.3%. The medians of the evaluation
+of 192 atoms moved with the control (−2.7%); the least of each,
+181.6 → 176.3 µs (−2.9%) with the control at +0.1%, and the least of the
+other cases came within 1.1 points of their medians' changes. The device
+keeps as many force blocks at once as before in every case.
+
+**The ways of the force blocks** (`ways`): the cases of the section "The
+force kernels take the blocks the device keeps at once", the build before
+twice a round and this change as it chooses and with each of its four ways
+forced, five rounds, the least of each. In 60 of the 64 cases the way it
+chose came within 1.5% of the fastest forced way. Of the other four, three
+ran the way that was fastest when forced (they are 1.6% to 1.9% from a
+second run of that way), and one is a miss: se_e2_a in float32 with tables
+on eleven frames of 88 atoms, 968 centers, past what the device keeps at
+once in every way, took the narrow blocks without the sums (553.2 µs)
+where those with the sums took 534.5, 3.5% less. Against the build before,
+the evaluations with se_e2_a were 0.7% to 6.7% shorter but at 968 centers
+(+0.1%) and for water with the exact nets on three frames (+0.3%); with
+se_e2_r, whose kernel did not change, −0.6% to +1.2%, the build before
+against itself −2.0% to +1.8%. The build timed here was this change before
+its comments and tests were final; it computes the same as the commit
+(`same_results`: energies and virials the same bits, forces within the
+9e-15 eV/Å by which two runs of one build differ).
+
+**The small set** (`small`): the build before, this change and the build
+before again, alternated in three rounds, the least of each, µs:
+
+| Case | Centers | Before | After | Before, again | Change | Control |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| HAP se_e2_a f32 tables, 88 ×1 | 88 | 138.7 | 135.4 | 141.4 | −2.3% | +1.9% |
+| HAP se_e2_a f32 tables, 88 ×4 | 352 | 254.6 | 247.2 | 255.4 | −2.9% | +0.3% |
+| HAP se_e2_a f32 tables, 88 ×12 | 1,056 | 574.1 | 557.0 | 563.8 | −3.0% | −1.8% |
+| HAP se_e2_a f32 tables, 169 ×1 | 169 | 173.2 | 168.3 | 172.0 | −2.8% | −0.7% |
+| HAP se_e2_a f32 tables, 169 ×3 | 507 | 331.7 | 320.7 | 329.5 | −3.3% | −0.7% |
+| HAP se_e2_a f32 tables, 224 ×1 | 224 | 190.7 | 186.8 | 190.6 | −2.1% | −0.0% |
+| HAP se_e2_a f32 tables, 224 ×4 | 896 | 513.8 | 508.1 | 512.8 | −1.1% | −0.2% |
+| HAP se_e2_a f64 tables, 88 ×1 | 88 | 397.4 | 383.9 | 396.2 | −3.4% | −0.3% |
+| HAP se_e2_a f64 tables, 88 ×4 | 352 | 1,071.2 | 1,034.2 | 1,079.8 | −3.5% | +0.8% |
+| HAP se_e2_r f32 tables, 88 ×1 | 88 | 109.0 | 107.9 | 110.0 | −1.0% | +1.0% |
+| HAP se_e2_r f32 tables, 88 ×4 | 352 | 180.1 | 180.0 | 178.5 | −0.0% | −0.8% |
+| HAP se_e2_a with se_e3 f32 tables, 88 ×1 | 88 | 203.8 | 200.3 | 206.8 | −1.7% | +1.5% |
+| HAP committee of four f32 tables, 88 ×1 | 352 | 300.7 | 291.3 | 299.5 | −3.1% | −0.4% |
+| HAP committee of four f32 tables, 224 ×1 | 896 | 498.7 | 490.1 | 493.6 | −1.7% | −1.0% |
+| water se_e2_a f32 tables, 192 ×1 | 192 | 181.7 | 177.4 | 181.7 | −2.3% | +0.0% |
+| water se_e2_a f32 tables, 192 ×4 | 768 | 449.3 | 455.2 | 455.9 | +1.3% | +1.5% |
+| water se_e2_a f32 tables, 1,536 ×1 | 1,536 | 605.2 | 579.2 | 601.0 | −4.3% | −0.7% |
+
+Every pass with se_e2_a was 1.1% to 4.3% shorter but for four water frames
+of 192 atoms, 1.3% longer with the control 1.5% longer; se_e2_r, whose
+kernel did not change, −1.0% and −0.0%.
+
+**The trainer** (`trainer_f32`, `trainer_f64`): 3,000 steps on the frames of
+the HAP iteration 0, the build before twice a round, three rounds, the best
+rate of each, steps a second:
+
+| Model | Precision | Before | After | Before, again | Change | Control |
+| --- | --- | ---: | ---: | ---: | ---: | ---: |
+| se_e2_a to 6 Å, the pipeline's | float32 | 623.1 | 627.1 | 622.5 | +0.6% | −0.1% |
+| se_e3 to 4 Å | float32 | 1,469.4 | 1,476.5 | 1,481.9 | +0.5% | +0.9% |
+| se_e2_a to 6 Å, the pipeline's | float64 | 283.9 | 286.3 | 283.4 | +0.8% | −0.2% |
+| se_e3 to 4 Å | float64 | 412.3 | 412.1 | 411.6 | −0.0% | −0.2% |
+
+A step of se_e2_a is 0.6% and 0.8% faster, se_e3 (no se_e2_a kernel)
+within its control; the final force error of every run is the build
+before's to the digits printed.
+
+**Agreement** (`tables_and_stored_agree`, `same_results`). On the 83
+sealed-test HAP frames with two trained se_e2_a models (one trained by
+omniMD, one by DeePMD-kit), tables from 0.5 Å: the energies are the same
+bits as the build before's in both precisions; float32 forces moved by at
+most 1.5e-6 eV/Å (the largest force is 6.1) and virials by 1.0e-5 eV, the
+new order of a slot's sums, against 8.1e-6 eV/Å between the tables and the
+exact nets; float64 forces by at most 1.0e-14 eV/Å and virials by 8.5e-14
+eV. The kernels that look the tables up and those that read them stored
+give the same energies and virials to the bit and forces within 1.3e-14
+eV/Å in both precisions (the forces of the neighbors are added with
+atomics in no fixed order: two runs of one build differ by up to 9e-15).
+
+**Checks.** The workspace's tests in release (240), those of the GPU crates
+in release and debug (208 each) and those of the engine with the device,
+in release and debug as well (93 each), pass, and rustfmt finds nothing.
+The float32 passes of the tables test (nets of 40, 136, 100 and now 20
+outputs) are held to the CPU as well, which shares none of the kernels'
+sums, and the float32 trainer follows
+float64 with an se_e2_a net of 20 outputs, which the lanes of a group share
+unequally (3 or 2 a lane in float32, 2 or 1 in float64). Fourteen mutants
+of phase 2 (which slots a group takes, which are live, the outputs of a
+lane, the sums over the group, the write), each run against `gpu_parity`
+and `gpu_train`: twelve fail them, and the two that pass are equivalent:
+the write of a group past the last slot, whose zeros land in the room of
+the block's sums, which phase 0 cleared and nothing has written yet, and
+an empty slot taken as live, whose sums land where phase 3 never reads.
+compute-sanitizer's memcheck, racecheck and synccheck found nothing on the
+force tests of `gpu_parity` and the trainer's. A review by eight agents found no defect in the kernel;
+what it found in the comments, the docs and the tests was mended before
+the commit.
+
+**What this costs.** In float32 the stored rows, those of the exact nets
+and the tables when they are not looked up, take 8 lanes too, where 16
+kept their time: the forces stage 2.7% and 5.4% longer at 1,536 and 12,288
+water atoms, the evaluation 0.1% and 0.3%. A lane now takes 12 or 13
+outputs of a slot where it took 3 or 4, and these kernels wait on their
+reads.
+
+**Not done.** The exact nets in float32 could take 16 lanes in a kernel of
+their own, since nothing else must sum like them. The vote, or a loop over
+the filled slots alone (with their counts by type in shared memory), which
+would leave out the empty slots and the rounds without one, without the 5%
+it cost at 1,536 water atoms. The same groups for se_e2_r's force kernel,
+which has a warp a slot still, and for the kernel of se_e3 that takes
+dE/dθ from stored rows, a warp a row. dB took
+111 µs of the kernel at 12,288 water atoms, 16 times its 7 at 1,536 for 8
+times the atoms. Past what the device keeps at once in every way (968
+centers), the narrow blocks with the sums were 3.5% faster than those
+without.
+
 # The host's sums in the kernel's order, faster, 2026-11-22
 
 Below the threshold of the section after this one the host forms the sums

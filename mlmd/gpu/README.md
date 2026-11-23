@@ -156,9 +156,13 @@ What follows for the kernels:
   microseconds, one of 5,632 atoms from 313 to 280
   (`neighbor_search_costs`).
 - Try a block for an atom with more warps where the blocks are few. The
-  force kernel of the two-body descriptors takes the neighbor slots of its
-  atom a warp each, the warps of the block in turns: eight warps are
-  through 212 slots in 27 turns where four take 53. With blocks of 256
+  force kernels of the two-body descriptors take the neighbor slots of
+  their atom in turns over the warps of the block. That of se_e2_r gives a
+  slot a warp: eight warps are through 212 slots in 27 turns where four
+  take 53. That of se_e2_a gives a slot a group of 8 lanes in float32 and
+  of 16 in float64 since 2026-11-22 (see below), 7 turns against 14 in
+  float32 and 14 against 27 in float64; the times in this item were
+  measured while it, too, gave a slot a warp. With blocks of 256
   threads instead of 128 a float32 evaluation with the tables stored was 4%
   to 6% shorter at 54 to 108 blocks and 1.2% to 5% at 162 to 352, and 1.6%
   to 3.2% longer at 528, 896 and 12,288 (2026-11-19). Since the kernels of
@@ -226,6 +230,34 @@ What follows for the kernels:
   than four below a thousand atoms, and eight were within the scatter of
   four up to 224 atoms and slower from 704 on, the kernel a third longer for
   5,632 atoms (`WARPS_PER_CENTER` in `src/nlist.rs`).
+- Give a warp several short chains at once. The force kernel of se_e2_a
+  gave each neighbor slot a warp: its 32 lanes took the 100 outputs of the
+  embedding, three or four each, and added the five sums of the slot over
+  the warp, five steps a sum. Stopped after each of its steps on a probe
+  build, the kernel spent three quarters of its time on these sums (79.5
+  of 103 µs for 1,536 water atoms in float32 with tables, 520 of 726 for
+  12,288), and with tables they waited on the sums over the warp: leaving
+  those out took 30% to 37% off the step, while reads that all hit the
+  cache, the coefficients of the tables read across the lanes or the fifth
+  sum left out changed nothing. A slot has a group of 8 lanes in float32
+  and of 16 in float64 now, four or two slots a warp: three or four steps
+  a sum for all of them at once, and their loads in flight together. The
+  lanes of a group add their outputs in order and then each other by
+  halves, so the sums of a slot follow from the number of lanes alone, and
+  the kernel that looks the tables up and the one that reads them stored
+  still sum alike. Alternated with the build before, the forces stage took
+  35% to 38% less for 12,288 and 98,304 water atoms (an evaluation 6% to
+  10% less) and 14% to 29% less for the HAP frames of 88 to 224 atoms (2%
+  to 5%). With tables 4 lanes were about as fast as 8, but 30% slower on
+  stored rows, which wait on their reads instead; 8 give up 3% to 5% of the
+  stage there (the exact networks in float32: 0.1% to 0.3% of an
+  evaluation), 16 nothing, but also a quarter to half of the gain with
+  tables. A vote of the warp that skips a round without a live slot (about
+  two thirds of the HAP slots are empty) took 13 to 16 points more off the
+  HAP frames in float64 but added 5% at 1,536 water atoms, and stayed out
+  ([timings](../bench/results/SUMMARY.md#the-force-kernel-of-se_e2_a-with-a-group-of-lanes-a-slot-2026-11-22)).
+  The force kernel of se_e2_r still gives a slot a warp, and the one of
+  se_e3 that takes dE/dθ from stored rows a row a warp.
 - Price a list kept across steps before keeping one. With a Verlet skin a
   search would take its candidates to rcut + skin, and until the two atoms
   that have moved most since have moved more than the skin between them,

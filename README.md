@@ -155,6 +155,17 @@ Desktop's Linux VM on the same card, with the atoms held in place; "tables" are
   one of 98,304 atoms 22.1 ms against 24.5
   ([record](mlmd/bench/results/host-path-rtx4090-2026-11-22.json)); the
   table keeps the times of its own session.
+- That evening the force kernel of se_e2_a began to give each neighbor slot
+  a group of 8 lanes in float32 and of 16 in float64 instead of a warp, four
+  or two slots a warp at once
+  ([summary](mlmd/bench/results/SUMMARY.md#the-force-kernel-of-se_e2_a-with-a-group-of-lanes-a-slot-2026-11-22)).
+  Alternated with the build before in one session, its stage took 35% to
+  38% less at 12,288 and 98,304 atoms; an evaluation with tables in float32
+  took 2.50 ms against 2.77 at 12,288 atoms and 20.0 ms against 22.2 at
+  98,304, in float64 32.4 ms against 34.6 and 257 against 274
+  ([record](mlmd/bench/results/force-lanes-rtx4090-2026-11-22.json)). With
+  the exact networks in float32 the stage took 3% to 5% more, an evaluation
+  0.1% to 0.3%.
 - The three-body descriptor se_e3 with the same cutoff and `sel` and embedding
   [10, 20, 40] costs 1.93 ms at 192 atoms and 13.4 ms at 1,536 in float32
   (DeepMD-kit: 27.5 and 209 ms), 9.42 and 70.1 ms in float64, and 833 ms at

@@ -1,0 +1,3135 @@
+{
+ "date": "2026-11-22",
+ "device": "NVIDIA GeForce RTX 4090",
+ "host": "i9-14900K, the host side held to the performance cores",
+ "what": "The se_e2_a force kernels (stored rows, looked-up tables, the trainer's rows) with a group of 8 lanes per neighbor slot in float32 and 16 in float64 instead of a warp. See SUMMARY.md, 2026-11-22.",
+ "beside_the_timings": "Two processes of `find / -maxdepth 6 -type d -name cudarc-...` (left by agents of an earlier review, one core each) ran beside every timing of this record, as beside the timings of the host sums (host-sums-rtx4090-2026-11-22.json); stopping them was not allowed in the session.",
+ "lanes_tried": {
+  "note": "Before the choice. float32: 16, 8 and 4 lanes a slot on the prototype, three rounds alternated with the build before (L4 lost 30% on stored rows). The vote and float64: the build without the vote (new), with it (vote: 8 lanes in float32, 16 in float64) and with 8 or 16 lanes for both precisions, three rounds alternated with the build before twice. The rules of the choice were written down before the second run (decision_rules).",
+  "float32": {
+   "what": "fl_ab.py OUT.json ROUNDS CASES LABEL=EXE[@VAR=VAL;VAR=VAL] ...: builds and settings alternated on force-kernel cases.\n\nCASES, joined by ',': w<atoms>[-f64][-nt] (water se_e2_a, float32 with tables unless -f64 / -nt: no tables),\nhap<k> (HAP model k of hap-iter0-pre/ens4-f32 on the 88-atom frame, float32 with tables), ens4 (the committee of\nfour on 88 atoms), h169x3 (three HAP models on the 169-atom frame). Every round runs every build on every case,\nbuilds in order and reversed every other round, each run `--bench K --profile`; the evaluation time is the bench\nloop's (no marks), the stage times the profile loop's. Records the header `force blocks at once` per build and\ncase. Run it held to the P-cores (tools/pk/affine.py 0xFFFC).",
+   "rounds": 3,
+   "builds": [
+    {
+     "label": "base",
+     "build": "base: 5490c4e (TANG-LAB-WHU/omniMD#44), a warp per neighbor slot",
+     "settings": {}
+    },
+    {
+     "label": "L16",
+     "build": "proto: the groups of lanes without the vote, the lanes a slot from the environment at run time (OMNIMD_EXP_DEFINES=FORCE_LANES=L, a -D option of every kernel compiled)",
+     "settings": {
+      "OMNIMD_EXP_DEFINES": "FORCE_LANES=16"
+     }
+    },
+    {
+     "label": "L8",
+     "build": "proto: the groups of lanes without the vote, the lanes a slot from the environment at run time (OMNIMD_EXP_DEFINES=FORCE_LANES=L, a -D option of every kernel compiled)",
+     "settings": {
+      "OMNIMD_EXP_DEFINES": "FORCE_LANES=8"
+     }
+    },
+    {
+     "label": "L4",
+     "build": "proto: the groups of lanes without the vote, the lanes a slot from the environment at run time (OMNIMD_EXP_DEFINES=FORCE_LANES=L, a -D option of every kernel compiled)",
+     "settings": {
+      "OMNIMD_EXP_DEFINES": "FORCE_LANES=4"
+     }
+    }
+   ],
+   "card_busy_before_rounds": [],
+   "us": [
+    {
+     "case": "w1536",
+     "base": {
+      "forces_median": 97.3,
+      "forces_least": 97.09,
+      "eval_median": 635.3,
+      "eval_least": 620.19
+     },
+     "L16": {
+      "forces_median": 79.64,
+      "forces_least": 79.14,
+      "eval_median": 610.46,
+      "eval_least": 606.68
+     },
+     "L8": {
+      "forces_median": 71.75,
+      "forces_least": 71.48,
+      "eval_median": 611.68,
+      "eval_least": 597.1
+     },
+     "L4": {
+      "forces_median": 70.77,
+      "forces_least": 70.57,
+      "eval_median": 603.2,
+      "eval_least": 588.88
+     },
+     "force_threads": 128,
+     "force_sums": false,
+     "tables_looked_up": true,
+     "force_blocks_header": {
+      "base": "force blocks at once (wide with sums, narrow with sums, wide, narrow): 384 512 384 896 on 128 multiprocessors",
+      "L16": "force blocks at once (wide with sums, narrow with sums, wide, narrow): 384 512 384 896 on 128 multiprocessors",
+      "L8": "force blocks at once (wide with sums, narrow with sums, wide, narrow): 384 512 384 896 on 128 multiprocessors",
+      "L4": "force blocks at once (wide with sums, narrow with sums, wide, narrow): 384 512 384 896 on 128 multiprocessors"
+     }
+    },
+    {
+     "case": "w12288",
+     "base": {
+      "forces_median": 756.02,
+      "forces_least": 738.8,
+      "eval_median": 2795.88,
+      "eval_least": 2782.08
+     },
+     "L16": {
+      "forces_median": 550.88,
+      "forces_least": 546.03,
+      "eval_median": 2595.81,
+      "eval_least": 2590.99
+     },
+     "L8": {
+      "forces_median": 477.98,
+      "forces_least": 473.73,
+      "eval_median": 2542.31,
+      "eval_least": 2537.7
+     },
+     "L4": {
+      "forces_median": 465.33,
+      "forces_least": 460.24,
+      "eval_median": 2531.26,
+      "eval_least": 2523.76
+     },
+     "force_threads": 128,
+     "force_sums": false,
+     "tables_looked_up": true,
+     "force_blocks_header": {
+      "base": "force blocks at once (wide with sums, narrow with sums, wide, narrow): 384 512 384 896 on 128 multiprocessors",
+      "L16": "force blocks at once (wide with sums, narrow with sums, wide, narrow): 384 512 384 896 on 128 multiprocessors",
+      "L8": "force blocks at once (wide with sums, narrow with sums, wide, narrow): 384 512 384 896 on 128 multiprocessors",
+      "L4": "force blocks at once (wide with sums, narrow with sums, wide, narrow): 384 512 384 896 on 128 multiprocessors"
+     }
+    },
+    {
+     "case": "w1536-nt",
+     "base": {
+      "forces_median": 209.07,
+      "forces_least": 208.55,
+      "eval_median": 1235.53,
+      "eval_least": 1230.36
+     },
+     "L16": {
+      "forces_median": 208.83,
+      "forces_least": 208.28,
+      "eval_median": 1235.2,
+      "eval_least": 1230.23
+     },
+     "L8": {
+      "forces_median": 214.48,
+      "forces_least": 213.9,
+      "eval_median": 1241.85,
+      "eval_least": 1234.87
+     },
+     "L4": {
+      "forces_median": 272.46,
+      "forces_least": 272.4,
+      "eval_median": 1295.04,
+      "eval_least": 1293.1
+     },
+     "force_threads": 128,
+     "force_sums": false,
+     "tables_looked_up": false,
+     "force_blocks_header": {
+      "base": "force blocks at once (wide with sums, narrow with sums, wide, narrow): 384 640 384 896 on 128 multiprocessors",
+      "L16": "force blocks at once (wide with sums, narrow with sums, wide, narrow): 384 640 384 896 on 128 multiprocessors",
+      "L8": "force blocks at once (wide with sums, narrow with sums, wide, narrow): 384 640 384 896 on 128 multiprocessors",
+      "L4": "force blocks at once (wide with sums, narrow with sums, wide, narrow): 384 640 384 896 on 128 multiprocessors"
+     }
+    },
+    {
+     "case": "hap0",
+     "base": {
+      "forces_median": 20.53,
+      "forces_least": 20.26,
+      "eval_median": 142.35,
+      "eval_least": 138.74
+     },
+     "L16": {
+      "forces_median": 18.18,
+      "forces_least": 18.15,
+      "eval_median": 142.76,
+      "eval_least": 141.73
+     },
+     "L8": {
+      "forces_median": 17.37,
+      "forces_least": 17.35,
+      "eval_median": 142.27,
+      "eval_least": 140.62
+     },
+     "L4": {
+      "forces_median": 17.63,
+      "forces_least": 17.56,
+      "eval_median": 145.46,
+      "eval_least": 143.34
+     },
+     "force_threads": 256,
+     "force_sums": true,
+     "tables_looked_up": true,
+     "force_blocks_header": {
+      "base": "force blocks at once (wide with sums, narrow with sums, wide, narrow): 256 512 384 896 on 128 multiprocessors",
+      "L16": "force blocks at once (wide with sums, narrow with sums, wide, narrow): 256 512 384 896 on 128 multiprocessors",
+      "L8": "force blocks at once (wide with sums, narrow with sums, wide, narrow): 256 512 384 896 on 128 multiprocessors",
+      "L4": "force blocks at once (wide with sums, narrow with sums, wide, narrow): 256 512 384 896 on 128 multiprocessors"
+     }
+    },
+    {
+     "case": "ens4",
+     "base": {
+      "forces_median": 41.36,
+      "forces_least": 41.33,
+      "eval_median": 308.51,
+      "eval_least": 305.55
+     },
+     "L16": {
+      "forces_median": 38.6,
+      "forces_least": 38.54,
+      "eval_median": 305.66,
+      "eval_least": 301.41
+     },
+     "L8": {
+      "forces_median": 35.04,
+      "forces_least": 35.03,
+      "eval_median": 297.32,
+      "eval_least": 297.01
+     },
+     "L4": {
+      "forces_median": 35.83,
+      "forces_least": 35.76,
+      "eval_median": 299.01,
+      "eval_least": 298.57
+     },
+     "force_threads": 128,
+     "force_sums": true,
+     "tables_looked_up": true,
+     "force_blocks_header": {
+      "base": "force blocks at once (wide with sums, narrow with sums, wide, narrow): 256 512 384 896 on 128 multiprocessors",
+      "L16": "force blocks at once (wide with sums, narrow with sums, wide, narrow): 256 512 384 896 on 128 multiprocessors",
+      "L8": "force blocks at once (wide with sums, narrow with sums, wide, narrow): 256 512 384 896 on 128 multiprocessors",
+      "L4": "force blocks at once (wide with sums, narrow with sums, wide, narrow): 256 512 384 896 on 128 multiprocessors"
+     }
+    }
+   ]
+  },
+  "vote_and_float64": {
+   "what": "fl_ab.py OUT.json ROUNDS CASES LABEL=EXE[@VAR=VAL;VAR=VAL] ...: builds and settings alternated on force-kernel cases.\n\nCASES, joined by ',': w<atoms>[-f64][-nt] (water se_e2_a, float32 with tables unless -f64 / -nt: no tables),\nhap<k> (HAP model k of hap-iter0-pre/ens4-f32 on the 88-atom frame, float32 with tables), ens4 (the committee of\nfour on 88 atoms), h169 and h169x3 (one and three HAP models on the 169-atom frame), h224 (one on monetite, 224\natoms); -f64 after a HAP case: float64 (tables stored, the default). Every round runs every build on every case,\nbuilds in order and reversed every other round, each run `--bench K --profile`; the evaluation time is the bench\nloop's (no marks), the stage times the profile loop's. Records the header `force blocks at once` per build and\ncase. Run it held to the P-cores (tools/pk/affine.py 0xFFFC).",
+   "rounds": 3,
+   "builds": [
+    {
+     "label": "base",
+     "build": "base: 5490c4e (TANG-LAB-WHU/omniMD#44), a warp per neighbor slot",
+     "settings": {}
+    },
+    {
+     "label": "new",
+     "build": "new: the groups of lanes without the vote",
+     "settings": {}
+    },
+    {
+     "label": "vote",
+     "build": "the groups of lanes with the vote of the warp before the sums of a round; vL8 and vL16 the same build with FORCE_LANES=8 / 16 for both precisions",
+     "settings": {}
+    },
+    {
+     "label": "vL8",
+     "build": "the groups of lanes with the vote of the warp before the sums of a round; vL8 and vL16 the same build with FORCE_LANES=8 / 16 for both precisions",
+     "settings": {
+      "OMNIMD_EXP_DEFINES": "FORCE_LANES=8"
+     }
+    },
+    {
+     "label": "vL16",
+     "build": "the groups of lanes with the vote of the warp before the sums of a round; vL8 and vL16 the same build with FORCE_LANES=8 / 16 for both precisions",
+     "settings": {
+      "OMNIMD_EXP_DEFINES": "FORCE_LANES=16"
+     }
+    },
+    {
+     "label": "base2",
+     "build": "base: 5490c4e (TANG-LAB-WHU/omniMD#44), a warp per neighbor slot, again",
+     "settings": {}
+    }
+   ],
+   "card_busy_before_rounds": [],
+   "us": [
+    {
+     "case": "hap0-f64",
+     "base": {
+      "forces_median": 62.95,
+      "forces_least": 62.67,
+      "eval_median": 412.79,
+      "eval_least": 409.37
+     },
+     "new": {
+      "forces_median": 45.94,
+      "forces_least": 45.92,
+      "eval_median": 387.75,
+      "eval_least": 383.99
+     },
+     "vote": {
+      "forces_median": 37.62,
+      "forces_least": 37.36,
+      "eval_median": 378.14,
+      "eval_least": 371.92
+     },
+     "vL8": {
+      "forces_median": 34.04,
+      "forces_least": 34.03,
+      "eval_median": 374.54,
+      "eval_least": 371.21
+     },
+     "vL16": {
+      "forces_median": 37.33,
+      "forces_least": 37.33,
+      "eval_median": 376.94,
+      "eval_least": 376.79
+     },
+     "base2": {
+      "forces_median": 62.9,
+      "forces_least": 62.64,
+      "eval_median": 405.15,
+      "eval_least": 400.01
+     },
+     "force_threads": 256,
+     "force_sums": true,
+     "tables_looked_up": false,
+     "force_blocks_header": {
+      "base": "force blocks at once (wide with sums, narrow with sums, wide, narrow): 256 384 384 768 on 128 multiprocessors",
+      "new": "force blocks at once (wide with sums, narrow with sums, wide, narrow): 256 384 384 768 on 128 multiprocessors",
+      "vote": "force blocks at once (wide with sums, narrow with sums, wide, narrow): 256 384 384 768 on 128 multiprocessors",
+      "vL8": "force blocks at once (wide with sums, narrow with sums, wide, narrow): 256 384 384 768 on 128 multiprocessors",
+      "vL16": "force blocks at once (wide with sums, narrow with sums, wide, narrow): 256 384 384 768 on 128 multiprocessors",
+      "base2": "force blocks at once (wide with sums, narrow with sums, wide, narrow): 256 384 384 768 on 128 multiprocessors"
+     }
+    },
+    {
+     "case": "ens4-f64",
+     "base": {
+      "forces_median": 195.67,
+      "forces_least": 195.42,
+      "eval_median": 1098.92,
+      "eval_least": 1085.15
+     },
+     "new": {
+      "forces_median": 152.58,
+      "forces_least": 146.18,
+      "eval_median": 1040.32,
+      "eval_least": 1029.9
+     },
+     "vote": {
+      "forces_median": 123.31,
+      "forces_least": 123.01,
+      "eval_median": 1009.34,
+      "eval_least": 1008.91
+     },
+     "vL8": {
+      "forces_median": 141.53,
+      "forces_least": 135.9,
+      "eval_median": 1029.61,
+      "eval_least": 1026.63
+     },
+     "vL16": {
+      "forces_median": 122.33,
+      "forces_least": 121.45,
+      "eval_median": 1021.9,
+      "eval_least": 1020.62
+     },
+     "base2": {
+      "forces_median": 198.17,
+      "forces_least": 196.98,
+      "eval_median": 1094.94,
+      "eval_least": 1089.28
+     },
+     "force_threads": 128,
+     "force_sums": true,
+     "tables_looked_up": false,
+     "force_blocks_header": {
+      "base": "force blocks at once (wide with sums, narrow with sums, wide, narrow): 256 384 384 768 on 128 multiprocessors",
+      "new": "force blocks at once (wide with sums, narrow with sums, wide, narrow): 256 384 384 768 on 128 multiprocessors",
+      "vote": "force blocks at once (wide with sums, narrow with sums, wide, narrow): 256 384 384 768 on 128 multiprocessors",
+      "vL8": "force blocks at once (wide with sums, narrow with sums, wide, narrow): 256 384 384 768 on 128 multiprocessors",
+      "vL16": "force blocks at once (wide with sums, narrow with sums, wide, narrow): 256 384 384 768 on 128 multiprocessors",
+      "base2": "force blocks at once (wide with sums, narrow with sums, wide, narrow): 256 384 384 768 on 128 multiprocessors"
+     }
+    },
+    {
+     "case": "h169-f64",
+     "base": {
+      "forces_median": 114.52,
+      "forces_least": 114.32,
+      "eval_median": 708.43,
+      "eval_least": 708.24
+     },
+     "new": {
+      "forces_median": 84.0,
+      "forces_least": 83.85,
+      "eval_median": 679.48,
+      "eval_least": 677.97
+     },
+     "vote": {
+      "forces_median": 65.94,
+      "forces_least": 65.93,
+      "eval_median": 660.38,
+      "eval_least": 657.35
+     },
+     "vL8": {
+      "forces_median": 61.08,
+      "forces_least": 60.84,
+      "eval_median": 652.8,
+      "eval_least": 652.53
+     },
+     "vL16": {
+      "forces_median": 65.77,
+      "forces_least": 65.77,
+      "eval_median": 658.2,
+      "eval_least": 657.58
+     },
+     "base2": {
+      "forces_median": 114.55,
+      "forces_least": 114.51,
+      "eval_median": 712.9,
+      "eval_least": 708.18
+     },
+     "force_threads": 256,
+     "force_sums": true,
+     "tables_looked_up": false,
+     "force_blocks_header": {
+      "base": "force blocks at once (wide with sums, narrow with sums, wide, narrow): 256 384 384 768 on 128 multiprocessors",
+      "new": "force blocks at once (wide with sums, narrow with sums, wide, narrow): 256 384 384 768 on 128 multiprocessors",
+      "vote": "force blocks at once (wide with sums, narrow with sums, wide, narrow): 256 384 384 768 on 128 multiprocessors",
+      "vL8": "force blocks at once (wide with sums, narrow with sums, wide, narrow): 256 384 384 768 on 128 multiprocessors",
+      "vL16": "force blocks at once (wide with sums, narrow with sums, wide, narrow): 256 384 384 768 on 128 multiprocessors",
+      "base2": "force blocks at once (wide with sums, narrow with sums, wide, narrow): 256 384 384 768 on 128 multiprocessors"
+     }
+    },
+    {
+     "case": "h224-f64",
+     "base": {
+      "forces_median": 117.91,
+      "forces_least": 117.87,
+      "eval_median": 745.94,
+      "eval_least": 743.31
+     },
+     "new": {
+      "forces_median": 84.19,
+      "forces_least": 84.18,
+      "eval_median": 707.13,
+      "eval_least": 706.96
+     },
+     "vote": {
+      "forces_median": 67.04,
+      "forces_least": 67.04,
+      "eval_median": 690.14,
+      "eval_least": 689.5
+     },
+     "vL8": {
+      "forces_median": 62.41,
+      "forces_least": 61.91,
+      "eval_median": 683.52,
+      "eval_least": 683.34
+     },
+     "vL16": {
+      "forces_median": 67.0,
+      "forces_least": 66.97,
+      "eval_median": 688.92,
+      "eval_least": 686.59
+     },
+     "base2": {
+      "forces_median": 117.91,
+      "forces_least": 117.87,
+      "eval_median": 744.86,
+      "eval_least": 742.39
+     },
+     "force_threads": 256,
+     "force_sums": true,
+     "tables_looked_up": false,
+     "force_blocks_header": {
+      "base": "force blocks at once (wide with sums, narrow with sums, wide, narrow): 256 384 384 768 on 128 multiprocessors",
+      "new": "force blocks at once (wide with sums, narrow with sums, wide, narrow): 256 384 384 768 on 128 multiprocessors",
+      "vote": "force blocks at once (wide with sums, narrow with sums, wide, narrow): 256 384 384 768 on 128 multiprocessors",
+      "vL8": "force blocks at once (wide with sums, narrow with sums, wide, narrow): 256 384 384 768 on 128 multiprocessors",
+      "vL16": "force blocks at once (wide with sums, narrow with sums, wide, narrow): 256 384 384 768 on 128 multiprocessors",
+      "base2": "force blocks at once (wide with sums, narrow with sums, wide, narrow): 256 384 384 768 on 128 multiprocessors"
+     }
+    },
+    {
+     "case": "w1536-f64",
+     "base": {
+      "forces_median": 738.82,
+      "forces_least": 737.33,
+      "eval_median": 4542.09,
+      "eval_least": 4540.43
+     },
+     "new": {
+      "forces_median": 477.81,
+      "forces_least": 475.13,
+      "eval_median": 4268.0,
+      "eval_least": 4260.88
+     },
+     "vote": {
+      "forces_median": 501.49,
+      "forces_least": 500.77,
+      "eval_median": 4300.95,
+      "eval_least": 4290.76
+     },
+     "vL8": {
+      "forces_median": 659.97,
+      "forces_least": 653.33,
+      "eval_median": 4461.51,
+      "eval_least": 4458.2
+     },
+     "vL16": {
+      "forces_median": 501.21,
+      "forces_least": 499.33,
+      "eval_median": 4300.2,
+      "eval_least": 4292.34
+     },
+     "base2": {
+      "forces_median": 740.64,
+      "forces_least": 739.5,
+      "eval_median": 4549.71,
+      "eval_least": 4539.16
+     },
+     "force_threads": 128,
+     "force_sums": false,
+     "tables_looked_up": false,
+     "force_blocks_header": {
+      "base": "force blocks at once (wide with sums, narrow with sums, wide, narrow): 256 512 384 768 on 128 multiprocessors",
+      "new": "force blocks at once (wide with sums, narrow with sums, wide, narrow): 256 512 384 768 on 128 multiprocessors",
+      "vote": "force blocks at once (wide with sums, narrow with sums, wide, narrow): 256 512 384 896 on 128 multiprocessors",
+      "vL8": "force blocks at once (wide with sums, narrow with sums, wide, narrow): 256 512 384 896 on 128 multiprocessors",
+      "vL16": "force blocks at once (wide with sums, narrow with sums, wide, narrow): 256 512 384 896 on 128 multiprocessors",
+      "base2": "force blocks at once (wide with sums, narrow with sums, wide, narrow): 256 512 384 768 on 128 multiprocessors"
+     }
+    },
+    {
+     "case": "w12288-f64",
+     "base": {
+      "forces_median": 5820.13,
+      "forces_least": 5785.6,
+      "eval_median": 34662.25,
+      "eval_least": 34567.52
+     },
+     "new": {
+      "forces_median": 3611.71,
+      "forces_least": 3596.24,
+      "eval_median": 32431.92,
+      "eval_least": 32405.79
+     },
+     "vote": {
+      "forces_median": 3266.92,
+      "forces_least": 3266.5,
+      "eval_median": 32136.16,
+      "eval_least": 32125.96
+     },
+     "vL8": {
+      "forces_median": 4345.48,
+      "forces_least": 4246.8,
+      "eval_median": 33354.11,
+      "eval_least": 33349.88
+     },
+     "vL16": {
+      "forces_median": 3254.18,
+      "forces_least": 3246.81,
+      "eval_median": 32144.6,
+      "eval_least": 32125.75
+     },
+     "base2": {
+      "forces_median": 5805.3,
+      "forces_least": 5781.51,
+      "eval_median": 34670.72,
+      "eval_least": 34624.72
+     },
+     "force_threads": 128,
+     "force_sums": false,
+     "tables_looked_up": false,
+     "force_blocks_header": {
+      "base": "force blocks at once (wide with sums, narrow with sums, wide, narrow): 256 512 384 768 on 128 multiprocessors",
+      "new": "force blocks at once (wide with sums, narrow with sums, wide, narrow): 256 512 384 768 on 128 multiprocessors",
+      "vote": "force blocks at once (wide with sums, narrow with sums, wide, narrow): 256 512 384 896 on 128 multiprocessors",
+      "vL8": "force blocks at once (wide with sums, narrow with sums, wide, narrow): 256 512 384 896 on 128 multiprocessors",
+      "vL16": "force blocks at once (wide with sums, narrow with sums, wide, narrow): 256 512 384 896 on 128 multiprocessors",
+      "base2": "force blocks at once (wide with sums, narrow with sums, wide, narrow): 256 512 384 768 on 128 multiprocessors"
+     }
+    },
+    {
+     "case": "hap0",
+     "base": {
+      "forces_median": 20.45,
+      "forces_least": 20.27,
+      "eval_median": 147.0,
+      "eval_least": 137.19
+     },
+     "new": {
+      "forces_median": 17.57,
+      "forces_least": 17.17,
+      "eval_median": 143.02,
+      "eval_least": 136.14
+     },
+     "vote": {
+      "forces_median": 17.28,
+      "forces_least": 17.14,
+      "eval_median": 142.63,
+      "eval_least": 140.23
+     },
+     "vL8": {
+      "forces_median": 17.49,
+      "forces_least": 17.29,
+      "eval_median": 147.77,
+      "eval_least": 142.36
+     },
+     "vL16": {
+      "forces_median": 17.97,
+      "forces_least": 17.84,
+      "eval_median": 145.18,
+      "eval_least": 142.87
+     },
+     "base2": {
+      "forces_median": 20.54,
+      "forces_least": 20.45,
+      "eval_median": 144.84,
+      "eval_least": 140.26
+     },
+     "force_threads": 256,
+     "force_sums": true,
+     "tables_looked_up": true,
+     "force_blocks_header": {
+      "base": "force blocks at once (wide with sums, narrow with sums, wide, narrow): 256 512 384 896 on 128 multiprocessors",
+      "new": "force blocks at once (wide with sums, narrow with sums, wide, narrow): 256 512 384 896 on 128 multiprocessors",
+      "vote": "force blocks at once (wide with sums, narrow with sums, wide, narrow): 256 512 384 896 on 128 multiprocessors",
+      "vL8": "force blocks at once (wide with sums, narrow with sums, wide, narrow): 256 512 384 896 on 128 multiprocessors",
+      "vL16": "force blocks at once (wide with sums, narrow with sums, wide, narrow): 256 512 384 896 on 128 multiprocessors",
+      "base2": "force blocks at once (wide with sums, narrow with sums, wide, narrow): 256 512 384 896 on 128 multiprocessors"
+     }
+    },
+    {
+     "case": "ens4",
+     "base": {
+      "forces_median": 41.15,
+      "forces_least": 41.13,
+      "eval_median": 305.63,
+      "eval_least": 305.45
+     },
+     "new": {
+      "forces_median": 34.81,
+      "forces_least": 34.8,
+      "eval_median": 300.45,
+      "eval_least": 294.53
+     },
+     "vote": {
+      "forces_median": 34.56,
+      "forces_least": 34.51,
+      "eval_median": 296.93,
+      "eval_least": 296.07
+     },
+     "vL8": {
+      "forces_median": 34.51,
+      "forces_least": 34.5,
+      "eval_median": 296.24,
+      "eval_least": 295.09
+     },
+     "vL16": {
+      "forces_median": 37.13,
+      "forces_least": 37.09,
+      "eval_median": 298.29,
+      "eval_least": 297.9
+     },
+     "base2": {
+      "forces_median": 41.16,
+      "forces_least": 41.15,
+      "eval_median": 304.57,
+      "eval_least": 304.26
+     },
+     "force_threads": 128,
+     "force_sums": true,
+     "tables_looked_up": true,
+     "force_blocks_header": {
+      "base": "force blocks at once (wide with sums, narrow with sums, wide, narrow): 256 512 384 896 on 128 multiprocessors",
+      "new": "force blocks at once (wide with sums, narrow with sums, wide, narrow): 256 512 384 896 on 128 multiprocessors",
+      "vote": "force blocks at once (wide with sums, narrow with sums, wide, narrow): 256 512 384 896 on 128 multiprocessors",
+      "vL8": "force blocks at once (wide with sums, narrow with sums, wide, narrow): 256 512 384 896 on 128 multiprocessors",
+      "vL16": "force blocks at once (wide with sums, narrow with sums, wide, narrow): 256 512 384 896 on 128 multiprocessors",
+      "base2": "force blocks at once (wide with sums, narrow with sums, wide, narrow): 256 512 384 896 on 128 multiprocessors"
+     }
+    },
+    {
+     "case": "w1536",
+     "base": {
+      "forces_median": 97.43,
+      "forces_least": 97.36,
+      "eval_median": 628.61,
+      "eval_least": 617.11
+     },
+     "new": {
+      "forces_median": 71.6,
+      "forces_least": 71.6,
+      "eval_median": 598.88,
+      "eval_least": 592.81
+     },
+     "vote": {
+      "forces_median": 73.32,
+      "forces_least": 72.97,
+      "eval_median": 600.42,
+      "eval_least": 596.15
+     },
+     "vL8": {
+      "forces_median": 72.8,
+      "forces_least": 72.73,
+      "eval_median": 604.76,
+      "eval_least": 593.32
+     },
+     "vL16": {
+      "forces_median": 74.91,
+      "forces_least": 74.75,
+      "eval_median": 599.05,
+      "eval_least": 595.0
+     },
+     "base2": {
+      "forces_median": 97.3,
+      "forces_least": 97.23,
+      "eval_median": 623.87,
+      "eval_least": 617.53
+     },
+     "force_threads": 128,
+     "force_sums": false,
+     "tables_looked_up": true,
+     "force_blocks_header": {
+      "base": "force blocks at once (wide with sums, narrow with sums, wide, narrow): 384 512 384 896 on 128 multiprocessors",
+      "new": "force blocks at once (wide with sums, narrow with sums, wide, narrow): 384 512 384 896 on 128 multiprocessors",
+      "vote": "force blocks at once (wide with sums, narrow with sums, wide, narrow): 384 512 384 896 on 128 multiprocessors",
+      "vL8": "force blocks at once (wide with sums, narrow with sums, wide, narrow): 384 512 384 896 on 128 multiprocessors",
+      "vL16": "force blocks at once (wide with sums, narrow with sums, wide, narrow): 384 512 384 896 on 128 multiprocessors",
+      "base2": "force blocks at once (wide with sums, narrow with sums, wide, narrow): 384 512 384 896 on 128 multiprocessors"
+     }
+    },
+    {
+     "case": "w1536-nt",
+     "base": {
+      "forces_median": 209.07,
+      "forces_least": 209.02,
+      "eval_median": 1238.74,
+      "eval_least": 1234.13
+     },
+     "new": {
+      "forces_median": 214.89,
+      "forces_least": 214.71,
+      "eval_median": 1240.48,
+      "eval_least": 1237.38
+     },
+     "vote": {
+      "forces_median": 215.06,
+      "forces_least": 215.06,
+      "eval_median": 1239.75,
+      "eval_least": 1238.96
+     },
+     "vL8": {
+      "forces_median": 215.03,
+      "forces_least": 214.95,
+      "eval_median": 1242.4,
+      "eval_least": 1238.86
+     },
+     "vL16": {
+      "forces_median": 208.76,
+      "forces_least": 208.61,
+      "eval_median": 1239.02,
+      "eval_least": 1233.78
+     },
+     "base2": {
+      "forces_median": 209.38,
+      "forces_least": 209.01,
+      "eval_median": 1231.87,
+      "eval_least": 1226.19
+     },
+     "force_threads": 128,
+     "force_sums": false,
+     "tables_looked_up": false,
+     "force_blocks_header": {
+      "base": "force blocks at once (wide with sums, narrow with sums, wide, narrow): 384 640 384 896 on 128 multiprocessors",
+      "new": "force blocks at once (wide with sums, narrow with sums, wide, narrow): 384 640 384 896 on 128 multiprocessors",
+      "vote": "force blocks at once (wide with sums, narrow with sums, wide, narrow): 384 640 384 896 on 128 multiprocessors",
+      "vL8": "force blocks at once (wide with sums, narrow with sums, wide, narrow): 384 640 384 896 on 128 multiprocessors",
+      "vL16": "force blocks at once (wide with sums, narrow with sums, wide, narrow): 384 640 384 896 on 128 multiprocessors",
+      "base2": "force blocks at once (wide with sums, narrow with sums, wide, narrow): 384 640 384 896 on 128 multiprocessors"
+     }
+    }
+   ]
+  },
+  "decision_rules": [
+   "Written 2026-11-22 before the run vote-1.json (fl_ab.py, 3 rounds, held to the P-cores):",
+   "builds base (prev-5490c4e), new (new1.exe: groups of lanes, no vote), vote (vote-proto.exe: + __any_sync vote,",
+   "lanes by precision 8/16), vL8 and vL16 (vote-proto.exe with FORCE_LANES=8 / 16 for every precision), base2.",
+   "Rules, on the forces stage medians, spread = |base2/base - 1| of the same case:",
+   "1. The vote goes in if, on no case, vote is slower than new by more than the spread (and 1%).",
+   "2. Lanes in float64: 16 stay if vL8 is not faster than vote on the HAP float64 cases (hap0-f64, ens4-f64, h169-f64,",
+   "   h224-f64) by more than the spread; otherwise 8 in float64 if it does not lose more than the spread on w1536-f64",
+   "   and w12288-f64; if the two disagree, the one that loses to base nowhere.",
+   "3. Lanes in float32 stay 8 (the looked-up and stored paths must sum alike); vL16 on w1536-nt only tells what the",
+   "   stored path gives up.",
+   "4. If HAP float64 with the chosen lanes is slower than base beyond the spread: stop, rethink the float64 mapping."
+  ]
+ },
+ "force_kernel": {
+  "what": "fl_ab.py OUT.json ROUNDS CASES LABEL=EXE[@VAR=VAL;VAR=VAL] ...: builds and settings alternated on force-kernel cases.\n\nCASES, joined by ',': w<atoms>[-f64][-nt] (water se_e2_a, float32 with tables unless -f64 / -nt: no tables),\nhap<k> (HAP model k of hap-iter0-pre/ens4-f32 on the 88-atom frame, float32 with tables), ens4 (the committee of\nfour on 88 atoms), h169 and h169x3 (one and three HAP models on the 169-atom frame), h224 (one on monetite, 224\natoms); -f64 after a HAP case: float64 (tables stored, the default). Every round runs every build on every case,\nbuilds in order and reversed every other round, each run `--bench K --profile`; the evaluation time is the bench\nloop's (no marks), the stage times the profile loop's. Records the header `force blocks at once` per build and\ncase. Run it held to the P-cores (tools/pk/affine.py 0xFFFC).",
+  "rounds": 5,
+  "builds": [
+   {
+    "label": "base",
+    "build": "base: 5490c4e (TANG-LAB-WHU/omniMD#44), a warp per neighbor slot",
+    "settings": {}
+   },
+   {
+    "label": "new",
+    "build": "new: this change, 8 lanes per slot in float32 and 16 in float64",
+    "settings": {}
+   },
+   {
+    "label": "base2",
+    "build": "base: 5490c4e (TANG-LAB-WHU/omniMD#44), a warp per neighbor slot, again",
+    "settings": {}
+   }
+  ],
+  "card_busy_before_rounds": [],
+  "us": [
+   {
+    "case": "w192",
+    "base": {
+     "forces_median": 24.44,
+     "forces_least": 24.35,
+     "eval_median": 187.58,
+     "eval_least": 181.62
+    },
+    "new": {
+     "forces_median": 19.53,
+     "forces_least": 19.28,
+     "eval_median": 177.53,
+     "eval_least": 176.33
+    },
+    "base2": {
+     "forces_median": 24.51,
+     "forces_least": 24.4,
+     "eval_median": 182.5,
+     "eval_least": 181.83
+    },
+    "force_threads": 256,
+    "force_sums": true,
+    "tables_looked_up": true,
+    "force_blocks_header": {
+     "base": "force blocks at once (wide with sums, narrow with sums, wide, narrow): 384 512 384 896 on 128 multiprocessors",
+     "new": "force blocks at once (wide with sums, narrow with sums, wide, narrow): 384 512 384 896 on 128 multiprocessors",
+     "base2": "force blocks at once (wide with sums, narrow with sums, wide, narrow): 384 512 384 896 on 128 multiprocessors"
+    }
+   },
+   {
+    "case": "w1536",
+    "base": {
+     "forces_median": 97.45,
+     "forces_least": 96.89,
+     "eval_median": 606.59,
+     "eval_least": 602.74
+    },
+    "new": {
+     "forces_median": 71.89,
+     "forces_least": 71.63,
+     "eval_median": 578.38,
+     "eval_least": 577.03
+    },
+    "base2": {
+     "forces_median": 97.42,
+     "forces_least": 96.86,
+     "eval_median": 606.01,
+     "eval_least": 601.06
+    },
+    "force_threads": 128,
+    "force_sums": false,
+    "tables_looked_up": true,
+    "force_blocks_header": {
+     "base": "force blocks at once (wide with sums, narrow with sums, wide, narrow): 384 512 384 896 on 128 multiprocessors",
+     "new": "force blocks at once (wide with sums, narrow with sums, wide, narrow): 384 512 384 896 on 128 multiprocessors",
+     "base2": "force blocks at once (wide with sums, narrow with sums, wide, narrow): 384 512 384 896 on 128 multiprocessors"
+    }
+   },
+   {
+    "case": "w12288",
+    "base": {
+     "forces_median": 751.45,
+     "forces_least": 742.73,
+     "eval_median": 2770.35,
+     "eval_least": 2766.48
+    },
+    "new": {
+     "forces_median": 489.62,
+     "forces_least": 469.43,
+     "eval_median": 2501.9,
+     "eval_least": 2494.57
+    },
+    "base2": {
+     "forces_median": 753.91,
+     "forces_least": 744.67,
+     "eval_median": 2775.75,
+     "eval_least": 2766.61
+    },
+    "force_threads": 128,
+    "force_sums": false,
+    "tables_looked_up": true,
+    "force_blocks_header": {
+     "base": "force blocks at once (wide with sums, narrow with sums, wide, narrow): 384 512 384 896 on 128 multiprocessors",
+     "new": "force blocks at once (wide with sums, narrow with sums, wide, narrow): 384 512 384 896 on 128 multiprocessors",
+     "base2": "force blocks at once (wide with sums, narrow with sums, wide, narrow): 384 512 384 896 on 128 multiprocessors"
+    }
+   },
+   {
+    "case": "w98304",
+    "base": {
+     "forces_median": 5927.67,
+     "forces_least": 5764.93,
+     "eval_median": 22199.2,
+     "eval_least": 22130.13
+    },
+    "new": {
+     "forces_median": 3819.57,
+     "forces_least": 3782.14,
+     "eval_median": 20000.48,
+     "eval_least": 19946.15
+    },
+    "base2": {
+     "forces_median": 5902.03,
+     "forces_least": 5811.25,
+     "eval_median": 22135.98,
+     "eval_least": 22091.91
+    },
+    "force_threads": 128,
+    "force_sums": false,
+    "tables_looked_up": true,
+    "force_blocks_header": {
+     "base": "force blocks at once (wide with sums, narrow with sums, wide, narrow): 384 512 384 896 on 128 multiprocessors",
+     "new": "force blocks at once (wide with sums, narrow with sums, wide, narrow): 384 512 384 896 on 128 multiprocessors",
+     "base2": "force blocks at once (wide with sums, narrow with sums, wide, narrow): 384 512 384 896 on 128 multiprocessors"
+    }
+   },
+   {
+    "case": "w1536-f64",
+    "base": {
+     "forces_median": 740.36,
+     "forces_least": 731.97,
+     "eval_median": 4524.07,
+     "eval_least": 4509.46
+    },
+    "new": {
+     "forces_median": 474.8,
+     "forces_least": 471.94,
+     "eval_median": 4255.42,
+     "eval_least": 4245.61
+    },
+    "base2": {
+     "forces_median": 736.77,
+     "forces_least": 735.55,
+     "eval_median": 4524.67,
+     "eval_least": 4518.6
+    },
+    "force_threads": 128,
+    "force_sums": false,
+    "tables_looked_up": false,
+    "force_blocks_header": {
+     "base": "force blocks at once (wide with sums, narrow with sums, wide, narrow): 256 512 384 768 on 128 multiprocessors",
+     "new": "force blocks at once (wide with sums, narrow with sums, wide, narrow): 256 512 384 768 on 128 multiprocessors",
+     "base2": "force blocks at once (wide with sums, narrow with sums, wide, narrow): 256 512 384 768 on 128 multiprocessors"
+    }
+   },
+   {
+    "case": "w12288-f64",
+    "base": {
+     "forces_median": 5782.23,
+     "forces_least": 5770.89,
+     "eval_median": 34553.67,
+     "eval_least": 34520.75
+    },
+    "new": {
+     "forces_median": 3611.76,
+     "forces_least": 3586.38,
+     "eval_median": 32359.36,
+     "eval_least": 32349.51
+    },
+    "base2": {
+     "forces_median": 5790.79,
+     "forces_least": 5773.04,
+     "eval_median": 34554.64,
+     "eval_least": 34513.43
+    },
+    "force_threads": 128,
+    "force_sums": false,
+    "tables_looked_up": false,
+    "force_blocks_header": {
+     "base": "force blocks at once (wide with sums, narrow with sums, wide, narrow): 256 512 384 768 on 128 multiprocessors",
+     "new": "force blocks at once (wide with sums, narrow with sums, wide, narrow): 256 512 384 768 on 128 multiprocessors",
+     "base2": "force blocks at once (wide with sums, narrow with sums, wide, narrow): 256 512 384 768 on 128 multiprocessors"
+    }
+   },
+   {
+    "case": "w98304-f64",
+    "base": {
+     "forces_median": 46127.87,
+     "forces_least": 45874.38,
+     "eval_median": 274116.77,
+     "eval_least": 273410.3
+    },
+    "new": {
+     "forces_median": 28591.72,
+     "forces_least": 28539.49,
+     "eval_median": 256603.37,
+     "eval_least": 255898.33
+    },
+    "base2": {
+     "forces_median": 46161.93,
+     "forces_least": 46007.1,
+     "eval_median": 274278.54,
+     "eval_least": 273802.78
+    },
+    "force_threads": 128,
+    "force_sums": false,
+    "tables_looked_up": false,
+    "force_blocks_header": {
+     "base": "force blocks at once (wide with sums, narrow with sums, wide, narrow): 256 512 384 768 on 128 multiprocessors",
+     "new": "force blocks at once (wide with sums, narrow with sums, wide, narrow): 256 512 384 768 on 128 multiprocessors",
+     "base2": "force blocks at once (wide with sums, narrow with sums, wide, narrow): 256 512 384 768 on 128 multiprocessors"
+    }
+   },
+   {
+    "case": "w1536-nt",
+    "base": {
+     "forces_median": 208.88,
+     "forces_least": 208.79,
+     "eval_median": 1220.09,
+     "eval_least": 1209.02
+    },
+    "new": {
+     "forces_median": 214.5,
+     "forces_least": 214.24,
+     "eval_median": 1221.0,
+     "eval_least": 1220.49
+    },
+    "base2": {
+     "forces_median": 208.87,
+     "forces_least": 208.85,
+     "eval_median": 1221.44,
+     "eval_least": 1202.43
+    },
+    "force_threads": 128,
+    "force_sums": false,
+    "tables_looked_up": false,
+    "force_blocks_header": {
+     "base": "force blocks at once (wide with sums, narrow with sums, wide, narrow): 384 640 384 896 on 128 multiprocessors",
+     "new": "force blocks at once (wide with sums, narrow with sums, wide, narrow): 384 640 384 896 on 128 multiprocessors",
+     "base2": "force blocks at once (wide with sums, narrow with sums, wide, narrow): 384 640 384 896 on 128 multiprocessors"
+    }
+   },
+   {
+    "case": "w12288-nt",
+    "base": {
+     "forces_median": 1313.66,
+     "forces_least": 1298.63,
+     "eval_median": 7396.38,
+     "eval_least": 7360.79
+    },
+    "new": {
+     "forces_median": 1384.44,
+     "forces_least": 1366.28,
+     "eval_median": 7417.25,
+     "eval_least": 7392.26
+    },
+    "base2": {
+     "forces_median": 1321.11,
+     "forces_least": 1295.63,
+     "eval_median": 7384.54,
+     "eval_least": 7373.63
+    },
+    "force_threads": 128,
+    "force_sums": false,
+    "tables_looked_up": false,
+    "force_blocks_header": {
+     "base": "force blocks at once (wide with sums, narrow with sums, wide, narrow): 384 640 384 896 on 128 multiprocessors",
+     "new": "force blocks at once (wide with sums, narrow with sums, wide, narrow): 384 640 384 896 on 128 multiprocessors",
+     "base2": "force blocks at once (wide with sums, narrow with sums, wide, narrow): 384 640 384 896 on 128 multiprocessors"
+    }
+   },
+   {
+    "case": "hap0",
+    "base": {
+     "forces_median": 20.64,
+     "forces_least": 20.22,
+     "eval_median": 139.63,
+     "eval_least": 137.63
+    },
+    "new": {
+     "forces_median": 17.32,
+     "forces_least": 17.23,
+     "eval_median": 134.98,
+     "eval_least": 134.18
+    },
+    "base2": {
+     "forces_median": 20.39,
+     "forces_least": 20.31,
+     "eval_median": 139.32,
+     "eval_least": 137.6
+    },
+    "force_threads": 256,
+    "force_sums": true,
+    "tables_looked_up": true,
+    "force_blocks_header": {
+     "base": "force blocks at once (wide with sums, narrow with sums, wide, narrow): 256 512 384 896 on 128 multiprocessors",
+     "new": "force blocks at once (wide with sums, narrow with sums, wide, narrow): 256 512 384 896 on 128 multiprocessors",
+     "base2": "force blocks at once (wide with sums, narrow with sums, wide, narrow): 256 512 384 896 on 128 multiprocessors"
+    }
+   },
+   {
+    "case": "ens4",
+    "base": {
+     "forces_median": 42.07,
+     "forces_least": 41.99,
+     "eval_median": 300.54,
+     "eval_least": 299.35
+    },
+    "new": {
+     "forces_median": 35.91,
+     "forces_least": 35.76,
+     "eval_median": 293.36,
+     "eval_least": 292.56
+    },
+    "base2": {
+     "forces_median": 42.06,
+     "forces_least": 42.01,
+     "eval_median": 299.67,
+     "eval_least": 299.47
+    },
+    "force_threads": 128,
+    "force_sums": true,
+    "tables_looked_up": true,
+    "force_blocks_header": {
+     "base": "force blocks at once (wide with sums, narrow with sums, wide, narrow): 256 512 384 896 on 128 multiprocessors",
+     "new": "force blocks at once (wide with sums, narrow with sums, wide, narrow): 256 512 384 896 on 128 multiprocessors",
+     "base2": "force blocks at once (wide with sums, narrow with sums, wide, narrow): 256 512 384 896 on 128 multiprocessors"
+    }
+   },
+   {
+    "case": "h169",
+    "base": {
+     "forces_median": 26.34,
+     "forces_least": 26.18,
+     "eval_median": 174.25,
+     "eval_least": 171.75
+    },
+    "new": {
+     "forces_median": 22.71,
+     "forces_least": 22.58,
+     "eval_median": 169.85,
+     "eval_least": 168.05
+    },
+    "base2": {
+     "forces_median": 26.3,
+     "forces_least": 26.16,
+     "eval_median": 173.57,
+     "eval_least": 172.38
+    },
+    "force_threads": 256,
+    "force_sums": true,
+    "tables_looked_up": true,
+    "force_blocks_header": {
+     "base": "force blocks at once (wide with sums, narrow with sums, wide, narrow): 256 512 384 896 on 128 multiprocessors",
+     "new": "force blocks at once (wide with sums, narrow with sums, wide, narrow): 256 512 384 896 on 128 multiprocessors",
+     "base2": "force blocks at once (wide with sums, narrow with sums, wide, narrow): 256 512 384 896 on 128 multiprocessors"
+    }
+   },
+   {
+    "case": "h169x3",
+    "base": {
+     "forces_median": 56.3,
+     "forces_least": 56.22,
+     "eval_median": 358.93,
+     "eval_least": 358.11
+    },
+    "new": {
+     "forces_median": 46.45,
+     "forces_least": 46.27,
+     "eval_median": 348.86,
+     "eval_least": 347.19
+    },
+    "base2": {
+     "forces_median": 56.43,
+     "forces_least": 56.2,
+     "eval_median": 357.48,
+     "eval_least": 357.21
+    },
+    "force_threads": 128,
+    "force_sums": true,
+    "tables_looked_up": true,
+    "force_blocks_header": {
+     "base": "force blocks at once (wide with sums, narrow with sums, wide, narrow): 256 512 384 896 on 128 multiprocessors",
+     "new": "force blocks at once (wide with sums, narrow with sums, wide, narrow): 256 512 384 896 on 128 multiprocessors",
+     "base2": "force blocks at once (wide with sums, narrow with sums, wide, narrow): 256 512 384 896 on 128 multiprocessors"
+    }
+   },
+   {
+    "case": "h224",
+    "base": {
+     "forces_median": 27.38,
+     "forces_least": 27.32,
+     "eval_median": 191.21,
+     "eval_least": 190.62
+    },
+    "new": {
+     "forces_median": 23.23,
+     "forces_least": 23.17,
+     "eval_median": 187.39,
+     "eval_least": 185.7
+    },
+    "base2": {
+     "forces_median": 27.4,
+     "forces_least": 27.33,
+     "eval_median": 192.19,
+     "eval_least": 190.95
+    },
+    "force_threads": 256,
+    "force_sums": true,
+    "tables_looked_up": true,
+    "force_blocks_header": {
+     "base": "force blocks at once (wide with sums, narrow with sums, wide, narrow): 256 512 384 896 on 128 multiprocessors",
+     "new": "force blocks at once (wide with sums, narrow with sums, wide, narrow): 256 512 384 896 on 128 multiprocessors",
+     "base2": "force blocks at once (wide with sums, narrow with sums, wide, narrow): 256 512 384 896 on 128 multiprocessors"
+    }
+   },
+   {
+    "case": "hap0-f64",
+    "base": {
+     "forces_median": 62.83,
+     "forces_least": 62.52,
+     "eval_median": 400.08,
+     "eval_least": 399.3
+    },
+    "new": {
+     "forces_median": 46.21,
+     "forces_least": 45.98,
+     "eval_median": 383.36,
+     "eval_least": 378.26
+    },
+    "base2": {
+     "forces_median": 63.11,
+     "forces_least": 62.55,
+     "eval_median": 399.37,
+     "eval_least": 398.98
+    },
+    "force_threads": 256,
+    "force_sums": true,
+    "tables_looked_up": false,
+    "force_blocks_header": {
+     "base": "force blocks at once (wide with sums, narrow with sums, wide, narrow): 256 384 384 768 on 128 multiprocessors",
+     "new": "force blocks at once (wide with sums, narrow with sums, wide, narrow): 256 384 384 768 on 128 multiprocessors",
+     "base2": "force blocks at once (wide with sums, narrow with sums, wide, narrow): 256 384 384 768 on 128 multiprocessors"
+    }
+   },
+   {
+    "case": "ens4-f64",
+    "base": {
+     "forces_median": 196.2,
+     "forces_least": 194.34,
+     "eval_median": 1091.22,
+     "eval_least": 1085.21
+    },
+    "new": {
+     "forces_median": 149.31,
+     "forces_least": 148.55,
+     "eval_median": 1043.43,
+     "eval_least": 1034.1
+    },
+    "base2": {
+     "forces_median": 197.75,
+     "forces_least": 195.47,
+     "eval_median": 1090.98,
+     "eval_least": 1086.25
+    },
+    "force_threads": 128,
+    "force_sums": true,
+    "tables_looked_up": false,
+    "force_blocks_header": {
+     "base": "force blocks at once (wide with sums, narrow with sums, wide, narrow): 256 384 384 768 on 128 multiprocessors",
+     "new": "force blocks at once (wide with sums, narrow with sums, wide, narrow): 256 384 384 768 on 128 multiprocessors",
+     "base2": "force blocks at once (wide with sums, narrow with sums, wide, narrow): 256 384 384 768 on 128 multiprocessors"
+    }
+   },
+   {
+    "case": "h169-f64",
+    "base": {
+     "forces_median": 114.82,
+     "forces_least": 114.71,
+     "eval_median": 707.89,
+     "eval_least": 705.47
+    },
+    "new": {
+     "forces_median": 84.2,
+     "forces_least": 84.1,
+     "eval_median": 672.86,
+     "eval_least": 670.56
+    },
+    "base2": {
+     "forces_median": 114.91,
+     "forces_least": 114.73,
+     "eval_median": 706.44,
+     "eval_least": 699.9
+    },
+    "force_threads": 256,
+    "force_sums": true,
+    "tables_looked_up": false,
+    "force_blocks_header": {
+     "base": "force blocks at once (wide with sums, narrow with sums, wide, narrow): 256 384 384 768 on 128 multiprocessors",
+     "new": "force blocks at once (wide with sums, narrow with sums, wide, narrow): 256 384 384 768 on 128 multiprocessors",
+     "base2": "force blocks at once (wide with sums, narrow with sums, wide, narrow): 256 384 384 768 on 128 multiprocessors"
+    }
+   },
+   {
+    "case": "h224-f64",
+    "base": {
+     "forces_median": 118.07,
+     "forces_least": 118.03,
+     "eval_median": 741.66,
+     "eval_least": 740.28
+    },
+    "new": {
+     "forces_median": 84.29,
+     "forces_least": 84.27,
+     "eval_median": 703.97,
+     "eval_least": 703.78
+    },
+    "base2": {
+     "forces_median": 118.09,
+     "forces_least": 118.03,
+     "eval_median": 743.4,
+     "eval_least": 741.27
+    },
+    "force_threads": 256,
+    "force_sums": true,
+    "tables_looked_up": false,
+    "force_blocks_header": {
+     "base": "force blocks at once (wide with sums, narrow with sums, wide, narrow): 256 384 384 768 on 128 multiprocessors",
+     "new": "force blocks at once (wide with sums, narrow with sums, wide, narrow): 256 384 384 768 on 128 multiprocessors",
+     "base2": "force blocks at once (wide with sums, narrow with sums, wide, narrow): 256 384 384 768 on 128 multiprocessors"
+    }
+   }
+  ]
+ },
+ "ways": {
+  "date": "2026-11-22",
+  "device": "NVIDIA GeForce RTX 4090",
+  "what": "ways.py OLD NEW OUT.json [ROUNDS]: the force blocks chosen by the blocks the device keeps at once, before and after,\nwith every way forced (2026-11-22).\n\nTwo builds of omnimd-native-gpu-eval: OLD (the limits of centers) twice a round (`old`, `old again`: what the two\ndiffer by is what the machine adds), NEW as it is (`new`) and NEW with each way of the force kernel forced\n(--wide-forces 1000000 or 0 with --block-sums 1000000 or 0: `wide+sums`, `narrow+sums`, `wide`, `narrow`).\nAlternated in ROUNDS rounds (5), the order reversed every other round, the least of each kept. Cases: the trained\nHAP models (se_e2_a, se_e2_r, a hybrid with se_e3, a committee of four) on batches of the sealed-test frames, and\nthe water models on batches of 192 waters and on 1,536, in float32 and float64, with tables (--compress 0.5) and\nfor se_e2_a in float32 also without; sizes on both sides of what the device keeps of each way. `centers` are the\natoms of a pass times its models. The card is checked for other users before every round (tools/ht/gpu_busy.ps1).\n`way_of_new`: the way of the last two-body pass of `new`, from the bench lines (`force_threads`, `force_sums`; the\nbuild of the first run printed `block_sums` instead, which is that of the force kernel launched last: in the hybrid,\nthe one of se_e3, which forms the sums in every pass). The forced ways of the hybrid set the sums of se_e3 as well.\nEnvironment: ONLY (words of case names, by comma).",
+  "rounds": 5,
+  "builds": {
+   "old": "5490c4e (TANG-LAB-WHU/omniMD#44), a warp per neighbor slot",
+   "new": "new1.exe: this change as committed but for comments and tests, a group of lanes per neighbor slot"
+  },
+  "seconds_waited_for_the_card": [
+   0,
+   0,
+   0,
+   0,
+   0
+  ],
+  "us_per_evaluation": [
+   {
+    "case": "HAP se_e2_a f32 tables, 88 x1",
+    "centers": 88,
+    "capacity": "256 512 384 896 on 128 multiprocessors",
+    "way_of_new": [
+     {
+      "threads": 256,
+      "sums": true
+     }
+    ],
+    "old": 138.73,
+    "new": 135.9,
+    "wide+sums": 134.3,
+    "narrow+sums": 139.34,
+    "wide": 135.89,
+    "narrow": 138.55,
+    "old again": 136.28
+   },
+   {
+    "case": "HAP se_e2_a f32 tables, 88 x2",
+    "centers": 176,
+    "capacity": "256 512 384 896 on 128 multiprocessors",
+    "way_of_new": [
+     {
+      "threads": 256,
+      "sums": true
+     }
+    ],
+    "old": 171.98,
+    "new": 166.38,
+    "wide+sums": 167.19,
+    "narrow+sums": 170.09,
+    "wide": 172.42,
+    "narrow": 170.94,
+    "old again": 171.72
+   },
+   {
+    "case": "HAP se_e2_a f32 tables, 88 x3",
+    "centers": 264,
+    "capacity": "256 512 384 896 on 128 multiprocessors",
+    "way_of_new": [
+     {
+      "threads": 128,
+      "sums": true
+     }
+    ],
+    "old": 223.36,
+    "new": 217.38,
+    "wide+sums": 219.97,
+    "narrow+sums": 217.55,
+    "wide": 224.65,
+    "narrow": 222.51,
+    "old again": 223.16
+   },
+   {
+    "case": "HAP se_e2_a f32 tables, 88 x4",
+    "centers": 352,
+    "capacity": "256 512 384 896 on 128 multiprocessors",
+    "way_of_new": [
+     {
+      "threads": 128,
+      "sums": true
+     }
+    ],
+    "old": 252.09,
+    "new": 246.29,
+    "wide+sums": 255.96,
+    "narrow+sums": 248.33,
+    "wide": 253.82,
+    "narrow": 253.06,
+    "old again": 254.19
+   },
+   {
+    "case": "HAP se_e2_a f32 tables, 88 x5",
+    "centers": 440,
+    "capacity": "256 512 384 896 on 128 multiprocessors",
+    "way_of_new": [
+     {
+      "threads": 128,
+      "sums": true
+     }
+    ],
+    "old": 294.19,
+    "new": 287.48,
+    "wide+sums": 290.08,
+    "narrow+sums": 286.22,
+    "wide": 298.44,
+    "narrow": 292.92,
+    "old again": 294.86
+   },
+   {
+    "case": "HAP se_e2_a f32 tables, 88 x6",
+    "centers": 528,
+    "capacity": "256 512 384 896 on 128 multiprocessors",
+    "way_of_new": [
+     {
+      "threads": 128,
+      "sums": false
+     }
+    ],
+    "old": 347.73,
+    "new": 339.62,
+    "wide+sums": 346.83,
+    "narrow+sums": 340.07,
+    "wide": 347.0,
+    "narrow": 338.83,
+    "old again": 348.99
+   },
+   {
+    "case": "HAP se_e2_a f32 tables, 88 x8",
+    "centers": 704,
+    "capacity": "256 512 384 896 on 128 multiprocessors",
+    "way_of_new": [
+     {
+      "threads": 128,
+      "sums": false
+     }
+    ],
+    "old": 415.45,
+    "new": 408.05,
+    "wide+sums": 411.71,
+    "narrow+sums": 408.69,
+    "wide": 415.46,
+    "narrow": 407.88,
+    "old again": 416.51
+   },
+   {
+    "case": "HAP se_e2_a f32 tables, 88 x10",
+    "centers": 880,
+    "capacity": "256 512 384 896 on 128 multiprocessors",
+    "way_of_new": [
+     {
+      "threads": 128,
+      "sums": false
+     }
+    ],
+    "old": 506.22,
+    "new": 502.64,
+    "wide+sums": 512.08,
+    "narrow+sums": 498.66,
+    "wide": 501.58,
+    "narrow": 500.73,
+    "old again": 506.81
+   },
+   {
+    "case": "HAP se_e2_a f32 tables, 88 x11",
+    "centers": 968,
+    "capacity": "256 512 384 896 on 128 multiprocessors",
+    "way_of_new": [
+     {
+      "threads": 128,
+      "sums": false
+     }
+    ],
+    "old": 552.58,
+    "new": 553.2,
+    "wide+sums": 548.42,
+    "narrow+sums": 534.48,
+    "wide": 552.59,
+    "narrow": 549.71,
+    "old again": 551.06
+   },
+   {
+    "case": "HAP se_e2_a f32 tables, 169 x1",
+    "centers": 169,
+    "capacity": "256 512 384 896 on 128 multiprocessors",
+    "way_of_new": [
+     {
+      "threads": 256,
+      "sums": true
+     }
+    ],
+    "old": 172.38,
+    "new": 167.26,
+    "wide+sums": 167.09,
+    "narrow+sums": 169.31,
+    "wide": 174.0,
+    "narrow": 173.85,
+    "old again": 171.36
+   },
+   {
+    "case": "HAP se_e2_a f32 tables, 169 x2",
+    "centers": 338,
+    "capacity": "256 512 384 896 on 128 multiprocessors",
+    "way_of_new": [
+     {
+      "threads": 128,
+      "sums": true
+     }
+    ],
+    "old": 251.83,
+    "new": 242.98,
+    "wide+sums": 252.6,
+    "narrow+sums": 243.73,
+    "wide": 251.41,
+    "narrow": 247.19,
+    "old again": 251.2
+   },
+   {
+    "case": "HAP se_e2_a f32 tables, 169 x3",
+    "centers": 507,
+    "capacity": "256 512 384 896 on 128 multiprocessors",
+    "way_of_new": [
+     {
+      "threads": 128,
+      "sums": true
+     }
+    ],
+    "old": 330.99,
+    "new": 319.87,
+    "wide+sums": 322.85,
+    "narrow+sums": 318.15,
+    "wide": 330.46,
+    "narrow": 325.14,
+    "old again": 329.11
+   },
+   {
+    "case": "HAP se_e2_a f32 tables, 224 x1",
+    "centers": 224,
+    "capacity": "256 512 384 896 on 128 multiprocessors",
+    "way_of_new": [
+     {
+      "threads": 256,
+      "sums": true
+     }
+    ],
+    "old": 190.68,
+    "new": 186.02,
+    "wide+sums": 184.96,
+    "narrow+sums": 187.61,
+    "wide": 191.24,
+    "narrow": 190.06,
+    "old again": 190.06
+   },
+   {
+    "case": "HAP se_e2_a f32 tables, 224 x2",
+    "centers": 448,
+    "capacity": "256 512 384 896 on 128 multiprocessors",
+    "way_of_new": [
+     {
+      "threads": 128,
+      "sums": true
+     }
+    ],
+    "old": 299.64,
+    "new": 291.74,
+    "wide+sums": 296.96,
+    "narrow+sums": 292.77,
+    "wide": 303.96,
+    "narrow": 298.16,
+    "old again": 300.39
+   },
+   {
+    "case": "HAP se_e2_a f32 tables, 224 x4",
+    "centers": 896,
+    "capacity": "256 512 384 896 on 128 multiprocessors",
+    "way_of_new": [
+     {
+      "threads": 128,
+      "sums": false
+     }
+    ],
+    "old": 513.08,
+    "new": 506.34,
+    "wide+sums": 520.58,
+    "narrow+sums": 505.66,
+    "wide": 514.32,
+    "narrow": 507.2,
+    "old again": 515.27
+   },
+   {
+    "case": "HAP se_e2_a f32 tables, 160+224 x2",
+    "centers": 384,
+    "capacity": "256 512 384 896 on 128 multiprocessors",
+    "way_of_new": [
+     {
+      "threads": 128,
+      "sums": true
+     }
+    ],
+    "old": 266.71,
+    "new": 260.1,
+    "wide+sums": 270.01,
+    "narrow+sums": 259.6,
+    "wide": 266.81,
+    "narrow": 262.56,
+    "old again": 266.85
+   },
+   {
+    "case": "HAP se_e2_a f32 exact, 88 x4",
+    "centers": 352,
+    "capacity": "384 512 384 896 on 128 multiprocessors",
+    "way_of_new": [
+     {
+      "threads": 256,
+      "sums": true
+     }
+    ],
+    "old": 347.5,
+    "new": 341.17,
+    "wide+sums": 339.84,
+    "narrow+sums": 341.34,
+    "wide": 350.46,
+    "narrow": 344.77,
+    "old again": 345.8
+   },
+   {
+    "case": "HAP se_e2_a f32 exact, 88 x5",
+    "centers": 440,
+    "capacity": "384 512 384 896 on 128 multiprocessors",
+    "way_of_new": [
+     {
+      "threads": 128,
+      "sums": true
+     }
+    ],
+    "old": 438.07,
+    "new": 426.07,
+    "wide+sums": 432.74,
+    "narrow+sums": 429.09,
+    "wide": 439.28,
+    "narrow": 431.69,
+    "old again": 439.32
+   },
+   {
+    "case": "HAP se_e2_a f32 exact, 88 x6",
+    "centers": 528,
+    "capacity": "384 512 384 896 on 128 multiprocessors",
+    "way_of_new": [
+     {
+      "threads": 128,
+      "sums": false
+     }
+    ],
+    "old": 544.41,
+    "new": 537.64,
+    "wide+sums": 538.73,
+    "narrow+sums": 537.49,
+    "wide": 546.42,
+    "narrow": 536.55,
+    "old again": 545.26
+   },
+   {
+    "case": "HAP se_e2_a f32 exact, 169 x3",
+    "centers": 507,
+    "capacity": "384 512 384 896 on 128 multiprocessors",
+    "way_of_new": [
+     {
+      "threads": 128,
+      "sums": true
+     }
+    ],
+    "old": 524.94,
+    "new": 516.1,
+    "wide+sums": 520.33,
+    "narrow+sums": 515.3,
+    "wide": 527.43,
+    "narrow": 519.82,
+    "old again": 524.84
+   },
+   {
+    "case": "HAP se_e2_a f32 exact, 160+224 x2",
+    "centers": 384,
+    "capacity": "384 512 384 896 on 128 multiprocessors",
+    "way_of_new": [
+     {
+      "threads": 256,
+      "sums": true
+     }
+    ],
+    "old": 383.49,
+    "new": 380.16,
+    "wide+sums": 380.48,
+    "narrow+sums": 380.74,
+    "wide": 387.59,
+    "narrow": 384.87,
+    "old again": 384.02
+   },
+   {
+    "case": "HAP se_e2_a f64 tables, 80 x3",
+    "centers": 240,
+    "capacity": "256 384 384 768 on 128 multiprocessors",
+    "way_of_new": [
+     {
+      "threads": 256,
+      "sums": true
+     }
+    ],
+    "old": 717.21,
+    "new": 693.63,
+    "wide+sums": 693.29,
+    "narrow+sums": 690.85,
+    "wide": 696.87,
+    "narrow": 693.7,
+    "old again": 712.52
+   },
+   {
+    "case": "HAP se_e2_a f64 tables, 88 x2",
+    "centers": 176,
+    "capacity": "256 384 384 768 on 128 multiprocessors",
+    "way_of_new": [
+     {
+      "threads": 256,
+      "sums": true
+     }
+    ],
+    "old": 691.79,
+    "new": 660.96,
+    "wide+sums": 663.74,
+    "narrow+sums": 663.53,
+    "wide": 669.25,
+    "narrow": 666.85,
+    "old again": 694.61
+   },
+   {
+    "case": "HAP se_e2_a f64 tables, 88 x3",
+    "centers": 264,
+    "capacity": "256 384 384 768 on 128 multiprocessors",
+    "way_of_new": [
+     {
+      "threads": 128,
+      "sums": true
+     }
+    ],
+    "old": 1010.95,
+    "new": 970.75,
+    "wide+sums": 973.04,
+    "narrow+sums": 972.38,
+    "wide": 981.18,
+    "narrow": 975.8,
+    "old again": 1015.79
+   },
+   {
+    "case": "HAP se_e2_a f64 tables, 88 x4",
+    "centers": 352,
+    "capacity": "256 384 384 768 on 128 multiprocessors",
+    "way_of_new": [
+     {
+      "threads": 128,
+      "sums": true
+     }
+    ],
+    "old": 1072.02,
+    "new": 1035.43,
+    "wide+sums": 1036.76,
+    "narrow+sums": 1032.22,
+    "wide": 1046.56,
+    "narrow": 1035.69,
+    "old again": 1071.7
+   },
+   {
+    "case": "HAP se_e2_a f64 tables, 88 x5",
+    "centers": 440,
+    "capacity": "256 384 384 768 on 128 multiprocessors",
+    "way_of_new": [
+     {
+      "threads": 128,
+      "sums": false
+     }
+    ],
+    "old": 1598.13,
+    "new": 1553.17,
+    "wide+sums": 1546.53,
+    "narrow+sums": 1585.11,
+    "wide": 1559.93,
+    "narrow": 1544.95,
+    "old again": 1599.79
+   },
+   {
+    "case": "HAP se_e2_a f64 tables, 88 x6",
+    "centers": 528,
+    "capacity": "256 384 384 768 on 128 multiprocessors",
+    "way_of_new": [
+     {
+      "threads": 128,
+      "sums": false
+     }
+    ],
+    "old": 1691.63,
+    "new": 1625.8,
+    "wide+sums": 1629.86,
+    "narrow+sums": 1655.13,
+    "wide": 1634.08,
+    "narrow": 1629.93,
+    "old again": 1689.93
+   },
+   {
+    "case": "HAP se_e2_a f64 tables, 160+224 x2",
+    "centers": 384,
+    "capacity": "256 384 384 768 on 128 multiprocessors",
+    "way_of_new": [
+     {
+      "threads": 128,
+      "sums": true
+     }
+    ],
+    "old": 1102.54,
+    "new": 1051.06,
+    "wide+sums": 1085.62,
+    "narrow+sums": 1050.5,
+    "wide": 1063.8,
+    "narrow": 1057.38,
+    "old again": 1101.24
+   },
+   {
+    "case": "HAP se_e2_r f32 tables, 88 x4",
+    "centers": 352,
+    "capacity": "384 768 512 1024 on 128 multiprocessors",
+    "way_of_new": [
+     {
+      "threads": 256,
+      "sums": true
+     }
+    ],
+    "old": 178.83,
+    "new": 179.79,
+    "wide+sums": 176.89,
+    "narrow+sums": 184.12,
+    "wide": 185.21,
+    "narrow": 186.68,
+    "old again": 178.73
+   },
+   {
+    "case": "HAP se_e2_r f32 tables, 88 x5",
+    "centers": 440,
+    "capacity": "384 768 512 1024 on 128 multiprocessors",
+    "way_of_new": [
+     {
+      "threads": 128,
+      "sums": true
+     }
+    ],
+    "old": 205.54,
+    "new": 207.93,
+    "wide+sums": 214.8,
+    "narrow+sums": 209.14,
+    "wide": 216.49,
+    "narrow": 212.82,
+    "old again": 209.25
+   },
+   {
+    "case": "HAP se_e2_r f32 tables, 88 x6",
+    "centers": 528,
+    "capacity": "384 768 512 1024 on 128 multiprocessors",
+    "way_of_new": [
+     {
+      "threads": 128,
+      "sums": true
+     }
+    ],
+    "old": 258.19,
+    "new": 259.9,
+    "wide+sums": 265.03,
+    "narrow+sums": 258.03,
+    "wide": 271.55,
+    "narrow": 264.73,
+    "old again": 257.99
+   },
+   {
+    "case": "HAP se_e2_r f32 tables, 88 x9",
+    "centers": 792,
+    "capacity": "384 768 512 1024 on 128 multiprocessors",
+    "way_of_new": [
+     {
+      "threads": 128,
+      "sums": false
+     }
+    ],
+    "old": 338.43,
+    "new": 339.74,
+    "wide+sums": 339.51,
+    "narrow+sums": 337.27,
+    "wide": 350.47,
+    "narrow": 336.13,
+    "old again": 337.43
+   },
+   {
+    "case": "HAP se_e2_r f32 tables, 88 x10",
+    "centers": 880,
+    "capacity": "384 768 512 1024 on 128 multiprocessors",
+    "way_of_new": [
+     {
+      "threads": 128,
+      "sums": false
+     }
+    ],
+    "old": 417.4,
+    "new": 418.0,
+    "wide+sums": 424.56,
+    "narrow+sums": 424.48,
+    "wide": 427.84,
+    "narrow": 413.63,
+    "old again": 418.1
+   },
+   {
+    "case": "HAP se_e2_r f32 tables, 88 x11",
+    "centers": 968,
+    "capacity": "384 768 512 1024 on 128 multiprocessors",
+    "way_of_new": [
+     {
+      "threads": 128,
+      "sums": false
+     }
+    ],
+    "old": 439.11,
+    "new": 442.02,
+    "wide+sums": 444.56,
+    "narrow+sums": 450.44,
+    "wide": 456.6,
+    "narrow": 441.08,
+    "old again": 439.39
+   },
+   {
+    "case": "HAP se_e2_r f32 tables, 88 x12",
+    "centers": 1056,
+    "capacity": "384 768 512 1024 on 128 multiprocessors",
+    "way_of_new": [
+     {
+      "threads": 128,
+      "sums": true
+     }
+    ],
+    "old": 469.57,
+    "new": 467.26,
+    "wide+sums": 467.66,
+    "narrow+sums": 470.99,
+    "wide": 478.72,
+    "narrow": 470.89,
+    "old again": 473.69
+   },
+   {
+    "case": "HAP se_e2_r f32 tables, 160+224 x2",
+    "centers": 384,
+    "capacity": "384 768 512 1024 on 128 multiprocessors",
+    "way_of_new": [
+     {
+      "threads": 256,
+      "sums": true
+     }
+    ],
+    "old": 186.01,
+    "new": 186.05,
+    "wide+sums": 186.34,
+    "narrow+sums": 192.22,
+    "wide": 194.79,
+    "narrow": 194.38,
+    "old again": 186.41
+   },
+   {
+    "case": "HAP se_e2_r f64 tables, 88 x3",
+    "centers": 264,
+    "capacity": "384 768 512 1024 on 128 multiprocessors",
+    "way_of_new": [
+     {
+      "threads": 256,
+      "sums": true
+     }
+    ],
+    "old": 390.55,
+    "new": 389.54,
+    "wide+sums": 390.65,
+    "narrow+sums": 391.0,
+    "wide": 397.95,
+    "narrow": 395.59,
+    "old again": 389.34
+   },
+   {
+    "case": "HAP se_e2_r f64 tables, 88 x4",
+    "centers": 352,
+    "capacity": "384 768 512 1024 on 128 multiprocessors",
+    "way_of_new": [
+     {
+      "threads": 256,
+      "sums": true
+     }
+    ],
+    "old": 423.26,
+    "new": 425.3,
+    "wide+sums": 425.04,
+    "narrow+sums": 426.89,
+    "wide": 433.42,
+    "narrow": 429.8,
+    "old again": 429.22
+   },
+   {
+    "case": "HAP se_e2_r f64 tables, 88 x6",
+    "centers": 528,
+    "capacity": "384 768 512 1024 on 128 multiprocessors",
+    "way_of_new": [
+     {
+      "threads": 128,
+      "sums": true
+     }
+    ],
+    "old": 660.74,
+    "new": 668.47,
+    "wide+sums": 672.85,
+    "narrow+sums": 664.23,
+    "wide": 687.88,
+    "narrow": 666.07,
+    "old again": 662.31
+   },
+   {
+    "case": "HAP se_e2_r f64 tables, 88 x9",
+    "centers": 792,
+    "capacity": "384 768 512 1024 on 128 multiprocessors",
+    "way_of_new": [
+     {
+      "threads": 128,
+      "sums": false
+     }
+    ],
+    "old": 986.26,
+    "new": 985.43,
+    "wide+sums": 997.12,
+    "narrow+sums": 995.45,
+    "wide": 1000.48,
+    "narrow": 979.25,
+    "old again": 987.39
+   },
+   {
+    "case": "HAP se_e2_r f64 tables, 88 x11",
+    "centers": 968,
+    "capacity": "384 768 512 1024 on 128 multiprocessors",
+    "way_of_new": [
+     {
+      "threads": 128,
+      "sums": false
+     }
+    ],
+    "old": 1163.14,
+    "new": 1168.9,
+    "wide+sums": 1159.69,
+    "narrow+sums": 1171.78,
+    "wide": 1169.29,
+    "narrow": 1150.78,
+    "old again": 1159.75
+   },
+   {
+    "case": "HAP se_e2_r f64 tables, 160+224 x2",
+    "centers": 384,
+    "capacity": "384 768 512 1024 on 128 multiprocessors",
+    "way_of_new": [
+     {
+      "threads": 256,
+      "sums": true
+     }
+    ],
+    "old": 445.9,
+    "new": 445.24,
+    "wide+sums": 446.54,
+    "narrow+sums": 452.06,
+    "wide": 457.16,
+    "narrow": 453.6,
+    "old again": 445.9
+   },
+   {
+    "case": "HAP se_e2_a with se_e3 f32 tables, 88 x1",
+    "centers": 88,
+    "capacity": "256 512 384 896; - on 128 multiprocessors",
+    "way_of_new": [
+     {
+      "threads": 256,
+      "sums": true
+     }
+    ],
+    "old": 206.47,
+    "new": 199.1,
+    "wide+sums": 201.74,
+    "narrow+sums": 203.09,
+    "wide": 205.98,
+    "narrow": 208.07,
+    "old again": 202.39
+   },
+   {
+    "case": "HAP se_e2_a with se_e3 f32 tables, 88 x3",
+    "centers": 264,
+    "capacity": "256 512 384 896; - on 128 multiprocessors",
+    "way_of_new": [
+     {
+      "threads": 128,
+      "sums": true
+     }
+    ],
+    "old": 308.08,
+    "new": 303.61,
+    "wide+sums": 306.68,
+    "narrow+sums": 301.47,
+    "wide": 319.59,
+    "narrow": 314.02,
+    "old again": 306.73
+   },
+   {
+    "case": "HAP se_e2_a with se_e3 f32 tables, 88 x4",
+    "centers": 352,
+    "capacity": "256 512 384 896; - on 128 multiprocessors",
+    "way_of_new": [
+     {
+      "threads": 128,
+      "sums": true
+     }
+    ],
+    "old": 346.14,
+    "new": 337.55,
+    "wide+sums": 346.97,
+    "narrow+sums": 338.96,
+    "wide": 354.86,
+    "narrow": 351.83,
+    "old again": 345.87
+   },
+   {
+    "case": "HAP se_e2_a with se_e3 f32 tables, 88 x5",
+    "centers": 440,
+    "capacity": "256 512 384 896; - on 128 multiprocessors",
+    "way_of_new": [
+     {
+      "threads": 128,
+      "sums": true
+     }
+    ],
+    "old": 413.36,
+    "new": 405.74,
+    "wide+sums": 410.74,
+    "narrow+sums": 405.32,
+    "wide": 422.61,
+    "narrow": 417.38,
+    "old again": 411.49
+   },
+   {
+    "case": "HAP committee of four f32 tables, 88",
+    "centers": 352,
+    "capacity": "256 512 384 896 on 128 multiprocessors",
+    "way_of_new": [
+     {
+      "threads": 128,
+      "sums": true
+     }
+    ],
+    "old": 301.51,
+    "new": 293.52,
+    "wide+sums": 300.33,
+    "narrow+sums": 293.53,
+    "wide": 297.22,
+    "narrow": 298.39,
+    "old again": 298.69
+   },
+   {
+    "case": "HAP committee of four f32 tables, 169",
+    "centers": 676,
+    "capacity": "256 512 384 896 on 128 multiprocessors",
+    "way_of_new": [
+     {
+      "threads": 128,
+      "sums": false
+     }
+    ],
+    "old": 441.11,
+    "new": 433.32,
+    "wide+sums": 437.26,
+    "narrow+sums": 434.95,
+    "wide": 441.25,
+    "narrow": 431.29,
+    "old again": 442.35
+   },
+   {
+    "case": "HAP committee of four f32 tables, 224",
+    "centers": 896,
+    "capacity": "256 512 384 896 on 128 multiprocessors",
+    "way_of_new": [
+     {
+      "threads": 128,
+      "sums": false
+     }
+    ],
+    "old": 494.52,
+    "new": 484.95,
+    "wide+sums": 503.98,
+    "narrow+sums": 488.31,
+    "wide": 499.37,
+    "narrow": 487.18,
+    "old again": 498.75
+   },
+   {
+    "case": "HAP committee of four f64 tables, 88",
+    "centers": 352,
+    "capacity": "256 384 384 768 on 128 multiprocessors",
+    "way_of_new": [
+     {
+      "threads": 128,
+      "sums": true
+     }
+    ],
+    "old": 1126.5,
+    "new": 1092.77,
+    "wide+sums": 1091.3,
+    "narrow+sums": 1072.46,
+    "wide": 1073.99,
+    "narrow": 1086.49,
+    "old again": 1120.47
+   },
+   {
+    "case": "water se_e2_a f32 tables, 192 x1",
+    "centers": 192,
+    "capacity": "384 512 384 896 on 128 multiprocessors",
+    "way_of_new": [
+     {
+      "threads": 256,
+      "sums": true
+     }
+    ],
+    "old": 181.53,
+    "new": 175.98,
+    "wide+sums": 177.45,
+    "narrow+sums": 178.28,
+    "wide": 182.02,
+    "narrow": 180.9,
+    "old again": 181.9
+   },
+   {
+    "case": "water se_e2_a f32 tables, 192 x2",
+    "centers": 384,
+    "capacity": "384 512 384 896 on 128 multiprocessors",
+    "way_of_new": [
+     {
+      "threads": 256,
+      "sums": true
+     }
+    ],
+    "old": 268.83,
+    "new": 261.23,
+    "wide+sums": 263.48,
+    "narrow+sums": 262.88,
+    "wide": 270.32,
+    "narrow": 266.87,
+    "old again": 266.5
+   },
+   {
+    "case": "water se_e2_a f32 tables, 192 x3",
+    "centers": 576,
+    "capacity": "384 512 384 896 on 128 multiprocessors",
+    "way_of_new": [
+     {
+      "threads": 128,
+      "sums": false
+     }
+    ],
+    "old": 367.57,
+    "new": 360.87,
+    "wide+sums": 356.95,
+    "narrow+sums": 359.89,
+    "wide": 367.26,
+    "narrow": 360.22,
+    "old again": 369.21
+   },
+   {
+    "case": "water se_e2_a f32 tables, 192 x4",
+    "centers": 768,
+    "capacity": "384 512 384 896 on 128 multiprocessors",
+    "way_of_new": [
+     {
+      "threads": 128,
+      "sums": false
+     }
+    ],
+    "old": 449.97,
+    "new": 440.38,
+    "wide+sums": 438.2,
+    "narrow+sums": 439.57,
+    "wide": 447.77,
+    "narrow": 439.7,
+    "old again": 447.18
+   },
+   {
+    "case": "water se_e2_a f32 tables, 1536 x1",
+    "centers": 1536,
+    "capacity": "384 512 384 896 on 128 multiprocessors",
+    "way_of_new": [
+     {
+      "threads": 128,
+      "sums": false
+     }
+    ],
+    "old": 602.93,
+    "new": 574.81,
+    "wide+sums": 571.93,
+    "narrow+sums": 577.93,
+    "wide": 594.71,
+    "narrow": 574.63,
+    "old again": 602.88
+   },
+   {
+    "case": "water se_e2_a f32 exact, 192 x2",
+    "centers": 384,
+    "capacity": "384 640 384 896 on 128 multiprocessors",
+    "way_of_new": [
+     {
+      "threads": 256,
+      "sums": true
+     }
+    ],
+    "old": 384.22,
+    "new": 379.14,
+    "wide+sums": 377.19,
+    "narrow+sums": 379.68,
+    "wide": 386.62,
+    "narrow": 381.4,
+    "old again": 384.3
+   },
+   {
+    "case": "water se_e2_a f32 exact, 192 x3",
+    "centers": 576,
+    "capacity": "384 640 384 896 on 128 multiprocessors",
+    "way_of_new": [
+     {
+      "threads": 128,
+      "sums": true
+     }
+    ],
+    "old": 571.62,
+    "new": 573.43,
+    "wide+sums": 565.29,
+    "narrow+sums": 571.66,
+    "wide": 578.26,
+    "narrow": 573.79,
+    "old again": 578.62
+   },
+   {
+    "case": "water se_e2_a f64 tables, 192 x1",
+    "centers": 192,
+    "capacity": "256 512 384 768 on 128 multiprocessors",
+    "way_of_new": [
+     {
+      "threads": 256,
+      "sums": true
+     }
+    ],
+    "old": 715.72,
+    "new": 669.08,
+    "wide+sums": 670.54,
+    "narrow+sums": 670.94,
+    "wide": 674.86,
+    "narrow": 672.37,
+    "old again": 715.18
+   },
+   {
+    "case": "water se_e2_a f64 tables, 192 x2",
+    "centers": 384,
+    "capacity": "256 512 384 768 on 128 multiprocessors",
+    "way_of_new": [
+     {
+      "threads": 128,
+      "sums": true
+     }
+    ],
+    "old": 1133.08,
+    "new": 1056.81,
+    "wide+sums": 1062.8,
+    "narrow+sums": 1059.75,
+    "wide": 1064.39,
+    "narrow": 1061.17,
+    "old again": 1129.67
+   },
+   {
+    "case": "water se_e2_a f64 tables, 192 x3",
+    "centers": 576,
+    "capacity": "256 512 384 768 on 128 multiprocessors",
+    "way_of_new": [
+     {
+      "threads": 128,
+      "sums": false
+     }
+    ],
+    "old": 1780.54,
+    "new": 1665.45,
+    "wide+sums": 1655.81,
+    "narrow+sums": 1693.86,
+    "wide": 1673.36,
+    "narrow": 1668.46,
+    "old again": 1776.04
+   },
+   {
+    "case": "water se_e2_r f32 tables, 192 x2",
+    "centers": 384,
+    "capacity": "384 896 512 1024 on 128 multiprocessors",
+    "way_of_new": [
+     {
+      "threads": 256,
+      "sums": true
+     }
+    ],
+    "old": 191.46,
+    "new": 190.23,
+    "wide+sums": 190.82,
+    "narrow+sums": 194.75,
+    "wide": 200.66,
+    "narrow": 199.57,
+    "old again": 190.05
+   },
+   {
+    "case": "water se_e2_r f32 tables, 192 x3",
+    "centers": 576,
+    "capacity": "384 896 512 1024 on 128 multiprocessors",
+    "way_of_new": [
+     {
+      "threads": 128,
+      "sums": true
+     }
+    ],
+    "old": 293.21,
+    "new": 293.29,
+    "wide+sums": 297.07,
+    "narrow+sums": 292.43,
+    "wide": 306.83,
+    "narrow": 298.58,
+    "old again": 292.23
+   },
+   {
+    "case": "water se_e2_r f32 tables, 192 x5",
+    "centers": 960,
+    "capacity": "384 896 512 1024 on 128 multiprocessors",
+    "way_of_new": [
+     {
+      "threads": 128,
+      "sums": false
+     }
+    ],
+    "old": 496.94,
+    "new": 501.36,
+    "wide+sums": 504.08,
+    "narrow+sums": 500.61,
+    "wide": 518.88,
+    "narrow": 498.72,
+    "old again": 503.47
+   },
+   {
+    "case": "water se_e2_r f32 tables, 192 x6",
+    "centers": 1152,
+    "capacity": "384 896 512 1024 on 128 multiprocessors",
+    "way_of_new": [
+     {
+      "threads": 128,
+      "sums": true
+     }
+    ],
+    "old": 573.94,
+    "new": 571.35,
+    "wide+sums": 568.05,
+    "narrow+sums": 567.05,
+    "wide": 583.19,
+    "narrow": 577.41,
+    "old again": 566.05
+   }
+  ],
+  "note": "`new` is new1.exe, built before the comments and tests of the commit were final; it computes the same as the build of the commit (`same_results`)."
+ },
+ "same_results": [
+  "A = new1.exe (this change before its comments and tests were final)",
+  "B = new.exe (the build of the commit)",
+  "ens4-f32-0 float32 looked up: energies and virials the same bits True (A twice: True); forces B-A 6.7e-15, A-A 8.1e-15 eV/A: same",
+  "ens4-f32-0 float32 stored: energies and virials the same bits True (A twice: True); forces B-A 8.7e-15, A-A 6.7e-15 eV/A: same",
+  "ens4-f32-0 float32 exact: energies and virials the same bits True (A twice: True); forces B-A 9.0e-15, A-A 7.3e-15 eV/A: same",
+  "ens4-f32-0 float64 looked up: energies and virials the same bits True (A twice: True); forces B-A 6.7e-15, A-A 6.2e-15 eV/A: same",
+  "ens4-f32-0 float64 stored: energies and virials the same bits True (A twice: True); forces B-A 7.8e-15, A-A 8.1e-15 eV/A: same",
+  "ens4-f32-0 float64 exact: energies and virials the same bits True (A twice: True); forces B-A 7.2e-15, A-A 6.4e-15 eV/A: same",
+  "model-0 float32 looked up: energies and virials the same bits True (A twice: True); forces B-A 5.8e-15, A-A 7.8e-15 eV/A: same",
+  "model-0 float32 stored: energies and virials the same bits True (A twice: True); forces B-A 8.0e-15, A-A 8.9e-15 eV/A: same",
+  "model-0 float32 exact: energies and virials the same bits True (A twice: True); forces B-A 9.5e-15, A-A 6.2e-15 eV/A: same",
+  "model-0 float64 looked up: energies and virials the same bits True (A twice: True); forces B-A 7.1e-15, A-A 5.8e-15 eV/A: same",
+  "model-0 float64 stored: energies and virials the same bits True (A twice: True); forces B-A 5.8e-15, A-A 6.6e-15 eV/A: same",
+  "model-0 float64 exact: energies and virials the same bits True (A twice: True); forces B-A 6.6e-15, A-A 7.1e-15 eV/A: same",
+  "all the same"
+ ],
+ "small": {
+  "what": "ab_small.py OUT.json ROUNDS LABEL=EXE[@ARGS] ...: builds alternated on the small HAP and water cases.\n\nARGS (after @) are extra evaluator arguments separated by ';'. Each case is one process per build and round\nwith `--bench K` and `--bench-batches` (batches of the same frame); the least ms_per_eval of every (case, batch)\nis kept. The card is checked for other users before every round (tools/ht/gpu_busy.ps1). ONLY (env): words of\ncase names, by comma. The first build is the reference of the ratios.",
+  "rounds": 3,
+  "builds": [
+   {
+    "label": "base",
+    "build": "base: 5490c4e (TANG-LAB-WHU/omniMD#44), a warp per neighbor slot",
+    "settings": []
+   },
+   {
+    "label": "new",
+    "build": "new: this change, 8 lanes per slot in float32 and 16 in float64",
+    "settings": []
+   },
+   {
+    "label": "base2",
+    "build": "base: 5490c4e (TANG-LAB-WHU/omniMD#44), a warp per neighbor slot, again",
+    "settings": []
+   }
+  ],
+  "seconds_waited_for_the_card": [
+   0,
+   0,
+   0
+  ],
+  "us_per_evaluation": [
+   {
+    "case": "HAP se_e2_a f32 tables, 88 x1",
+    "centers": 88,
+    "base": 138.66,
+    "new": 135.43,
+    "base2": 141.36
+   },
+   {
+    "case": "HAP se_e2_a f32 tables, 88 x4",
+    "centers": 352,
+    "base": 254.61,
+    "new": 247.15,
+    "base2": 255.39
+   },
+   {
+    "case": "HAP se_e2_a f32 tables, 88 x12",
+    "centers": 1056,
+    "base": 574.13,
+    "new": 557.05,
+    "base2": 563.75
+   },
+   {
+    "case": "HAP se_e2_a f32 tables, 169 x1",
+    "centers": 169,
+    "base": 173.19,
+    "new": 168.35,
+    "base2": 171.99
+   },
+   {
+    "case": "HAP se_e2_a f32 tables, 169 x3",
+    "centers": 507,
+    "base": 331.72,
+    "new": 320.74,
+    "base2": 329.52
+   },
+   {
+    "case": "HAP se_e2_a f32 tables, 224 x1",
+    "centers": 224,
+    "base": 190.69,
+    "new": 186.78,
+    "base2": 190.62
+   },
+   {
+    "case": "HAP se_e2_a f32 tables, 224 x4",
+    "centers": 896,
+    "base": 513.77,
+    "new": 508.08,
+    "base2": 512.75
+   },
+   {
+    "case": "HAP se_e2_a f64 tables, 88 x1",
+    "centers": 88,
+    "base": 397.42,
+    "new": 383.92,
+    "base2": 396.2
+   },
+   {
+    "case": "HAP se_e2_a f64 tables, 88 x4",
+    "centers": 352,
+    "base": 1071.25,
+    "new": 1034.2,
+    "base2": 1079.78
+   },
+   {
+    "case": "HAP se_e2_r f32 tables, 88 x1",
+    "centers": 88,
+    "base": 108.95,
+    "new": 107.88,
+    "base2": 110.0
+   },
+   {
+    "case": "HAP se_e2_r f32 tables, 88 x4",
+    "centers": 352,
+    "base": 180.05,
+    "new": 180.04,
+    "base2": 178.52
+   },
+   {
+    "case": "HAP se_e2_a with se_e3 f32 tables, 88 x1",
+    "centers": 88,
+    "base": 203.84,
+    "new": 200.3,
+    "base2": 206.83
+   },
+   {
+    "case": "HAP committee of four f32 tables, 88 x1",
+    "centers": 352,
+    "base": 300.72,
+    "new": 291.33,
+    "base2": 299.49
+   },
+   {
+    "case": "HAP committee of four f32 tables, 224 x1",
+    "centers": 896,
+    "base": 498.67,
+    "new": 490.14,
+    "base2": 493.55
+   },
+   {
+    "case": "water se_e2_a f32 tables, 192 x1",
+    "centers": 192,
+    "base": 181.68,
+    "new": 177.45,
+    "base2": 181.7
+   },
+   {
+    "case": "water se_e2_a f32 tables, 192 x4",
+    "centers": 768,
+    "base": 449.3,
+    "new": 455.17,
+    "base2": 455.87
+   },
+   {
+    "case": "water se_e2_a f32 tables, 1536 x1",
+    "centers": 1536,
+    "base": 605.24,
+    "new": 579.25,
+    "base2": 600.99
+   }
+  ]
+ },
+ "trainer_f32": {
+  "date": "2026-11-22",
+  "device": "NVIDIA GeForce RTX 4090",
+  "what": "omnimd-native-gpu-train, 3,000 steps of the first-pass dataset of the HAP iteration 0 (171 frames, 54 to 224 atoms, a frame a step) in float32 from seed 11, learning rate 1e-3 to 3e-8, energy, force and virial terms. Two builds alternated in 3 rounds in one session, the best rate of each kept; the build before twice a round, so that `before_again` against `before` shows what the machine adds",
+  "models": {
+   "se_e2_a to 6 A, the pipeline model": {
+    "type_map": [
+     "Ca",
+     "P",
+     "O",
+     "H",
+     "C"
+    ],
+    "descriptor": {
+     "type": "se_e2_a",
+     "sel": [
+      44,
+      16,
+      60,
+      72,
+      20
+     ],
+     "rcut_smth": 0.5,
+     "rcut": 6.0,
+     "neuron": [
+      25,
+      50,
+      100
+     ],
+     "axis_neuron": 16,
+     "resnet_dt": false,
+     "type_one_side": false,
+     "seed": 11
+    },
+    "fitting_net": {
+     "neuron": [
+      240,
+      240,
+      240
+     ],
+     "resnet_dt": true,
+     "seed": 11
+    }
+   },
+   "se_e3 to 4 A": {
+    "type_map": [
+     "Ca",
+     "P",
+     "O",
+     "H",
+     "C"
+    ],
+    "descriptor": {
+     "type": "se_e3",
+     "sel": [
+      16,
+      8,
+      20,
+      24,
+      8
+     ],
+     "rcut_smth": 0.5,
+     "rcut": 4.0,
+     "neuron": [
+      10,
+      20,
+      40
+     ],
+     "resnet_dt": false,
+     "seed": 11
+    },
+    "fitting_net": {
+     "neuron": [
+      240,
+      240,
+      240
+     ],
+     "resnet_dt": true,
+     "seed": 11
+    }
+   }
+  },
+  "builds": {
+   "before": "omnimd-native-gpu-train of commit 5490c4e",
+   "after": "omnimd-native-gpu-train with groups of lanes"
+  },
+  "steps_per_second": [
+   {
+    "model": "se_e2_a to 6 A, the pipeline model",
+    "before": 623.1,
+    "after": 627.1,
+    "before_again": 622.5
+   },
+   {
+    "model": "se_e3 to 4 A",
+    "before": 1469.4,
+    "after": 1476.5,
+    "before_again": 1481.9
+   }
+  ]
+ },
+ "trainer_f64": {
+  "date": "2026-11-22",
+  "device": "NVIDIA GeForce RTX 4090",
+  "what": "omnimd-native-gpu-train, 3,000 steps of the first-pass dataset of the HAP iteration 0 (171 frames, 54 to 224 atoms, a frame a step) in float64 from seed 11, learning rate 1e-3 to 3e-8, energy, force and virial terms. Two builds alternated in 3 rounds in one session, the best rate of each kept; the build before twice a round, so that `before_again` against `before` shows what the machine adds",
+  "models": {
+   "se_e2_a to 6 A, the pipeline model": {
+    "type_map": [
+     "Ca",
+     "P",
+     "O",
+     "H",
+     "C"
+    ],
+    "descriptor": {
+     "type": "se_e2_a",
+     "sel": [
+      44,
+      16,
+      60,
+      72,
+      20
+     ],
+     "rcut_smth": 0.5,
+     "rcut": 6.0,
+     "neuron": [
+      25,
+      50,
+      100
+     ],
+     "axis_neuron": 16,
+     "resnet_dt": false,
+     "type_one_side": false,
+     "seed": 11
+    },
+    "fitting_net": {
+     "neuron": [
+      240,
+      240,
+      240
+     ],
+     "resnet_dt": true,
+     "seed": 11
+    }
+   },
+   "se_e3 to 4 A": {
+    "type_map": [
+     "Ca",
+     "P",
+     "O",
+     "H",
+     "C"
+    ],
+    "descriptor": {
+     "type": "se_e3",
+     "sel": [
+      16,
+      8,
+      20,
+      24,
+      8
+     ],
+     "rcut_smth": 0.5,
+     "rcut": 4.0,
+     "neuron": [
+      10,
+      20,
+      40
+     ],
+     "resnet_dt": false,
+     "seed": 11
+    },
+    "fitting_net": {
+     "neuron": [
+      240,
+      240,
+      240
+     ],
+     "resnet_dt": true,
+     "seed": 11
+    }
+   }
+  },
+  "builds": {
+   "before": "omnimd-native-gpu-train of commit 5490c4e",
+   "after": "omnimd-native-gpu-train with groups of lanes"
+  },
+  "steps_per_second": [
+   {
+    "model": "se_e2_a to 6 A, the pipeline model",
+    "before": 283.9,
+    "after": 286.3,
+    "before_again": 283.4
+   },
+   {
+    "model": "se_e3 to 4 A",
+    "before": 412.3,
+    "after": 412.1,
+    "before_again": 411.6
+   }
+  ]
+ },
+ "tables_and_stored_agree": {
+  "what": "agree.py NEW OLD OUT.json: se_e2_a kernels that look the tables up against those that read stored values, on trained nets.\n\nFor each trained se_e2_a model (hap-iter0-pre/ens4-f32-0, trained by omniMD, and hap/model-0, the pipeline's iteration by\nDeePMD-kit) the 83 sealed-test frames (bench/cases/hap/frames.jsonl) are evaluated in float32 and float64: with NEW looking\nthe tables up (--inline-tables on) and reading them stored (--inline-tables off), with OLD (the build before, which reads\nthem stored), all with tables from 0.5 A, and with NEW's exact nets. Printed and recorded: the largest difference over the\nframes of the energy per atom, of a force component and of a virial component for each pair.",
+  "new": "new1.exe (this change before its comments and tests were final)",
+  "old": "5490c4e (TANG-LAB-WHU/omniMD#44)",
+  "frames": "mlmd/bench/cases/hap/frames.jsonl",
+  "results": [
+   {
+    "model": "ens4-f32-0",
+    "precision": "float32",
+    "path_line": "precision: network f32, chunk 48781 atoms, embedding tabulated, looked up by the kernels",
+    "inline_vs_stored": {
+     "energy_per_atom": 0.0,
+     "force": 8.382183835919932e-15,
+     "virial": 0.0
+    },
+    "inline_vs_old": {
+     "energy_per_atom": 0.0,
+     "force": 1.4804146926117312e-06,
+     "virial": 9.97026184901273e-06
+    },
+    "inline_vs_exact": {
+     "energy_per_atom": 1.5713951804421164e-07,
+     "force": 7.949766437143069e-06,
+     "virial": 4.908086253152533e-05
+    },
+    "stored_vs_exact": {
+     "energy_per_atom": 1.5713951804421164e-07,
+     "force": 7.949766441139872e-06,
+     "virial": 4.908086253152533e-05
+    },
+    "largest_force": 6.111562179497367
+   },
+   {
+    "model": "ens4-f32-0",
+    "precision": "float64",
+    "path_line": "precision: network f64, chunk 24398 atoms, embedding tabulated, looked up by the kernels",
+    "inline_vs_stored": {
+     "energy_per_atom": 0.0,
+     "force": 6.661338147750939e-15,
+     "virial": 0.0
+    },
+    "inline_vs_old": {
+     "energy_per_atom": 0.0,
+     "force": 7.993605777301127e-15,
+     "virial": 8.526512829121202e-14
+    },
+    "inline_vs_exact": {
+     "energy_per_atom": 1.3473995581821158e-13,
+     "force": 8.818124008769246e-11,
+     "virial": 3.66064512036246e-10
+    },
+    "stored_vs_exact": {
+     "energy_per_atom": 1.3473995581821158e-13,
+     "force": 8.818146213229738e-11,
+     "virial": 3.66064512036246e-10
+    },
+    "largest_force": 6.11156355128795
+   },
+   {
+    "model": "model-0",
+    "precision": "float32",
+    "path_line": "precision: network f32, chunk 48781 atoms, embedding tabulated, looked up by the kernels",
+    "inline_vs_stored": {
+     "energy_per_atom": 0.0,
+     "force": 1.3322676295501878e-14,
+     "virial": 0.0
+    },
+    "inline_vs_old": {
+     "energy_per_atom": 0.0,
+     "force": 1.3113795551689122e-06,
+     "virial": 8.185293981721742e-06
+    },
+    "inline_vs_exact": {
+     "energy_per_atom": 9.006924099392361e-08,
+     "force": 8.101732141163609e-06,
+     "virial": 7.141093580997904e-05
+    },
+    "stored_vs_exact": {
+     "energy_per_atom": 9.006924099392361e-08,
+     "force": 8.10173214071952e-06,
+     "virial": 7.141093580997904e-05
+    },
+    "largest_force": 6.10888396134915
+   },
+   {
+    "model": "model-0",
+    "precision": "float64",
+    "path_line": "precision: network f64, chunk 24398 atoms, embedding tabulated, looked up by the kernels",
+    "inline_vs_stored": {
+     "energy_per_atom": 0.0,
+     "force": 7.93809462606987e-15,
+     "virial": 0.0
+    },
+    "inline_vs_old": {
+     "energy_per_atom": 0.0,
+     "force": 9.992007221626409e-15,
+     "virial": 5.684341886080802e-14
+    },
+    "inline_vs_exact": {
+     "energy_per_atom": 9.094947017729283e-14,
+     "force": 7.757638975647296e-11,
+     "virial": 3.496154477033997e-10
+    },
+    "stored_vs_exact": {
+     "energy_per_atom": 9.094947017729283e-14,
+     "force": 7.757661180107789e-11,
+     "virial": 3.496154477033997e-10
+    },
+    "largest_force": 6.10888180379049
+   }
+  ]
+ },
+ "phases_before": {
+  "what": "fl_ab.py OUT.json ROUNDS CASES LABEL=EXE[@VAR=VAL;VAR=VAL] ...: builds and settings alternated on force-kernel cases.\n\nCASES, joined by ',': w<atoms>[-f64][-nt] (water se_e2_a, float32 with tables unless -f64 / -nt: no tables),\nhap<k> (HAP model k of hap-iter0-pre/ens4-f32 on the 88-atom frame, float32 with tables), ens4 (the committee of\nfour on 88 atoms), h169 and h169x3 (one and three HAP models on the 169-atom frame), h224 (one on monetite, 224\natoms); -f64 after a HAP case: float64 (tables stored, the default). Every round runs every build on every case,\nbuilds in order and reversed every other round, each run `--bench K --profile`; the evaluation time is the bench\nloop's (no marks), the stage times the profile loop's. Records the header `force blocks at once` per build and\ncase. Run it held to the P-cores (tools/pk/affine.py 0xFFFC).",
+  "note": "Builds of 5490c4e (the kernel before this change) with probes: OMNIMD_FORCE_PROBE=stop:repeats launches the force kernel of se_e2_a `repeats` (4) more times before its own launch, each returning after step `stop` (1 at entry, 2 after the copy of B and the pieces of the slots, 3 after dB, 4 after the slots, 5 after the Jacobians, 0 all of it); the stop travels in the high bits of `add`, so no phase is compiled away. The kernel up to a stop is (forces(stop) - forces(none)) / 4. probe2 and probe3 add flags to the launches stopped after phase 2, phase 2 under a flag being (forces(4:4:flag) - forces(3:4)) / 4 of the same probe build: 1 every slot of a block reads the row of slot 0 (probe2), 2 the coefficients of a table read across the lanes, 4 no sums over the warp, 8 no tangent (probe3). Medians of the forces stage, us.",
+  "rounds": 3,
+  "card_busy_before_rounds": [],
+  "cases": {
+   "w1536": {
+    "kernel_up_to_stop": {
+     "1": 2.68,
+     "2": 5.77,
+     "3": 12.77,
+     "4": 92.31,
+     "5": 96.48,
+     "0": 102.99
+    },
+    "phase_2": 79.54,
+    "phase_2_probe2": {
+     "0": 80.15,
+     "1": 79.91
+    },
+    "phase_2_probe3": {
+     "0": 70.32,
+     "2": 73.14,
+     "4": 44.47,
+     "8": 70.87
+    },
+    "forces_medians": {
+     "p_none": 98.0,
+     "p_s1": 108.73,
+     "p_s2": 121.08,
+     "p_s3": 149.07,
+     "p_s4": 467.24,
+     "p_s5": 483.92,
+     "p_s0": 509.96,
+     "r_s3": 149.17,
+     "r_f0": 469.76,
+     "r_f1": 468.8,
+     "q_s3": 145.27,
+     "q_f0": 426.55,
+     "q_f2": 437.84,
+     "q_f4": 323.14,
+     "q_f8": 428.73
+    }
+   },
+   "w12288": {
+    "kernel_up_to_stop": {
+     "1": 7.44,
+     "2": 27.81,
+     "3": 139.21,
+     "4": 659.59,
+     "5": 683.18,
+     "0": 725.47
+    },
+    "phase_2": 520.38,
+    "phase_2_probe2": {
+     "0": 527.47,
+     "1": 517.88
+    },
+    "phase_2_probe3": {
+     "0": 454.75,
+     "2": 455.96,
+     "4": 317.7,
+     "8": 449.83
+    },
+    "forces_medians": {
+     "p_none": 755.09,
+     "p_s1": 784.86,
+     "p_s2": 866.33,
+     "p_s3": 1311.91,
+     "p_s4": 3393.46,
+     "p_s5": 3487.8,
+     "p_s0": 3656.98,
+     "r_s3": 1310.93,
+     "r_f0": 3420.8,
+     "r_f1": 3382.46,
+     "q_s3": 1255.07,
+     "q_f0": 3074.06,
+     "q_f2": 3078.92,
+     "q_f4": 2525.86,
+     "q_f8": 3054.41
+    }
+   },
+   "w1536-nt": {
+    "kernel_up_to_stop": {
+     "1": 2.72,
+     "2": 3.44,
+     "3": 10.78,
+     "4": 153.72,
+     "5": 175.42,
+     "0": 198.4
+    },
+    "phase_2": 142.94,
+    "phase_2_probe2": {
+     "0": 143.08,
+     "1": 72.98
+    },
+    "phase_2_probe3": {
+     "0": 142.02,
+     "2": 143.95,
+     "4": 140.63,
+     "8": 141.32
+    },
+    "forces_medians": {
+     "p_none": 208.93,
+     "p_s1": 219.82,
+     "p_s2": 222.69,
+     "p_s3": 252.05,
+     "p_s4": 823.82,
+     "p_s5": 910.6,
+     "p_s0": 1002.53,
+     "r_s3": 251.06,
+     "r_f0": 823.37,
+     "r_f1": 542.98,
+     "q_s3": 250.88,
+     "q_f0": 818.95,
+     "q_f2": 826.69,
+     "q_f4": 813.39,
+     "q_f8": 816.16
+    }
+   }
+  }
+ },
+ "mutants": {
+  "what": "mutants_fl.py: 14 mutants of phase 2 (which slots a group takes, which are live, the outputs of a lane, the sums over the group, the write), each run against gpu_parity and gpu_train in release.",
+  "first_round": [
+   "mutant 0 -> failed: a_hybrid_trains_in_float32_and_fits_a_teacher, a_hybrid_trains_like_the_inference_path, a_hybrid_with_se_e3_trains_like_the_inference_path, a_neighbor_just_inside_the_cutoff_stays_in_its_table [57], passed 7 in 2 results",
+   "mutant 1 -> failed:  [0], passed 64 in 2 results",
+   "mutant 2 -> failed:  [0], passed 64 in 2 results",
+   "mutant 3 -> failed: a_batch_of_frames_matches_each_frame_alone, a_committee_matches_its_members_alone, a_hybrid_reports_the_neighbors_a_descriptor_drops, a_hybrid_trains_in_float32_and_fits_a_teacher [31], passed 33 in 2 results",
+   "mutant 4 -> failed: a_batch_of_frames_matches_each_frame_alone, a_committee_matches_its_members_alone, a_frame_seen_before_is_not_prepared_again, a_hybrid_keeps_the_tables_of_a_frame_it_has_seen [47], passed 17 in 2 results",
+   "mutant 5 -> failed: a_batch_of_frames_matches_each_frame_alone, a_committee_matches_its_members_alone, a_hybrid_reports_the_neighbors_a_descriptor_drops, a_hybrid_trains_in_float32_and_fits_a_teacher [37], passed 27 in 2 results",
+   "mutant 6 -> failed: a_batch_of_frames_matches_each_frame_alone, a_committee_matches_its_members_alone, a_frame_seen_before_is_not_prepared_again, a_hybrid_keeps_the_tables_of_a_frame_it_has_seen [46], passed 18 in 2 results",
+   "mutant 7 -> failed: a_batch_of_frames_matches_each_frame_alone, a_committee_matches_its_members_alone, a_hybrid_reports_the_neighbors_a_descriptor_drops, a_hybrid_trains_in_float32_and_fits_a_teacher [31], passed 33 in 2 results",
+   "mutant 8 -> failed: a_neighbor_just_inside_the_cutoff_stays_in_its_table, compressed_embedding_matches_cpu_and_falls_back_outside_the_table, hybrid_in_float32_compressed_in_batches_and_committees, tables_looked_up_by_the_kernels_match_the_stored_values [6], passed 58 in 2 results",
+   "mutant 9 -> failed: a_batch_of_frames_matches_each_frame_alone, a_committee_matches_its_members_alone, a_hybrid_reports_the_neighbors_a_descriptor_drops, a_hybrid_trains_like_the_inference_path [29], passed 35 in 2 results",
+   "mutant 10 -> failed: a_batch_of_frames_matches_each_frame_alone, a_committee_matches_its_members_alone, a_hybrid_reports_the_neighbors_a_descriptor_drops, a_hybrid_trains_in_float32_and_fits_a_teacher [30], passed 34 in 2 results",
+   "mutant 11 -> failed: a_batch_of_frames_matches_each_frame_alone, a_committee_matches_its_members_alone, a_hybrid_reports_the_neighbors_a_descriptor_drops, a_hybrid_trains_in_float32_and_fits_a_teacher [31], passed 33 in 2 results",
+   "mutant 12 -> failed: a_batch_of_frames_matches_each_frame_alone, a_committee_matches_its_members_alone, a_hybrid_reports_the_neighbors_a_descriptor_drops, a_hybrid_trains_in_float32_and_fits_a_teacher [30], passed 34 in 2 results",
+   "mutant 13 -> failed: a_batch_of_frames_matches_each_frame_alone, a_committee_matches_its_members_alone, a_frame_seen_before_is_not_prepared_again, a_hybrid_keeps_the_tables_of_a_frame_it_has_seen [46], passed 18 in 2 results",
+   "done"
+  ],
+  "after_the_tests_of_the_commit": [
+   "mutant 7 -> failed: a_batch_of_frames_matches_each_frame_alone, a_committee_matches_its_members_alone, a_hybrid_reports_the_neighbors_a_descriptor_drops, a_hybrid_trains_in_float32_and_fits_a_teacher [32], passed 32 in 2 results",
+   "mutant 9 -> failed: a_batch_of_frames_matches_each_frame_alone, a_committee_matches_its_members_alone, a_hybrid_reports_the_neighbors_a_descriptor_drops, a_hybrid_trains_like_the_inference_path [29], passed 35 in 2 results"
+  ],
+  "notes": [
+   "Mutant 7 (a lane takes the outputs of half the group: both ways equally wrong) now also fails tables_looked_up_by_the_kernels_match_the_stored_values at \"40 outputs, float32 looked up, against the CPU\", which it passed before the float32 passes were held to the CPU.",
+   "Mutants 1 (the write without `live`) and 2 (`live` without `index >= 0`) survive and are equivalent: a group past the last slot writes zeros at most 60 bytes (float32) or 40 (float64) past the five sums of the slots, into the twelve doubles of the block sums, which phase 0 cleared and nothing touches before them; the sums of an empty slot land where phase 3 never reads."
+  ]
+ },
+ "sanitizers": [
+  "memcheck gpu_parity: exit 0, 11 s; test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 31 filtered out; finished in 10.27s | ========= ERROR SUMMARY: 0 errors",
+  "memcheck gpu_train: exit 0, 23 s; test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 22 filtered out; finished in 22.67s | ========= ERROR SUMMARY: 0 errors",
+  "racecheck gpu_parity: exit 0, 545 s; test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 31 filtered out; finished in 544.81s | ========= RACECHECK SUMMARY: 0 hazards displayed (0 errors, 0 warnings)",
+  "racecheck gpu_train: exit 0, 2033 s; test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 22 filtered out; finished in 2032.32s | ========= RACECHECK SUMMARY: 0 hazards displayed (0 errors, 0 warnings)",
+  "synccheck gpu_parity: exit 0, 8 s; test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 31 filtered out; finished in 8.13s | ========= ERROR SUMMARY: 0 errors",
+  "synccheck gpu_train: exit 0, 6 s; test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 22 filtered out; finished in 6.16s | ========= ERROR SUMMARY: 0 errors"
+ ]
+}
