@@ -461,11 +461,12 @@ this crate (`omnimd_native::gpu_model::GpuPotential`) takes two kinds of it:
   to the sums of each frame, its energy by type and its virial: one more
   kernel adds up the atoms of each frame in segments of at most 256, a block
   each, in an order that depends on the frame alone, and only these sums go
-  back with the forces. A pass of fewer than 384 centers (atoms times
+  back with the forces. A pass of fewer than 576 centers (atoms times
   models) copies the atomic energies and virials back instead, and the host
   adds them in the kernel's order, to the same bits: below that the
-  device's sums measured slower (`DEVICE_SUMS_CENTERS` in
-  `native/src/gpu_model.rs`).
+  device's sums measured slower or no faster (`DEVICE_SUMS_CENTERS` in
+  `native/src/gpu_model.rs`; 384 until the host's sums in that order got
+  cheaper, [timings](../bench/results/SUMMARY.md)).
 - **Several models in one pass.** Models of one architecture, such as an
   ensemble kept for model deviation, are the second dimension of the launch
   grid. Model `m` reads the same neighbor lists, finds its statistics and

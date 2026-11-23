@@ -1,0 +1,2029 @@
+{
+ "date": "2026-11-22",
+ "device": "NVIDIA GeForce RTX 4090",
+ "host": "i9-14900K, the host side held to the performance cores",
+ "what": "The host sums of each frame in the kernel's order with less work, and the threshold of the device's sums measured again (576 centers instead of 384). See SUMMARY.md, 2026-11-22.",
+ "beside_the_timings": "Two processes of `find / -maxdepth 6 -type d -name cudarc-...` (left by agents of an earlier review, one core each) ran beside every timing of this record, as beside the later timings of the host path; stopping them was not allowed in the session.",
+ "host_finish_small": {
+  "what": "host_finish_probe.py OUT.json ROUNDS LABEL=EXE ...: the committee of four HAP models on the 88-atom frame and the\nHAP se_e2_a model alone on it (float32, tables), one process per build, case and round with `--bench 1500 --profile`,\nbuilds in order and reversed every other round; the medians over the rounds of the host's time after the copy back\n(host_finish), before the first device call (host_prepare) and of the device's download stage (by marks), in us, and\nthe least time of an evaluation (of the bench loop, without marks), in us.",
+  "rounds": 5,
+  "builds": [
+   {
+    "label": "base",
+    "build": "base: 46a9a91, the build before the host path (built from 04ac051, whose sources differ from it in one doc comment)"
+   },
+   {
+    "label": "a1",
+    "build": "a1: a build on the way to the host path: results into page-locked memory, the species matched by integer keys, the sort buffers kept; the host sums every frame in plain order"
+   },
+   {
+    "label": "A",
+    "build": "A: ba1f057, the host path (TANG-LAB-WHU/omniMD#43), whose host forms the sums below 384 centers in the kernel's order"
+   },
+   {
+    "label": "new",
+    "build": "new-384: the faster host sums of this change, the threshold still at 384"
+   }
+  ],
+  "summary_us": [
+   {
+    "case": "committee of four, 88",
+    "build": "base",
+    "eval_least": 302.03,
+    "host_finish": 9.09,
+    "host_prepare": 1.96,
+    "download": 31.6
+   },
+   {
+    "case": "committee of four, 88",
+    "build": "a1",
+    "eval_least": 300.96,
+    "host_finish": 8.6,
+    "host_prepare": 1.66,
+    "download": 30.23
+   },
+   {
+    "case": "committee of four, 88",
+    "build": "A",
+    "eval_least": 303.63,
+    "host_finish": 12.65,
+    "host_prepare": 1.68,
+    "download": 30.24
+   },
+   {
+    "case": "committee of four, 88",
+    "build": "new",
+    "eval_least": 299.27,
+    "host_finish": 9.48,
+    "host_prepare": 1.7,
+    "download": 29.6
+   },
+   {
+    "case": "one model, 88",
+    "build": "base",
+    "eval_least": 141.99,
+    "host_finish": 5.18,
+    "host_prepare": 1.71,
+    "download": 19.42
+   },
+   {
+    "case": "one model, 88",
+    "build": "a1",
+    "eval_least": 138.34,
+    "host_finish": 5.49,
+    "host_prepare": 1.6,
+    "download": 17.74
+   },
+   {
+    "case": "one model, 88",
+    "build": "A",
+    "eval_least": 139.04,
+    "host_finish": 6.45,
+    "host_prepare": 1.56,
+    "download": 19.54
+   },
+   {
+    "case": "one model, 88",
+    "build": "new",
+    "eval_least": 137.76,
+    "host_finish": 5.35,
+    "host_prepare": 1.5,
+    "download": 17.27
+   }
+  ],
+  "samples": [
+   {
+    "case": "committee of four, 88",
+    "build": "base",
+    "ms_per_eval": [
+     0.306693,
+     0.304853,
+     0.303504,
+     0.302031,
+     0.30622
+    ],
+    "host_finish_ms": [
+     0.009532266666666633,
+     0.008396199999999973,
+     0.008709866666666646,
+     0.009172799999999974,
+     0.00908506666666662
+    ],
+    "host_prepare_ms": [
+     0.002023533333333328,
+     0.001869799999999994,
+     0.0019435333333333326,
+     0.0021017333333333238,
+     0.0019620666666666634
+    ],
+    "download_ms": [
+     0.03180770130952199,
+     0.03098423465155065,
+     0.030599018725877006,
+     0.03220703997587164,
+     0.031603050544237093
+    ]
+   },
+   {
+    "case": "committee of four, 88",
+    "build": "a1",
+    "ms_per_eval": [
+     0.300958,
+     0.302294,
+     0.300956,
+     0.300955,
+     0.30399
+    ],
+    "host_finish_ms": [
+     0.01041886666666667,
+     0.008496400000000001,
+     0.008598800000000002,
+     0.008410066666666677,
+     0.008814533333333341
+    ],
+    "host_prepare_ms": [
+     0.001815933333333336,
+     0.0016626666666666695,
+     0.0016651333333333417,
+     0.001614800000000007,
+     0.001556333333333348
+    ],
+    "download_ms": [
+     0.030407274726157386,
+     0.030231274631495275,
+     0.029559914691373704,
+     0.02937213860079646,
+     0.03048057592784365
+    ]
+   },
+   {
+    "case": "committee of four, 88",
+    "build": "A",
+    "ms_per_eval": [
+     0.306441,
+     0.306408,
+     0.303634,
+     0.304234,
+     0.308365
+    ],
+    "host_finish_ms": [
+     0.01270673333333329,
+     0.012653199999999967,
+     0.012476266666666659,
+     0.012390199999999974,
+     0.012754733333333327
+    ],
+    "host_prepare_ms": [
+     0.0017272666666666725,
+     0.0016778666666666863,
+     0.0017006000000000091,
+     0.0016466000000000074,
+     0.0016602666666666788
+    ],
+    "download_ms": [
+     0.03120379719821115,
+     0.029760405285904803,
+     0.030412117335945368,
+     0.030240746634081005,
+     0.029464767838517824
+    ]
+   },
+   {
+    "case": "committee of four, 88",
+    "build": "new",
+    "ms_per_eval": [
+     0.307204,
+     0.302513,
+     0.299273,
+     0.301997,
+     0.302149
+    ],
+    "host_finish_ms": [
+     0.009483600000000014,
+     0.009774933333333359,
+     0.008686533333333355,
+     0.009327133333333352,
+     0.009687200000000005
+    ],
+    "host_prepare_ms": [
+     0.001558333333333347,
+     0.0017372666666666675,
+     0.001510333333333356,
+     0.001702133333333338,
+     0.0018648666666666737
+    ],
+    "download_ms": [
+     0.029597695955385764,
+     0.030810282617186505,
+     0.029070229227344195,
+     0.028915477293853957,
+     0.03098327464610338
+    ]
+   },
+   {
+    "case": "one model, 88",
+    "build": "base",
+    "ms_per_eval": [
+     0.142885,
+     0.141994,
+     0.142182,
+     0.146295,
+     0.146513
+    ],
+    "host_finish_ms": [
+     0.0059484000000000065,
+     0.005415666666666671,
+     0.005180933333333333,
+     0.005180533333333346,
+     0.004976000000000003
+    ],
+    "host_prepare_ms": [
+     0.001960866666666664,
+     0.0017890666666666697,
+     0.00169593333333334,
+     0.001700333333333335,
+     0.0017066000000000002
+    ],
+    "download_ms": [
+     0.021195733370259404,
+     0.018649792024244865,
+     0.018262848069270452,
+     0.019419370751207074,
+     0.019814741347605982
+    ]
+   },
+   {
+    "case": "one model, 88",
+    "build": "a1",
+    "ms_per_eval": [
+     0.138344,
+     0.138971,
+     0.144716,
+     0.148737,
+     0.148201
+    ],
+    "host_finish_ms": [
+     0.005494666666666661,
+     0.005471999999999996,
+     0.005522533333333328,
+     0.005158533333333338,
+     0.005534066666666664
+    ],
+    "host_prepare_ms": [
+     0.0016040000000000112,
+     0.0015600000000000115,
+     0.0018661333333333226,
+     0.0014455333333333572,
+     0.0016109333333333418
+    ],
+    "download_ms": [
+     0.01995229878897468,
+     0.017741781476885078,
+     0.017423146813487014,
+     0.01588243216648698,
+     0.018511274768039584
+    ]
+   },
+   {
+    "case": "one model, 88",
+    "build": "A",
+    "ms_per_eval": [
+     0.139038,
+     0.140771,
+     0.139934,
+     0.147234,
+     0.148582
+    ],
+    "host_finish_ms": [
+     0.006454866666666625,
+     0.006200666666666629,
+     0.005951599999999975,
+     0.006845999999999987,
+     0.006984466666666625
+    ],
+    "host_prepare_ms": [
+     0.0015557333333333532,
+     0.0015210000000000165,
+     0.0015205333333333498,
+     0.0015945333333333448,
+     0.0016922666666666772
+    ],
+    "download_ms": [
+     0.01953815484729906,
+     0.01738208015759786,
+     0.018021205451960363,
+     0.019558186770106355,
+     0.0201232428625226
+    ]
+   },
+   {
+    "case": "one model, 88",
+    "build": "new",
+    "ms_per_eval": [
+     0.141752,
+     0.137759,
+     0.138918,
+     0.144726,
+     0.148541
+    ],
+    "host_finish_ms": [
+     0.006026000000000011,
+     0.005323933333333328,
+     0.005316733333333339,
+     0.00535133333333334,
+     0.005605066666666661
+    ],
+    "host_prepare_ms": [
+     0.0016244666666666724,
+     0.001501000000000017,
+     0.0014485333333333576,
+     0.00147660000000002,
+     0.0015261333333333525
+    ],
+    "download_ms": [
+     0.018716885423287748,
+     0.01710139747398595,
+     0.017269674837589264,
+     0.016948608132079244,
+     0.01872652813543876
+    ]
+   }
+  ]
+ },
+ "crossover_beside_a_merge": {
+  "what": "crossover.py: as ab_small.py on cases chosen around the threshold, one build with the sums on the device (--device-sums 0) and on the host (--device-sums 1000000000), the device a second time as control.",
+  "rounds": 5,
+  "builds": [
+   {
+    "label": "dev",
+    "build": "new-384: the faster host sums of this change, the threshold still at 384",
+    "settings": [
+     "--device-sums",
+     "0"
+    ]
+   },
+   {
+    "label": "host",
+    "build": "new-384: the faster host sums of this change, the threshold still at 384",
+    "settings": [
+     "--device-sums",
+     "1000000000"
+    ]
+   },
+   {
+    "label": "dev2",
+    "build": "new-384: the faster host sums of this change, the threshold still at 384",
+    "settings": [
+     "--device-sums",
+     "0"
+    ]
+   }
+  ],
+  "seconds_waited_for_the_card": [
+   0,
+   0,
+   0,
+   0,
+   0
+  ],
+  "us_per_evaluation": [
+   {
+    "case": "HAP se_e2_a f32 tables, 88 x1",
+    "centers": 88,
+    "dev": 148.37,
+    "host": 140.18,
+    "dev2": 147.71
+   },
+   {
+    "case": "HAP se_e2_a f32 tables, 88 x2",
+    "centers": 176,
+    "dev": 174.29,
+    "host": 172.74,
+    "dev2": 179.28
+   },
+   {
+    "case": "HAP se_e2_a f32 tables, 88 x3",
+    "centers": 264,
+    "dev": 227.41,
+    "host": 225.57,
+    "dev2": 228.76
+   },
+   {
+    "case": "HAP se_e2_a f32 tables, 88 x4",
+    "centers": 352,
+    "dev": 259.14,
+    "host": 255.39,
+    "dev2": 256.54
+   },
+   {
+    "case": "HAP se_e2_a f32 tables, 88 x5",
+    "centers": 440,
+    "dev": 294.97,
+    "host": 296.14,
+    "dev2": 295.71
+   },
+   {
+    "case": "HAP se_e2_a f32 tables, 88 x6",
+    "centers": 528,
+    "dev": 345.94,
+    "host": 347.11,
+    "dev2": 348.1
+   },
+   {
+    "case": "HAP se_e2_a f32 tables, 88 x8",
+    "centers": 704,
+    "dev": 414.79,
+    "host": 417.17,
+    "dev2": 414.2
+   },
+   {
+    "case": "HAP se_e2_a f32 tables, 88 x12",
+    "centers": 1056,
+    "dev": 575.8,
+    "host": 601.97,
+    "dev2": 571.2
+   },
+   {
+    "case": "HAP se_e2_a f64 tables, 88 x1",
+    "centers": 88,
+    "dev": 404.43,
+    "host": 399.07,
+    "dev2": 408.0
+   },
+   {
+    "case": "HAP se_e2_a f64 tables, 88 x2",
+    "centers": 176,
+    "dev": 700.11,
+    "host": 695.72,
+    "dev2": 702.7
+   },
+   {
+    "case": "HAP se_e2_a f64 tables, 88 x3",
+    "centers": 264,
+    "dev": 1021.94,
+    "host": 1023.71,
+    "dev2": 1022.45
+   },
+   {
+    "case": "HAP se_e2_a f64 tables, 88 x4",
+    "centers": 352,
+    "dev": 1087.27,
+    "host": 1080.31,
+    "dev2": 1077.36
+   },
+   {
+    "case": "HAP se_e2_a f64 tables, 88 x6",
+    "centers": 528,
+    "dev": 1688.73,
+    "host": 1693.8,
+    "dev2": 1688.56
+   },
+   {
+    "case": "HAP se_e2_a f64 tables, 88 x8",
+    "centers": 704,
+    "dev": 2093.18,
+    "host": 2096.34,
+    "dev2": 2087.64
+   },
+   {
+    "case": "HAP se_e2_a f32 tables, 224 x1",
+    "centers": 224,
+    "dev": 195.28,
+    "host": 190.99,
+    "dev2": 193.85
+   },
+   {
+    "case": "HAP se_e2_a f32 tables, 224 x2",
+    "centers": 448,
+    "dev": 303.99,
+    "host": 299.21,
+    "dev2": 301.21
+   },
+   {
+    "case": "HAP se_e2_a f32 tables, 224 x3",
+    "centers": 672,
+    "dev": 409.66,
+    "host": 409.28,
+    "dev2": 408.21
+   },
+   {
+    "case": "HAP se_e2_a f32 tables, 224 x4",
+    "centers": 896,
+    "dev": 514.41,
+    "host": 516.84,
+    "dev2": 515.22
+   },
+   {
+    "case": "HAP se_e2_r f32 tables, 88 x1",
+    "centers": 88,
+    "dev": 119.75,
+    "host": 113.63,
+    "dev2": 116.78
+   },
+   {
+    "case": "HAP se_e2_r f32 tables, 88 x2",
+    "centers": 176,
+    "dev": 144.54,
+    "host": 140.34,
+    "dev2": 143.39
+   },
+   {
+    "case": "HAP se_e2_r f32 tables, 88 x4",
+    "centers": 352,
+    "dev": 182.02,
+    "host": 178.82,
+    "dev2": 183.05
+   },
+   {
+    "case": "HAP se_e2_r f32 tables, 88 x8",
+    "centers": 704,
+    "dev": 306.9,
+    "host": 308.76,
+    "dev2": 304.78
+   },
+   {
+    "case": "HAP se_e2_a with se_e3 f32 tables, 88 x1",
+    "centers": 88,
+    "dev": 224.45,
+    "host": 211.85,
+    "dev2": 227.97
+   },
+   {
+    "case": "HAP se_e2_a with se_e3 f32 tables, 88 x2",
+    "centers": 176,
+    "dev": 257.08,
+    "host": 248.97,
+    "dev2": 260.94
+   },
+   {
+    "case": "HAP se_e2_a with se_e3 f32 tables, 88 x4",
+    "centers": 352,
+    "dev": 349.76,
+    "host": 350.09,
+    "dev2": 348.22
+   },
+   {
+    "case": "HAP se_e2_a with se_e3 f32 tables, 88 x8",
+    "centers": 704,
+    "dev": 583.59,
+    "host": 586.75,
+    "dev2": 587.19
+   },
+   {
+    "case": "HAP committee of two f32 tables, 88 x1",
+    "centers": 176,
+    "dev": 182.84,
+    "host": 176.92,
+    "dev2": 180.91
+   },
+   {
+    "case": "HAP committee of two f32 tables, 88 x2",
+    "centers": 352,
+    "dev": 252.15,
+    "host": 249.19,
+    "dev2": 252.02
+   },
+   {
+    "case": "HAP committee of two f32 tables, 88 x4",
+    "centers": 704,
+    "dev": 418.68,
+    "host": 423.06,
+    "dev2": 419.76
+   },
+   {
+    "case": "HAP committee of four f32 tables, 88 x1",
+    "centers": 352,
+    "dev": 301.56,
+    "host": 301.58,
+    "dev2": 301.13
+   },
+   {
+    "case": "HAP committee of four f32 tables, 88 x2",
+    "centers": 704,
+    "dev": 434.45,
+    "host": 439.78,
+    "dev2": 434.27
+   },
+   {
+    "case": "HAP committee of four f32 tables, 169 x1",
+    "centers": 676,
+    "dev": 441.76,
+    "host": 441.06,
+    "dev2": 442.29
+   },
+   {
+    "case": "water se_e2_a f32 tables, 192 x1",
+    "centers": 192,
+    "dev": 186.93,
+    "host": 182.77,
+    "dev2": 186.86
+   },
+   {
+    "case": "water se_e2_a f32 tables, 192 x2",
+    "centers": 384,
+    "dev": 271.29,
+    "host": 270.45,
+    "dev2": 274.22
+   },
+   {
+    "case": "water se_e2_a f32 tables, 192 x3",
+    "centers": 576,
+    "dev": 370.64,
+    "host": 372.24,
+    "dev2": 369.83
+   },
+   {
+    "case": "water se_e2_a f32 tables, 192 x4",
+    "centers": 768,
+    "dev": 489.51,
+    "host": 486.19,
+    "dev2": 474.33
+   }
+  ],
+  "note": "Run while PR #43 was merged (pushes, fetches, a fast-forward of another checkout, a copy and a hash of the evaluator): its control moved by -3.1 to +2.9%. Kept, not used for the threshold."
+ },
+ "crossover": {
+  "what": "crossover.py: as ab_small.py on cases chosen around the threshold, one build with the sums on the device (--device-sums 0) and on the host (--device-sums 1000000000), the device a second time as control.",
+  "rounds": 7,
+  "builds": [
+   {
+    "label": "dev",
+    "build": "new-384: the faster host sums of this change, the threshold still at 384",
+    "settings": [
+     "--device-sums",
+     "0"
+    ]
+   },
+   {
+    "label": "host",
+    "build": "new-384: the faster host sums of this change, the threshold still at 384",
+    "settings": [
+     "--device-sums",
+     "1000000000"
+    ]
+   },
+   {
+    "label": "dev2",
+    "build": "new-384: the faster host sums of this change, the threshold still at 384",
+    "settings": [
+     "--device-sums",
+     "0"
+    ]
+   }
+  ],
+  "seconds_waited_for_the_card": [
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0
+  ],
+  "us_per_evaluation": [
+   {
+    "case": "HAP se_e2_a f32 tables, 88 x1",
+    "centers": 88,
+    "dev": 148.84,
+    "host": 136.45,
+    "dev2": 146.64
+   },
+   {
+    "case": "HAP se_e2_a f32 tables, 88 x2",
+    "centers": 176,
+    "dev": 175.28,
+    "host": 169.98,
+    "dev2": 174.89
+   },
+   {
+    "case": "HAP se_e2_a f32 tables, 88 x3",
+    "centers": 264,
+    "dev": 226.65,
+    "host": 222.62,
+    "dev2": 227.56
+   },
+   {
+    "case": "HAP se_e2_a f32 tables, 88 x4",
+    "centers": 352,
+    "dev": 256.38,
+    "host": 253.91,
+    "dev2": 255.33
+   },
+   {
+    "case": "HAP se_e2_a f32 tables, 88 x5",
+    "centers": 440,
+    "dev": 294.05,
+    "host": 292.82,
+    "dev2": 295.44
+   },
+   {
+    "case": "HAP se_e2_a f32 tables, 88 x6",
+    "centers": 528,
+    "dev": 348.81,
+    "host": 345.47,
+    "dev2": 344.94
+   },
+   {
+    "case": "HAP se_e2_a f32 tables, 88 x8",
+    "centers": 704,
+    "dev": 415.86,
+    "host": 415.57,
+    "dev2": 414.18
+   },
+   {
+    "case": "HAP se_e2_a f32 tables, 88 x12",
+    "centers": 1056,
+    "dev": 566.34,
+    "host": 591.86,
+    "dev2": 571.32
+   },
+   {
+    "case": "HAP se_e2_a f64 tables, 88 x1",
+    "centers": 88,
+    "dev": 402.98,
+    "host": 394.53,
+    "dev2": 402.65
+   },
+   {
+    "case": "HAP se_e2_a f64 tables, 88 x2",
+    "centers": 176,
+    "dev": 696.46,
+    "host": 690.7,
+    "dev2": 697.72
+   },
+   {
+    "case": "HAP se_e2_a f64 tables, 88 x3",
+    "centers": 264,
+    "dev": 1021.24,
+    "host": 1012.37,
+    "dev2": 1020.04
+   },
+   {
+    "case": "HAP se_e2_a f64 tables, 88 x4",
+    "centers": 352,
+    "dev": 1075.68,
+    "host": 1069.29,
+    "dev2": 1080.83
+   },
+   {
+    "case": "HAP se_e2_a f64 tables, 88 x6",
+    "centers": 528,
+    "dev": 1688.82,
+    "host": 1680.82,
+    "dev2": 1684.26
+   },
+   {
+    "case": "HAP se_e2_a f64 tables, 88 x8",
+    "centers": 704,
+    "dev": 2083.08,
+    "host": 2082.43,
+    "dev2": 2080.82
+   },
+   {
+    "case": "HAP se_e2_a f32 tables, 224 x1",
+    "centers": 224,
+    "dev": 193.36,
+    "host": 189.87,
+    "dev2": 194.36
+   },
+   {
+    "case": "HAP se_e2_a f32 tables, 224 x2",
+    "centers": 448,
+    "dev": 303.07,
+    "host": 300.67,
+    "dev2": 301.05
+   },
+   {
+    "case": "HAP se_e2_a f32 tables, 224 x3",
+    "centers": 672,
+    "dev": 407.29,
+    "host": 408.64,
+    "dev2": 406.62
+   },
+   {
+    "case": "HAP se_e2_a f32 tables, 224 x4",
+    "centers": 896,
+    "dev": 509.74,
+    "host": 515.67,
+    "dev2": 515.28
+   },
+   {
+    "case": "HAP se_e2_r f32 tables, 88 x1",
+    "centers": 88,
+    "dev": 116.09,
+    "host": 109.4,
+    "dev2": 115.5
+   },
+   {
+    "case": "HAP se_e2_r f32 tables, 88 x2",
+    "centers": 176,
+    "dev": 143.1,
+    "host": 140.08,
+    "dev2": 142.99
+   },
+   {
+    "case": "HAP se_e2_r f32 tables, 88 x4",
+    "centers": 352,
+    "dev": 178.86,
+    "host": 177.59,
+    "dev2": 180.49
+   },
+   {
+    "case": "HAP se_e2_r f32 tables, 88 x8",
+    "centers": 704,
+    "dev": 304.04,
+    "host": 307.56,
+    "dev2": 306.61
+   },
+   {
+    "case": "HAP se_e2_a with se_e3 f32 tables, 88 x1",
+    "centers": 88,
+    "dev": 220.14,
+    "host": 210.03,
+    "dev2": 220.04
+   },
+   {
+    "case": "HAP se_e2_a with se_e3 f32 tables, 88 x2",
+    "centers": 176,
+    "dev": 251.68,
+    "host": 248.58,
+    "dev2": 253.99
+   },
+   {
+    "case": "HAP se_e2_a with se_e3 f32 tables, 88 x4",
+    "centers": 352,
+    "dev": 346.55,
+    "host": 348.09,
+    "dev2": 346.82
+   },
+   {
+    "case": "HAP se_e2_a with se_e3 f32 tables, 88 x8",
+    "centers": 704,
+    "dev": 579.32,
+    "host": 586.49,
+    "dev2": 581.22
+   },
+   {
+    "case": "HAP committee of two f32 tables, 88 x1",
+    "centers": 176,
+    "dev": 176.92,
+    "host": 176.14,
+    "dev2": 177.18
+   },
+   {
+    "case": "HAP committee of two f32 tables, 88 x2",
+    "centers": 352,
+    "dev": 251.23,
+    "host": 249.1,
+    "dev2": 251.18
+   },
+   {
+    "case": "HAP committee of two f32 tables, 88 x4",
+    "centers": 704,
+    "dev": 419.86,
+    "host": 421.42,
+    "dev2": 421.32
+   },
+   {
+    "case": "HAP committee of four f32 tables, 88 x1",
+    "centers": 352,
+    "dev": 304.22,
+    "host": 298.57,
+    "dev2": 301.34
+   },
+   {
+    "case": "HAP committee of four f32 tables, 88 x2",
+    "centers": 704,
+    "dev": 433.98,
+    "host": 431.65,
+    "dev2": 431.89
+   },
+   {
+    "case": "HAP committee of four f32 tables, 169 x1",
+    "centers": 676,
+    "dev": 443.07,
+    "host": 440.0,
+    "dev2": 442.66
+   },
+   {
+    "case": "water se_e2_a f32 tables, 192 x1",
+    "centers": 192,
+    "dev": 185.35,
+    "host": 181.28,
+    "dev2": 184.48
+   },
+   {
+    "case": "water se_e2_a f32 tables, 192 x2",
+    "centers": 384,
+    "dev": 269.39,
+    "host": 268.12,
+    "dev2": 270.01
+   },
+   {
+    "case": "water se_e2_a f32 tables, 192 x3",
+    "centers": 576,
+    "dev": 368.28,
+    "host": 371.63,
+    "dev2": 369.44
+   },
+   {
+    "case": "water se_e2_a f32 tables, 192 x4",
+    "centers": 768,
+    "dev": 457.96,
+    "host": 464.88,
+    "dev2": 455.57
+   }
+  ]
+ },
+ "crossover_again": {
+  "what": "crossover.py: as ab_small.py on cases chosen around the threshold, one build with the sums on the device (--device-sums 0) and on the host (--device-sums 1000000000), the device a second time as control.",
+  "rounds": 7,
+  "builds": [
+   {
+    "label": "dev",
+    "build": "new-384: the faster host sums of this change, the threshold still at 384",
+    "settings": [
+     "--device-sums",
+     "0"
+    ]
+   },
+   {
+    "label": "host",
+    "build": "new-384: the faster host sums of this change, the threshold still at 384",
+    "settings": [
+     "--device-sums",
+     "1000000000"
+    ]
+   },
+   {
+    "label": "dev2",
+    "build": "new-384: the faster host sums of this change, the threshold still at 384",
+    "settings": [
+     "--device-sums",
+     "0"
+    ]
+   }
+  ],
+  "seconds_waited_for_the_card": [
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0
+  ],
+  "us_per_evaluation": [
+   {
+    "case": "HAP se_e2_a f32 tables, 88 x1",
+    "centers": 88,
+    "dev": 144.3,
+    "host": 136.98,
+    "dev2": 144.97
+   },
+   {
+    "case": "HAP se_e2_a f32 tables, 88 x2",
+    "centers": 176,
+    "dev": 174.01,
+    "host": 170.22,
+    "dev2": 174.14
+   },
+   {
+    "case": "HAP se_e2_a f32 tables, 88 x3",
+    "centers": 264,
+    "dev": 224.89,
+    "host": 223.64,
+    "dev2": 224.97
+   },
+   {
+    "case": "HAP se_e2_a f32 tables, 88 x4",
+    "centers": 352,
+    "dev": 255.29,
+    "host": 253.95,
+    "dev2": 254.76
+   },
+   {
+    "case": "HAP se_e2_a f32 tables, 88 x5",
+    "centers": 440,
+    "dev": 292.69,
+    "host": 293.84,
+    "dev2": 293.76
+   },
+   {
+    "case": "HAP se_e2_a f32 tables, 88 x6",
+    "centers": 528,
+    "dev": 346.02,
+    "host": 347.02,
+    "dev2": 345.97
+   },
+   {
+    "case": "HAP se_e2_a f32 tables, 88 x8",
+    "centers": 704,
+    "dev": 411.16,
+    "host": 415.17,
+    "dev2": 413.09
+   },
+   {
+    "case": "HAP se_e2_a f32 tables, 88 x12",
+    "centers": 1056,
+    "dev": 569.33,
+    "host": 589.61,
+    "dev2": 571.78
+   },
+   {
+    "case": "HAP se_e2_a f64 tables, 88 x1",
+    "centers": 88,
+    "dev": 402.82,
+    "host": 395.65,
+    "dev2": 402.91
+   },
+   {
+    "case": "HAP se_e2_a f64 tables, 88 x2",
+    "centers": 176,
+    "dev": 695.88,
+    "host": 692.77,
+    "dev2": 697.5
+   },
+   {
+    "case": "HAP se_e2_a f64 tables, 88 x3",
+    "centers": 264,
+    "dev": 1015.14,
+    "host": 1015.17,
+    "dev2": 1015.81
+   },
+   {
+    "case": "HAP se_e2_a f64 tables, 88 x4",
+    "centers": 352,
+    "dev": 1075.24,
+    "host": 1074.86,
+    "dev2": 1078.16
+   },
+   {
+    "case": "HAP se_e2_a f64 tables, 88 x6",
+    "centers": 528,
+    "dev": 1687.97,
+    "host": 1689.28,
+    "dev2": 1687.78
+   },
+   {
+    "case": "HAP se_e2_a f64 tables, 88 x8",
+    "centers": 704,
+    "dev": 2077.9,
+    "host": 2079.84,
+    "dev2": 2081.99
+   },
+   {
+    "case": "HAP se_e2_a f32 tables, 224 x1",
+    "centers": 224,
+    "dev": 193.06,
+    "host": 189.16,
+    "dev2": 192.24
+   },
+   {
+    "case": "HAP se_e2_a f32 tables, 224 x2",
+    "centers": 448,
+    "dev": 300.82,
+    "host": 298.65,
+    "dev2": 298.66
+   },
+   {
+    "case": "HAP se_e2_a f32 tables, 224 x3",
+    "centers": 672,
+    "dev": 405.02,
+    "host": 408.89,
+    "dev2": 404.22
+   },
+   {
+    "case": "HAP se_e2_a f32 tables, 224 x4",
+    "centers": 896,
+    "dev": 511.66,
+    "host": 515.26,
+    "dev2": 508.29
+   },
+   {
+    "case": "HAP se_e2_r f32 tables, 88 x1",
+    "centers": 88,
+    "dev": 115.26,
+    "host": 107.79,
+    "dev2": 115.09
+   },
+   {
+    "case": "HAP se_e2_r f32 tables, 88 x2",
+    "centers": 176,
+    "dev": 143.02,
+    "host": 138.94,
+    "dev2": 143.54
+   },
+   {
+    "case": "HAP se_e2_r f32 tables, 88 x4",
+    "centers": 352,
+    "dev": 178.12,
+    "host": 176.16,
+    "dev2": 179.3
+   },
+   {
+    "case": "HAP se_e2_r f32 tables, 88 x8",
+    "centers": 704,
+    "dev": 304.16,
+    "host": 307.5,
+    "dev2": 303.55
+   },
+   {
+    "case": "HAP se_e2_a with se_e3 f32 tables, 88 x1",
+    "centers": 88,
+    "dev": 221.03,
+    "host": 205.7,
+    "dev2": 219.66
+   },
+   {
+    "case": "HAP se_e2_a with se_e3 f32 tables, 88 x2",
+    "centers": 176,
+    "dev": 254.49,
+    "host": 249.5,
+    "dev2": 255.67
+   },
+   {
+    "case": "HAP se_e2_a with se_e3 f32 tables, 88 x4",
+    "centers": 352,
+    "dev": 347.16,
+    "host": 346.18,
+    "dev2": 348.55
+   },
+   {
+    "case": "HAP se_e2_a with se_e3 f32 tables, 88 x8",
+    "centers": 704,
+    "dev": 583.48,
+    "host": 589.74,
+    "dev2": 583.35
+   },
+   {
+    "case": "HAP committee of two f32 tables, 88 x1",
+    "centers": 176,
+    "dev": 176.97,
+    "host": 172.95,
+    "dev2": 176.37
+   },
+   {
+    "case": "HAP committee of two f32 tables, 88 x2",
+    "centers": 352,
+    "dev": 250.23,
+    "host": 247.55,
+    "dev2": 249.66
+   },
+   {
+    "case": "HAP committee of two f32 tables, 88 x4",
+    "centers": 704,
+    "dev": 416.29,
+    "host": 420.41,
+    "dev2": 415.88
+   },
+   {
+    "case": "HAP committee of four f32 tables, 88 x1",
+    "centers": 352,
+    "dev": 298.35,
+    "host": 300.99,
+    "dev2": 300.22
+   },
+   {
+    "case": "HAP committee of four f32 tables, 88 x2",
+    "centers": 704,
+    "dev": 430.0,
+    "host": 432.35,
+    "dev2": 430.48
+   },
+   {
+    "case": "HAP committee of four f32 tables, 169 x1",
+    "centers": 676,
+    "dev": 440.27,
+    "host": 439.91,
+    "dev2": 441.2
+   },
+   {
+    "case": "water se_e2_a f32 tables, 192 x1",
+    "centers": 192,
+    "dev": 184.08,
+    "host": 180.45,
+    "dev2": 184.43
+   },
+   {
+    "case": "water se_e2_a f32 tables, 192 x2",
+    "centers": 384,
+    "dev": 268.94,
+    "host": 269.8,
+    "dev2": 270.17
+   },
+   {
+    "case": "water se_e2_a f32 tables, 192 x3",
+    "centers": 576,
+    "dev": 368.01,
+    "host": 370.95,
+    "dev2": 367.38
+   },
+   {
+    "case": "water se_e2_a f32 tables, 192 x4",
+    "centers": 768,
+    "dev": 453.16,
+    "host": 456.82,
+    "dev2": 452.53
+   }
+  ]
+ },
+ "against_the_host_path_around_the_threshold": {
+  "what": "crossover.py: the cases chosen around the threshold, as ab_small.py, the build before (A) against this change (new) with their default thresholds (384 and 576), A a second time as control.",
+  "rounds": 5,
+  "builds": [
+   {
+    "label": "A",
+    "build": "A: ba1f057, the host path (TANG-LAB-WHU/omniMD#43), whose host forms the sums below 384 centers in the kernel's order",
+    "settings": []
+   },
+   {
+    "label": "new",
+    "build": "new: this change, the faster host sums and the threshold at 576",
+    "settings": []
+   },
+   {
+    "label": "A2",
+    "build": "A: ba1f057, the host path (TANG-LAB-WHU/omniMD#43), whose host forms the sums below 384 centers in the kernel's order",
+    "settings": []
+   }
+  ],
+  "seconds_waited_for_the_card": [
+   0,
+   0,
+   0,
+   0,
+   0
+  ],
+  "us_per_evaluation": [
+   {
+    "case": "HAP se_e2_a f32 tables, 88 x1",
+    "centers": 88,
+    "A": 137.68,
+    "new": 137.66,
+    "A2": 139.07
+   },
+   {
+    "case": "HAP se_e2_a f32 tables, 88 x2",
+    "centers": 176,
+    "A": 170.4,
+    "new": 170.16,
+    "A2": 170.42
+   },
+   {
+    "case": "HAP se_e2_a f32 tables, 88 x3",
+    "centers": 264,
+    "A": 225.22,
+    "new": 223.03,
+    "A2": 224.36
+   },
+   {
+    "case": "HAP se_e2_a f32 tables, 88 x4",
+    "centers": 352,
+    "A": 254.9,
+    "new": 254.65,
+    "A2": 254.73
+   },
+   {
+    "case": "HAP se_e2_a f32 tables, 88 x5",
+    "centers": 440,
+    "A": 294.03,
+    "new": 293.71,
+    "A2": 293.6
+   },
+   {
+    "case": "HAP se_e2_a f32 tables, 88 x6",
+    "centers": 528,
+    "A": 346.52,
+    "new": 348.88,
+    "A2": 346.31
+   },
+   {
+    "case": "HAP se_e2_a f32 tables, 88 x8",
+    "centers": 704,
+    "A": 412.28,
+    "new": 414.33,
+    "A2": 415.32
+   },
+   {
+    "case": "HAP se_e2_a f32 tables, 88 x12",
+    "centers": 1056,
+    "A": 565.14,
+    "new": 568.32,
+    "A2": 568.35
+   },
+   {
+    "case": "HAP se_e2_a f64 tables, 88 x1",
+    "centers": 88,
+    "A": 397.45,
+    "new": 395.75,
+    "A2": 397.76
+   },
+   {
+    "case": "HAP se_e2_a f64 tables, 88 x2",
+    "centers": 176,
+    "A": 694.08,
+    "new": 692.17,
+    "A2": 695.95
+   },
+   {
+    "case": "HAP se_e2_a f64 tables, 88 x3",
+    "centers": 264,
+    "A": 1015.02,
+    "new": 1013.85,
+    "A2": 1016.73
+   },
+   {
+    "case": "HAP se_e2_a f64 tables, 88 x4",
+    "centers": 352,
+    "A": 1076.18,
+    "new": 1070.83,
+    "A2": 1074.53
+   },
+   {
+    "case": "HAP se_e2_a f64 tables, 88 x6",
+    "centers": 528,
+    "A": 1692.69,
+    "new": 1685.42,
+    "A2": 1686.93
+   },
+   {
+    "case": "HAP se_e2_a f64 tables, 88 x8",
+    "centers": 704,
+    "A": 2082.03,
+    "new": 2079.41,
+    "A2": 2087.09
+   },
+   {
+    "case": "HAP se_e2_a f32 tables, 224 x1",
+    "centers": 224,
+    "A": 191.33,
+    "new": 189.68,
+    "A2": 191.31
+   },
+   {
+    "case": "HAP se_e2_a f32 tables, 224 x2",
+    "centers": 448,
+    "A": 299.24,
+    "new": 299.13,
+    "A2": 300.76
+   },
+   {
+    "case": "HAP se_e2_a f32 tables, 224 x3",
+    "centers": 672,
+    "A": 404.42,
+    "new": 404.25,
+    "A2": 406.8
+   },
+   {
+    "case": "HAP se_e2_a f32 tables, 224 x4",
+    "centers": 896,
+    "A": 506.81,
+    "new": 507.34,
+    "A2": 508.14
+   },
+   {
+    "case": "HAP se_e2_r f32 tables, 88 x1",
+    "centers": 88,
+    "A": 107.97,
+    "new": 107.86,
+    "A2": 110.53
+   },
+   {
+    "case": "HAP se_e2_r f32 tables, 88 x2",
+    "centers": 176,
+    "A": 140.92,
+    "new": 139.6,
+    "A2": 140.38
+   },
+   {
+    "case": "HAP se_e2_r f32 tables, 88 x4",
+    "centers": 352,
+    "A": 179.91,
+    "new": 177.32,
+    "A2": 179.57
+   },
+   {
+    "case": "HAP se_e2_r f32 tables, 88 x8",
+    "centers": 704,
+    "A": 302.96,
+    "new": 302.51,
+    "A2": 303.35
+   },
+   {
+    "case": "HAP se_e2_a with se_e3 f32 tables, 88 x1",
+    "centers": 88,
+    "A": 204.34,
+    "new": 205.48,
+    "A2": 208.33
+   },
+   {
+    "case": "HAP se_e2_a with se_e3 f32 tables, 88 x2",
+    "centers": 176,
+    "A": 249.74,
+    "new": 247.57,
+    "A2": 249.54
+   },
+   {
+    "case": "HAP se_e2_a with se_e3 f32 tables, 88 x4",
+    "centers": 352,
+    "A": 348.48,
+    "new": 347.46,
+    "A2": 348.56
+   },
+   {
+    "case": "HAP se_e2_a with se_e3 f32 tables, 88 x8",
+    "centers": 704,
+    "A": 583.71,
+    "new": 579.2,
+    "A2": 580.44
+   },
+   {
+    "case": "HAP committee of two f32 tables, 88 x1",
+    "centers": 176,
+    "A": 174.73,
+    "new": 173.76,
+    "A2": 175.97
+   },
+   {
+    "case": "HAP committee of two f32 tables, 88 x2",
+    "centers": 352,
+    "A": 250.14,
+    "new": 249.14,
+    "A2": 251.21
+   },
+   {
+    "case": "HAP committee of two f32 tables, 88 x4",
+    "centers": 704,
+    "A": 414.22,
+    "new": 415.53,
+    "A2": 417.47
+   },
+   {
+    "case": "HAP committee of four f32 tables, 88 x1",
+    "centers": 352,
+    "A": 301.97,
+    "new": 300.11,
+    "A2": 300.61
+   },
+   {
+    "case": "HAP committee of four f32 tables, 88 x2",
+    "centers": 704,
+    "A": 429.74,
+    "new": 432.77,
+    "A2": 433.44
+   },
+   {
+    "case": "HAP committee of four f32 tables, 169 x1",
+    "centers": 676,
+    "A": 439.57,
+    "new": 440.62,
+    "A2": 441.6
+   },
+   {
+    "case": "water se_e2_a f32 tables, 192 x1",
+    "centers": 192,
+    "A": 181.15,
+    "new": 181.31,
+    "A2": 182.67
+   },
+   {
+    "case": "water se_e2_a f32 tables, 192 x2",
+    "centers": 384,
+    "A": 268.66,
+    "new": 268.64,
+    "A2": 269.14
+   },
+   {
+    "case": "water se_e2_a f32 tables, 192 x3",
+    "centers": 576,
+    "A": 367.23,
+    "new": 367.18,
+    "A2": 370.06
+   },
+   {
+    "case": "water se_e2_a f32 tables, 192 x4",
+    "centers": 768,
+    "A": 453.04,
+    "new": 453.29,
+    "A2": 454.22
+   }
+  ]
+ },
+ "against_the_host_path_small": {
+  "what": "ab_small.py: the HAP frames of 88, 169 and 224 atoms (cases/hap) and the water frame of 192 and 1,536 atoms, one process per build, case and round with --bench K and --bench-batches (batches of copies of the frame); the least ms per evaluation of every case and batch, in us. Builds in order and reversed every other round; the card checked for other users before every round.",
+  "rounds": 3,
+  "builds": [
+   {
+    "label": "A",
+    "build": "A: ba1f057, the host path (TANG-LAB-WHU/omniMD#43), whose host forms the sums below 384 centers in the kernel's order",
+    "settings": []
+   },
+   {
+    "label": "new",
+    "build": "new: this change, the faster host sums and the threshold at 576",
+    "settings": []
+   },
+   {
+    "label": "A2",
+    "build": "A: ba1f057, the host path (TANG-LAB-WHU/omniMD#43), whose host forms the sums below 384 centers in the kernel's order",
+    "settings": []
+   }
+  ],
+  "seconds_waited_for_the_card": [
+   0,
+   0,
+   0
+  ],
+  "us_per_evaluation": [
+   {
+    "case": "HAP se_e2_a f32 tables, 88 x1",
+    "centers": 88,
+    "A": 139.32,
+    "new": 138.31,
+    "A2": 138.35
+   },
+   {
+    "case": "HAP se_e2_a f32 tables, 88 x4",
+    "centers": 352,
+    "A": 255.01,
+    "new": 254.13,
+    "A2": 259.05
+   },
+   {
+    "case": "HAP se_e2_a f32 tables, 88 x12",
+    "centers": 1056,
+    "A": 562.05,
+    "new": 567.86,
+    "A2": 564.66
+   },
+   {
+    "case": "HAP se_e2_a f32 tables, 169 x1",
+    "centers": 169,
+    "A": 172.0,
+    "new": 170.85,
+    "A2": 172.8
+   },
+   {
+    "case": "HAP se_e2_a f32 tables, 169 x3",
+    "centers": 507,
+    "A": 325.89,
+    "new": 328.85,
+    "A2": 326.96
+   },
+   {
+    "case": "HAP se_e2_a f32 tables, 224 x1",
+    "centers": 224,
+    "A": 191.0,
+    "new": 190.26,
+    "A2": 191.82
+   },
+   {
+    "case": "HAP se_e2_a f32 tables, 224 x4",
+    "centers": 896,
+    "A": 511.28,
+    "new": 514.28,
+    "A2": 512.18
+   },
+   {
+    "case": "HAP se_e2_a f64 tables, 88 x1",
+    "centers": 88,
+    "A": 399.45,
+    "new": 395.39,
+    "A2": 398.62
+   },
+   {
+    "case": "HAP se_e2_a f64 tables, 88 x4",
+    "centers": 352,
+    "A": 1079.44,
+    "new": 1072.53,
+    "A2": 1077.33
+   },
+   {
+    "case": "HAP se_e2_r f32 tables, 88 x1",
+    "centers": 88,
+    "A": 109.52,
+    "new": 107.72,
+    "A2": 109.01
+   },
+   {
+    "case": "HAP se_e2_r f32 tables, 88 x4",
+    "centers": 352,
+    "A": 182.48,
+    "new": 177.68,
+    "A2": 181.52
+   },
+   {
+    "case": "HAP se_e2_a with se_e3 f32 tables, 88 x1",
+    "centers": 88,
+    "A": 203.41,
+    "new": 203.48,
+    "A2": 202.97
+   },
+   {
+    "case": "HAP committee of four f32 tables, 88 x1",
+    "centers": 352,
+    "A": 303.34,
+    "new": 300.38,
+    "A2": 303.32
+   },
+   {
+    "case": "HAP committee of four f32 tables, 224 x1",
+    "centers": 896,
+    "A": 495.46,
+    "new": 496.95,
+    "A2": 497.24
+   },
+   {
+    "case": "water se_e2_a f32 tables, 192 x1",
+    "centers": 192,
+    "A": 182.48,
+    "new": 181.58,
+    "A2": 182.46
+   },
+   {
+    "case": "water se_e2_a f32 tables, 192 x4",
+    "centers": 768,
+    "A": 452.56,
+    "new": 451.38,
+    "A2": 453.36
+   },
+   {
+    "case": "water se_e2_a f32 tables, 1536 x1",
+    "centers": 1536,
+    "A": 608.64,
+    "new": 610.3,
+    "A2": 610.03
+   }
+  ]
+ },
+ "against_the_host_path_water": {
+  "what": "ab_env.py: water frames (cases/water-*.jsonl), se_e2_a water model in float32 with tables (--compress 0.5), every build on every size in every round, builds in order and reversed every other round, each run `--bench K --profile`; eval_us_least and eval_us_median are of the bench loop, the stages (medians, device time by marks) and the host times of the profile loop.",
+  "sizes_in_atoms": [
+   "192",
+   "1536",
+   "12288",
+   "98304"
+  ],
+  "precision": "float32",
+  "compress": "0.5",
+  "model": "water-se_e2_a-float64.native.json",
+  "builds": [
+   {
+    "label": "A",
+    "build": "A: ba1f057, the host path (TANG-LAB-WHU/omniMD#43), whose host forms the sums below 384 centers in the kernel's order",
+    "settings": {}
+   },
+   {
+    "label": "new",
+    "build": "new: this change, the faster host sums and the threshold at 576",
+    "settings": {}
+   },
+   {
+    "label": "A2",
+    "build": "A: ba1f057, the host path (TANG-LAB-WHU/omniMD#43), whose host forms the sums below 384 centers in the kernel's order",
+    "settings": {}
+   }
+  ],
+  "rounds": 3,
+  "summary_us": {
+   "192": {
+    "A": {
+     "eval_us_least": 182.41205,
+     "eval_us_median": 185.54225,
+     "download_us": 21.20481612579897,
+     "neighbors_us": 32.826272207312286,
+     "forces_us": 24.58558462932706,
+     "host_finish_us": 7.788549999999958,
+     "host_prepare_us": 1.8222999999999816
+    },
+    "new": {
+     "eval_us_least": 181.47725,
+     "eval_us_median": 181.6773,
+     "download_us": 19.26544015482068,
+     "neighbors_us": 32.18072020448744,
+     "forces_us": 24.483824649825692,
+     "host_finish_us": 6.749400000000025,
+     "host_prepare_us": 1.884549999999982
+    },
+    "A2": {
+     "eval_us_least": 182.6423,
+     "eval_us_median": 183.8259,
+     "download_us": 20.716880078893155,
+     "neighbors_us": 33.19969615340233,
+     "forces_us": 24.513520647771657,
+     "host_finish_us": 7.841549999999949,
+     "host_prepare_us": 1.8232999999999786
+    }
+   },
+   "1536": {
+    "A": {
+     "eval_us_least": 609.9767,
+     "eval_us_median": 610.0592,
+     "download_us": 39.587328193709254,
+     "neighbors_us": 111.40079894289374,
+     "forces_us": 97.07705719023943,
+     "host_finish_us": 15.658900000000003,
+     "host_prepare_us": 9.448
+    },
+    "new": {
+     "eval_us_least": 613.1618,
+     "eval_us_median": 614.1305,
+     "download_us": 39.169152060523636,
+     "neighbors_us": 110.79107067734003,
+     "forces_us": 96.9753292798996,
+     "host_finish_us": 15.148999999999969,
+     "host_prepare_us": 9.880599999999992
+    },
+    "A2": {
+     "eval_us_least": 608.6689,
+     "eval_us_median": 610.4467999999999,
+     "download_us": 37.338016007095575,
+     "neighbors_us": 111.66332707181573,
+     "forces_us": 96.98620933294296,
+     "host_finish_us": 15.26389999999999,
+     "host_prepare_us": 9.731499999999993
+    }
+   },
+   "12288": {
+    "A": {
+     "eval_us_least": 2754.4709999999995,
+     "eval_us_median": 2765.3044999999997,
+     "download_us": 71.34495977312326,
+     "neighbors_us": 570.2036800980568,
+     "forces_us": 764.5904034376144,
+     "host_finish_us": 92.46350000000001,
+     "host_prepare_us": 69.14000000000007
+    },
+    "new": {
+     "eval_us_least": 2768.5660000000003,
+     "eval_us_median": 2775.18,
+     "download_us": 70.06783997640014,
+     "neighbors_us": 573.9929589629173,
+     "forces_us": 747.5280031561852,
+     "host_finish_us": 93.97950000000002,
+     "host_prepare_us": 69.94049999999997
+    },
+    "A2": {
+     "eval_us_least": 2749.552,
+     "eval_us_median": 2765.5649999999996,
+     "download_us": 70.71808014065027,
+     "neighbors_us": 573.9150395989418,
+     "forces_us": 752.7831947803497,
+     "host_finish_us": 92.99149999999999,
+     "host_prepare_us": 70.81700000000002
+    }
+   },
+   "98304": {
+    "A": {
+     "eval_us_least": 22012.685,
+     "eval_us_median": 22069.944999999996,
+     "download_us": 293.2832032442093,
+     "neighbors_us": 4407.510423660278,
+     "forces_us": 5983.0720007419595,
+     "host_finish_us": 891.025,
+     "host_prepare_us": 663.4150000000002
+    },
+    "new": {
+     "eval_us_least": 22195.355,
+     "eval_us_median": 22227.269999999997,
+     "download_us": 290.5136004090309,
+     "neighbors_us": 4448.163223266602,
+     "forces_us": 5910.779178142548,
+     "host_finish_us": 887.4200000000001,
+     "host_prepare_us": 645.07
+    },
+    "A2": {
+     "eval_us_least": 22017.805,
+     "eval_us_median": 22334.364999999998,
+     "download_us": 292.8671985864639,
+     "neighbors_us": 4430.576014518738,
+     "forces_us": 5915.745514631272,
+     "host_finish_us": 877.955,
+     "host_prepare_us": 658.2099999999999
+    }
+   }
+  },
+  "ms_per_eval_samples": {
+   "192": {
+    "A": [
+     0.188699,
+     0.185542,
+     0.182412
+    ],
+    "new": [
+     0.181677,
+     0.18224,
+     0.181477
+    ],
+    "A2": [
+     0.183826,
+     0.183901,
+     0.182642
+    ]
+   },
+   "1536": {
+    "A": [
+     0.610059,
+     0.613854,
+     0.609977
+    ],
+    "new": [
+     0.613162,
+     0.614131,
+     0.61547
+    ],
+    "A2": [
+     0.610447,
+     0.608669,
+     0.610498
+    ]
+   },
+   "12288": {
+    "A": [
+     2.776247,
+     2.754471,
+     2.765304
+    ],
+    "new": [
+     2.768566,
+     2.77518,
+     2.81615
+    ],
+    "A2": [
+     2.776483,
+     2.749552,
+     2.765565
+    ]
+   },
+   "98304": {
+    "A": [
+     22.069945,
+     22.012685,
+     22.17925
+    ],
+    "new": [
+     22.195355,
+     22.324575,
+     22.22727
+    ],
+    "A2": [
+     22.334365,
+     22.36791,
+     22.017805
+    ]
+   }
+  }
+ },
+ "against_the_host_path_water_again": {
+  "what": "ab_env.py: water frames (cases/water-*.jsonl), se_e2_a water model in float32 with tables (--compress 0.5), every build on every size in every round, builds in order and reversed every other round, each run `--bench K --profile`; eval_us_least and eval_us_median are of the bench loop, the stages (medians, device time by marks) and the host times of the profile loop.",
+  "sizes_in_atoms": [
+   "1536",
+   "98304"
+  ],
+  "precision": "float32",
+  "compress": "0.5",
+  "model": "water-se_e2_a-float64.native.json",
+  "builds": [
+   {
+    "label": "A",
+    "build": "A: ba1f057, the host path (TANG-LAB-WHU/omniMD#43), whose host forms the sums below 384 centers in the kernel's order",
+    "settings": {}
+   },
+   {
+    "label": "new",
+    "build": "new: this change, the faster host sums and the threshold at 576",
+    "settings": {}
+   },
+   {
+    "label": "A2",
+    "build": "A: ba1f057, the host path (TANG-LAB-WHU/omniMD#43), whose host forms the sums below 384 centers in the kernel's order",
+    "settings": {}
+   }
+  ],
+  "rounds": 5,
+  "summary_us": {
+   "1536": {
+    "A": {
+     "eval_us_least": 606.8139,
+     "eval_us_median": 613.0060000000001,
+     "download_us": 37.59116811491549,
+     "neighbors_us": 110.39289473742247,
+     "forces_us": 96.89196942001581,
+     "host_finish_us": 15.31039999999999,
+     "host_prepare_us": 9.563400000000001
+    },
+    "new": {
+     "eval_us_least": 611.038,
+     "eval_us_median": 613.9495000000001,
+     "download_us": 39.01875219680369,
+     "neighbors_us": 111.18236670270562,
+     "forces_us": 96.80736137181522,
+     "host_finish_us": 15.165599999999998,
+     "host_prepare_us": 9.89399999999998
+    },
+    "A2": {
+     "eval_us_least": 609.9535999999999,
+     "eval_us_median": 610.6911,
+     "download_us": 38.27161619998515,
+     "neighbors_us": 110.89318260550499,
+     "forces_us": 96.86464159935713,
+     "host_finish_us": 15.202900000000014,
+     "host_prepare_us": 9.588500000000034
+    }
+   },
+   "98304": {
+    "A": {
+     "eval_us_least": 22022.780000000002,
+     "eval_us_median": 22234.66,
+     "download_us": 290.66559970378876,
+     "neighbors_us": 4437.763166427612,
+     "forces_us": 5942.931187152863,
+     "host_finish_us": 886.4949999999999,
+     "host_prepare_us": 653.185
+    },
+    "new": {
+     "eval_us_least": 22048.035,
+     "eval_us_median": 22080.895,
+     "download_us": 292.5648033618927,
+     "neighbors_us": 4448.787188529969,
+     "forces_us": 5920.907199382782,
+     "host_finish_us": 898.875,
+     "host_prepare_us": 652.4699999999999
+    },
+    "A2": {
+     "eval_us_least": 22062.280000000002,
+     "eval_us_median": 22179.355,
+     "download_us": 293.6383977532387,
+     "neighbors_us": 4439.3808126449585,
+     "forces_us": 5883.095979690552,
+     "host_finish_us": 885.0899999999999,
+     "host_prepare_us": 674.14
+    }
+   }
+  },
+  "ms_per_eval_samples": {
+   "1536": {
+    "A": [
+     0.621859,
+     0.608822,
+     0.606814,
+     0.613006,
+     0.614616
+    ],
+    "new": [
+     0.614758,
+     0.614374,
+     0.611038,
+     0.613385,
+     0.61395
+    ],
+    "A2": [
+     0.611903,
+     0.609954,
+     0.610012,
+     0.615383,
+     0.610691
+    ]
+   },
+   "98304": {
+    "A": [
+     22.19415,
+     22.362785,
+     22.02278,
+     22.23466,
+     22.262345
+    ],
+    "new": [
+     22.311515,
+     22.048035,
+     22.07615,
+     22.080895,
+     22.263525
+    ],
+    "A2": [
+     22.179355,
+     22.403725,
+     22.08254,
+     22.06228,
+     22.35428
+    ]
+   }
+  }
+ },
+ "device_and_host_sums_agree": {
+  "what": "paths_agree.py: every evaluation of nine cases with the sums on the device (--device-sums 0) and on the host (--device-sums 1000000000), block sums forced (--block-sums 1000000000) so that the virial of a center is the same in every run; energies and virials compared bit for bit, forces by their largest difference (eV/A). Build new.",
+  "lines": [
+   "HAP f32 tables, one frame at a time: 10 evaluations, energies differing 0, virials differing 0, largest force difference 5.6e-15",
+   "HAP f64 tables, one frame at a time: 10 evaluations, energies differing 0, virials differing 0, largest force difference 7.6e-15",
+   "HAP f64 exact, batches of 3: 10 evaluations, energies differing 0, virials differing 0, largest force difference 9.0e-15",
+   "HAP f32 tables, committee, batches of 4: 40 evaluations, energies differing 0, virials differing 0, largest force difference 7.9e-15",
+   "HAP f64 committee, chunks of 60 atoms, batches of 5: 40 evaluations, energies differing 0, virials differing 0, largest force difference 3.7e-15",
+   "HAP se_e2_r f32 tables, batches of 2: 10 evaluations, energies differing 0, virials differing 0, largest force difference 5.4e-15",
+   "HAP se_e2_a with se_e3, f32 tables, batches of 2: 10 evaluations, energies differing 0, virials differing 0, largest force difference 2.2e-15",
+   "water 1536 f64 (several segments a type): 1 evaluations, energies differing 0, virials differing 0, largest force difference 5.2e-18",
+   "water 1536 f32 tables, chunks of 500: 1 evaluations, energies differing 0, virials differing 0, largest force difference 3.5e-18",
+   "ALL SAME"
+  ]
+ }
+}

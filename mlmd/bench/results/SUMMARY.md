@@ -1,3 +1,157 @@
+# The host's sums in the kernel's order, faster, 2026-11-22
+
+Below the threshold of the section after this one the host forms the sums
+of every frame from the whole buffer of results, in the order of the
+kernel and so to the same bits as the device. That section found what the
+order cost: on the committee of four HAP models on the frame of 88 atoms
+(352 centers) the host's work after the copy back took 12.3 µs, against 9.0
+for the plain sums of a build on the way (a1), which gave a1's gain there
+back. `frame_sums_on_host` now makes the same additions with less work: the
+ten sums of each thread go into its lane as one row, not one value at a
+time across the lanes; the lanes are cleared only as far as the threads
+reach them; and the steps within the warp leave out the lanes that hold
+zeros (a sum that begins at zero is never the negative zero, so a lane of
+zeros added to it leaves its bits as they are). The runs of this section
+are in the record `host-sums-rtx4090-2026-11-22.json`, under the keys named
+in parentheses. Two processes left by agents of an earlier review (a `find`
+over the whole disk, a core each) ran beside all of them, as beside the
+later runs of the section after this one; they could not be stopped from
+the session (`beside_the_timings`).
+
+**The host's work after the copy back** (`host_finish_small`): the
+committee of four and one model on the frame of 88 atoms, float32 with
+tables, the builds alternated, five rounds; medians of the profile's marks
+and the least time of an evaluation, µs (this change with the threshold
+still at 384, which both passes are below either way):
+
+| Build | Committee of four, 88: after the copy back | Its evaluation | One model, 88: after the copy back | Its evaluation |
+| --- | ---: | ---: | ---: | ---: |
+| the build before the host path | 9.09 | 302.0 | 5.18 | 142.0 |
+| a1 | 8.60 | 301.0 | 5.49 | 138.3 |
+| the host path (ba1f057) | 12.65 | 303.6 | 6.45 | 139.0 |
+| this change | 9.48 | 299.3 | 5.35 | 137.8 |
+
+The committee's work after the copy back fell from 12.65 to 9.48 µs, 0.9
+above a1's, and its evaluation from 303.6 to 299.3 µs, the least of the
+four builds; that of one model from 6.45 to 5.35 µs, below a1's 5.49.
+
+**Where the device's sums pay, measured again** (`crossover`,
+`crossover_again`): with the host's sums cheaper, one build with the sums on
+the device (`--device-sums 0`), on the host (`--device-sums 1000000000`)
+and on the device again as control, alternated, in two runs of seven
+rounds, the least of each; HAP models but where water is named, all with
+tables; "host / device" is positive where the device's sums were faster:
+
+| Case | Centers | Host / device | Again / device | Host / device, again | Again / device, again |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| se_e2_a f32, 88 ×1 | 88 | −8.32% | −1.48% | −5.07% | +0.46% |
+| se_e2_a f32, 88 ×2 | 176 | −3.02% | −0.22% | −2.18% | +0.07% |
+| se_e2_a f32, 88 ×3 | 264 | −1.78% | +0.40% | −0.56% | +0.04% |
+| se_e2_a f32, 88 ×4 | 352 | −0.96% | −0.41% | −0.52% | −0.21% |
+| se_e2_a f32, 88 ×5 | 440 | −0.42% | +0.47% | +0.39% | +0.37% |
+| se_e2_a f32, 88 ×6 | 528 | −0.96% | −1.11% | +0.29% | −0.01% |
+| se_e2_a f32, 88 ×8 | 704 | −0.07% | −0.40% | +0.98% | +0.47% |
+| se_e2_a f32, 88 ×12 | 1,056 | +4.51% | +0.88% | +3.56% | +0.43% |
+| se_e2_a f64, 88 ×1 | 88 | −2.10% | −0.08% | −1.78% | +0.02% |
+| se_e2_a f64, 88 ×2 | 176 | −0.83% | +0.18% | −0.45% | +0.23% |
+| se_e2_a f64, 88 ×3 | 264 | −0.87% | −0.12% | +0.00% | +0.07% |
+| se_e2_a f64, 88 ×4 | 352 | −0.59% | +0.48% | −0.04% | +0.27% |
+| se_e2_a f64, 88 ×6 | 528 | −0.47% | −0.27% | +0.08% | −0.01% |
+| se_e2_a f64, 88 ×8 | 704 | −0.03% | −0.11% | +0.09% | +0.20% |
+| se_e2_a f32, 224 ×1 | 224 | −1.80% | +0.52% | −2.02% | −0.42% |
+| se_e2_a f32, 224 ×2 | 448 | −0.79% | −0.67% | −0.72% | −0.72% |
+| se_e2_a f32, 224 ×3 | 672 | +0.33% | −0.16% | +0.96% | −0.20% |
+| se_e2_a f32, 224 ×4 | 896 | +1.16% | +1.09% | +0.70% | −0.66% |
+| se_e2_r f32, 88 ×1 | 88 | −5.76% | −0.51% | −6.48% | −0.15% |
+| se_e2_r f32, 88 ×2 | 176 | −2.11% | −0.08% | −2.85% | +0.36% |
+| se_e2_r f32, 88 ×4 | 352 | −0.71% | +0.91% | −1.10% | +0.66% |
+| se_e2_r f32, 88 ×8 | 704 | +1.16% | +0.85% | +1.10% | −0.20% |
+| se_e2_a with se_e3 f32, 88 ×1 | 88 | −4.59% | −0.05% | −6.94% | −0.62% |
+| se_e2_a with se_e3 f32, 88 ×2 | 176 | −1.23% | +0.92% | −1.96% | +0.46% |
+| se_e2_a with se_e3 f32, 88 ×4 | 352 | +0.44% | +0.08% | −0.28% | +0.40% |
+| se_e2_a with se_e3 f32, 88 ×8 | 704 | +1.24% | +0.33% | +1.07% | −0.02% |
+| committee of two f32, 88 ×1 | 176 | −0.44% | +0.15% | −2.27% | −0.34% |
+| committee of two f32, 88 ×2 | 352 | −0.85% | −0.02% | −1.07% | −0.23% |
+| committee of two f32, 88 ×4 | 704 | +0.37% | +0.35% | +0.99% | −0.10% |
+| committee of four f32, 88 ×1 | 352 | −1.86% | −0.95% | +0.88% | +0.63% |
+| committee of four f32, 88 ×2 | 704 | −0.54% | −0.48% | +0.55% | +0.11% |
+| committee of four f32, 169 ×1 | 676 | −0.69% | −0.09% | −0.08% | +0.21% |
+| water se_e2_a f32, 192 ×1 | 192 | −2.20% | −0.47% | −1.97% | +0.19% |
+| water se_e2_a f32, 192 ×2 | 384 | −0.47% | +0.23% | +0.32% | +0.46% |
+| water se_e2_a f32, 192 ×3 | 576 | +0.91% | +0.31% | +0.80% | −0.17% |
+| water se_e2_a f32, 192 ×4 | 768 | +1.51% | −0.52% | +0.81% | −0.14% |
+
+The controls stayed within −1.5 to +1.1% and −0.7 to +0.7%. Up to 352
+centers the host's sums were faster in both runs but in three cases, where
+the two were within 1.9% (the float64 frames at 264, the hybrid with se_e3
+and the committee of four at 352); from 384 to 528 the two were within 1%,
+the host's faster in both at 448; at 576 the device's sums were faster in
+both runs (by 0.9 and 0.8%), the fewest centers at which they were, and
+beyond that faster in both or within 1%, by up to 4.5% at 1,056, but for
+the committee of four on 169 atoms (676), where the host's were faster in
+both runs, by 0.7 and 0.1%. By the rule that set 384, the threshold
+(`DEVICE_SUMS_CENTERS`) is now 576. A first run of five rounds
+(`crossover_beside_a_merge`), made while the change before was merged
+(pushes, fetches, a copy and a hash of the evaluator), had a control that
+moved by −3.1 to +2.9% and was not used.
+
+**Against the host path**: this change with its threshold of 576 against
+the build of the host path (ba1f057), that build again as control,
+alternated. On the cases of the table above (five rounds,
+`against_the_host_path_around_the_threshold`) the passes below 384
+centers, whose sums the host forms in both builds, were faster by up to
+1.4% (se_e2_r on four frames of 88 atoms), but for the hybrid with se_e3 on
+one frame (0.56% slower, its control 1.95%) and the water frame of 192
+atoms (0.09% slower), the control moving by −0.5 to +2.4%; of the passes
+that the host now sums instead of the device
+(384 to 528 centers), the float32 frames of 88 atoms six at a time were
+0.68% slower, the others level (−0.43 to −0.01%); the passes of 576 centers
+and more, the same code in both builds, moved by −0.8 to +0.7%, their
+control by −0.6 to +0.9%. On the small cases (`against_the_host_path_small`),
+three rounds, the least of each, µs:
+
+| Case | Centers | Host path | This change | Host path again | Change / host path | Again / host path |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| se_e2_a f32, 88 ×1 | 88 | 139.3 | 138.3 | 138.3 | −0.7% | −0.7% |
+| se_e2_a f32, 88 ×4 | 352 | 255.0 | 254.1 | 259.1 | −0.3% | +1.6% |
+| se_e2_a f32, 88 ×12 | 1,056 | 562.0 | 567.9 | 564.7 | +1.0% | +0.5% |
+| se_e2_a f32, 169 ×1 | 169 | 172.0 | 170.8 | 172.8 | −0.7% | +0.5% |
+| se_e2_a f32, 169 ×3 | 507 | 325.9 | 328.9 | 327.0 | +0.9% | +0.3% |
+| se_e2_a f32, 224 ×1 | 224 | 191.0 | 190.3 | 191.8 | −0.4% | +0.4% |
+| se_e2_a f32, 224 ×4 | 896 | 511.3 | 514.3 | 512.2 | +0.6% | +0.2% |
+| se_e2_a f64, 88 ×1 | 88 | 399.4 | 395.4 | 398.6 | −1.0% | −0.2% |
+| se_e2_a f64, 88 ×4 | 352 | 1,079.4 | 1,072.5 | 1,077.3 | −0.6% | −0.2% |
+| se_e2_r f32, 88 ×1 | 88 | 109.5 | 107.7 | 109.0 | −1.6% | −0.5% |
+| se_e2_r f32, 88 ×4 | 352 | 182.5 | 177.7 | 181.5 | −2.6% | −0.5% |
+| se_e2_a with se_e3 f32, 88 ×1 | 88 | 203.4 | 203.5 | 203.0 | +0.0% | −0.2% |
+| committee of four f32, 88 ×1 | 352 | 303.3 | 300.4 | 303.3 | −1.0% | −0.0% |
+| committee of four f32, 224 ×1 | 896 | 495.5 | 496.9 | 497.2 | +0.3% | +0.4% |
+| water se_e2_a f32, 192 ×1 | 192 | 182.5 | 181.6 | 182.5 | −0.5% | −0.0% |
+| water se_e2_a f32, 192 ×4 | 768 | 452.6 | 451.4 | 453.4 | −0.3% | +0.2% |
+| water se_e2_a f32, 1,536 ×1 | 1,536 | 608.6 | 610.3 | 610.0 | +0.3% | +0.2% |
+
+On the water frames, se_e2_a in float32 with tables
+(`against_the_host_path_water`, three rounds), an evaluation of 192 atoms
+took 0.5% less; those of 1,536, 12,288 and 98,304 atoms, the same code in
+both builds, came out 0.5, 0.5 and 0.8% above the host path, the control
+0.2% below, 0.2% below and level; five more rounds at 1,536 and 98,304 atoms
+(`against_the_host_path_water_again`) had them 0.7 and 0.1% above, the
+control 0.5 and 0.2% above.
+
+**Both ways still agree to the bit** (`device_and_host_sums_agree`): on the
+nine cases of the section after this one, the energies and virials of the
+two ways were identical in every evaluation of this change, the forces
+within 9.0e-15 eV/Å. The test of the host's sums against the kernel step by
+step (`the_host_sums_the_frames_as_the_kernel_does`) has a second layout,
+segments of 12, 20, 9, 17, 31 and 33 atoms, whose blocks have 9 to 31
+lanes of a warp with atoms (or all 32, the first with the atoms of two
+threads): with the steps within the warp over part of the lanes left out at
+the offsets of 16 and 8, the test failed on that layout and passed on the
+first one. With the threshold at 576 the committee of three in
+`a_committee_matches_its_members_alone` (783 centers) still has its sums
+formed by the device, its first two members (522) by the host.
+compute-sanitizer was not run again: no kernel changed.
+
 # The host's share of a large frame, 2026-11-22
 
 An evaluation of a large frame waits for the host. At 12,288 water atoms
