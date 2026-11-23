@@ -1,3 +1,289 @@
+# Where a large frame goes, and two follow-ups of the lanes not kept, 2026-11-23
+
+The third step of the plan for large frames was to take whichever of two
+savings promised more there: the products of the fitting nets at the
+speed of the fastest kernel for each shape, or the input of the neighbor
+search packed and uploaded by the device instead of the host. Both were
+measured first, against rules written down before the runs, on the build
+of #45 with water frames of 12,288 and 98,304 atoms. Neither promised 4%
+at 12,288 atoms, so by the rule this change took the two smaller
+follow-ups of #45 instead: the rows of the exact nets with 16 lanes a slot
+in float32 too, in a force kernel of their own (the kernels of the tables
+keep 8, which they must share), and the trainer's force kernel of the
+rows likewise; and past every way the device keeps at once, the sums
+across the warps for the narrow blocks of se_e2_a's tables while the pass
+is just past (the miss at 968 centers of #45). Timed against #45 by rules
+written before the timings, neither kept its place in the evaluation: the
+16 lanes added 1.3% to an evaluation of 88 HAP atoms, and the sums 2.0% to
+one of 1,120 blocks. The evaluation is that of #45 again; the trainer's
+kernel keeps its 16 lanes by a rule of its own, with no gain measured.
+The measurements are in the records
+`large-frame-split-rtx4090-2026-11-22.json`,
+`force-sums-past-rtx4090-2026-11-22.json` and
+`force-exact-lanes-rtx4090-2026-11-23.json`, under the keys named in
+parentheses; the timings held the host side to the performance cores
+(the nsys traces did not), and the card was checked for other users
+before every round of the evaluations
+(the trainer's rounds, which came after them, were not checked one by
+one). Two processes left by agents of an
+earlier review (a `find` over the whole disk, a core each) were still
+running at the end of #45's timings and were gone before the second run
+of the sums and the timings of the change; whether they ran beside the
+runs between is not known (`beside_the_timings`).
+
+**Where a large frame goes** (`fitting_paths`, `kernels`). The fitting
+nets by each path the evaluator offers, one build, three rounds
+alternated, medians; fitting stage and evaluation in ms for the default,
+the others against it:
+
+| Case | Default | A net at a time | The fused kernel | cuBLAS every pass | Default again |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| water 12,288, f32 tables | 0.847, 2.613 | +12.4%, +0.8% | +763%, +245% | −2.2%, −2.8% | −0.8%, −3.0% |
+| water 98,304, f32 tables | 7.119, 20.25 | +12.6%, +3.4% | +678%, +237% | +1.5%, −0.1% | +1.6%, +1.4% |
+| water 12,288, f64 tables | 22.16, 32.37 | −0.1%, +0.2% | −0.0%, +0.1% | +4.4%, +2.9% | +0.1%, +0.3% |
+| water 98,304, f64 tables | 176.1, 256.7 | −0.0%, −0.0% | −0.1%, +0.0% | +6.0%, +4.0% | −0.0%, −0.0% |
+
+No path beat the default beyond its control at both sizes, the first
+rule's condition for a new threshold: in float32 cuBLAS for every pass is
+the default's own path at these sizes (its −2.8% at 12,288 atoms lies
+within the default's −3.0% against itself), and in float64 the default is
+the fused kernel. Then the launches of one evaluation by nsys, the least
+time of each kernel over four evaluations (in every evaluation about three
+kernels took 0.35 to 0.6 ms longer than in the others, apparently another
+context on the card, which drives the display), float32 with tables, ms:
+
+| Launches | 98,304 atoms | 12,288 atoms |
+| --- | ---: | ---: |
+| products of the fitting nets (grouped cuBLAS) | 5.28 | 0.72 |
+| forces (se_e2_a_table_backward) | 3.60 | 0.48 |
+| neighbor_search | 2.69 | 0.36 |
+| descriptor | 2.16 | 0.28 |
+| the fitting's other launches | 1.53 | 0.08 |
+| environment | 0.78 | 0.10 |
+| frame sums | 0.16 | 0.02 |
+| all kernels | 16.21 | 2.03 |
+| the card idle before the first kernel | about 3.2 | 0.43 to 0.79 |
+
+The grouped products are one CUTLASS kernel throughout; cuBLAS a net at a
+time picks others by shape and was faster in five of the six products of
+the larger chunk at 98,304 atoms: at the faster of the two for every
+product, 4.44 ms instead of 5.28 there and 0.65 instead of 0.72 at 12,288
+atoms (2.5% of the evaluation). The other launches of the fitting move 17
+passes over rows × 240 entries, 1.53 ms against 1.78 for their bytes at
+900 GB/s at 98,304 atoms, and stay in L2 at 12,288: nothing to save. The
+card idles about 3.2 ms between the copy back of an evaluation and the
+first kernel of the next: the host's finish (0.90) and preparation (0.66),
+the packing of the search input (1.55, `issue.neighbors`) and its upload
+of 5.52 MB (0.25). The second rule asked a saving of 0.8 ms at 98,304
+atoms and 4% at 12,288: the fitting offered 0.83 ms and 2.5%, the search
+input packed on the device (an estimate of 0.1 ms left) 1.46 ms and 3.7%.
+In float64 at 98,304 atoms the fused fitting kernel takes 174.1 ms of
+249.0 (about 87% of the card's float64 rate by an estimate of 2.0 MFLOP
+an atom), the stored tables 33.6, the forces 27.9, the descriptor 10.0 and
+the search 2.46.
+
+Seen on the way, for a later rule of its own: the search kernel itself,
+13% and 14% of the evaluation at 98,304 and 12,288 atoms, which writes
+about 36 bytes a slot (0.54 ms of its 2.69 at 900 GB/s), so that most of
+its time is the scan and the ranking; the idle card, 15% at 98,304 atoms;
+and, in the run a net at a time, the force kernel of the two-net chunk at
+3,457 µs against 2,888 in the grouped run (the one-net chunk 714 against
+717), the same kernel, not explained.
+
+**The sums just past every way** (`force-sums-past-rtx4090-2026-11-22.json`).
+#45 found one miss among its ways: past what the device keeps at once in
+every way, se_e2_a takes the narrow blocks without the sums, and at 968
+centers those with the sums were 3.4% faster. One build, as it chooses
+(def), with the sums forced past every way (sums) and as it chooses again
+(def2), five rounds alternated, the least of each, µs:
+
+| Case | Blocks | At once without the sums | def | sums | def2 | sums against def | Spread |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| HAP 88 ×11, f32 tables | 968 | 896 | 543.9 | 530.0 | 548.1 | −2.5% | 0.8% |
+| HAP 169 ×6, f32 tables | 1,014 | 896 | 549.5 | 539.4 | 546.3 | −1.8% | 0.6% |
+| HAP 88 ×12, f32 tables | 1,056 | 896 | 573.8 | 560.5 | 566.1 | −2.3% | 1.3% |
+| HAP 224 ×5, f32 tables | 1,120 | 896 | 577.9 | 580.4 | 583.8 | +0.4% | 1.0% |
+| HAP 169 ×8, f32 tables | 1,352 | 896 | 632.8 | 631.3 | 630.3 | −0.2% | 0.4% |
+| HAP 88 ×16, f32 tables | 1,408 | 896 | 659.2 | 642.0 | 635.5 | −2.6% | 3.6% |
+| water 1,536, f32 tables | 1,536 | 896 | 578.7 | 580.1 | 578.7 | +0.2% | 0.0% |
+| HAP 224 ×8, f32 tables | 1,792 | 896 | 708.2 | 718.3 | 705.5 | +1.4% | 0.4% |
+| HAP 88 ×24, f32 tables | 2,112 | 896 | 751.3 | 761.9 | 750.2 | +1.4% | 0.1% |
+| water 12,288, f32 tables | 12,288 | 896 | 2,482.0 | 2,562.3 | 2,491.4 | +3.2% | 0.4% |
+| water 98,304, f32 tables | 98,304 | 896 | 19,995.9 | 20,767.2 | 19,920.6 | +3.9% | 0.4% |
+| HAP 88 ×11, f32 exact nets | 968 | 896 | 854.2 | 845.3 | 853.3 | −1.0% | 0.1% |
+| HAP 88 ×16, f32 exact nets | 1,408 | 896 | 1,156.5 | 1,140.4 | 1,155.3 | −1.4% | 0.1% |
+| water 1,536, f32 exact nets | 1,536 | 896 | 1,215.6 | 1,199.7 | 1,221.6 | −1.3% | 0.5% |
+| water 12,288, f32 exact nets | 12,288 | 896 | 7,368.0 | 7,327.8 | 7,367.4 | −0.5% | 0.0% |
+| HAP 88 ×9, f64 tables | 792 | 768 | 2,518.2 | 2,509.2 | 2,518.2 | −0.4% | 0.0% |
+| HAP 224 ×4, f64 tables | 896 | 768 | 2,675.4 | 2,642.0 | 2,662.1 | −1.3% | 0.5% |
+| HAP 88 ×12, f64 tables | 1,056 | 768 | 3,008.0 | 2,987.2 | 3,023.0 | −0.7% | 0.5% |
+| HAP 88 ×16, f64 tables | 1,408 | 768 | 3,808.9 | 3,844.4 | 3,838.2 | +0.9% | 0.8% |
+| HAP 224 ×8, f64 tables | 1,792 | 768 | 4,907.0 | 4,895.7 | 4,906.4 | −0.2% | 0.0% |
+| water 1,536, f64 tables | 1,536 | 768 | 4,237.4 | 4,220.8 | 4,236.1 | −0.4% | 0.0% |
+| water 12,288, f64 tables | 12,288 | 768 | 32,262.8 | 32,072.4 | 32,300.8 | −0.6% | 0.1% |
+| water 98,304, f64 tables | 98,304 | 768 | 255,422.8 | 254,212.4 | 255,153.2 | −0.5% | 0.1% |
+
+The rule written before the run allowed the sums everywhere past every
+way only if no case got slower beyond its spread (or 1%); four did, in
+float32 with tables from 1,792 blocks on. Its second clause allowed a
+limit of blocks if size alone separated the faster cases from the slower
+ones, the same in both precisions: in float32 with tables the faster end
+at 1,056 blocks and the slower begin at 1,792, the cases between within
+the spread, and nothing in float64 or with the exact nets is slower
+beyond it. The limit, stated against what the device keeps so that it
+carries to other cards, went into the change: the narrow blocks keep
+their sums past every way while the pass has at most 1.25 times the
+blocks the device keeps of them at once without the sums, so that their
+second wave is at most a quarter full (1,120 blocks in float32 on the
+RTX 4090, 960 in float64 with tables).
+
+A review of the change found that this limit had been read off the cases
+with tables alone, while the faster cases of the exact nets at 1,408 and
+1,536 blocks lie past it. Those ran on the kernel of #45, which the change
+then replaced for the exact nets, so they were measured again on the new
+one (`exact_nets`). Before that run the rule was amended to give each
+kernel its own limit, so that one case of the exact nets beyond its bound
+could not take the sums from the kernels of the tables, whose code the
+change kept; the kernel of the exact nets went by the three clauses over
+its own cases, float64 included (`rule_exact_nets`). Least of five rounds,
+µs:
+
+| Case | Blocks | At once without the sums | def | sums | def2 | sums against def | Spread |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| HAP 88 ×11, f32 exact nets | 968 | 896 | 807.7 | 802.8 | 808.4 | −0.6% | 0.1% |
+| HAP 88 ×13, f32 exact nets | 1,144 | 896 | 929.3 | 926.5 | 925.0 | −0.3% | 0.5% |
+| HAP 88 ×16, f32 exact nets | 1,408 | 896 | 1,075.1 | 1,073.5 | 1,079.4 | −0.2% | 0.4% |
+| HAP 88 ×18, f32 exact nets | 1,584 | 896 | 1,172.6 | 1,172.2 | 1,171.1 | 0.0% | 0.1% |
+| HAP 88 ×20, f32 exact nets | 1,760 | 896 | 1,252.4 | 1,249.2 | 1,253.8 | −0.3% | 0.1% |
+| HAP 88 ×24, f32 exact nets | 2,112 | 896 | 1,425.7 | 1,427.2 | 1,428.3 | +0.1% | 0.2% |
+| water 1,536, f32 exact nets | 1,536 | 896 | 1,141.3 | 1,126.6 | 1,130.1 | −1.3% | 1.0% |
+| water 12,288, f32 exact nets | 12,288 | 896 | 6,723.8 | 6,704.2 | 6,732.0 | −0.3% | 0.1% |
+| HAP 88 ×9, f64 exact nets | 792 | 768 | 4,414.7 | 4,424.9 | 4,410.4 | +0.2% | 0.1% |
+| HAP 88 ×11, f64 exact nets | 968 | 768 | 5,058.1 | 5,038.1 | 5,054.1 | −0.4% | 0.1% |
+| HAP 88 ×13, f64 exact nets | 1,144 | 768 | 5,871.8 | 5,871.0 | 5,876.1 | 0.0% | 0.1% |
+| HAP 88 ×16, f64 exact nets | 1,408 | 768 | 7,221.3 | 7,206.8 | 7,212.8 | −0.2% | 0.1% |
+| HAP 88 ×20, f64 exact nets | 1,760 | 768 | 8,979.1 | 8,968.0 | 8,989.1 | −0.1% | 0.1% |
+| water 1,536, f64 exact nets | 1,536 | 768 | 7,501.5 | 7,490.6 | 7,497.2 | −0.1% | 0.1% |
+
+One case was faster beyond its bound, water at 1,536 atoms (1.3%; against
+the second run without the sums 0.3%), none slower, and no case of HAP
+faster. The first clause asks for a HAP case faster and the second for
+cases slower, so neither gives the kernel of the exact nets the sums, and
+past every way it took the narrow blocks without them, as before. The
+script that applied the rule printed a limit of 1.75: with no case slower
+it went on to the formula of a limit, which then has no upper end. The
+decision quotes that line and says why it does not apply
+(`decision_exact_nets`); the 968-center miss of #45 did not recur on the
+kernel of 16 lanes (−0.6%).
+
+**The change against #45** (`force-exact-lanes-rtx4090-2026-11-23.json`).
+The change as it then stood (its commit a71f562) against the build of
+#45, which ran twice a round, five rounds alternated in one session, the
+least evaluation of each, µs, and the least forces stage against #45's.
+The rules, written before the timings: the 16 lanes stay if the forces
+stage of float32 water with the exact nets is not slower at 1,536 and
+12,288 atoms and no float32 case with the exact nets has an evaluation
+slower beyond max(spread, 1%), the spread being #45 against itself (rule
+1); the sums stay if no case of their window is slower beyond it (rule 2);
+any other case slower beyond max(spread, 2%) is looked into before the
+change merges (rule 3). The cases of rule 1, float32 with the exact nets:
+
+| Case | Centers | #45 | The change | Against #45 | Spread | Forces stage |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| water 192 | 192 | 222.6 | 223.1 | +0.3% | 0.1% | +7.6% |
+| water 1,536 | 1,536 | 1,127.3 | 1,122.0 | −0.5% | 0.2% | −2.3% |
+| water 12,288 | 12,288 | 6,798.0 | 6,744.6 | −0.8% | 0.3% | −5.5% |
+| HAP 88 | 88 | 152.3 | 154.4 | +1.3% | 0.1% | +10.8% |
+| HAP 224 | 224 | 238.1 | 238.4 | +0.2% | 0.1% | +3.8% |
+| HAP 88, committee of four | 352 | 439.8 | 435.4 | −1.0% | 0.1% | −8.2% |
+| HAP 88 ×11 | 968 | 805.4 | 810.1 | +0.6% | 0.0% | +7.5% |
+| HAP 88 ×16 | 1,408 | 1,077.3 | 1,076.7 | −0.1% | 0.1% | −1.4% |
+
+The window of the sums, the kernels of the tables (the kernel of the exact
+nets took none past every way, by the second run above):
+
+| Case | Blocks | At once without the sums | #45 | The change | Against #45 | Spread | Forces stage |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| HAP 88 ×11, f32 tables | 968 | 896 | 502.8 | 494.6 | −1.6% | 0.3% | −9.2% |
+| HAP 169 ×6, f32 tables | 1,014 | 896 | 504.9 | 499.8 | −1.0% | 0.4% | −7.6% |
+| HAP 88 ×12, f32 tables | 1,056 | 896 | 512.0 | 514.8 | +0.5% | 0.5% | +0.9% |
+| HAP 224 ×5, f32 tables | 1,120 | 896 | 527.8 | 538.3 | +2.0% | 0.0% | +10.9% |
+| HAP 88 ×9, f64 tables | 792 | 768 | 2,343.4 | 2,347.0 | +0.2% | 0.1% | +1.2% |
+| HAP 88 ×10, f64 tables | 880 | 768 | 2,449.4 | 2,420.4 | −1.2% | 0.0% | −8.2% |
+| HAP 224 ×4, f64 tables | 896 | 768 | 2,484.4 | 2,462.9 | −0.9% | 0.0% | −6.4% |
+
+The trainer, the best rate of three rounds of 3,000 steps on the
+first-pass dataset of the HAP iteration 0, steps a second, #45 twice a
+round:
+
+| Model | #45 | The change | #45 again | Against #45 |
+| --- | ---: | ---: | ---: | ---: |
+| se_e2_a to 6 Å, float32 | 678.2 | 674.4 | 677.2 | −0.6% |
+| se_e3 to 4 Å, float32 | 1,563.3 | 1,563.7 | 1,564.2 | +0.0% |
+| se_e2_a to 6 Å, float64 | 308.0 | 308.3 | 308.1 | +0.1% |
+| se_e3 to 4 Å, float64 | 443.8 | 443.9 | 443.4 | +0.0% |
+
+The forces stage of large passes gained by the 16 lanes and by the sums,
+and that of small ones lost by them: one frame of 88 HAP atoms took 1.3%
+longer with the exact nets in float32 (its forces stage 10.8%), beyond
+the bound of 1%, and a batch of five frames of 224 atoms with tables 2.0%
+longer at 1,120 blocks, where the first run of the sums had it within its
+spread (+0.4%, spread 1.0%; here the spread was 0.03%). So, by the rules,
+the evaluation's exact nets take 8 lanes in float32 again, which makes
+their kernel that of the stored rows, and the evaluation launches that
+one for them as #45 did; se_e2_a takes no sums past every way, as before,
+and the limit goes with them rather than staying as a limit of 0. The
+trainer's kernel of the rows went by its own clause, to stay unless its
+rate in float32 was lower beyond max(spread, 1%): it was 0.6% lower, so
+it stays by the rule, with no gain measured. Nothing else was slower
+beyond its bound of rule 3: the other 17 cases of the run (water with
+tables from 192 to 98,304 atoms in both precisions, the HAP frames alone
+and the committee with tables, passes past the window, water with the
+exact nets in float64) within −0.5% and +0.4% of #45, the 17 cases of
+the small set of #44 within −1.7% and +1.9% (water 192 ×4 with tables,
+whose spread was 2.8%) and the trainer's other rates within 0.1%
+(`decision`).
+
+**What merged.** The evaluation's code is that of #45. Of the 76 kernels
+the code compiles, 75 have the PTX of #45's to the character, and the
+76th is the trainer's force kernel of the rows in float32 with 16 lanes,
+72 registers and no spills as with 8 (`checks.ptx`). Every suite passed,
+in release and debug (`checks.suites`). No round of mutants: what merged
+sets the number of lanes of one kernel, which the trainer's tests hold to
+float64 whatever it is.
+
+**compute-sanitizer** (`checks.compute_sanitizer`). memcheck and synccheck
+of every kernel found nothing in five of the trainer's tests, the one of a
+net of 20 outputs over the 16 lanes of a slot among them. racecheck of
+every kernel in the two tests in float32 passed its budget of 45 minutes
+and was stopped. racecheck of the changed kernel alone then showed
+nothing, and so did a control: with the barrier between the sums of the
+slots and their readers left out of `se_e2_a_backward_rows_f32`, the same
+filter and tests gave 0 hazards in racecheck's default report
+(`--racecheck-report analysis`), whether the filter named the kernel by a
+substring, in full or by a regular expression, and 39,920 errors with
+`--racecheck-report hazard`. Every racecheck of this file before this one used the default
+report: those of the force kernels of #45, of the frame sums on the device
+and of the lookups of the tables showed nothing, as the control did. With
+the hazards reported, each run filtered to the kernels concerned (nsys
+showed every filter's kernels launched in its tests), racecheck found none:
+in the trainer's kernels of the rows over all 26 of its tests, in the force
+kernels over the eight force tests of `gpu_parity` that #45 took, in the
+kernels that look the tables up over their test, in the frame sums over
+three of their tests, and in the neighbor search over the eight tests of
+#37's run. The test of the copy into page-locked memory launches no
+kernel. Only racecheck has a positive control: nothing was planted for
+memcheck or synccheck.
+
+**Not done.** The 16 lanes for the exact nets chosen by the size of the
+pass: they took 2.3% and 5.5% off the forces stage at 1,536 and 12,288
+water atoms and 8.2% off the committee's, and added 3.8% to 10.8% to it in
+single passes of 88 to 968 centers; at the evaluation the gains came to 1%
+at most. A narrower window of the sums: in float32 968 and 1,014 blocks
+were 1.6% and 1.0% faster, in float64 880 and 896 were 1.2% and 0.9%
+faster, and 1,056 and 1,120 were not. Each wants a rule and a run of its
+own.
+
 # The force kernel of se_e2_a with a group of lanes a slot, 2026-11-22
 
 The force kernel of se_e2_a is a block for each center: B to shared memory
@@ -248,7 +534,9 @@ the write of a group past the last slot, whose zeros land in the room of
 the block's sums, which phase 0 cleared and nothing has written yet, and
 an empty slot taken as live, whose sums land where phase 3 never reads.
 compute-sanitizer's memcheck, racecheck and synccheck found nothing on the
-force tests of `gpu_parity` and the trainer's. A review by eight agents found no defect in the kernel;
+force tests of `gpu_parity` and the trainer's (racecheck in its default
+report, which showed nothing for a race planted in a force kernel either:
+see 2026-11-23). A review by eight agents found no defect in the kernel;
 what it found in the comments, the docs and the tests was mended before
 the commit.
 
@@ -506,7 +794,9 @@ finish in another order every pass, and the last one reads what the others
 wrote); `the_device_sums_large_frames_alike_every_time`, a frame of 12,167
 atoms (48 segments) in 80 passes, and by hand one of 97,336 atoms (381
 segments) in 20. On the final build compute-sanitizer's memcheck, racecheck
-and synccheck found nothing in the first of these, in
+and synccheck found nothing (racecheck in its default report, which
+showed nothing for a race planted in a force kernel either: see
+2026-11-23) in the first of these, in
 `a_batch_of_frames_matches_each_frame_alone` and
 `a_committee_matches_its_members_alone`, and in
 `results_come_back_through_page_locked_memory`, the test of the copy into
@@ -1247,7 +1537,9 @@ blocks have no room and the stored values are read. A unit test
 (`shared_memory_of_the_lookups`) holds the shared memory of both kernels to
 sizes worked out by hand; it runs in CI with the GPU feature, without a
 card. Under compute-sanitizer the new test is clean in memcheck and
-racecheck; initcheck reports 51 copies to the host of buffers that hold
+racecheck (in its default report, which showed nothing for a race
+planted in a force kernel either: see 2026-11-23); initcheck reports 51
+copies to the host of buffers that hold
 bytes no kernel wrote (padding), and no kernel that reads such bytes.
 
 The test of the stages of a profiled evaluation asked that the device's

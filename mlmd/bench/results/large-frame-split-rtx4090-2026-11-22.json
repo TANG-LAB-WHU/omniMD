@@ -1,0 +1,2569 @@
+{
+ "date": "2026-11-22",
+ "device": "NVIDIA GeForce RTX 4090",
+ "host": "i9-14900K, the host side held to the performance cores",
+ "what": "Where an evaluation of the water se_e2_a model goes at 12,288 and 98,304 atoms, measured before the third PR of the large-frame plan was chosen: the fitting paths alternated on one build (fitting_paths, under rule_fitting_paths), the kernels of the evaluation by nsys (kernels, under rule_pr_c) and the decision that applied both rules. Build: omnimd-native-gpu-eval of a08daf6 (TANG-LAB-WHU/omniMD#45). The rules and the decision are the texts as written then (rule-fit0.txt, rule-pr-c.txt, decision-pr-c.txt); see SUMMARY.md, 2026-11-23.",
+ "beside_the_timings": "Two processes of `find / -maxdepth 6 -type d -name cudarc-...` (left by agents of an earlier review, one core each; stopping them was not allowed in the session) ran beside the timings of force-lanes-rtx4090-2026-11-22.json and were still running at its end (2026-11-22 22:25, checked); by 2026-11-23 00:28 they were gone (checked). No check was made between: whether they still ran beside the runs of this record (2026-11-22, the fitting paths ending 23:03, the traces 23:04 to 23:08) is not known.",
+ "rule_fitting_paths": [
+  "Written 2026-11-22 22:57 before the run fit0-1.json (fit_ab.py, 3 rounds, held to the P-cores):",
+  "[stamp corrected 2026-11-22 23:45 to the file's creation time; the order of rule and run is as the creation times show]",
+  "one build, prev-a08daf6 (= TANG-LAB-WHU/omniMD#45). Settings of the evaluator:",
+  "  def   the default (float32 at these sizes: grouped cuBLAS products; float64: the fused kernel)",
+  "  per   --grouped-fitting off   (cuBLAS a net at a time)",
+  "  fus   --fused-fitting 1000000 (the fused kernel for every pass; float32 first layer in tiles)",
+  "  cub   --fused-fitting 0       (cuBLAS for every pass: in float64 grouped products; in float32 the default)",
+  "  def2  the default again, the control",
+  "Cases: w12288, w98304 (water se_e2_a, float32, tables looked up), w12288-f64, w98304-f64 (float64, tables stored).",
+  "Measures: the fitting stage (median of the profile's device time) and the evaluation (median of the bench loop);",
+  "spread = |def2/def - 1| of the same case and measure.",
+  "",
+  "Rule:",
+  "1. A setting is a candidate for the default at these sizes if, in a precision, it beats def on both the fitting",
+  "   stage and the evaluation by more than max(spread, 1%) at both 12,288 and 98,304 atoms.",
+  "2. If there is a candidate, PR C begins with the threshold that chooses the path (no kernel code), with the",
+  "   crossover measured between the sizes the thresholds were set on (up to 4,608 rows) and these; the small",
+  "   frames keep their path and serve as the control.",
+  "3. If there is none, the fitting stage is split per launch next (products and other launches, against a",
+  "   standalone gemm of the same shape), and the neighbors stage into host packing, upload and kernel."
+ ],
+ "fitting_paths": {
+  "what": "fit_ab.py OUT.json ROUNDS CASES LABEL=EXE[#ARG ARG ...] ...: builds and evaluator flags alternated on large frames.\n\nCASES, joined by ',': w<atoms>[-f64][-nt] (water se_e2_a, float32 with tables unless -f64 / -nt: no tables).\nEvery round runs every setting on every case, in order and reversed every other round, each run\n`--bench K --profile` with the extra flags of the setting after '#'. Records per run the bench loop's time and the\nwhole profile (device stages, host issue times, host_prepare, host_finish, wall, chunks). The card is checked for\nother users before every round (tools/ht/gpu_busy.ps1). Run it held to the P-cores (tools/pk/affine.py 0xFFFC).",
+  "cases": [
+   "w12288",
+   "w98304",
+   "w12288-f64",
+   "w98304-f64"
+  ],
+  "settings": [
+   [
+    "def",
+    "omnimd-native-gpu-eval of a08daf6",
+    []
+   ],
+   [
+    "per",
+    "omnimd-native-gpu-eval of a08daf6",
+    [
+     "--grouped-fitting",
+     "off"
+    ]
+   ],
+   [
+    "fus",
+    "omnimd-native-gpu-eval of a08daf6",
+    [
+     "--fused-fitting",
+     "1000000"
+    ]
+   ],
+   [
+    "cub",
+    "omnimd-native-gpu-eval of a08daf6",
+    [
+     "--fused-fitting",
+     "0"
+    ]
+   ],
+   [
+    "def2",
+    "omnimd-native-gpu-eval of a08daf6",
+    []
+   ]
+  ],
+  "samples": {
+   "w12288": {
+    "def": [
+     {
+      "ms_per_eval": 2.69115,
+      "stages": {
+       "chunks": 1,
+       "device": {
+        "descriptor": 0.25744351476430893,
+        "download": 0.07367744013667107,
+        "embedding": 0.001493759995792061,
+        "environment": 0.14248384192585944,
+        "fitting": 0.8502716851234436,
+        "forces": 0.4847596794366837,
+        "neighbors": 0.5617273592948914
+       },
+       "host_finish": 0.09866899999999999,
+       "host_prepare": 0.073868,
+       "issue": {
+        "descriptor": 0.007534999999999998,
+        "download": 2.062306,
+        "embedding": 0.0037260000000000023,
+        "environment": 0.014232999999999997,
+        "fitting": 0.089674,
+        "forces": 0.007829,
+        "neighbors": 0.196677
+       },
+       "wall": 2.5545170000000006
+      },
+      "path": "precision: network f32, chunk 79733 atoms, embedding tabulated, looked up by the kernels"
+     },
+     {
+      "ms_per_eval": 2.53851,
+      "stages": {
+       "chunks": 1,
+       "device": {
+        "descriptor": 0.25904896259307864,
+        "download": 0.07705824002623558,
+        "embedding": 0.0014233599964063614,
+        "environment": 0.15544320225715638,
+        "fitting": 0.8235193598270416,
+        "forces": 0.48090751826763156,
+        "neighbors": 0.5779536014795303
+       },
+       "host_finish": 0.09868500000000002,
+       "host_prepare": 0.080994,
+       "issue": {
+        "descriptor": 0.009243000000000001,
+        "download": 2.0463080000000007,
+        "embedding": 0.0038770000000000015,
+        "environment": 0.016516000000000003,
+        "fitting": 0.09676900000000002,
+        "forces": 0.007698000000000003,
+        "neighbors": 0.20670199999999997
+       },
+       "wall": 2.566792
+      },
+      "path": "precision: network f32, chunk 79733 atoms, embedding tabulated, looked up by the kernels"
+     },
+     {
+      "ms_per_eval": 2.613378,
+      "stages": {
+       "chunks": 1,
+       "device": {
+        "descriptor": 0.25917312324047087,
+        "download": 0.07250399999320507,
+        "embedding": 0.0013807999959681184,
+        "environment": 0.16287552140653133,
+        "fitting": 0.8474281579256058,
+        "forces": 0.48232415914535526,
+        "neighbors": 0.5650502437353134
+       },
+       "host_finish": 0.09588599999999999,
+       "host_prepare": 0.07506199999999995,
+       "issue": {
+        "descriptor": 0.007476000000000002,
+        "download": 2.090940999999999,
+        "embedding": 0.0035540000000000007,
+        "environment": 0.013938999999999995,
+        "fitting": 0.08488800000000002,
+        "forces": 0.006726000000000002,
+        "neighbors": 0.19437400000000002
+       },
+       "wall": 2.572846
+      },
+      "path": "precision: network f32, chunk 79733 atoms, embedding tabulated, looked up by the kernels"
+     }
+    ],
+    "per": [
+     {
+      "ms_per_eval": 2.627778,
+      "stages": {
+       "chunks": 1,
+       "device": {
+        "descriptor": 0.25806143760681155,
+        "download": 0.07232575990259647,
+        "embedding": 0.0013209599966648967,
+        "environment": 0.12310336202383042,
+        "fitting": 0.9620448023080826,
+        "forces": 0.4801945561170578,
+        "neighbors": 0.5756886392831803
+       },
+       "host_finish": 0.093806,
+       "host_prepare": 0.07276900000000003,
+       "issue": {
+        "descriptor": 0.006126999999999998,
+        "download": 2.0272150000000004,
+        "embedding": 0.0026199999999999986,
+        "environment": 0.014103999999999997,
+        "fitting": 0.22702300000000006,
+        "forces": 0.0076400000000000036,
+        "neighbors": 0.19932499999999997
+       },
+       "wall": 2.650629000000001
+      },
+      "path": "precision: network f32, chunk 79733 atoms, embedding tabulated, looked up by the kernels"
+     },
+     {
+      "ms_per_eval": 2.6350079999999996,
+      "stages": {
+       "chunks": 1,
+       "device": {
+        "descriptor": 0.25934368520975115,
+        "download": 0.07339391976594925,
+        "embedding": 0.0013823999965097756,
+        "environment": 0.14311168245971204,
+        "fitting": 0.9504406410455704,
+        "forces": 0.5123788785934449,
+        "neighbors": 0.5763315182924271
+       },
+       "host_finish": 0.097917,
+       "host_prepare": 0.078576,
+       "issue": {
+        "descriptor": 0.005873999999999999,
+        "download": 2.078019,
+        "embedding": 0.002303,
+        "environment": 0.014403000000000001,
+        "fitting": 0.21758799999999995,
+        "forces": 0.0072260000000000015,
+        "neighbors": 0.2017480000000001
+       },
+       "wall": 2.703654
+      },
+      "path": "precision: network f32, chunk 79733 atoms, embedding tabulated, looked up by the kernels"
+     },
+     {
+      "ms_per_eval": 2.6995279999999995,
+      "stages": {
+       "chunks": 1,
+       "device": {
+        "descriptor": 0.25923648476600647,
+        "download": 0.0705305602401495,
+        "embedding": 0.0014233599964063614,
+        "environment": 0.13641152173280716,
+        "fitting": 0.9525855964422226,
+        "forces": 0.4826521545648575,
+        "neighbors": 0.5660208004713059
+       },
+       "host_finish": 0.09134399999999997,
+       "host_prepare": 0.06817000000000001,
+       "issue": {
+        "descriptor": 0.005778999999999999,
+        "download": 2.0466730000000006,
+        "embedding": 0.0025729999999999993,
+        "environment": 0.014505999999999996,
+        "fitting": 0.20900699999999997,
+        "forces": 0.006893999999999999,
+        "neighbors": 0.19318199999999988
+       },
+       "wall": 2.638128
+      },
+      "path": "precision: network f32, chunk 79733 atoms, embedding tabulated, looked up by the kernels"
+     }
+    ],
+    "fus": [
+     {
+      "ms_per_eval": 8.966999,
+      "stages": {
+       "chunks": 1,
+       "device": {
+        "descriptor": 0.25832895904779435,
+        "download": 0.0885641597956419,
+        "embedding": 0.0013497599959373474,
+        "environment": 0.1348614426702261,
+        "fitting": 7.302497916221618,
+        "forces": 0.46643647700548174,
+        "neighbors": 0.5807574409246444
+       },
+       "host_finish": 0.10515899999999995,
+       "host_prepare": 0.085413,
+       "issue": {
+        "descriptor": 0.009245,
+        "download": 8.574780000000002,
+        "embedding": 0.0048080000000000015,
+        "environment": 0.016544999999999997,
+        "fitting": 0.015569000000000012,
+        "forces": 0.013156,
+        "neighbors": 0.21153100000000005
+       },
+       "wall": 9.036206000000002
+      },
+      "path": "precision: network f32, chunk 79733 atoms, embedding tabulated, looked up by the kernels"
+     },
+     {
+      "ms_per_eval": 9.018538000000001,
+      "stages": {
+       "chunks": 1,
+       "device": {
+        "descriptor": 0.25911552339792254,
+        "download": 0.0867052797973156,
+        "embedding": 0.001351679996587336,
+        "environment": 0.1365017621219158,
+        "fitting": 7.316058230400086,
+        "forces": 0.45731935739517215,
+        "neighbors": 0.6030799984931946
+       },
+       "host_finish": 0.10906299999999998,
+       "host_prepare": 0.08982299999999997,
+       "issue": {
+        "descriptor": 0.012915000000000003,
+        "download": 8.584951999999998,
+        "embedding": 0.006555999999999999,
+        "environment": 0.01941099999999999,
+        "fitting": 0.012810999999999998,
+        "forces": 0.014119999999999999,
+        "neighbors": 0.22289099999999998
+       },
+       "wall": 9.072542
+      },
+      "path": "precision: network f32, chunk 79733 atoms, embedding tabulated, looked up by the kernels"
+     },
+     {
+      "ms_per_eval": 9.065731000000001,
+      "stages": {
+       "chunks": 1,
+       "device": {
+        "descriptor": 0.25899872452020645,
+        "download": 0.08225535996258258,
+        "embedding": 0.0015257599961478263,
+        "environment": 0.11627072170376777,
+        "fitting": 7.318521265983581,
+        "forces": 0.4816422384977341,
+        "neighbors": 0.5821503984928131
+       },
+       "host_finish": 0.10388800000000004,
+       "host_prepare": 0.08410699999999999,
+       "issue": {
+        "descriptor": 0.008631999999999999,
+        "download": 8.581913,
+        "embedding": 0.004752999999999999,
+        "environment": 0.01731599999999999,
+        "fitting": 0.013101000000000003,
+        "forces": 0.014429999999999997,
+        "neighbors": 0.2130620000000001
+       },
+       "wall": 9.041202000000002
+      },
+      "path": "precision: network f32, chunk 79733 atoms, embedding tabulated, looked up by the kernels"
+     }
+    ],
+    "cub": [
+     {
+      "ms_per_eval": 2.524629,
+      "stages": {
+       "chunks": 1,
+       "device": {
+        "descriptor": 0.25817407727241515,
+        "download": 0.07224448010325432,
+        "embedding": 0.0013686399965081365,
+        "environment": 0.14204544231295585,
+        "fitting": 0.824188803434372,
+        "forces": 0.48805664002895355,
+        "neighbors": 0.5645641630887985
+       },
+       "host_finish": 0.09818299999999998,
+       "host_prepare": 0.07094899999999998,
+       "issue": {
+        "descriptor": 0.007044000000000001,
+        "download": 2.0441149999999997,
+        "embedding": 0.003704000000000002,
+        "environment": 0.014712999999999993,
+        "fitting": 0.09090200000000002,
+        "forces": 0.007527999999999998,
+        "neighbors": 0.19281900000000005
+       },
+       "wall": 2.5299569999999987
+      },
+      "path": "precision: network f32, chunk 79733 atoms, embedding tabulated, looked up by the kernels"
+     },
+     {
+      "ms_per_eval": 2.5398870000000002,
+      "stages": {
+       "chunks": 1,
+       "device": {
+        "descriptor": 0.25915136337280276,
+        "download": 0.07513952031731606,
+        "embedding": 0.0013811199960764497,
+        "environment": 0.15678240172564983,
+        "fitting": 0.8452780801057815,
+        "forces": 0.46641855865716936,
+        "neighbors": 0.5805379194021225
+       },
+       "host_finish": 0.09387300000000005,
+       "host_prepare": 0.070988,
+       "issue": {
+        "descriptor": 0.006237999999999998,
+        "download": 2.090894,
+        "embedding": 0.0026729999999999983,
+        "environment": 0.015063000000000002,
+        "fitting": 0.07526,
+        "forces": 0.006055999999999999,
+        "neighbors": 0.19919300000000004
+       },
+       "wall": 2.560238
+      },
+      "path": "precision: network f32, chunk 79733 atoms, embedding tabulated, looked up by the kernels"
+     },
+     {
+      "ms_per_eval": 2.540879,
+      "stages": {
+       "chunks": 1,
+       "device": {
+        "descriptor": 0.2590988835692406,
+        "download": 0.07558591984212398,
+        "embedding": 0.0015222399961203337,
+        "environment": 0.14330784171819688,
+        "fitting": 0.8288975965976715,
+        "forces": 0.47570207983255386,
+        "neighbors": 0.5861974412202835
+       },
+       "host_finish": 0.09383899999999998,
+       "host_prepare": 0.07043500000000001,
+       "issue": {
+        "descriptor": 0.005747000000000001,
+        "download": 2.0840090000000004,
+        "embedding": 0.002206999999999999,
+        "environment": 0.013695999999999995,
+        "fitting": 0.07682999999999997,
+        "forces": 0.005953000000000002,
+        "neighbors": 0.192517
+       },
+       "wall": 2.545233
+      },
+      "path": "precision: network f32, chunk 79733 atoms, embedding tabulated, looked up by the kernels"
+     }
+    ],
+    "def2": [
+     {
+      "ms_per_eval": 2.533665,
+      "stages": {
+       "chunks": 1,
+       "device": {
+        "descriptor": 0.2581468778848648,
+        "download": 0.06834111984819174,
+        "embedding": 0.0014415999967604875,
+        "environment": 0.13690656162798406,
+        "fitting": 0.8440438407659531,
+        "forces": 0.4818614399433136,
+        "neighbors": 0.5578908795118332
+       },
+       "host_finish": 0.09030100000000003,
+       "host_prepare": 0.07055299999999999,
+       "issue": {
+        "descriptor": 0.006297000000000006,
+        "download": 2.0598799999999993,
+        "embedding": 0.0032420000000000005,
+        "environment": 0.012513000000000002,
+        "fitting": 0.08263400000000001,
+        "forces": 0.006499999999999998,
+        "neighbors": 0.18645899999999999
+       },
+       "wall": 2.5183790000000013
+      },
+      "path": "precision: network f32, chunk 79733 atoms, embedding tabulated, looked up by the kernels"
+     },
+     {
+      "ms_per_eval": 2.6800980000000005,
+      "stages": {
+       "chunks": 1,
+       "device": {
+        "descriptor": 0.2591449624300003,
+        "download": 0.0824048000574112,
+        "embedding": 0.0015641599951777608,
+        "environment": 0.17102528244256973,
+        "fitting": 0.830277761220932,
+        "forces": 0.4800899186730385,
+        "neighbors": 0.57687903881073
+       },
+       "host_finish": 0.09638500000000003,
+       "host_prepare": 0.07288100000000002,
+       "issue": {
+        "descriptor": 0.0071460000000000004,
+        "download": 2.0926289999999996,
+        "embedding": 0.0035690000000000023,
+        "environment": 0.014771999999999993,
+        "fitting": 0.08872000000000003,
+        "forces": 0.007344000000000001,
+        "neighbors": 0.19836600000000004
+       },
+       "wall": 2.5818119999999998
+      },
+      "path": "precision: network f32, chunk 79733 atoms, embedding tabulated, looked up by the kernels"
+     },
+     {
+      "ms_per_eval": 2.5359520000000004,
+      "stages": {
+       "chunks": 1,
+       "device": {
+        "descriptor": 0.2591641643643379,
+        "download": 0.07331807985901832,
+        "embedding": 0.0014217599970288576,
+        "environment": 0.16737760245800018,
+        "fitting": 0.8406070405244828,
+        "forces": 0.46584319919347766,
+        "neighbors": 0.5673695993423462
+       },
+       "host_finish": 0.09569799999999999,
+       "host_prepare": 0.07160600000000003,
+       "issue": {
+        "descriptor": 0.007317999999999999,
+        "download": 2.0663679999999998,
+        "embedding": 0.004489000000000003,
+        "environment": 0.014287000000000006,
+        "fitting": 0.09007100000000003,
+        "forces": 0.007893999999999997,
+        "neighbors": 0.19572500000000007
+       },
+       "wall": 2.5534560000000006
+      },
+      "path": "precision: network f32, chunk 79733 atoms, embedding tabulated, looked up by the kernels"
+     }
+    ]
+   },
+   "w98304": {
+    "def": [
+     {
+      "ms_per_eval": 20.247905,
+      "stages": {
+       "chunks": 2,
+       "device": {
+        "descriptor": 2.2136335611343383,
+        "download": 0.30889440327882767,
+        "embedding": 0.0026575999916531147,
+        "environment": 0.7805488087236881,
+        "fitting": 7.160427165031433,
+        "forces": 3.7041312217712403,
+        "neighbors": 4.184734427928925
+       },
+       "host_finish": 0.8959200000000002,
+       "host_prepare": 0.663155,
+       "issue": {
+        "descriptor": 0.014395,
+        "download": 16.557135000000002,
+        "embedding": 0.006850000000000002,
+        "environment": 0.05536000000000001,
+        "fitting": 0.17789500000000003,
+        "forces": 0.01528,
+        "neighbors": 1.5517949999999996
+       },
+       "wall": 19.937785
+      },
+      "path": "precision: network f32, chunk 79733 atoms, embedding tabulated, looked up by the kernels"
+     },
+     {
+      "ms_per_eval": 20.313255,
+      "stages": {
+       "chunks": 2,
+       "device": {
+        "descriptor": 2.2225440070033073,
+        "download": 0.2986688002943993,
+        "embedding": 0.0028159999928902835,
+        "environment": 0.7688527956604958,
+        "fitting": 7.091358387470246,
+        "forces": 3.8076016128063204,
+        "neighbors": 4.221899199485779
+       },
+       "host_finish": 0.8805550000000001,
+       "host_prepare": 0.66003,
+       "issue": {
+        "descriptor": 0.016515,
+        "download": 16.616495,
+        "embedding": 0.007375,
+        "environment": 0.05330499999999999,
+        "fitting": 0.17496500000000004,
+        "forces": 0.015569999999999999,
+        "neighbors": 1.5554100000000004
+       },
+       "wall": 19.980220000000006
+      },
+      "path": "precision: network f32, chunk 79733 atoms, embedding tabulated, looked up by the kernels"
+     },
+     {
+      "ms_per_eval": 20.05558,
+      "stages": {
+       "chunks": 2,
+       "device": {
+        "descriptor": 2.2778656005859377,
+        "download": 0.29746719896793367,
+        "embedding": 0.002713599993148819,
+        "environment": 0.7483375906944275,
+        "fitting": 7.118676853179932,
+        "forces": 3.8573471873998644,
+        "neighbors": 4.293377566337585
+       },
+       "host_finish": 0.9288750000000002,
+       "host_prepare": 0.69043,
+       "issue": {
+        "descriptor": 0.015135000000000003,
+        "download": 16.755645,
+        "embedding": 0.007435000000000001,
+        "environment": 0.05641499999999999,
+        "fitting": 0.187475,
+        "forces": 0.016305,
+        "neighbors": 1.5840250000000002
+       },
+       "wall": 20.241740000000004
+      },
+      "path": "precision: network f32, chunk 79733 atoms, embedding tabulated, looked up by the kernels"
+     }
+    ],
+    "per": [
+     {
+      "ms_per_eval": 20.90529,
+      "stages": {
+       "chunks": 2,
+       "device": {
+        "descriptor": 2.215324763953686,
+        "download": 0.3343311950564385,
+        "embedding": 0.003015999990748242,
+        "environment": 0.7676448091864586,
+        "fitting": 8.090415972471238,
+        "forces": 3.607603222131729,
+        "neighbors": 4.414316809177399
+       },
+       "host_finish": 0.91816,
+       "host_prepare": 0.7150350000000001,
+       "issue": {
+        "descriptor": 0.01748,
+        "download": 17.28514,
+        "embedding": 0.007160000000000003,
+        "environment": 0.06520999999999999,
+        "fitting": 0.4297850000000001,
+        "forces": 0.018125000000000002,
+        "neighbors": 1.6348599999999998
+       },
+       "wall": 21.090955
+      },
+      "path": "precision: network f32, chunk 79733 atoms, embedding tabulated, looked up by the kernels"
+     },
+     {
+      "ms_per_eval": 21.019945,
+      "stages": {
+       "chunks": 2,
+       "device": {
+        "descriptor": 2.2423247933387755,
+        "download": 0.30644480139017105,
+        "embedding": 0.0028159999928902835,
+        "environment": 0.7771551877260209,
+        "fitting": 8.01851361989975,
+        "forces": 3.698287990689278,
+        "neighbors": 4.302652835845947
+       },
+       "host_finish": 0.906265,
+       "host_prepare": 0.6662399999999998,
+       "issue": {
+        "descriptor": 0.01646,
+        "download": 17.28016,
+        "embedding": 0.007325000000000002,
+        "environment": 0.058739999999999994,
+        "fitting": 0.4236350000000001,
+        "forces": 0.01657,
+        "neighbors": 1.5728750000000002
+       },
+       "wall": 20.94827
+      },
+      "path": "precision: network f32, chunk 79733 atoms, embedding tabulated, looked up by the kernels"
+     },
+     {
+      "ms_per_eval": 20.93024,
+      "stages": {
+       "chunks": 2,
+       "device": {
+        "descriptor": 2.208643200993538,
+        "download": 0.3045248031616211,
+        "embedding": 0.0027567999961320313,
+        "environment": 0.7654959879815579,
+        "fitting": 7.905916786193848,
+        "forces": 3.793769583106041,
+        "neighbors": 4.339222431182861
+       },
+       "host_finish": 0.902315,
+       "host_prepare": 0.67889,
+       "issue": {
+        "descriptor": 0.016055000000000003,
+        "download": 17.23163,
+        "embedding": 0.00735,
+        "environment": 0.05838,
+        "fitting": 0.4302599999999999,
+        "forces": 0.017865000000000002,
+        "neighbors": 1.58617
+       },
+       "wall": 20.928914999999996
+      },
+      "path": "precision: network f32, chunk 79733 atoms, embedding tabulated, looked up by the kernels"
+     }
+    ],
+    "fus": [
+     {
+      "ms_per_eval": 68.14558,
+      "stages": {
+       "chunks": 2,
+       "device": {
+        "descriptor": 2.137667217850685,
+        "download": 0.3070767998695374,
+        "embedding": 0.0029583999887108805,
+        "environment": 0.8008207991719246,
+        "fitting": 55.361168479919435,
+        "forces": 3.7050431787967684,
+        "neighbors": 4.396252775192261
+       },
+       "host_finish": 0.96175,
+       "host_prepare": 0.716775,
+       "issue": {
+        "descriptor": 0.013595000000000003,
+        "download": 64.97963500000002,
+        "embedding": 0.0062000000000000015,
+        "environment": 0.054725,
+        "fitting": 0.015610000000000002,
+        "forces": 0.014509999999999999,
+        "neighbors": 1.6594300000000002
+       },
+       "wall": 68.42223
+      },
+      "path": "precision: network f32, chunk 79733 atoms, embedding tabulated, looked up by the kernels"
+     },
+     {
+      "ms_per_eval": 68.13750000000002,
+      "stages": {
+       "chunks": 2,
+       "device": {
+        "descriptor": 2.3039088129997256,
+        "download": 0.29185439795255663,
+        "embedding": 0.003065599990077317,
+        "environment": 0.7469551995396615,
+        "fitting": 55.268139171600346,
+        "forces": 3.662084808945656,
+        "neighbors": 4.35457284450531
+       },
+       "host_finish": 0.9159450000000002,
+       "host_prepare": 0.6992200000000001,
+       "issue": {
+        "descriptor": 0.013850000000000001,
+        "download": 64.96669000000001,
+        "embedding": 0.005944999999999999,
+        "environment": 0.05404500000000001,
+        "fitting": 0.014645,
+        "forces": 0.015340000000000005,
+        "neighbors": 1.5824050000000003
+       },
+       "wall": 68.26808500000001
+      },
+      "path": "precision: network f32, chunk 79733 atoms, embedding tabulated, looked up by the kernels"
+     },
+     {
+      "ms_per_eval": 68.43101,
+      "stages": {
+       "chunks": 2,
+       "device": {
+        "descriptor": 2.2243040025234224,
+        "download": 0.3304447948932648,
+        "embedding": 0.0026623999932780863,
+        "environment": 0.7777200065553189,
+        "fitting": 55.48961615562439,
+        "forces": 3.5987200051546098,
+        "neighbors": 4.374062323570252
+       },
+       "host_finish": 0.9061450000000003,
+       "host_prepare": 0.678805,
+       "issue": {
+        "descriptor": 0.01427,
+        "download": 65.117465,
+        "embedding": 0.006775,
+        "environment": 0.059070000000000004,
+        "fitting": 0.015745000000000002,
+        "forces": 0.015785,
+        "neighbors": 1.5950600000000001
+       },
+       "wall": 68.40912
+      },
+      "path": "precision: network f32, chunk 79733 atoms, embedding tabulated, looked up by the kernels"
+     }
+    ],
+    "cub": [
+     {
+      "ms_per_eval": 20.32157,
+      "stages": {
+       "chunks": 2,
+       "device": {
+        "descriptor": 2.1236464083194733,
+        "download": 0.3026511996984482,
+        "embedding": 0.0027119999926071615,
+        "environment": 0.7557135850191117,
+        "fitting": 7.223596793413162,
+        "forces": 3.814740777015686,
+        "neighbors": 4.353089582920075
+       },
+       "host_finish": 0.9487500000000001,
+       "host_prepare": 0.68903,
+       "issue": {
+        "descriptor": 0.014809999999999999,
+        "download": 16.684725,
+        "embedding": 0.006565000000000003,
+        "environment": 0.056319999999999995,
+        "fitting": 0.17420499999999997,
+        "forces": 0.017550000000000003,
+        "neighbors": 1.648565
+       },
+       "wall": 20.24052
+      },
+      "path": "precision: network f32, chunk 79733 atoms, embedding tabulated, looked up by the kernels"
+     },
+     {
+      "ms_per_eval": 20.23459,
+      "stages": {
+       "chunks": 2,
+       "device": {
+        "descriptor": 2.25143680870533,
+        "download": 0.3045343980193138,
+        "embedding": 0.0028591999958734963,
+        "environment": 0.7941663958132268,
+        "fitting": 7.1543295145034795,
+        "forces": 3.834710377454758,
+        "neighbors": 4.362847995758057
+       },
+       "host_finish": 0.92913,
+       "host_prepare": 0.728435,
+       "issue": {
+        "descriptor": 0.017205,
+        "download": 16.721845,
+        "embedding": 0.007984999999999999,
+        "environment": 0.060200000000000004,
+        "fitting": 0.20196000000000003,
+        "forces": 0.03267,
+        "neighbors": 1.6974800000000003
+       },
+       "wall": 20.39691
+      },
+      "path": "precision: network f32, chunk 79733 atoms, embedding tabulated, looked up by the kernels"
+     },
+     {
+      "ms_per_eval": 20.123079999999998,
+      "stages": {
+       "chunks": 2,
+       "device": {
+        "descriptor": 2.2804048106074335,
+        "download": 0.301433601975441,
+        "embedding": 0.0028159999928902835,
+        "environment": 0.7474607929587365,
+        "fitting": 7.301983952522278,
+        "forces": 3.7183087915182114,
+        "neighbors": 4.309675192832947
+       },
+       "host_finish": 0.89486,
+       "host_prepare": 0.6941299999999999,
+       "issue": {
+        "descriptor": 0.015289999999999998,
+        "download": 16.769135000000002,
+        "embedding": 0.0073700000000000015,
+        "environment": 0.06024500000000001,
+        "fitting": 0.18734500000000004,
+        "forces": 0.0161,
+        "neighbors": 1.63375
+       },
+       "wall": 20.278225000000006
+      },
+      "path": "precision: network f32, chunk 79733 atoms, embedding tabulated, looked up by the kernels"
+     }
+    ],
+    "def2": [
+     {
+      "ms_per_eval": 20.346725,
+      "stages": {
+       "chunks": 2,
+       "device": {
+        "descriptor": 2.1120639875531197,
+        "download": 0.2904688000679016,
+        "embedding": 0.002457599993795157,
+        "environment": 0.7224752053618432,
+        "fitting": 7.230510371923447,
+        "forces": 3.771494409441948,
+        "neighbors": 4.257145595550537
+       },
+       "host_finish": 0.9136649999999998,
+       "host_prepare": 0.6559349999999999,
+       "issue": {
+        "descriptor": 0.01445,
+        "download": 16.595335000000002,
+        "embedding": 0.00833,
+        "environment": 0.056655000000000004,
+        "fitting": 0.18048000000000003,
+        "forces": 0.015805000000000003,
+        "neighbors": 1.5387649999999997
+       },
+       "wall": 19.97942
+      },
+      "path": "precision: network f32, chunk 79733 atoms, embedding tabulated, looked up by the kernels"
+     },
+     {
+      "ms_per_eval": 20.649250000000002,
+      "stages": {
+       "chunks": 2,
+       "device": {
+        "descriptor": 2.1463072076439857,
+        "download": 0.296908800303936,
+        "embedding": 0.0030207999923732133,
+        "environment": 0.7467007942497731,
+        "fitting": 7.313820773363114,
+        "forces": 3.6341183692216874,
+        "neighbors": 4.9007344245910645
+       },
+       "host_finish": 0.9256050000000002,
+       "host_prepare": 0.6969650000000001,
+       "issue": {
+        "descriptor": 0.015380000000000003,
+        "download": 16.706554999999998,
+        "embedding": 0.00683,
+        "environment": 0.058765000000000005,
+        "fitting": 0.18559499999999998,
+        "forces": 0.02377,
+        "neighbors": 2.0723499999999997
+       },
+       "wall": 20.691815000000005
+      },
+      "path": "precision: network f32, chunk 79733 atoms, embedding tabulated, looked up by the kernels"
+     },
+     {
+      "ms_per_eval": 20.535545,
+      "stages": {
+       "chunks": 2,
+       "device": {
+        "descriptor": 2.1564112082123756,
+        "download": 0.2960224002599716,
+        "embedding": 0.002764799993019551,
+        "environment": 0.7538639955222607,
+        "fitting": 7.223844796419144,
+        "forces": 3.8391888052225114,
+        "neighbors": 4.398489570617676
+       },
+       "host_finish": 0.9254650000000002,
+       "host_prepare": 0.7126549999999999,
+       "issue": {
+        "descriptor": 0.015005,
+        "download": 16.773245,
+        "embedding": 0.007530000000000002,
+        "environment": 0.057050000000000003,
+        "fitting": 0.19252000000000002,
+        "forces": 0.017975,
+        "neighbors": 1.6337450000000004
+       },
+       "wall": 20.335189999999997
+      },
+      "path": "precision: network f32, chunk 79733 atoms, embedding tabulated, looked up by the kernels"
+     }
+    ]
+   },
+   "w12288-f64": {
+    "def": [
+     {
+      "ms_per_eval": 32.359053,
+      "stages": {
+       "chunks": 1,
+       "device": {
+        "descriptor": 1.3473590350151061,
+        "download": 0.09835168018937111,
+        "embedding": 4.28639616727829,
+        "environment": 0.10876832060515881,
+        "fitting": 22.16423107147217,
+        "forces": 3.560566079616547,
+        "neighbors": 0.6170652812719345
+       },
+       "host_finish": 0.11973500000000004,
+       "host_prepare": 0.09483299999999999,
+       "issue": {
+        "descriptor": 0.012078000000000002,
+        "download": 31.88019499999999,
+        "embedding": 0.009369,
+        "environment": 0.024593000000000007,
+        "fitting": 0.010851000000000005,
+        "forces": 0.010425999999999998,
+        "neighbors": 0.2515969999999998
+       },
+       "wall": 32.413677
+      },
+      "path": "precision: network f64, chunk 39939 atoms, embedding tabulated"
+     },
+     {
+      "ms_per_eval": 32.373859,
+      "stages": {
+       "chunks": 1,
+       "device": {
+        "descriptor": 1.3970540702342988,
+        "download": 0.10005215995013714,
+        "embedding": 4.234954223632813,
+        "environment": 0.09824000082910062,
+        "fitting": 22.11379653930664,
+        "forces": 3.62454176902771,
+        "neighbors": 0.6046064001321793
+       },
+       "host_finish": 0.12282299999999997,
+       "host_prepare": 0.09638499999999998,
+       "issue": {
+        "descriptor": 0.012714,
+        "download": 31.884044000000003,
+        "embedding": 0.009882,
+        "environment": 0.024446999999999997,
+        "fitting": 0.011200000000000002,
+        "forces": 0.008752999999999999,
+        "neighbors": 0.2379769999999999
+       },
+       "wall": 32.408225
+      },
+      "path": "precision: network f64, chunk 39939 atoms, embedding tabulated"
+     },
+     {
+      "ms_per_eval": 32.447747,
+      "stages": {
+       "chunks": 1,
+       "device": {
+        "descriptor": 1.342139196395874,
+        "download": 0.10317344024777413,
+        "embedding": 4.301709759235382,
+        "environment": 0.12078816018998623,
+        "fitting": 22.186303081512452,
+        "forces": 3.604647972583771,
+        "neighbors": 0.6176524776220321
+       },
+       "host_finish": 0.12128799999999998,
+       "host_prepare": 0.09614500000000002,
+       "issue": {
+        "descriptor": 0.011289,
+        "download": 31.96938100000001,
+        "embedding": 0.011093,
+        "environment": 0.027072999999999996,
+        "fitting": 0.011026999999999995,
+        "forces": 0.009404999999999998,
+        "neighbors": 0.25471300000000013
+       },
+       "wall": 32.51141399999999
+      },
+      "path": "precision: network f64, chunk 39939 atoms, embedding tabulated"
+     }
+    ],
+    "per": [
+     {
+      "ms_per_eval": 32.437357,
+      "stages": {
+       "chunks": 1,
+       "device": {
+        "descriptor": 1.385486078262329,
+        "download": 0.10020959973335267,
+        "embedding": 4.268956162929535,
+        "environment": 0.10905600063502789,
+        "fitting": 22.134705924987795,
+        "forces": 3.6198108839988707,
+        "neighbors": 0.6075872033834457
+       },
+       "host_finish": 0.12566800000000006,
+       "host_prepare": 0.09474700000000004,
+       "issue": {
+        "descriptor": 0.010500999999999998,
+        "download": 31.924378999999995,
+        "embedding": 0.010626,
+        "environment": 0.027758000000000012,
+        "fitting": 0.009671,
+        "forces": 0.009713999999999999,
+        "neighbors": 0.24964900000000004
+       },
+       "wall": 32.462713
+      },
+      "path": "precision: network f64, chunk 39939 atoms, embedding tabulated"
+     },
+     {
+      "ms_per_eval": 32.361022999999996,
+      "stages": {
+       "chunks": 1,
+       "device": {
+        "descriptor": 1.4164271938800812,
+        "download": 0.1004639994353056,
+        "embedding": 4.204112350940704,
+        "environment": 0.11222496055066586,
+        "fitting": 22.14539991378784,
+        "forces": 3.594048981666565,
+        "neighbors": 0.6047203207015991
+       },
+       "host_finish": 0.12086800000000004,
+       "host_prepare": 0.10021700000000007,
+       "issue": {
+        "descriptor": 0.011835999999999998,
+        "download": 31.876703000000013,
+        "embedding": 0.010077000000000003,
+        "environment": 0.027167,
+        "fitting": 0.010421000000000003,
+        "forces": 0.009416000000000004,
+        "neighbors": 0.24956000000000003
+       },
+       "wall": 32.416264999999996
+      },
+      "path": "precision: network f64, chunk 39939 atoms, embedding tabulated"
+     },
+     {
+      "ms_per_eval": 32.486746000000004,
+      "stages": {
+       "chunks": 1,
+       "device": {
+        "descriptor": 1.3408271992206573,
+        "download": 0.10707488007843495,
+        "embedding": 4.268819830417633,
+        "environment": 0.11691424019634723,
+        "fitting": 22.28627962112427,
+        "forces": 3.601792299747467,
+        "neighbors": 0.6192236810922623
+       },
+       "host_finish": 0.118965,
+       "host_prepare": 0.09518700000000001,
+       "issue": {
+        "descriptor": 0.010212999999999998,
+        "download": 32.03410600000001,
+        "embedding": 0.011317999999999996,
+        "environment": 0.028089000000000003,
+        "fitting": 0.010122999999999998,
+        "forces": 0.00933,
+        "neighbors": 0.25569700000000006
+       },
+       "wall": 32.573028000000015
+      },
+      "path": "precision: network f64, chunk 39939 atoms, embedding tabulated"
+     }
+    ],
+    "fus": [
+     {
+      "ms_per_eval": 32.392881,
+      "stages": {
+       "chunks": 1,
+       "device": {
+        "descriptor": 1.33604607462883,
+        "download": 0.10209568023681641,
+        "embedding": 4.269648327827453,
+        "environment": 0.10241536028683186,
+        "fitting": 22.156783638000487,
+        "forces": 3.6181766319274904,
+        "neighbors": 0.6001820814609528
+       },
+       "host_finish": 0.126687,
+       "host_prepare": 0.09932900000000001,
+       "issue": {
+        "descriptor": 0.011618000000000003,
+        "download": 31.894047,
+        "embedding": 0.009397,
+        "environment": 0.02656,
+        "fitting": 0.010386999999999997,
+        "forces": 0.008954000000000002,
+        "neighbors": 0.24002400000000004
+       },
+       "wall": 32.427003000000006
+      },
+      "path": "precision: network f64, chunk 39939 atoms, embedding tabulated"
+     },
+     {
+      "ms_per_eval": 32.351127999999996,
+      "stages": {
+       "chunks": 1,
+       "device": {
+        "descriptor": 1.344529278278351,
+        "download": 0.10415583983063698,
+        "embedding": 4.271734428405762,
+        "environment": 0.10936032056808472,
+        "fitting": 22.139126033782958,
+        "forces": 3.6405075144767762,
+        "neighbors": 0.6049731183052063
+       },
+       "host_finish": 0.12352599999999996,
+       "host_prepare": 0.09788199999999997,
+       "issue": {
+        "descriptor": 0.011187,
+        "download": 31.914325000000005,
+        "embedding": 0.009586999999999997,
+        "environment": 0.028806999999999996,
+        "fitting": 0.010465,
+        "forces": 0.008814999999999998,
+        "neighbors": 0.24894700000000008
+       },
+       "wall": 32.453540999999994
+      },
+      "path": "precision: network f64, chunk 39939 atoms, embedding tabulated"
+     },
+     {
+      "ms_per_eval": 32.509221,
+      "stages": {
+       "chunks": 1,
+       "device": {
+        "descriptor": 1.376674872636795,
+        "download": 0.09804640009999276,
+        "embedding": 4.247702374458313,
+        "environment": 0.10700704045593738,
+        "fitting": 22.19973123550415,
+        "forces": 3.6209289407730103,
+        "neighbors": 0.6068275183439255
+       },
+       "host_finish": 0.12414699999999998,
+       "host_prepare": 0.09967699999999996,
+       "issue": {
+        "descriptor": 0.012084999999999997,
+        "download": 31.95838200000001,
+        "embedding": 0.009571000000000005,
+        "environment": 0.026110000000000008,
+        "fitting": 0.011306000000000005,
+        "forces": 0.008819,
+        "neighbors": 0.24717399999999992
+       },
+       "wall": 32.49727099999999
+      },
+      "path": "precision: network f64, chunk 39939 atoms, embedding tabulated"
+     }
+    ],
+    "cub": [
+     {
+      "ms_per_eval": 33.299586,
+      "stages": {
+       "chunks": 1,
+       "device": {
+        "descriptor": 1.435325757265091,
+        "download": 0.10083679981529713,
+        "embedding": 4.018777339458466,
+        "environment": 0.11515776172280312,
+        "fitting": 23.35091484069824,
+        "forces": 3.451333122253418,
+        "neighbors": 0.6129750394821167
+       },
+       "host_finish": 0.12406200000000003,
+       "host_prepare": 0.09656600000000007,
+       "issue": {
+        "descriptor": 0.011494000000000002,
+        "download": 32.69927199999999,
+        "embedding": 0.009217999999999999,
+        "environment": 0.028270999999999994,
+        "fitting": 0.09473900000000005,
+        "forces": 0.008536999999999998,
+        "neighbors": 0.2506880000000001
+       },
+       "wall": 33.32284700000001
+      },
+      "path": "precision: network f64, chunk 39939 atoms, embedding tabulated"
+     },
+     {
+      "ms_per_eval": 33.293143,
+      "stages": {
+       "chunks": 1,
+       "device": {
+        "descriptor": 1.3211254262924195,
+        "download": 0.09647232048213482,
+        "embedding": 4.44058944940567,
+        "environment": 0.0934771216660738,
+        "fitting": 23.144915294647216,
+        "forces": 3.4169459176063537,
+        "neighbors": 0.5868073606491089
+       },
+       "host_finish": 0.116882,
+       "host_prepare": 0.094449,
+       "issue": {
+        "descriptor": 0.010962000000000003,
+        "download": 32.73644799999999,
+        "embedding": 0.008826000000000004,
+        "environment": 0.02469,
+        "fitting": 0.09050499999999996,
+        "forces": 0.007401,
+        "neighbors": 0.236047
+       },
+       "wall": 33.326209999999996
+      },
+      "path": "precision: network f64, chunk 39939 atoms, embedding tabulated"
+     },
+     {
+      "ms_per_eval": 33.334579999999995,
+      "stages": {
+       "chunks": 1,
+       "device": {
+        "descriptor": 1.2495638239383697,
+        "download": 0.10454047985374927,
+        "embedding": 4.640057272911072,
+        "environment": 0.1424156815558672,
+        "fitting": 22.927198085784912,
+        "forces": 3.3931686234474183,
+        "neighbors": 0.6179920023679734
+       },
+       "host_finish": 0.12380099999999994,
+       "host_prepare": 0.10018800000000003,
+       "issue": {
+        "descriptor": 0.011380000000000001,
+        "download": 32.68501,
+        "embedding": 0.010766,
+        "environment": 0.027293000000000008,
+        "fitting": 0.09588699999999994,
+        "forces": 0.008065999999999995,
+        "neighbors": 0.25259299999999996
+       },
+       "wall": 33.31498399999999
+      },
+      "path": "precision: network f64, chunk 39939 atoms, embedding tabulated"
+     }
+    ],
+    "def2": [
+     {
+      "ms_per_eval": 32.362441,
+      "stages": {
+       "chunks": 1,
+       "device": {
+        "descriptor": 1.3984403133392334,
+        "download": 0.10469567954540253,
+        "embedding": 4.242797148227692,
+        "environment": 0.11680480048060417,
+        "fitting": 22.148814792633058,
+        "forces": 3.579038076400757,
+        "neighbors": 0.6149888038635254
+       },
+       "host_finish": 0.119833,
+       "host_prepare": 0.09576000000000003,
+       "issue": {
+        "descriptor": 0.011988999999999996,
+        "download": 31.896039000000005,
+        "embedding": 0.009717,
+        "environment": 0.030874000000000006,
+        "fitting": 0.010353000000000003,
+        "forces": 0.010305999999999997,
+        "neighbors": 0.252978
+       },
+       "wall": 32.43784899999999
+      },
+      "path": "precision: network f64, chunk 39939 atoms, embedding tabulated"
+     },
+     {
+      "ms_per_eval": 32.460526,
+      "stages": {
+       "chunks": 1,
+       "device": {
+        "descriptor": 1.3534425592422485,
+        "download": 0.10066047996282577,
+        "embedding": 4.30937919139862,
+        "environment": 0.10346368044614793,
+        "fitting": 22.19175106048584,
+        "forces": 3.6204086256027224,
+        "neighbors": 0.6031897604465485
+       },
+       "host_finish": 0.11958299999999998,
+       "host_prepare": 0.09834200000000001,
+       "issue": {
+        "descriptor": 0.011441999999999994,
+        "download": 31.989928999999993,
+        "embedding": 0.009241,
+        "environment": 0.025782999999999997,
+        "fitting": 0.011065999999999994,
+        "forces": 0.008829,
+        "neighbors": 0.242462
+       },
+       "wall": 32.516677
+      },
+      "path": "precision: network f64, chunk 39939 atoms, embedding tabulated"
+     },
+     {
+      "ms_per_eval": 32.46009,
+      "stages": {
+       "chunks": 1,
+       "device": {
+        "descriptor": 1.3623519957065582,
+        "download": 0.09740639992058277,
+        "embedding": 4.2783343839645385,
+        "environment": 0.1038316810876131,
+        "fitting": 22.21823902130127,
+        "forces": 3.62533150434494,
+        "neighbors": 0.6080329585075378
+       },
+       "host_finish": 0.11748499999999996,
+       "host_prepare": 0.09660699999999998,
+       "issue": {
+        "descriptor": 0.011862999999999999,
+        "download": 31.99808699999999,
+        "embedding": 0.010914999999999998,
+        "environment": 0.022308000000000005,
+        "fitting": 0.010249000000000001,
+        "forces": 0.008833,
+        "neighbors": 0.24811500000000006
+       },
+       "wall": 32.524461999999986
+      },
+      "path": "precision: network f64, chunk 39939 atoms, embedding tabulated"
+     }
+    ]
+   },
+   "w98304-f64": {
+    "def": [
+     {
+      "ms_per_eval": 256.682885,
+      "stages": {
+       "chunks": 3,
+       "device": {
+        "descriptor": 10.626003170013428,
+        "download": 0.30707039982080464,
+        "embedding": 34.39202075004578,
+        "environment": 0.8725503988564015,
+        "fitting": 175.97981548309326,
+        "forces": 28.547891235351564,
+        "neighbors": 4.327614426612854
+       },
+       "host_finish": 0.9967400000000002,
+       "host_prepare": 0.699645,
+       "issue": {
+        "descriptor": 0.025114999999999995,
+        "download": 253.25283000000002,
+        "embedding": 0.023080000000000003,
+        "environment": 0.06788,
+        "fitting": 0.0257,
+        "forces": 0.024415000000000003,
+        "neighbors": 1.6633700000000002
+       },
+       "wall": 256.778775
+      },
+      "path": "precision: network f64, chunk 39939 atoms, embedding tabulated"
+     },
+     {
+      "ms_per_eval": 256.893555,
+      "stages": {
+       "chunks": 3,
+       "device": {
+        "descriptor": 10.44275035262108,
+        "download": 0.32301280051469805,
+        "embedding": 34.38669762611389,
+        "environment": 0.8003903955221177,
+        "fitting": 176.11928730010987,
+        "forces": 28.576508975028993,
+        "neighbors": 4.355883169174194
+       },
+       "host_finish": 0.9188100000000001,
+       "host_prepare": 0.6855749999999999,
+       "issue": {
+        "descriptor": 0.021699999999999997,
+        "download": 253.20244999999997,
+        "embedding": 0.021330000000000002,
+        "environment": 0.064915,
+        "fitting": 0.022670000000000003,
+        "forces": 0.023790000000000002,
+        "neighbors": 1.6750999999999998
+       },
+       "wall": 256.63634
+      },
+      "path": "precision: network f64, chunk 39939 atoms, embedding tabulated"
+     },
+     {
+      "ms_per_eval": 256.67097,
+      "stages": {
+       "chunks": 3,
+       "device": {
+        "descriptor": 10.566820752620698,
+        "download": 0.3179440036416054,
+        "embedding": 34.32851510047913,
+        "environment": 0.8032895989716053,
+        "fitting": 176.12471199035645,
+        "forces": 28.464329743385317,
+        "neighbors": 4.371683216094971
+       },
+       "host_finish": 0.92327,
+       "host_prepare": 0.754735,
+       "issue": {
+        "descriptor": 0.024675000000000002,
+        "download": 253.19528000000003,
+        "embedding": 0.020175,
+        "environment": 0.06215500000000001,
+        "fitting": 0.023135000000000003,
+        "forces": 0.022975,
+        "neighbors": 1.6568200000000002
+       },
+       "wall": 256.68322
+      },
+      "path": "precision: network f64, chunk 39939 atoms, embedding tabulated"
+     }
+    ],
+    "per": [
+     {
+      "ms_per_eval": 256.47905000000003,
+      "stages": {
+       "chunks": 3,
+       "device": {
+        "descriptor": 10.455807971954346,
+        "download": 0.29962240159511566,
+        "embedding": 34.31848785877228,
+        "environment": 0.9350575953722,
+        "fitting": 176.2577907562256,
+        "forces": 28.442316842079165,
+        "neighbors": 4.297915148735046
+       },
+       "host_finish": 0.8870450000000001,
+       "host_prepare": 0.65336,
+       "issue": {
+        "descriptor": 0.025539999999999997,
+        "download": 253.29808000000003,
+        "embedding": 0.021735,
+        "environment": 0.061685000000000004,
+        "fitting": 0.025005,
+        "forces": 0.023655,
+        "neighbors": 1.5768450000000003
+       },
+       "wall": 256.57295
+      },
+      "path": "precision: network f64, chunk 39939 atoms, embedding tabulated"
+     },
+     {
+      "ms_per_eval": 256.71658,
+      "stages": {
+       "chunks": 3,
+       "device": {
+        "descriptor": 10.707351982593536,
+        "download": 0.312897601723671,
+        "embedding": 34.25437602996826,
+        "environment": 0.9333936020731927,
+        "fitting": 176.02974090576174,
+        "forces": 28.522387218475345,
+        "neighbors": 4.413016009330749
+       },
+       "host_finish": 0.95898,
+       "host_prepare": 0.7180850000000002,
+       "issue": {
+        "descriptor": 0.024585000000000006,
+        "download": 253.33002999999997,
+        "embedding": 0.020589999999999997,
+        "environment": 0.065655,
+        "fitting": 0.029339999999999995,
+        "forces": 0.024914999999999993,
+        "neighbors": 1.70581
+       },
+       "wall": 256.87798999999995
+      },
+      "path": "precision: network f64, chunk 39939 atoms, embedding tabulated"
+     },
+     {
+      "ms_per_eval": 256.61042499999996,
+      "stages": {
+       "chunks": 3,
+       "device": {
+        "descriptor": 10.651073545217514,
+        "download": 0.307406397163868,
+        "embedding": 34.07354888916016,
+        "environment": 0.9916479982435704,
+        "fitting": 176.1188346862793,
+        "forces": 28.588443183898928,
+        "neighbors": 4.253648018836976
+       },
+       "host_finish": 0.965275,
+       "host_prepare": 0.694505,
+       "issue": {
+        "descriptor": 0.02850000000000001,
+        "download": 253.18247999999994,
+        "embedding": 0.022640000000000004,
+        "environment": 0.069425,
+        "fitting": 0.024775,
+        "forces": 0.025539999999999997,
+        "neighbors": 1.6591649999999998
+       },
+       "wall": 256.67230500000005
+      },
+      "path": "precision: network f64, chunk 39939 atoms, embedding tabulated"
+     }
+    ],
+    "fus": [
+     {
+      "ms_per_eval": 256.666365,
+      "stages": {
+       "chunks": 3,
+       "device": {
+        "descriptor": 10.549966365098953,
+        "download": 0.30764320194721223,
+        "embedding": 34.23052144050598,
+        "environment": 0.9394159987568855,
+        "fitting": 175.95919609069824,
+        "forces": 28.70758731365204,
+        "neighbors": 4.269681620597839
+       },
+       "host_finish": 0.9049900000000002,
+       "host_prepare": 0.6559,
+       "issue": {
+        "descriptor": 0.026039999999999997,
+        "download": 253.231395,
+        "embedding": 0.022065,
+        "environment": 0.062279999999999995,
+        "fitting": 0.02346,
+        "forces": 0.022860000000000002,
+        "neighbors": 1.608945
+       },
+       "wall": 256.55793500000004
+      },
+      "path": "precision: network f64, chunk 39939 atoms, embedding tabulated"
+     },
+     {
+      "ms_per_eval": 256.78534,
+      "stages": {
+       "chunks": 3,
+       "device": {
+        "descriptor": 10.656718355417253,
+        "download": 0.3068576008081436,
+        "embedding": 34.23263032436371,
+        "environment": 0.8566271997988224,
+        "fitting": 176.03527774810792,
+        "forces": 28.46842398643494,
+        "neighbors": 4.465329551696778
+       },
+       "host_finish": 0.983535,
+       "host_prepare": 0.72684,
+       "issue": {
+        "descriptor": 0.025795000000000002,
+        "download": 253.21000500000002,
+        "embedding": 0.02462,
+        "environment": 0.08456499999999999,
+        "fitting": 0.026455000000000003,
+        "forces": 0.025894999999999998,
+        "neighbors": 1.6531200000000004
+       },
+       "wall": 256.76083
+      },
+      "path": "precision: network f64, chunk 39939 atoms, embedding tabulated"
+     },
+     {
+      "ms_per_eval": 256.89825,
+      "stages": {
+       "chunks": 3,
+       "device": {
+        "descriptor": 10.503484815359116,
+        "download": 0.3113600000739098,
+        "embedding": 34.41264486312866,
+        "environment": 0.8944079957902432,
+        "fitting": 176.011004447937,
+        "forces": 28.557979249954226,
+        "neighbors": 4.492689609527588
+       },
+       "host_finish": 0.9593300000000001,
+       "host_prepare": 0.6994,
+       "issue": {
+        "descriptor": 0.028695,
+        "download": 253.24326999999994,
+        "embedding": 0.021435,
+        "environment": 0.067315,
+        "fitting": 0.026505,
+        "forces": 0.025079999999999998,
+        "neighbors": 1.79928
+       },
+       "wall": 256.87030999999996
+      },
+      "path": "precision: network f64, chunk 39939 atoms, embedding tabulated"
+     }
+    ],
+    "cub": [
+     {
+      "ms_per_eval": 266.809285,
+      "stages": {
+       "chunks": 3,
+       "device": {
+        "descriptor": 10.582401609420778,
+        "download": 0.32626400142908096,
+        "embedding": 34.31030399799347,
+        "environment": 0.8341951981186867,
+        "fitting": 186.29792442321778,
+        "forces": 28.569036865234377,
+        "neighbors": 4.225979232788086
+       },
+       "host_finish": 0.9232750000000002,
+       "host_prepare": 0.6804300000000001,
+       "issue": {
+        "descriptor": 0.025419999999999998,
+        "download": 263.08178000000004,
+        "embedding": 0.02325,
+        "environment": 0.072205,
+        "fitting": 0.27615500000000004,
+        "forces": 0.022055,
+        "neighbors": 1.6723949999999999
+       },
+       "wall": 266.77696499999996
+      },
+      "path": "precision: network f64, chunk 39939 atoms, embedding tabulated"
+     },
+     {
+      "ms_per_eval": 266.9704,
+      "stages": {
+       "chunks": 3,
+       "device": {
+        "descriptor": 10.494468820095063,
+        "download": 0.3090815991163254,
+        "embedding": 34.03586714267731,
+        "environment": 0.8867423944175243,
+        "fitting": 186.68173904418947,
+        "forces": 28.47298412322998,
+        "neighbors": 4.37991681098938
+       },
+       "host_finish": 0.9687150000000003,
+       "host_prepare": 0.702885,
+       "issue": {
+        "descriptor": 0.022410000000000003,
+        "download": 263.057405,
+        "embedding": 0.025080000000000005,
+        "environment": 0.07609000000000002,
+        "fitting": 0.30772,
+        "forces": 0.024295000000000004,
+        "neighbors": 1.7755850000000004
+       },
+       "wall": 266.960185
+      },
+      "path": "precision: network f64, chunk 39939 atoms, embedding tabulated"
+     },
+     {
+      "ms_per_eval": 267.26789,
+      "stages": {
+       "chunks": 3,
+       "device": {
+        "descriptor": 10.426688021421434,
+        "download": 0.3086592018604279,
+        "embedding": 34.02199213504792,
+        "environment": 0.8846735991537571,
+        "fitting": 186.74999465942383,
+        "forces": 28.533812737464906,
+        "neighbors": 4.529374361038208
+       },
+       "host_finish": 0.9062450000000001,
+       "host_prepare": 0.6644749999999999,
+       "issue": {
+        "descriptor": 0.024050000000000002,
+        "download": 263.380095,
+        "embedding": 0.022205,
+        "environment": 0.06396,
+        "fitting": 0.25832,
+        "forces": 0.0215,
+        "neighbors": 1.7135799999999997
+       },
+       "wall": 267.05443
+      },
+      "path": "precision: network f64, chunk 39939 atoms, embedding tabulated"
+     }
+    ],
+    "def2": [
+     {
+      "ms_per_eval": 256.594215,
+      "stages": {
+       "chunks": 3,
+       "device": {
+        "descriptor": 10.476348799467088,
+        "download": 0.33555680215358735,
+        "embedding": 34.352531218528746,
+        "environment": 0.8463775970041753,
+        "fitting": 176.14412269592287,
+        "forces": 28.652851247787478,
+        "neighbors": 4.399507164955139
+       },
+       "host_finish": 0.9880550000000001,
+       "host_prepare": 0.7461600000000002,
+       "issue": {
+        "descriptor": 0.027364999999999997,
+        "download": 253.353935,
+        "embedding": 0.02148,
+        "environment": 0.06518,
+        "fitting": 0.032925,
+        "forces": 0.027220000000000008,
+        "neighbors": 1.709155
+       },
+       "wall": 256.971475
+      },
+      "path": "precision: network f64, chunk 39939 atoms, embedding tabulated"
+     },
+     {
+      "ms_per_eval": 256.63626000000005,
+      "stages": {
+       "chunks": 3,
+       "device": {
+        "descriptor": 10.683796805143357,
+        "download": 0.305366399884224,
+        "embedding": 34.45631356239319,
+        "environment": 0.8236047960817814,
+        "fitting": 175.89074420928955,
+        "forces": 28.426388835906984,
+        "neighbors": 4.445932817459107
+       },
+       "host_finish": 0.9308150000000002,
+       "host_prepare": 0.7107600000000001,
+       "issue": {
+        "descriptor": 0.023185,
+        "download": 253.18347999999997,
+        "embedding": 0.021060000000000002,
+        "environment": 0.06670999999999999,
+        "fitting": 0.023170000000000003,
+        "forces": 0.025050000000000006,
+        "neighbors": 1.7190649999999998
+       },
+       "wall": 256.7032950000001
+      },
+      "path": "precision: network f64, chunk 39939 atoms, embedding tabulated"
+     },
+     {
+      "ms_per_eval": 256.63492,
+      "stages": {
+       "chunks": 3,
+       "device": {
+        "descriptor": 10.646015959978104,
+        "download": 0.3099328026175499,
+        "embedding": 34.29226560592652,
+        "environment": 0.8542863972485066,
+        "fitting": 176.04541835784914,
+        "forces": 28.780380797386172,
+        "neighbors": 4.378718400001526
+       },
+       "host_finish": 0.96017,
+       "host_prepare": 0.6962800000000001,
+       "issue": {
+        "descriptor": 0.024860000000000004,
+        "download": 253.48018000000002,
+        "embedding": 0.02198,
+        "environment": 0.07122,
+        "fitting": 0.025050000000000003,
+        "forces": 0.023314999999999995,
+        "neighbors": 1.68851
+       },
+       "wall": 256.991565
+      },
+      "path": "precision: network f64, chunk 39939 atoms, embedding tabulated"
+     }
+    ]
+   }
+  },
+  "busy": [],
+  "summary": {
+   "w12288": {
+    "def": {
+     "eval_ms_median": 2.613378,
+     "eval_ms_least": 2.53851,
+     "device_ms_median": {
+      "descriptor": 0.25904896259307864,
+      "download": 0.07367744013667107,
+      "embedding": 0.0014233599964063614,
+      "environment": 0.15544320225715638,
+      "fitting": 0.8474281579256058,
+      "forces": 0.48232415914535526,
+      "neighbors": 0.5650502437353134
+     },
+     "issue_ms_median": {
+      "descriptor": 0.007534999999999998,
+      "download": 2.062306,
+      "embedding": 0.0037260000000000023,
+      "environment": 0.014232999999999997,
+      "fitting": 0.089674,
+      "forces": 0.007698000000000003,
+      "neighbors": 0.196677
+     },
+     "host_prepare_ms_median": 0.07506199999999995,
+     "host_finish_ms_median": 0.09866899999999999,
+     "chunks": 1,
+     "path": "precision: network f32, chunk 79733 atoms, embedding tabulated, looked up by the kernels"
+    },
+    "per": {
+     "eval_ms_median": 2.6350079999999996,
+     "eval_ms_least": 2.627778,
+     "device_ms_median": {
+      "descriptor": 0.25923648476600647,
+      "download": 0.07232575990259647,
+      "embedding": 0.0013823999965097756,
+      "environment": 0.13641152173280716,
+      "fitting": 0.9525855964422226,
+      "forces": 0.4826521545648575,
+      "neighbors": 0.5756886392831803
+     },
+     "issue_ms_median": {
+      "descriptor": 0.005873999999999999,
+      "download": 2.0466730000000006,
+      "embedding": 0.0025729999999999993,
+      "environment": 0.014403000000000001,
+      "fitting": 0.21758799999999995,
+      "forces": 0.0072260000000000015,
+      "neighbors": 0.19932499999999997
+     },
+     "host_prepare_ms_median": 0.07276900000000003,
+     "host_finish_ms_median": 0.093806,
+     "chunks": 1,
+     "path": "precision: network f32, chunk 79733 atoms, embedding tabulated, looked up by the kernels"
+    },
+    "fus": {
+     "eval_ms_median": 9.018538000000001,
+     "eval_ms_least": 8.966999,
+     "device_ms_median": {
+      "descriptor": 0.25899872452020645,
+      "download": 0.0867052797973156,
+      "embedding": 0.001351679996587336,
+      "environment": 0.1348614426702261,
+      "fitting": 7.316058230400086,
+      "forces": 0.46643647700548174,
+      "neighbors": 0.5821503984928131
+     },
+     "issue_ms_median": {
+      "descriptor": 0.009245,
+      "download": 8.581913,
+      "embedding": 0.0048080000000000015,
+      "environment": 0.01731599999999999,
+      "fitting": 0.013101000000000003,
+      "forces": 0.014119999999999999,
+      "neighbors": 0.2130620000000001
+     },
+     "host_prepare_ms_median": 0.085413,
+     "host_finish_ms_median": 0.10515899999999995,
+     "chunks": 1,
+     "path": "precision: network f32, chunk 79733 atoms, embedding tabulated, looked up by the kernels"
+    },
+    "cub": {
+     "eval_ms_median": 2.5398870000000002,
+     "eval_ms_least": 2.524629,
+     "device_ms_median": {
+      "descriptor": 0.2590988835692406,
+      "download": 0.07513952031731606,
+      "embedding": 0.0013811199960764497,
+      "environment": 0.14330784171819688,
+      "fitting": 0.8288975965976715,
+      "forces": 0.47570207983255386,
+      "neighbors": 0.5805379194021225
+     },
+     "issue_ms_median": {
+      "descriptor": 0.006237999999999998,
+      "download": 2.0840090000000004,
+      "embedding": 0.0026729999999999983,
+      "environment": 0.014712999999999993,
+      "fitting": 0.07682999999999997,
+      "forces": 0.006055999999999999,
+      "neighbors": 0.19281900000000005
+     },
+     "host_prepare_ms_median": 0.07094899999999998,
+     "host_finish_ms_median": 0.09387300000000005,
+     "chunks": 1,
+     "path": "precision: network f32, chunk 79733 atoms, embedding tabulated, looked up by the kernels"
+    },
+    "def2": {
+     "eval_ms_median": 2.5359520000000004,
+     "eval_ms_least": 2.533665,
+     "device_ms_median": {
+      "descriptor": 0.2591449624300003,
+      "download": 0.07331807985901832,
+      "embedding": 0.0014415999967604875,
+      "environment": 0.16737760245800018,
+      "fitting": 0.8406070405244828,
+      "forces": 0.4800899186730385,
+      "neighbors": 0.5673695993423462
+     },
+     "issue_ms_median": {
+      "descriptor": 0.0071460000000000004,
+      "download": 2.0663679999999998,
+      "embedding": 0.0035690000000000023,
+      "environment": 0.014287000000000006,
+      "fitting": 0.08872000000000003,
+      "forces": 0.007344000000000001,
+      "neighbors": 0.19572500000000007
+     },
+     "host_prepare_ms_median": 0.07160600000000003,
+     "host_finish_ms_median": 0.09569799999999999,
+     "chunks": 1,
+     "path": "precision: network f32, chunk 79733 atoms, embedding tabulated, looked up by the kernels"
+    }
+   },
+   "w98304": {
+    "def": {
+     "eval_ms_median": 20.247905,
+     "eval_ms_least": 20.05558,
+     "device_ms_median": {
+      "descriptor": 2.2225440070033073,
+      "download": 0.2986688002943993,
+      "embedding": 0.002713599993148819,
+      "environment": 0.7688527956604958,
+      "fitting": 7.118676853179932,
+      "forces": 3.8076016128063204,
+      "neighbors": 4.221899199485779
+     },
+     "issue_ms_median": {
+      "descriptor": 0.015135000000000003,
+      "download": 16.616495,
+      "embedding": 0.007375,
+      "environment": 0.05536000000000001,
+      "fitting": 0.17789500000000003,
+      "forces": 0.015569999999999999,
+      "neighbors": 1.5554100000000004
+     },
+     "host_prepare_ms_median": 0.663155,
+     "host_finish_ms_median": 0.8959200000000002,
+     "chunks": 2,
+     "path": "precision: network f32, chunk 79733 atoms, embedding tabulated, looked up by the kernels"
+    },
+    "per": {
+     "eval_ms_median": 20.93024,
+     "eval_ms_least": 20.90529,
+     "device_ms_median": {
+      "descriptor": 2.215324763953686,
+      "download": 0.30644480139017105,
+      "embedding": 0.0028159999928902835,
+      "environment": 0.7676448091864586,
+      "fitting": 8.01851361989975,
+      "forces": 3.698287990689278,
+      "neighbors": 4.339222431182861
+     },
+     "issue_ms_median": {
+      "descriptor": 0.01646,
+      "download": 17.28016,
+      "embedding": 0.007325000000000002,
+      "environment": 0.058739999999999994,
+      "fitting": 0.4297850000000001,
+      "forces": 0.017865000000000002,
+      "neighbors": 1.58617
+     },
+     "host_prepare_ms_median": 0.67889,
+     "host_finish_ms_median": 0.906265,
+     "chunks": 2,
+     "path": "precision: network f32, chunk 79733 atoms, embedding tabulated, looked up by the kernels"
+    },
+    "fus": {
+     "eval_ms_median": 68.14558,
+     "eval_ms_least": 68.13750000000002,
+     "device_ms_median": {
+      "descriptor": 2.2243040025234224,
+      "download": 0.3070767998695374,
+      "embedding": 0.0029583999887108805,
+      "environment": 0.7777200065553189,
+      "fitting": 55.361168479919435,
+      "forces": 3.662084808945656,
+      "neighbors": 4.374062323570252
+     },
+     "issue_ms_median": {
+      "descriptor": 0.013850000000000001,
+      "download": 64.97963500000002,
+      "embedding": 0.0062000000000000015,
+      "environment": 0.054725,
+      "fitting": 0.015610000000000002,
+      "forces": 0.015340000000000005,
+      "neighbors": 1.5950600000000001
+     },
+     "host_prepare_ms_median": 0.6992200000000001,
+     "host_finish_ms_median": 0.9159450000000002,
+     "chunks": 2,
+     "path": "precision: network f32, chunk 79733 atoms, embedding tabulated, looked up by the kernels"
+    },
+    "cub": {
+     "eval_ms_median": 20.23459,
+     "eval_ms_least": 20.123079999999998,
+     "device_ms_median": {
+      "descriptor": 2.25143680870533,
+      "download": 0.3026511996984482,
+      "embedding": 0.0028159999928902835,
+      "environment": 0.7557135850191117,
+      "fitting": 7.223596793413162,
+      "forces": 3.814740777015686,
+      "neighbors": 4.353089582920075
+     },
+     "issue_ms_median": {
+      "descriptor": 0.015289999999999998,
+      "download": 16.721845,
+      "embedding": 0.0073700000000000015,
+      "environment": 0.060200000000000004,
+      "fitting": 0.18734500000000004,
+      "forces": 0.017550000000000003,
+      "neighbors": 1.648565
+     },
+     "host_prepare_ms_median": 0.6941299999999999,
+     "host_finish_ms_median": 0.92913,
+     "chunks": 2,
+     "path": "precision: network f32, chunk 79733 atoms, embedding tabulated, looked up by the kernels"
+    },
+    "def2": {
+     "eval_ms_median": 20.535545,
+     "eval_ms_least": 20.346725,
+     "device_ms_median": {
+      "descriptor": 2.1463072076439857,
+      "download": 0.2960224002599716,
+      "embedding": 0.002764799993019551,
+      "environment": 0.7467007942497731,
+      "fitting": 7.230510371923447,
+      "forces": 3.771494409441948,
+      "neighbors": 4.398489570617676
+     },
+     "issue_ms_median": {
+      "descriptor": 0.015005,
+      "download": 16.706554999999998,
+      "embedding": 0.007530000000000002,
+      "environment": 0.057050000000000003,
+      "fitting": 0.18559499999999998,
+      "forces": 0.017975,
+      "neighbors": 1.6337450000000004
+     },
+     "host_prepare_ms_median": 0.6969650000000001,
+     "host_finish_ms_median": 0.9254650000000002,
+     "chunks": 2,
+     "path": "precision: network f32, chunk 79733 atoms, embedding tabulated, looked up by the kernels"
+    }
+   },
+   "w12288-f64": {
+    "def": {
+     "eval_ms_median": 32.373859,
+     "eval_ms_least": 32.359053,
+     "device_ms_median": {
+      "descriptor": 1.3473590350151061,
+      "download": 0.10005215995013714,
+      "embedding": 4.28639616727829,
+      "environment": 0.10876832060515881,
+      "fitting": 22.16423107147217,
+      "forces": 3.604647972583771,
+      "neighbors": 0.6170652812719345
+     },
+     "issue_ms_median": {
+      "descriptor": 0.012078000000000002,
+      "download": 31.884044000000003,
+      "embedding": 0.009882,
+      "environment": 0.024593000000000007,
+      "fitting": 0.011026999999999995,
+      "forces": 0.009404999999999998,
+      "neighbors": 0.2515969999999998
+     },
+     "host_prepare_ms_median": 0.09614500000000002,
+     "host_finish_ms_median": 0.12128799999999998,
+     "chunks": 1,
+     "path": "precision: network f64, chunk 39939 atoms, embedding tabulated"
+    },
+    "per": {
+     "eval_ms_median": 32.437357,
+     "eval_ms_least": 32.361022999999996,
+     "device_ms_median": {
+      "descriptor": 1.385486078262329,
+      "download": 0.1004639994353056,
+      "embedding": 4.268819830417633,
+      "environment": 0.11222496055066586,
+      "fitting": 22.14539991378784,
+      "forces": 3.601792299747467,
+      "neighbors": 0.6075872033834457
+     },
+     "issue_ms_median": {
+      "descriptor": 0.010500999999999998,
+      "download": 31.924378999999995,
+      "embedding": 0.010626,
+      "environment": 0.027758000000000012,
+      "fitting": 0.010122999999999998,
+      "forces": 0.009416000000000004,
+      "neighbors": 0.24964900000000004
+     },
+     "host_prepare_ms_median": 0.09518700000000001,
+     "host_finish_ms_median": 0.12086800000000004,
+     "chunks": 1,
+     "path": "precision: network f64, chunk 39939 atoms, embedding tabulated"
+    },
+    "fus": {
+     "eval_ms_median": 32.392881,
+     "eval_ms_least": 32.351127999999996,
+     "device_ms_median": {
+      "descriptor": 1.344529278278351,
+      "download": 0.10209568023681641,
+      "embedding": 4.269648327827453,
+      "environment": 0.10700704045593738,
+      "fitting": 22.156783638000487,
+      "forces": 3.6209289407730103,
+      "neighbors": 0.6049731183052063
+     },
+     "issue_ms_median": {
+      "descriptor": 0.011618000000000003,
+      "download": 31.914325000000005,
+      "embedding": 0.009571000000000005,
+      "environment": 0.02656,
+      "fitting": 0.010465,
+      "forces": 0.008819,
+      "neighbors": 0.24717399999999992
+     },
+     "host_prepare_ms_median": 0.09932900000000001,
+     "host_finish_ms_median": 0.12414699999999998,
+     "chunks": 1,
+     "path": "precision: network f64, chunk 39939 atoms, embedding tabulated"
+    },
+    "cub": {
+     "eval_ms_median": 33.299586,
+     "eval_ms_least": 33.293143,
+     "device_ms_median": {
+      "descriptor": 1.3211254262924195,
+      "download": 0.10083679981529713,
+      "embedding": 4.44058944940567,
+      "environment": 0.11515776172280312,
+      "fitting": 23.144915294647216,
+      "forces": 3.4169459176063537,
+      "neighbors": 0.6129750394821167
+     },
+     "issue_ms_median": {
+      "descriptor": 0.011380000000000001,
+      "download": 32.69927199999999,
+      "embedding": 0.009217999999999999,
+      "environment": 0.027293000000000008,
+      "fitting": 0.09473900000000005,
+      "forces": 0.008065999999999995,
+      "neighbors": 0.2506880000000001
+     },
+     "host_prepare_ms_median": 0.09656600000000007,
+     "host_finish_ms_median": 0.12380099999999994,
+     "chunks": 1,
+     "path": "precision: network f64, chunk 39939 atoms, embedding tabulated"
+    },
+    "def2": {
+     "eval_ms_median": 32.46009,
+     "eval_ms_least": 32.362441,
+     "device_ms_median": {
+      "descriptor": 1.3623519957065582,
+      "download": 0.10066047996282577,
+      "embedding": 4.2783343839645385,
+      "environment": 0.1038316810876131,
+      "fitting": 22.19175106048584,
+      "forces": 3.6204086256027224,
+      "neighbors": 0.6080329585075378
+     },
+     "issue_ms_median": {
+      "descriptor": 0.011862999999999999,
+      "download": 31.989928999999993,
+      "embedding": 0.009717,
+      "environment": 0.025782999999999997,
+      "fitting": 0.010353000000000003,
+      "forces": 0.008833,
+      "neighbors": 0.24811500000000006
+     },
+     "host_prepare_ms_median": 0.09660699999999998,
+     "host_finish_ms_median": 0.11958299999999998,
+     "chunks": 1,
+     "path": "precision: network f64, chunk 39939 atoms, embedding tabulated"
+    }
+   },
+   "w98304-f64": {
+    "def": {
+     "eval_ms_median": 256.682885,
+     "eval_ms_least": 256.67097,
+     "device_ms_median": {
+      "descriptor": 10.566820752620698,
+      "download": 0.3179440036416054,
+      "embedding": 34.38669762611389,
+      "environment": 0.8032895989716053,
+      "fitting": 176.11928730010987,
+      "forces": 28.547891235351564,
+      "neighbors": 4.355883169174194
+     },
+     "issue_ms_median": {
+      "descriptor": 0.024675000000000002,
+      "download": 253.20244999999997,
+      "embedding": 0.021330000000000002,
+      "environment": 0.064915,
+      "fitting": 0.023135000000000003,
+      "forces": 0.023790000000000002,
+      "neighbors": 1.6633700000000002
+     },
+     "host_prepare_ms_median": 0.699645,
+     "host_finish_ms_median": 0.92327,
+     "chunks": 3,
+     "path": "precision: network f64, chunk 39939 atoms, embedding tabulated"
+    },
+    "per": {
+     "eval_ms_median": 256.61042499999996,
+     "eval_ms_least": 256.47905000000003,
+     "device_ms_median": {
+      "descriptor": 10.651073545217514,
+      "download": 0.307406397163868,
+      "embedding": 34.25437602996826,
+      "environment": 0.9350575953722,
+      "fitting": 176.1188346862793,
+      "forces": 28.522387218475345,
+      "neighbors": 4.297915148735046
+     },
+     "issue_ms_median": {
+      "descriptor": 0.025539999999999997,
+      "download": 253.29808000000003,
+      "embedding": 0.021735,
+      "environment": 0.065655,
+      "fitting": 0.025005,
+      "forces": 0.024914999999999993,
+      "neighbors": 1.6591649999999998
+     },
+     "host_prepare_ms_median": 0.694505,
+     "host_finish_ms_median": 0.95898,
+     "chunks": 3,
+     "path": "precision: network f64, chunk 39939 atoms, embedding tabulated"
+    },
+    "fus": {
+     "eval_ms_median": 256.78534,
+     "eval_ms_least": 256.666365,
+     "device_ms_median": {
+      "descriptor": 10.549966365098953,
+      "download": 0.30764320194721223,
+      "embedding": 34.23263032436371,
+      "environment": 0.8944079957902432,
+      "fitting": 176.011004447937,
+      "forces": 28.557979249954226,
+      "neighbors": 4.465329551696778
+     },
+     "issue_ms_median": {
+      "descriptor": 0.026039999999999997,
+      "download": 253.231395,
+      "embedding": 0.022065,
+      "environment": 0.067315,
+      "fitting": 0.026455000000000003,
+      "forces": 0.025079999999999998,
+      "neighbors": 1.6531200000000004
+     },
+     "host_prepare_ms_median": 0.6994,
+     "host_finish_ms_median": 0.9593300000000001,
+     "chunks": 3,
+     "path": "precision: network f64, chunk 39939 atoms, embedding tabulated"
+    },
+    "cub": {
+     "eval_ms_median": 266.9704,
+     "eval_ms_least": 266.809285,
+     "device_ms_median": {
+      "descriptor": 10.494468820095063,
+      "download": 0.3090815991163254,
+      "embedding": 34.03586714267731,
+      "environment": 0.8846735991537571,
+      "fitting": 186.68173904418947,
+      "forces": 28.533812737464906,
+      "neighbors": 4.37991681098938
+     },
+     "issue_ms_median": {
+      "descriptor": 0.024050000000000002,
+      "download": 263.08178000000004,
+      "embedding": 0.02325,
+      "environment": 0.072205,
+      "fitting": 0.27615500000000004,
+      "forces": 0.022055,
+      "neighbors": 1.7135799999999997
+     },
+     "host_prepare_ms_median": 0.6804300000000001,
+     "host_finish_ms_median": 0.9232750000000002,
+     "chunks": 3,
+     "path": "precision: network f64, chunk 39939 atoms, embedding tabulated"
+    },
+    "def2": {
+     "eval_ms_median": 256.63492,
+     "eval_ms_least": 256.594215,
+     "device_ms_median": {
+      "descriptor": 10.646015959978104,
+      "download": 0.3099328026175499,
+      "embedding": 34.352531218528746,
+      "environment": 0.8463775970041753,
+      "fitting": 176.04541835784914,
+      "forces": 28.652851247787478,
+      "neighbors": 4.399507164955139
+     },
+     "issue_ms_median": {
+      "descriptor": 0.024860000000000004,
+      "download": 253.353935,
+      "embedding": 0.02148,
+      "environment": 0.06670999999999999,
+      "fitting": 0.025050000000000003,
+      "forces": 0.025050000000000006,
+      "neighbors": 1.709155
+     },
+     "host_prepare_ms_median": 0.7107600000000001,
+     "host_finish_ms_median": 0.96017,
+     "chunks": 3,
+     "path": "precision: network f64, chunk 39939 atoms, embedding tabulated"
+    }
+   }
+  }
+ },
+ "rule_pr_c": [
+  "Written 2026-11-22 22:59, before the per-launch split of the fitting stage (nsys) and the split of the neighbors",
+  "[stamp corrected 2026-11-22 23:45 to the file's creation time; the order of rule and run is as the creation times show]",
+  "stage, which it judges. Base: prev-a08daf6. Water se_e2_a, float32 with tables looked up, 98,304 atoms (two",
+  "chunks), and 12,288 atoms as the second size.",
+  "",
+  "Saving to be had, at 98,304 atoms, in ms of the evaluation:",
+  "- fitting: the stage minus what its launches would take at their ceilings: each cuBLAS product at the throughput",
+  "  of the fastest kernel of the same shape seen in the traces (grouped, a net at a time or the fused path), the",
+  "  other launches at the time they take now unless they are more than a fifth of the stage (then at the time their",
+  "  bytes take at 900 GB/s);",
+  "- the search input on the host: its issue time (`issue.neighbors`) minus 0.1 ms (what a device-side packing and",
+  "  upload of the positions would leave, an estimate);",
+  "- host_prepare and host_finish: not a candidate of PR C unless one of them alone is more than 1 ms.",
+  "",
+  "Choice:",
+  "1. PR C takes the larger of the two savings if it is at least 0.8 ms (4% of 20 ms) and at least 4% at 12,288",
+  "   atoms as well; if both are, the larger at 98,304; if neither is, PR C takes the smaller follow-ups of #45 (16",
+  "   lanes for the float32 exact nets, then the 968-center way) and the large frames wait for a new idea.",
+  "2. Whatever it takes is confined to large passes (rows or atoms past a threshold measured on the way), so that",
+  "   the small HAP frames and committees keep their code and serve as the control of the A/B.",
+  "3. No TF32 or other tensor-core math modes for float32 (they change results): out of scope without the user."
+ ],
+ "kernels": {
+  "what": "nsys profile --trace=cuda of omnimd-native-gpu-eval --bench 3 (five evaluations), the sqlite export read by tools/fit/trace_min.py (the least time of every kernel over the evaluations after the first, by kind, and per evaluation the idle gap before its first kernel) and tools/fit/fit_ceiling.py (the grouped products of the fitting nets against a net at a time, the faster of the two as the ceiling). float32 with tables (--compress 0.5) unless named. nsys ran without the affinity of the timings: the host side of these traces was not held to the performance cores (the card was checked for other users before them).",
+  "float32_98304_atoms": [
+   "4 evaluations, 30 kernels each",
+   "  0    2694.1    2695.2  grid  98304x1 block  128  neighbor_search",
+   "  1     628.6     628.8  grid  85672x1 block  128  se_e2_a_env_f32",
+   "  2    1731.6    1732.0  grid  79463x1 block  128  se_e2_a_table_descriptor_f32",
+   "  3    1225.3    1228.2  grid    256x1 block  128  cutlass_80_simt_sgemm_grouped_128x128_8x4_align1",
+   "  4     208.8     209.2  grid  43777x2 block  256  grouped_epilogue_f32",
+   "  5     241.6     243.7  grid    256x1 block  128  cutlass_80_simt_sgemm_grouped_128x128_8x4_align1",
+   "  6     348.2     356.5  grid  43777x2 block  256  grouped_epilogue_f32",
+   "  7     238.0     239.9  grid    256x1 block  128  cutlass_80_simt_sgemm_grouped_128x128_8x4_align1",
+   "  8     366.1     625.8  grid   5837x2 block  256  grouped_head_f32",
+   "  9     360.3     360.7  grid    256x1 block  128  cutlass_80_simt_sgemm_grouped_128x128_8x4_align1",
+   " 10     239.4     239.7  grid  74497x1 block  256  grouped_scale_f32",
+   " 11     347.9     349.1  grid    256x1 block  128  cutlass_80_simt_sgemm_grouped_128x128_8x4_align1",
+   " 12     240.3     240.5  grid  74497x1 block  256  grouped_scale_f32",
+   " 13    1747.6    1755.0  grid    256x1 block  128  cutlass_80_simt_sgemm_grouped_128x128_8x4_align1",
+   " 14    2887.5    2889.5  grid  79463x1 block  128  se_e2_a_table_backward_f32",
+   " 15     155.1     155.2  grid  20313x1 block  128  se_e2_a_env_f32",
+   " 16     426.8     427.3  grid  18841x1 block  128  se_e2_a_table_descriptor_f32",
+   " 17     387.6     388.3  grid    256x1 block  128  cutlass_80_simt_sgemm_grouped_128x128_8x4_align1",
+   " 18      20.0      20.1  grid  17664x1 block  256  grouped_epilogue_f32",
+   " 19      66.8      67.2  grid    256x1 block  128  cutlass_80_simt_sgemm_grouped_128x128_8x4_align1",
+   " 20      25.2      25.4  grid  17664x1 block  256  grouped_epilogue_f32",
+   " 21      66.6      66.7  grid    256x1 block  128  cutlass_80_simt_sgemm_grouped_128x128_8x4_align1",
+   " 22      28.0      28.7  grid   2356x1 block  256  grouped_head_f32",
+   " 23      90.6      91.2  grid    256x1 block  128  cutlass_80_simt_sgemm_grouped_128x128_8x4_align1",
+   " 24      26.0      26.7  grid  17664x1 block  256  grouped_scale_f32",
+   " 25      85.6      85.8  grid    256x1 block  128  cutlass_80_simt_sgemm_grouped_128x128_8x4_align1",
+   " 26      24.5      25.2  grid  17664x1 block  256  grouped_scale_f32",
+   " 27     419.4     423.9  grid    256x1 block  128  cutlass_80_simt_sgemm_grouped_128x128_8x4_align1",
+   " 28     717.3     718.0  grid  18841x1 block  128  se_e2_a_table_backward_f32",
+   " 29     164.0     165.2  grid    384x1 block  128  frame_sums_f32",
+   "",
+   "kernels at their least: 16208.5 us",
+   "    5277.2 us    12 x  products",
+   "    3604.7 us     2 x  se_e2_a_table_backward_f32",
+   "    2694.1 us     1 x  neighbor_search",
+   "    2158.4 us     2 x  se_e2_a_table_descriptor_f32",
+   "     783.7 us     2 x  se_e2_a_env_f32",
+   "     602.1 us     4 x  grouped_epilogue_f32",
+   "     530.2 us     4 x  grouped_scale_f32",
+   "     394.1 us     2 x  grouped_head_f32",
+   "     164.0 us     1 x  frame_sums_f32",
+   "",
+   "window  21037.3 us  first kernel + 3161.8  last kernel ends + 20913.4  busy  17665.7  uploads: 5521568 B at +2893.6 for 248.1",
+   "window  21033.0 us  first kernel + 3247.8  last kernel ends + 20911.6  busy  17575.8  uploads: 5521568 B at +2910.2 for 243.8",
+   "window  21146.4 us  first kernel + 3604.7  last kernel ends + 21005.4  busy  17314.7  uploads: 5521568 B at +3263.5 for 247.6",
+   "window  20549.3 us  first kernel + 3188.3  last kernel ends + 20433.6  busy  17157.9  uploads: 5521568 B at +2926.3 for 242.5"
+  ],
+  "float32_12288_atoms": [
+   "4 evaluations, 16 kernels each",
+   "  0     355.8     357.0  grid  12288x1 block  128  neighbor_search",
+   "  1     100.3     100.3  grid  13248x1 block  128  se_e2_a_env_f32",
+   "  2     277.9     278.3  grid  12288x1 block  128  se_e2_a_table_descriptor_f32",
+   "  3     252.5     450.0  grid    256x1 block  128  cutlass_80_simt_sgemm_grouped_128x128_8x4_align1",
+   "  4      15.9      16.0  grid   7680x2 block  256  grouped_epilogue_f32",
+   "  5      42.6      43.3  grid    256x1 block  128  cutlass_80_simt_sgemm_grouped_128x128_8x4_align1",
+   "  6      19.8      19.9  grid   7680x2 block  256  grouped_epilogue_f32",
+   "  7      42.2      42.3  grid    256x1 block  128  cutlass_80_simt_sgemm_grouped_128x128_8x4_align1",
+   "  8      22.0      22.2  grid   1024x2 block  256  grouped_head_f32",
+   "  9      58.4      58.9  grid    256x1 block  128  cutlass_80_simt_sgemm_grouped_128x128_8x4_align1",
+   " 10       8.5       8.6  grid  11520x1 block  256  grouped_scale_f32",
+   " 11      54.2      55.2  grid    256x1 block  128  cutlass_80_simt_sgemm_grouped_128x128_8x4_align1",
+   " 12      13.5      13.6  grid  11520x1 block  256  grouped_scale_f32",
+   " 13     266.4     267.5  grid    256x1 block  128  cutlass_80_simt_sgemm_grouped_128x128_8x4_align1",
+   " 14     478.7     481.5  grid  12288x1 block  128  se_e2_a_table_backward_f32",
+   " 15      24.1      24.9  grid     48x1 block  128  frame_sums_f32",
+   "",
+   "kernels at their least: 2032.9 us",
+   "     716.3 us     6 x  products",
+   "     478.7 us     1 x  se_e2_a_table_backward_f32",
+   "     355.8 us     1 x  neighbor_search",
+   "     277.9 us     1 x  se_e2_a_table_descriptor_f32",
+   "     100.3 us     1 x  se_e2_a_env_f32",
+   "      35.7 us     2 x  grouped_epilogue_f32",
+   "      24.1 us     1 x  frame_sums_f32",
+   "      22.0 us     1 x  grouped_head_f32",
+   "      22.0 us     2 x  grouped_scale_f32",
+   "",
+   "window   2737.4 us  first kernel +  614.2  last kernel ends +  2701.9  busy   2046.6  uploads: 690336 B at +554.5 for 30.0",
+   "window   3428.8 us  first kernel +  788.3  last kernel ends +  3392.7  busy   2562.0  uploads: 690336 B at +728.1 for 30.2",
+   "window   2661.0 us  first kernel +  540.3  last kernel ends +  2626.7  busy   2044.6  uploads: 690336 B at +478.8 for 30.0",
+   "window   3064.1 us  first kernel +  548.6  last kernel ends +  3028.9  busy   2437.4  uploads: 690336 B at +488.2 for 30.0"
+  ],
+  "float64_98304_atoms": [
+   "4 evaluations, 17 kernels each",
+   "  0    2455.3    2457.1  grid  98304x1 block  128  neighbor_search",
+   "  1     324.4     345.5  grid  42914x1 block  128  se_e2_a_env_f64",
+   "  2   13270.6   13608.0  grid 686619x1 block  256  cell_table_f64",
+   "  3    3830.1    4314.9  grid  39804x1 block  128  se_e2_a_descriptor_f64",
+   "  4   68325.5   68610.1  grid  39804x1 block  256  gradient_network_f64",
+   "  5   11262.5   11314.6  grid  39804x1 block  128  se_e2_a_backward_f64",
+   "  6     313.9     314.8  grid  42914x1 block  128  se_e2_a_env_f64",
+   "  7   13731.5   13943.8  grid 686619x1 block  256  cell_table_f64",
+   "  8    4364.9    4486.9  grid  39804x1 block  128  se_e2_a_descriptor_f64",
+   "  9   71940.2   72265.3  grid  39804x1 block  256  gradient_network_f64",
+   " 10   11137.3   11530.4  grid  39804x1 block  128  se_e2_a_backward_f64",
+   " 11     135.2     139.7  grid  20157x1 block  128  se_e2_a_env_f64",
+   " 12    6560.5    6752.8  grid 322506x1 block  256  cell_table_f64",
+   " 13    1852.7    1878.9  grid  18696x1 block  128  se_e2_a_descriptor_f64",
+   " 14   33856.0   33890.0  grid  18696x1 block  256  gradient_network_f64",
+   " 15    5455.2    5725.5  grid  18696x1 block  128  se_e2_a_backward_f64",
+   " 16     141.7     143.1  grid    384x1 block  128  frame_sums_f64",
+   "",
+   "kernels at their least: 248957.4 us",
+   "  174121.7 us     3 x  gradient_network_f64",
+   "   33562.5 us     3 x  cell_table_f64",
+   "   27855.0 us     3 x  se_e2_a_backward_f64",
+   "   10047.7 us     3 x  se_e2_a_descriptor_f64",
+   "    2455.3 us     1 x  neighbor_search",
+   "     773.5 us     3 x  se_e2_a_env_f64",
+   "     141.7 us     1 x  frame_sums_f64",
+   "",
+   "window 255192.3 us  first kernel + 3408.6  last kernel ends +255081.6  busy 251648.3  uploads: 5521568 B at +3119.0 for 262.7",
+   "window 254952.2 us  first kernel + 3301.8  last kernel ends +254828.2  busy 251501.6  uploads: 5521568 B at +3018.1 for 254.6",
+   "window 256112.5 us  first kernel + 3421.0  last kernel ends +255994.8  busy 252544.2  uploads: 5521568 B at +3109.4 for 292.1",
+   "window 255726.9 us  first kernel + 3796.3  last kernel ends +255611.2  busy 251787.3  uploads: 5521568 B at +3097.5 for 658.0"
+  ],
+  "fitting_ceiling_98304_atoms": [
+   "98304 atoms: 4 and 4 evaluations, 2 chunks",
+   " chunk 1: about 79463 rows, 2 nets",
+   "  forward 0  grouped   1225.3  a net at a time   1336.8  ceiling   1225.3  (grouped)  void cutlass::Kernel2<cutlass_80_simt_sgemm_grouped_128x128_",
+   "  forward 1  grouped    241.6  a net at a time    221.3  ceiling    221.3  (per net)  void cutlass::Kernel2<cutlass_80_simt_sgemm_grouped_128x128_",
+   "  forward 2  grouped    238.0  a net at a time    227.0  ceiling    227.0  (per net)  void cutlass::Kernel2<cutlass_80_simt_sgemm_grouped_128x128_",
+   "  backward 2 grouped    360.3  a net at a time    238.5  ceiling    238.5  (per net)  void cutlass::Kernel2<cutlass_80_simt_sgemm_grouped_128x128_",
+   "  backward 1 grouped    347.9  a net at a time    239.1  ceiling    239.1  (per net)  void cutlass::Kernel2<cutlass_80_simt_sgemm_grouped_128x128_",
+   "  backward 0 grouped   1747.6  a net at a time   1388.4  ceiling   1388.4  (per net)  void cutlass::Kernel2<cutlass_80_simt_sgemm_grouped_128x128_",
+   "  other launches   1402.7 us, their bytes at 900 GB/s   1440.9 us (grouped_epilogue_f 208.8, grouped_epilogue_f 348.2, grouped_head_f32 366.1, grouped_scale_f32 239.4, grouped_scale_f32 240.3)",
+   " chunk 2: about 18841 rows, 1 nets",
+   "  forward 0  grouped    387.6  a net at a time    319.9  ceiling    319.9  (per net)  void cutlass::Kernel2<cutlass_80_simt_sgemm_grouped_128x128_",
+   "  forward 1  grouped     66.8  a net at a time     56.0  ceiling     56.0  (per net)  void cutlass::Kernel2<cutlass_80_simt_sgemm_grouped_128x128_",
+   "  forward 2  grouped     66.6  a net at a time     57.9  ceiling     57.9  (per net)  void cutlass::Kernel2<cutlass_80_simt_sgemm_grouped_128x128_",
+   "  backward 2 grouped     90.6  a net at a time     68.4  ceiling     68.4  (per net)  void cutlass::Kernel2<cutlass_80_simt_sgemm_grouped_128x128_",
+   "  backward 1 grouped     85.6  a net at a time     68.3  ceiling     68.3  (per net)  void cutlass::Kernel2<cutlass_80_simt_sgemm_grouped_128x128_",
+   "  backward 0 grouped    419.4  a net at a time    332.8  ceiling    332.8  (per net)  void cutlass::Kernel2<cutlass_80_simt_sgemm_grouped_128x128_",
+   "  other launches    123.7 us, their bytes at 900 GB/s    341.7 us (grouped_epilogue_f 20.0, grouped_epilogue_f 25.2, grouped_head_f32 28.0, grouped_scale_f32 26.0, grouped_scale_f32 24.5)",
+   " products: grouped 5277.2 us, at their ceilings 4443.0 us, saving 834.2 us",
+   " other launches: 1526.4 us, their bytes at 900 GB/s 1782.6 us, saving 0.0 us",
+   " stage at its least: 6803.6 us; saving allowed 834.2 us"
+  ],
+  "fitting_ceiling_12288_atoms": [
+   "12288 atoms: 4 and 4 evaluations, 1 chunks",
+   " chunk 1: about 12288 rows, 2 nets",
+   "  forward 0  grouped    252.5  a net at a time    233.5  ceiling    233.5  (per net)  void cutlass::Kernel2<cutlass_80_simt_sgemm_grouped_128x128_",
+   "  forward 1  grouped     42.6  a net at a time     52.4  ceiling     42.6  (grouped)  void cutlass::Kernel2<cutlass_80_simt_sgemm_grouped_128x128_",
+   "  forward 2  grouped     42.2  a net at a time     52.4  ceiling     42.2  (grouped)  void cutlass::Kernel2<cutlass_80_simt_sgemm_grouped_128x128_",
+   "  backward 2 grouped     58.4  a net at a time     51.0  ceiling     51.0  (per net)  void cutlass::Kernel2<cutlass_80_simt_sgemm_grouped_128x128_",
+   "  backward 1 grouped     54.2  a net at a time     52.5  ceiling     52.5  (per net)  void cutlass::Kernel2<cutlass_80_simt_sgemm_grouped_128x128_",
+   "  backward 0 grouped    266.4  a net at a time    229.1  ceiling    229.1  (per net)  void cutlass::Kernel2<cutlass_80_simt_sgemm_grouped_128x128_",
+   "  other launches     79.8 us, their bytes at 900 GB/s    222.8 us (grouped_epilogue_f 15.9, grouped_epilogue_f 19.8, grouped_head_f32 22.0, grouped_scale_f32 8.5, grouped_scale_f32 13.5)",
+   " products: grouped 716.3 us, at their ceilings 650.9 us, saving 65.4 us",
+   " other launches: 79.8 us, their bytes at 900 GB/s 222.8 us, saving 0.0 us",
+   " stage at its least: 796.1 us; saving allowed 65.4 us"
+  ]
+ },
+ "decision": [
+  "Written 2026-11-22 23:12, after the runs it reads; applies rule-fit0.txt and rule-pr-c.txt as written before them.",
+  "[stamp corrected 2026-11-22 23:45 to the file's creation time; the order of rule and run is as the creation times show]",
+  "Build prev-a08daf6 (= TANG-LAB-WHU/omniMD#45), RTX 4090, water se_e2_a.",
+  "",
+  "1. rule-fit0.txt (fit0-1.json, 3 rounds alternated, held to the P-cores, card free before every round):",
+  "   no candidate. Medians against def, spread from def2:",
+  "   - float32 per (a net at a time): fitting +12.4% / +12.6% at 12,288 / 98,304, evaluation +0.8% / +3.4%.",
+  "   - float32 fus (fused kernel for every pass): fitting +763% / +678%.",
+  "   - float32 cub (cuBLAS for every pass, the default at these sizes): fitting -2.2% / +1.5%, evaluation -2.8% /",
+  "     -0.1%; at 12,288 the control def2 itself was -0.8% / -3.0%, so -2.8% is not beyond the spread.",
+  "   - float64 per, fus: within 0.2% of def (def is the fused kernel); cub: fitting +4.4% / +6.0%, evaluation",
+  "     +2.9% / +4.0%.",
+  "   - Chunks: float32 2 at 98,304 (79,733 + 18,571; 79,463 under nsys), float64 3 (39,804 + 39,804 + 18,696).",
+  "",
+  "2. Per launch (nsys 2024.6.2, --trace=cuda, 5 evaluations a run, the last 4 compared; a kernel's",
+  "   least time over them taken, as in every evaluation about three kernels took 0.35 to 0.6 ms longer than in",
+  "   the others, apparently another context on the card, which drives the display). trace_min.py, fit_ceiling.py.",
+  "   98,304 atoms, float32, tables looked up, kernels at their least 16.21 ms of a 20.5 to 21.1 ms window:",
+  "     products of the fitting 5.28, forces 3.60, neighbor_search 2.69, descriptor 2.16, other launches of the",
+  "     fitting 1.53, environment 0.78, frame sums 0.16. From the copy back of an evaluation to the first kernel of",
+  "     the next the card idles about 3.2 ms (host_finish, host_prepare, the packing of the search input, then its",
+  "     upload of 5.52 MB in 0.25 ms).",
+  "   12,288 atoms: kernels 2.03 ms of a 2.66 to 3.43 ms window; products 0.72, forces 0.48, neighbor_search 0.36,",
+  "     descriptor 0.28, other launches of the fitting 0.08, environment 0.10; the idle gap before the first",
+  "     kernel 0.43 to 0.79 ms under nsys.",
+  "   The grouped products are cutlass_80_simt_sgemm_grouped_128x128_8x4_align1 throughout; a net at a time cuBLAS",
+  "   takes cutlass_80_simt_sgemm_256x128_8x4_nn_align1 for the first layer and ampere_sgemm_128x64_nn/_tn (or",
+  "   32x128 at 12,288) for the others.",
+  "",
+  "3. rule-pr-c.txt:",
+  "   - fitting: products at the faster of grouped and a net at a time, layer by layer and chunk by chunk (the",
+  "     fused path is far slower): 5,277 -> 4,443 us at 98,304 (saving 834 us; grouped faster only for the first",
+  "     forward product of the two-net chunk), 716 -> 651 us at 12,288 (saving 65 us, 2.5% of 2.61 ms). The other",
+  "     launches take 1,526 us at 98,304 against 1,783 us for their bytes at 900 GB/s (17 passes over rows x 240",
+  "     entries) and 80 against 223 at 12,288 (in L2): no saving.",
+  "   - search input on the host: issue.neighbors 1.555 ms at 98,304 (saving 1.455 ms) and 0.197 ms at 12,288",
+  "     (saving 0.097 ms, 3.7% of 2.613 ms, 3.8% of the control's 2.536).",
+  "   - host_prepare 0.66 / host_finish 0.90 ms at 98,304: neither alone above 1 ms, not a candidate.",
+  "   Neither saving is at least 4% at 12,288 atoms: by rule 1, PR C takes the smaller follow-ups of #45 (16 lanes",
+  "   for the float32 exact nets, then the 968-center way), and the large frames wait for a new idea.",
+  "",
+  "4. Not judged by the rules, seen on the way (for the next idea, to be measured under a rule of its own):",
+  "   - neighbor_search, the device kernel, is the largest launch not yet examined: 2.69 ms at 98,304 (13% of the",
+  "     evaluation), 0.36 ms at 12,288 (14%). It writes index, delta and dist of every slot (about 36 bytes a slot,",
+  "     138 slots: 488 MB at 98,304, 0.54 ms at 900 GB/s), so most of its time is the scan and the ranking.",
+  "   - the idle gap of the card before the first kernel: about 3.2 ms at 98,304 (15%), of which the rule's two",
+  "     host items are 1.55 + 0.25; the rest is host_finish and host_prepare (0.90 + 0.66).",
+  "   - in the run a net at a time, the force kernel of the two-net chunk took 3,457 us against 2,888 us in the",
+  "     grouped run (the one-net chunk 714 against 717): the same kernel; not explained.",
+  "   - float64 at 98,304: the fused fitting kernel 174.1 ms of 249.0 (70%), at about 87% of the float64 rate by",
+  "     the estimate of 2.0 MFLOP an atom; the stored tables (cell_table_f64) 33.6 ms; forces 27.9; descriptor",
+  "     10.0; neighbor_search 2.46."
+ ]
+}

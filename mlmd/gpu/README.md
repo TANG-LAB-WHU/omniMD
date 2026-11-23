@@ -196,7 +196,10 @@ What follows for the kernels:
   without; of the water model three wide ones with the sums. So the force
   kernels of se_e2_a and se_e2_r take the first of these four ways that
   keeps all the blocks of the pass at once (`native::gpu_model::force_way`),
-  and past every way the narrow blocks, with the sums for se_e2_r only.
+  and past every way the narrow blocks, with the sums for se_e2_r only
+  (for se_e2_a's tables just past every way the sums were 1.0% and 1.6%
+  faster at 1,014 and 968 blocks but 2.0% slower at 1,120, and stayed out:
+  [2026-11-23](../bench/results/SUMMARY.md#where-a-large-frame-goes-and-two-follow-ups-of-the-lanes-not-kept-2026-11-23)).
   Against the limits of centers that chose before (`WIDE_FORCE_CENTERS_F32`,
   `_F64` and `BLOCK_SUMS_CENTERS`, kept for a driver that does not say), the
   choice changed in 31 of 64 cases: in float32 an evaluation was 0.4% to
@@ -252,7 +255,13 @@ What follows for the kernels:
   stored rows, which wait on their reads instead; 8 give up 3% to 5% of the
   stage there (the exact networks in float32 at 1,536 and 12,288 water
   atoms: 0.1% and 0.3% of an evaluation), 16 nothing, but also a quarter to
-  half of the gain with tables. A vote of the warp that skips a round without a live slot (about
+  half of the gain with tables. Sixteen for the exact networks alone in
+  float32, in a kernel of their own, took 2.3% and 5.5% off that stage at
+  1,536 and 12,288 water atoms but added 10.8% to it and 1.3% to an
+  evaluation of one 88-atom HAP frame, and stayed out; the trainer's force
+  kernel of the rows takes 16 in float32 since then
+  ([2026-11-23](../bench/results/SUMMARY.md#where-a-large-frame-goes-and-two-follow-ups-of-the-lanes-not-kept-2026-11-23)).
+  A vote of the warp that skips a round without a live slot (about
   two thirds of the HAP slots are empty) took 13 to 16 points more off the
   HAP frames in float64 but added 5% at 1,536 water atoms, and stayed out
   ([timings](../bench/results/SUMMARY.md#the-force-kernel-of-se_e2_a-with-a-group-of-lanes-a-slot-2026-11-22)).

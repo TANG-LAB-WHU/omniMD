@@ -166,6 +166,18 @@ Desktop's Linux VM on the same card, with the atoms held in place; "tables" are
   ([record](mlmd/bench/results/force-lanes-rtx4090-2026-11-22.json)). With
   the exact networks in float32 the stage took 2.7% and 5.4% more at 1,536
   and 12,288 atoms, an evaluation 0.1% and 0.3%.
+- On 2026-11-23 the two smaller follow-ups of that change were timed
+  against it, by rules written before the timings, and neither was kept:
+  16 lanes for the exact networks in float32, in a kernel of their own,
+  took 2.3% and 5.5% off their stage at 1,536 and 12,288 atoms but added
+  1.3% to an evaluation of one 88-atom HAP frame, and the sums across the
+  warps just past what the device keeps at once added 2.0% at 1,120
+  blocks. The trainer's force kernel takes 16 lanes in float32 since then,
+  by a rule of its own, with no gain measured. Before them an evaluation of
+  98,304 atoms was taken apart kernel by kernel: the neighbor search kernel
+  takes 13% of it, and the card idles about 3.2 ms (15%) between
+  evaluations
+  ([summary](mlmd/bench/results/SUMMARY.md#where-a-large-frame-goes-and-two-follow-ups-of-the-lanes-not-kept-2026-11-23)).
 - The three-body descriptor se_e3 with the same cutoff and `sel` and embedding
   [10, 20, 40] costs 1.93 ms at 192 atoms and 13.4 ms at 1,536 in float32
   (DeepMD-kit: 27.5 and 209 ms), 9.42 and 70.1 ms in float64, and 833 ms at

@@ -1,0 +1,2451 @@
+{
+ "date": "2026-11-22",
+ "device": "NVIDIA GeForce RTX 4090",
+ "host": "i9-14900K, the host side held to the performance cores",
+ "what": "Past every way of the se_e2_a force kernels that the device keeps at once, the narrow blocks with the sums across the warps against without them: one build, its own choice or the narrow blocks without the sums (def), the sums forced (sums: --block-sums 1000000) and def again (def2, the control), alternated in 5 rounds. First (measurement, 2026-11-22) on omnimd-native-gpu-eval of a08daf6, the cases with tables and with the exact nets; then (exact_nets, 2026-11-23) the exact nets again on the kernel of 16 lanes a slot that the change of PR C then gave them, by a rule amended before that run to one limit per kernel (rule_exact_nets). The rules were written before the runs, the decisions after them: a limit of 1.25 (SE_E2A_SUMS_PAST_WAVES) for the kernels of the tables, and no sums past every way for the kernel of the exact nets. decision_exact_nets quotes the limit that the decision script printed as run (1.75) and says why it does not apply. The limit did not last: timed against a08daf6 by the rules of force-exact-lanes-rtx4090-2026-11-23.json, the sums added 2.0% to an evaluation at 1,120 blocks, and se_e2_a takes none past every way, as before. See SUMMARY.md, 2026-11-23.",
+ "beside_the_timings": "Two processes of `find / -maxdepth 6 -type d -name cudarc-...` (left by agents of an earlier review, one core each; stopping them was not allowed in the session) ran beside the timings of force-lanes-rtx4090-2026-11-22.json and were still running at its end (2026-11-22 22:25, checked); by 2026-11-23 00:28 they were gone (checked). Whether they still ran beside the first run (measurement, 2026-11-22 23:22 to 23:26) is not known; the second (exact_nets, 00:28 to 00:30) ran without them.",
+ "rule": [
+  "Written 2026-11-22 23:22, before the run sums-1.json (tools/fit/sums_ab.py), which it judges. Build prev-a08daf6.",
+  "[stamp corrected 2026-11-22 23:45 to the file's creation time; the order of rule and run is as the creation times show]",
+  "",
+  "Question: past every way that the device keeps at once (more blocks than any of the four ways of FORCE_WAYS",
+  "holds), the force kernel of se_e2_a takes the narrow blocks without the sums across the warps (sums_past false",
+  "for se_e2_a, true for se_e2_r). In the ways run of #45 the HAP model's 968 centers took 553.2 us that way and",
+  "534.5 us with the sums (3.4% less), water's 1,536 atoms 0.6% more with them. Larger passes were not tried.",
+  "",
+  "Settings, one build: def (as it chooses), sums (--block-sums 1000000: the sums in every pass; past every way that",
+  "is the narrow blocks with the sums, which is what sums_past true would give), def2 (def again, the control).",
+  "Cases: se_e2_a passes past every way only (checked from the capacity line and the way in the bench lines), HAP",
+  "(the ensemble model of iteration 0, f32 with and without tables, f64 with tables) on batches of 88, 169 and 224",
+  "atoms, and water at 1,536, 12,288 and 98,304 atoms (f32 with and without tables, f64 with tables).",
+  "Measure: the least evaluation of each over the rounds (as the ways runs), the median beside it;",
+  "spread = |def2/def - 1| of the case.",
+  "",
+  "Rule:",
+  "1. sums_past becomes true for se_e2_a if, in every case, sums is not slower than def by more than max(spread, 1%)",
+  "   and in at least one HAP case it is faster by more than max(spread, 1%) (the change helps somewhere and hurts",
+  "   nowhere).",
+  "2. If sums is faster in some cases and slower beyond the bound in others, sums_past for se_e2_a becomes a limit of",
+  "   blocks (the sums past every way up to N blocks, N between the cases on either side), but only if the cases",
+  "   faster and those slower are separated by size alone, the same in both precisions measured; otherwise nothing",
+  "   changes.",
+  "3. If sums is nowhere faster beyond the bound, nothing changes, and the 968-center case is recorded as noise or a",
+  "   model's quirk."
+ ],
+ "measurement": {
+  "date": "2026-11-22",
+  "device": "NVIDIA GeForce RTX 4090",
+  "what": "sums_ab.py EXE OUT.json [ROUNDS]: se_e2_a force passes past every way of the device, with and without the sums.\n\nOne build, three settings alternated: def (the build as it chooses), sums (--block-sums 1000000, the sums across\nthe warps in every pass: past every way the narrow blocks with them) and def2 (def again, the control). Cases: the\nHAP ensemble model of iteration 0 (f32 with tables and without, f64 with tables) on batches of the frames of 88,\n169 and 224 atoms, and the water model at 1,536, 12,288 and 98,304 atoms (f32 with tables and without, f64 with\ntables), every size past what the device keeps at once of every way. ROUNDS rounds (default 5), the order reversed\nevery other round; the least and the median of each kept. The way of every pass is read back from the bench lines\n(force_threads, force_sums), the capacity from the header line. The card is checked before every round.",
+  "rounds": 5,
+  "build": "prev-a08daf6 (TANG-LAB-WHU/omniMD#45)",
+  "seconds_waited_for_the_card": [
+   0,
+   0,
+   0,
+   0,
+   0
+  ],
+  "us_per_evaluation": [
+   {
+    "case": "HAP se_e2_a f32 tables, 88 x11",
+    "centers": 968,
+    "capacity": "256 512 384 896 on 128 multiprocessors",
+    "ways": {
+     "def": [
+      {
+       "threads": 128,
+       "sums": false
+      }
+     ],
+     "sums": [
+      {
+       "threads": 128,
+       "sums": true
+      }
+     ],
+     "def2": [
+      {
+       "threads": 128,
+       "sums": false
+      }
+     ]
+    },
+    "least_us": {
+     "def": 543.88,
+     "sums": 530.02,
+     "def2": 548.09
+    },
+    "median_us": {
+     "def": 596.12,
+     "sums": 535.74,
+     "def2": 562.6
+    },
+    "samples_ms": {
+     "def": [
+      0.6010833333333333,
+      0.5609855555555555,
+      0.5961222222222222,
+      0.5438811111111111,
+      0.5986266666666666
+     ],
+     "sums": [
+      0.5325644444444445,
+      0.5300188888888889,
+      0.5357366666666666,
+      0.5877722222222223,
+      0.5395533333333333
+     ],
+     "def2": [
+      0.5480877777777777,
+      0.6009588888888888,
+      0.55055,
+      0.5933822222222221,
+      0.5625977777777778
+     ]
+    }
+   },
+   {
+    "case": "HAP se_e2_a f32 tables, 88 x12",
+    "centers": 1056,
+    "capacity": "256 512 384 896 on 128 multiprocessors",
+    "ways": {
+     "def": [
+      {
+       "threads": 128,
+       "sums": false
+      }
+     ],
+     "sums": [
+      {
+       "threads": 128,
+       "sums": true
+      }
+     ],
+     "def2": [
+      {
+       "threads": 128,
+       "sums": false
+      }
+     ]
+    },
+    "least_us": {
+     "def": 573.78,
+     "sums": 560.46,
+     "def2": 566.12
+    },
+    "median_us": {
+     "def": 593.39,
+     "sums": 567.92,
+     "def2": 570.53
+    },
+    "samples_ms": {
+     "def": [
+      0.6084409638554217,
+      0.5827228915662651,
+      0.5981168674698795,
+      0.573777108433735,
+      0.593389156626506
+     ],
+     "sums": [
+      0.5679192771084338,
+      0.5853301204819277,
+      0.5662807228915663,
+      0.5838481927710844,
+      0.5604590361445783
+     ],
+     "def2": [
+      0.5705289156626505,
+      0.6061192771084338,
+      0.5681771084337349,
+      0.6143409638554217,
+      0.5661192771084337
+     ]
+    }
+   },
+   {
+    "case": "HAP se_e2_a f32 tables, 88 x16",
+    "centers": 1408,
+    "capacity": "256 512 384 896 on 128 multiprocessors",
+    "ways": {
+     "def": [
+      {
+       "threads": 128,
+       "sums": false
+      }
+     ],
+     "sums": [
+      {
+       "threads": 128,
+       "sums": true
+      }
+     ],
+     "def2": [
+      {
+       "threads": 128,
+       "sums": false
+      }
+     ]
+    },
+    "least_us": {
+     "def": 659.16,
+     "sums": 642.04,
+     "def2": 635.53
+    },
+    "median_us": {
+     "def": 700.18,
+     "sums": 654.26,
+     "def2": 658.6
+    },
+    "samples_ms": {
+     "def": [
+      0.7001838709677419,
+      0.6721693548387097,
+      0.718758064516129,
+      0.6591629032258064,
+      0.700366129032258
+     ],
+     "sums": [
+      0.6617951612903226,
+      0.6583499999999999,
+      0.6423967741935485,
+      0.6542596774193548,
+      0.6420435483870968
+     ],
+     "def2": [
+      0.6586048387096775,
+      0.7041661290322581,
+      0.6355258064516129,
+      0.6863467741935484,
+      0.6522032258064517
+     ]
+    }
+   },
+   {
+    "case": "HAP se_e2_a f32 tables, 88 x24",
+    "centers": 2112,
+    "capacity": "256 512 384 896 on 128 multiprocessors",
+    "ways": {
+     "def": [
+      {
+       "threads": 128,
+       "sums": false
+      }
+     ],
+     "sums": [
+      {
+       "threads": 128,
+       "sums": true
+      }
+     ],
+     "def2": [
+      {
+       "threads": 128,
+       "sums": false
+      }
+     ]
+    },
+    "least_us": {
+     "def": 751.29,
+     "sums": 761.87,
+     "def2": 750.23
+    },
+    "median_us": {
+     "def": 792.43,
+     "sums": 771.61,
+     "def2": 758.44
+    },
+    "samples_ms": {
+     "def": [
+      0.7913731707317073,
+      0.792429268292683,
+      0.8175902439024391,
+      0.7512878048780488,
+      0.8152853658536584
+     ],
+     "sums": [
+      0.7716097560975609,
+      0.7890121951219514,
+      0.7631341463414633,
+      0.7618682926829268,
+      0.7717463414634147
+     ],
+     "def2": [
+      0.7604341463414633,
+      0.8397951219512196,
+      0.7502341463414635,
+      0.7584439024390244,
+      0.7539609756097561
+     ]
+    }
+   },
+   {
+    "case": "HAP se_e2_a f32 tables, 169 x6",
+    "centers": 1014,
+    "capacity": "256 512 384 896 on 128 multiprocessors",
+    "ways": {
+     "def": [
+      {
+       "threads": 128,
+       "sums": false
+      }
+     ],
+     "sums": [
+      {
+       "threads": 128,
+       "sums": true
+      }
+     ],
+     "def2": [
+      {
+       "threads": 128,
+       "sums": false
+      }
+     ]
+    },
+    "least_us": {
+     "def": 549.49,
+     "sums": 539.42,
+     "def2": 546.33
+    },
+    "median_us": {
+     "def": 550.28,
+     "sums": 544.54,
+     "def2": 556.3
+    },
+    "samples_ms": {
+     "def": [
+      0.5541295180722892,
+      0.550283734939759,
+      0.5823403614457832,
+      0.5494885542168674,
+      0.5496801204819278
+     ],
+     "sums": [
+      0.5502427710843374,
+      0.5439024096385543,
+      0.5445361445783132,
+      0.5394204819277109,
+      0.5499138554216867
+     ],
+     "def2": [
+      0.5525692771084337,
+      0.5562969879518073,
+      0.556672891566265,
+      0.5463313253012048,
+      0.5633060240963856
+     ]
+    }
+   },
+   {
+    "case": "HAP se_e2_a f32 tables, 169 x8",
+    "centers": 1352,
+    "capacity": "256 512 384 896 on 128 multiprocessors",
+    "ways": {
+     "def": [
+      {
+       "threads": 128,
+       "sums": false
+      }
+     ],
+     "sums": [
+      {
+       "threads": 128,
+       "sums": true
+      }
+     ],
+     "def2": [
+      {
+       "threads": 128,
+       "sums": false
+      }
+     ]
+    },
+    "least_us": {
+     "def": 632.85,
+     "sums": 631.33,
+     "def2": 630.32
+    },
+    "median_us": {
+     "def": 635.16,
+     "sums": 634.23,
+     "def2": 643.49
+    },
+    "samples_ms": {
+     "def": [
+      0.6589424,
+      0.6377504,
+      0.6328488,
+      0.6351552,
+      0.6331512
+     ],
+     "sums": [
+      0.6460104,
+      0.6342264,
+      0.63302,
+      0.6313288,
+      0.6745424000000001
+     ],
+     "def2": [
+      0.6402848,
+      0.6773344,
+      0.6434912,
+      0.6303208,
+      0.6473624
+     ]
+    }
+   },
+   {
+    "case": "HAP se_e2_a f32 tables, 224 x5",
+    "centers": 1120,
+    "capacity": "256 512 384 896 on 128 multiprocessors",
+    "ways": {
+     "def": [
+      {
+       "threads": 128,
+       "sums": false
+      }
+     ],
+     "sums": [
+      {
+       "threads": 128,
+       "sums": true
+      }
+     ],
+     "def2": [
+      {
+       "threads": 128,
+       "sums": false
+      }
+     ]
+    },
+    "least_us": {
+     "def": 577.93,
+     "sums": 580.38,
+     "def2": 583.76
+    },
+    "median_us": {
+     "def": 587.46,
+     "sums": 585.26,
+     "def2": 588.55
+    },
+    "samples_ms": {
+     "def": [
+      0.577931,
+      0.591633,
+      0.5804945,
+      0.5966905,
+      0.5874575
+     ],
+     "sums": [
+      0.586162,
+      0.593798,
+      0.581235,
+      0.580385,
+      0.5852605000000001
+     ],
+     "def2": [
+      0.588551,
+      0.590597,
+      0.5837555,
+      0.5902514999999999,
+      0.5862595
+     ]
+    }
+   },
+   {
+    "case": "HAP se_e2_a f32 tables, 224 x8",
+    "centers": 1792,
+    "capacity": "256 512 384 896 on 128 multiprocessors",
+    "ways": {
+     "def": [
+      {
+       "threads": 128,
+       "sums": false
+      }
+     ],
+     "sums": [
+      {
+       "threads": 128,
+       "sums": true
+      }
+     ],
+     "def2": [
+      {
+       "threads": 128,
+       "sums": false
+      }
+     ]
+    },
+    "least_us": {
+     "def": 708.24,
+     "sums": 718.26,
+     "def2": 705.46
+    },
+    "median_us": {
+     "def": 714.73,
+     "sums": 722.67,
+     "def2": 725.23
+    },
+    "samples_ms": {
+     "def": [
+      0.7147264,
+      0.7272856,
+      0.7191776,
+      0.7082432,
+      0.7140448
+     ],
+     "sums": [
+      0.7182616,
+      0.744236,
+      0.7226672,
+      0.7217288,
+      0.7228072
+     ],
+     "def2": [
+      0.7255832,
+      0.7211808,
+      0.7347008,
+      0.7252256,
+      0.7054616
+     ]
+    }
+   },
+   {
+    "case": "HAP se_e2_a f32 exact, 88 x11",
+    "centers": 968,
+    "capacity": "384 512 384 896 on 128 multiprocessors",
+    "ways": {
+     "def": [
+      {
+       "threads": 128,
+       "sums": false
+      }
+     ],
+     "sums": [
+      {
+       "threads": 128,
+       "sums": true
+      }
+     ],
+     "def2": [
+      {
+       "threads": 128,
+       "sums": false
+      }
+     ]
+    },
+    "least_us": {
+     "def": 854.16,
+     "sums": 845.25,
+     "def2": 853.27
+    },
+    "median_us": {
+     "def": 871.17,
+     "sums": 850.53,
+     "def2": 856.75
+    },
+    "samples_ms": {
+     "def": [
+      0.8793377777777778,
+      0.876618888888889,
+      0.8541599999999999,
+      0.8711722222222222,
+      0.8571311111111112
+     ],
+     "sums": [
+      0.86259,
+      0.8598755555555554,
+      0.8452533333333333,
+      0.8479222222222222,
+      0.8505333333333334
+     ],
+     "def2": [
+      0.8589655555555555,
+      0.8532677777777777,
+      0.8567533333333333,
+      0.8563277777777778,
+      0.8613166666666667
+     ]
+    }
+   },
+   {
+    "case": "HAP se_e2_a f32 exact, 88 x16",
+    "centers": 1408,
+    "capacity": "384 512 384 896 on 128 multiprocessors",
+    "ways": {
+     "def": [
+      {
+       "threads": 128,
+       "sums": false
+      }
+     ],
+     "sums": [
+      {
+       "threads": 128,
+       "sums": true
+      }
+     ],
+     "def2": [
+      {
+       "threads": 128,
+       "sums": false
+      }
+     ]
+    },
+    "least_us": {
+     "def": 1156.55,
+     "sums": 1140.44,
+     "def2": 1155.32
+    },
+    "median_us": {
+     "def": 1164.78,
+     "sums": 1160.66,
+     "def2": 1157.78
+    },
+    "samples_ms": {
+     "def": [
+      1.1726532258064517,
+      1.172401612903226,
+      1.1565467741935485,
+      1.160475806451613,
+      1.1647806451612903
+     ],
+     "sums": [
+      1.1464564516129032,
+      1.160658064516129,
+      1.2632822580645162,
+      1.1686983870967742,
+      1.1404403225806452
+     ],
+     "def2": [
+      1.1561612903225806,
+      1.167017741935484,
+      1.1767306451612904,
+      1.1553225806451612,
+      1.157783870967742
+     ]
+    }
+   },
+   {
+    "case": "HAP se_e2_a f64 tables, 88 x9",
+    "centers": 792,
+    "capacity": "256 384 384 768 on 128 multiprocessors",
+    "ways": {
+     "def": [
+      {
+       "threads": 128,
+       "sums": false
+      }
+     ],
+     "sums": [
+      {
+       "threads": 128,
+       "sums": true
+      }
+     ],
+     "def2": [
+      {
+       "threads": 128,
+       "sums": false
+      }
+     ]
+    },
+    "least_us": {
+     "def": 2518.23,
+     "sums": 2509.18,
+     "def2": 2518.21
+    },
+    "median_us": {
+     "def": 2528.25,
+     "sums": 2521.88,
+     "def2": 2523.81
+    },
+    "samples_ms": {
+     "def": [
+      2.5314840909090908,
+      2.576452272727273,
+      2.519459090909091,
+      2.518234090909091,
+      2.5282522727272725
+     ],
+     "sums": [
+      2.5306204545454545,
+      2.510665909090909,
+      2.5218818181818183,
+      2.509184090909091,
+      2.535552272727273
+     ],
+     "def2": [
+      2.523811363636364,
+      2.5182136363636363,
+      2.5183068181818182,
+      2.52605,
+      2.5291159090909088
+     ]
+    }
+   },
+   {
+    "case": "HAP se_e2_a f64 tables, 88 x12",
+    "centers": 1056,
+    "capacity": "256 384 384 768 on 128 multiprocessors",
+    "ways": {
+     "def": [
+      {
+       "threads": 128,
+       "sums": false
+      }
+     ],
+     "sums": [
+      {
+       "threads": 128,
+       "sums": true
+      }
+     ],
+     "def2": [
+      {
+       "threads": 128,
+       "sums": false
+      }
+     ]
+    },
+    "least_us": {
+     "def": 3008.04,
+     "sums": 2987.25,
+     "def2": 3022.97
+    },
+    "median_us": {
+     "def": 3030.86,
+     "sums": 3012.57,
+     "def2": 3024.75
+    },
+    "samples_ms": {
+     "def": [
+      3.0182272727272728,
+      3.0544575757575756,
+      3.030857575757576,
+      3.0386515151515154,
+      3.0080393939393937
+     ],
+     "sums": [
+      3.016015151515152,
+      3.0539272727272726,
+      3.012569696969697,
+      3.003033333333333,
+      2.9872454545454543
+     ],
+     "def2": [
+      3.031769696969697,
+      3.0247545454545457,
+      3.0270757575757576,
+      3.022969696969697,
+      3.0244848484848483
+     ]
+    }
+   },
+   {
+    "case": "HAP se_e2_a f64 tables, 88 x16",
+    "centers": 1408,
+    "capacity": "256 384 384 768 on 128 multiprocessors",
+    "ways": {
+     "def": [
+      {
+       "threads": 128,
+       "sums": false
+      }
+     ],
+     "sums": [
+      {
+       "threads": 128,
+       "sums": true
+      }
+     ],
+     "def2": [
+      {
+       "threads": 128,
+       "sums": false
+      }
+     ]
+    },
+    "least_us": {
+     "def": 3808.91,
+     "sums": 3844.37,
+     "def2": 3838.17
+    },
+    "median_us": {
+     "def": 3865.34,
+     "sums": 3857.38,
+     "def2": 3874.83
+    },
+    "samples_ms": {
+     "def": [
+      3.8857599999999994,
+      3.908344,
+      3.8653399999999998,
+      3.8158959999999995,
+      3.808912
+     ],
+     "sums": [
+      3.85738,
+      3.885756,
+      3.8592720000000003,
+      3.8497999999999997,
+      3.8443680000000002
+     ],
+     "def2": [
+      3.9179880000000002,
+      3.88892,
+      3.874828,
+      3.838172,
+      3.8509320000000002
+     ]
+    }
+   },
+   {
+    "case": "HAP se_e2_a f64 tables, 224 x4",
+    "centers": 896,
+    "capacity": "256 384 384 768 on 128 multiprocessors",
+    "ways": {
+     "def": [
+      {
+       "threads": 128,
+       "sums": false
+      }
+     ],
+     "sums": [
+      {
+       "threads": 128,
+       "sums": true
+      }
+     ],
+     "def2": [
+      {
+       "threads": 128,
+       "sums": false
+      }
+     ]
+    },
+    "least_us": {
+     "def": 2675.41,
+     "sums": 2641.95,
+     "def2": 2662.13
+    },
+    "median_us": {
+     "def": 2694.46,
+     "sums": 2650.68,
+     "def2": 2668.93
+    },
+    "samples_ms": {
+     "def": [
+      2.694921,
+      2.694462,
+      2.7009179999999997,
+      2.677989,
+      2.675412
+     ],
+     "sums": [
+      2.669309,
+      2.664719,
+      2.641952,
+      2.6506780000000005,
+      2.645241
+     ],
+     "def2": [
+      2.674415,
+      2.702357,
+      2.668043,
+      2.662133,
+      2.668931
+     ]
+    }
+   },
+   {
+    "case": "HAP se_e2_a f64 tables, 224 x8",
+    "centers": 1792,
+    "capacity": "256 384 384 768 on 128 multiprocessors",
+    "ways": {
+     "def": [
+      {
+       "threads": 128,
+       "sums": false
+      }
+     ],
+     "sums": [
+      {
+       "threads": 128,
+       "sums": true
+      }
+     ],
+     "def2": [
+      {
+       "threads": 128,
+       "sums": false
+      }
+     ]
+    },
+    "least_us": {
+     "def": 4906.98,
+     "sums": 4895.67,
+     "def2": 4906.42
+    },
+    "median_us": {
+     "def": 4914.56,
+     "sums": 4905.13,
+     "def2": 4916.39
+    },
+    "samples_ms": {
+     "def": [
+      4.914562,
+      4.92845,
+      4.931284,
+      4.911868,
+      4.906976
+     ],
+     "sums": [
+      4.9423200000000005,
+      4.91172,
+      4.895669999999999,
+      4.898848,
+      4.905134
+     ],
+     "def2": [
+      4.929303999999999,
+      4.949158,
+      4.91639,
+      4.9109560000000005,
+      4.906421999999999
+     ]
+    }
+   },
+   {
+    "case": "water se_e2_a f32 tables, 1536 x1",
+    "centers": 1536,
+    "capacity": "384 512 384 896 on 128 multiprocessors",
+    "ways": {
+     "def": [
+      {
+       "threads": 128,
+       "sums": false
+      }
+     ],
+     "sums": [
+      {
+       "threads": 128,
+       "sums": true
+      }
+     ],
+     "def2": [
+      {
+       "threads": 128,
+       "sums": false
+      }
+     ]
+    },
+    "least_us": {
+     "def": 578.72,
+     "sums": 580.11,
+     "def2": 578.71
+    },
+    "median_us": {
+     "def": 598.19,
+     "sums": 588.97,
+     "def2": 586.76
+    },
+    "samples_ms": {
+     "def": [
+      0.5981871666666667,
+      0.6011380000000001,
+      0.6013406666666667,
+      0.5787181666666666,
+      0.5856119999999999
+     ],
+     "sums": [
+      0.5889658333333333,
+      0.602044,
+      0.5801051666666667,
+      0.5922701666666667,
+      0.5849526666666666
+     ],
+     "def2": [
+      0.6105703333333333,
+      0.6747693333333333,
+      0.58185,
+      0.5867633333333333,
+      0.5787145
+     ]
+    }
+   },
+   {
+    "case": "water se_e2_a f32 tables, 12288 x1",
+    "centers": 12288,
+    "capacity": "384 512 384 896 on 128 multiprocessors",
+    "ways": {
+     "def": [
+      {
+       "threads": 128,
+       "sums": false
+      }
+     ],
+     "sums": [
+      {
+       "threads": 128,
+       "sums": true
+      }
+     ],
+     "def2": [
+      {
+       "threads": 128,
+       "sums": false
+      }
+     ]
+    },
+    "least_us": {
+     "def": 2481.99,
+     "sums": 2562.26,
+     "def2": 2491.41
+    },
+    "median_us": {
+     "def": 2509.57,
+     "sums": 2573.67,
+     "def2": 2508.42
+    },
+    "samples_ms": {
+     "def": [
+      2.5837890000000003,
+      2.5268849999999996,
+      2.481988,
+      2.497472,
+      2.509566
+     ],
+     "sums": [
+      2.675999,
+      2.6023739999999997,
+      2.5694030000000003,
+      2.573668,
+      2.562262
+     ],
+     "def2": [
+      2.514406,
+      2.508416,
+      2.5255650000000003,
+      2.5043300000000004,
+      2.49141
+     ]
+    }
+   },
+   {
+    "case": "water se_e2_a f32 tables, 98304 x1",
+    "centers": 98304,
+    "capacity": "384 512 384 896 on 128 multiprocessors",
+    "ways": {
+     "def": [
+      {
+       "threads": 128,
+       "sums": false
+      }
+     ],
+     "sums": [
+      {
+       "threads": 128,
+       "sums": true
+      }
+     ],
+     "def2": [
+      {
+       "threads": 128,
+       "sums": false
+      }
+     ]
+    },
+    "least_us": {
+     "def": 19995.93,
+     "sums": 20767.18,
+     "def2": 19920.61
+    },
+    "median_us": {
+     "def": 20157.78,
+     "sums": 20780.86,
+     "def2": 20090.59
+    },
+    "samples_ms": {
+     "def": [
+      20.348665,
+      20.353035,
+      20.08048,
+      19.99593,
+      20.157785
+     ],
+     "sums": [
+      20.77417,
+      20.956125,
+      20.78086,
+      20.846519999999998,
+      20.76718
+     ],
+     "def2": [
+      20.028175,
+      20.31112,
+      20.09059,
+      20.107639999999996,
+      19.92061
+     ]
+    }
+   },
+   {
+    "case": "water se_e2_a f32 exact, 1536 x1",
+    "centers": 1536,
+    "capacity": "384 640 384 896 on 128 multiprocessors",
+    "ways": {
+     "def": [
+      {
+       "threads": 128,
+       "sums": false
+      }
+     ],
+     "sums": [
+      {
+       "threads": 128,
+       "sums": true
+      }
+     ],
+     "def2": [
+      {
+       "threads": 128,
+       "sums": false
+      }
+     ]
+    },
+    "least_us": {
+     "def": 1215.62,
+     "sums": 1199.65,
+     "def2": 1221.61
+    },
+    "median_us": {
+     "def": 1229.07,
+     "sums": 1220.92,
+     "def2": 1236.36
+    },
+    "samples_ms": {
+     "def": [
+      1.2385473333333334,
+      1.2394243333333335,
+      1.2156183333333332,
+      1.2240236666666668,
+      1.229074
+     ],
+     "sums": [
+      1.2248356666666669,
+      1.2333420000000002,
+      1.1996536666666666,
+      1.2209240000000001,
+      1.217824
+     ],
+     "def2": [
+      1.2681753333333332,
+      1.236361,
+      1.221607,
+      1.2382566666666666,
+      1.2265293333333334
+     ]
+    }
+   },
+   {
+    "case": "water se_e2_a f32 exact, 12288 x1",
+    "centers": 12288,
+    "capacity": "384 640 384 896 on 128 multiprocessors",
+    "ways": {
+     "def": [
+      {
+       "threads": 128,
+       "sums": false
+      }
+     ],
+     "sums": [
+      {
+       "threads": 128,
+       "sums": true
+      }
+     ],
+     "def2": [
+      {
+       "threads": 128,
+       "sums": false
+      }
+     ]
+    },
+    "least_us": {
+     "def": 7367.99,
+     "sums": 7327.82,
+     "def2": 7367.43
+    },
+    "median_us": {
+     "def": 7403.55,
+     "sums": 7356.61,
+     "def2": 7443.63
+    },
+    "samples_ms": {
+     "def": [
+      7.555196,
+      7.465846,
+      7.38418,
+      7.403546,
+      7.3679939999999995
+     ],
+     "sums": [
+      7.41813,
+      7.400968000000001,
+      7.330402,
+      7.327822000000001,
+      7.356606
+     ],
+     "def2": [
+      7.45711,
+      7.443625999999999,
+      7.443758,
+      7.414836,
+      7.367428
+     ]
+    }
+   },
+   {
+    "case": "water se_e2_a f64 tables, 1536 x1",
+    "centers": 1536,
+    "capacity": "256 512 384 768 on 128 multiprocessors",
+    "ways": {
+     "def": [
+      {
+       "threads": 128,
+       "sums": false
+      }
+     ],
+     "sums": [
+      {
+       "threads": 128,
+       "sums": true
+      }
+     ],
+     "def2": [
+      {
+       "threads": 128,
+       "sums": false
+      }
+     ]
+    },
+    "least_us": {
+     "def": 4237.39,
+     "sums": 4220.77,
+     "def2": 4236.07
+    },
+    "median_us": {
+     "def": 4241.56,
+     "sums": 4226.44,
+     "def2": 4241.85
+    },
+    "samples_ms": {
+     "def": [
+      4.260522,
+      4.255464,
+      4.237388,
+      4.241559,
+      4.238831
+     ],
+     "sums": [
+      4.23264,
+      4.262668,
+      4.226443,
+      4.220772999999999,
+      4.225383
+     ],
+     "def2": [
+      4.241875,
+      4.236072,
+      4.241853,
+      4.239175,
+      4.2557220000000004
+     ]
+    }
+   },
+   {
+    "case": "water se_e2_a f64 tables, 12288 x1",
+    "centers": 12288,
+    "capacity": "256 512 384 768 on 128 multiprocessors",
+    "ways": {
+     "def": [
+      {
+       "threads": 128,
+       "sums": false
+      }
+     ],
+     "sums": [
+      {
+       "threads": 128,
+       "sums": true
+      }
+     ],
+     "def2": [
+      {
+       "threads": 128,
+       "sums": false
+      }
+     ]
+    },
+    "least_us": {
+     "def": 32262.81,
+     "sums": 32072.43,
+     "def2": 32300.75
+    },
+    "median_us": {
+     "def": 32298.9,
+     "sums": 32115.96,
+     "def2": 32346.89
+    },
+    "samples_ms": {
+     "def": [
+      32.325939999999996,
+      32.2989,
+      32.262809999999995,
+      32.29151,
+      32.31384
+     ],
+     "sums": [
+      32.144345,
+      32.106820000000006,
+      32.137585,
+      32.11596,
+      32.072435
+     ],
+     "def2": [
+      32.30075,
+      32.34689,
+      32.340140000000005,
+      32.35231,
+      32.36422
+     ]
+    }
+   },
+   {
+    "case": "water se_e2_a f64 tables, 98304 x1",
+    "centers": 98304,
+    "capacity": "256 512 384 768 on 128 multiprocessors",
+    "ways": {
+     "def": [
+      {
+       "threads": 128,
+       "sums": false
+      }
+     ],
+     "sums": [
+      {
+       "threads": 128,
+       "sums": true
+      }
+     ],
+     "def2": [
+      {
+       "threads": 128,
+       "sums": false
+      }
+     ]
+    },
+    "least_us": {
+     "def": 255422.8,
+     "sums": 254212.4,
+     "def2": 255153.16
+    },
+    "median_us": {
+     "def": 255599.24,
+     "sums": 254366.12,
+     "def2": 255784.28
+    },
+    "samples_ms": {
+     "def": [
+      255.59924,
+      255.65198,
+      255.64526,
+      255.4228,
+      255.48048
+     ],
+     "sums": [
+      255.00590000000003,
+      254.72511999999998,
+      254.36612,
+      254.21240000000003,
+      254.35240000000005
+     ],
+     "def2": [
+      255.91736,
+      255.56442,
+      255.15316,
+      255.78428,
+      255.88836
+     ]
+    }
+   }
+  ],
+  "date_note": "The run took 2026-11-22 23:22 to 23:26 local time; the script wrote the next day's date, corrected here."
+ },
+ "decision": [
+  "Written 2026-11-22 23:28, after sums-1.json (5 rounds, held to the P-cores, the card free before every round); applies",
+  "[stamp corrected 2026-11-22 23:45 to the file's creation time; the order of rule and run is as the creation times show]",
+  "rule-sums-past.txt as written before the run. Least evaluation of each, sums against def, spread |def2/def - 1|:",
+  "",
+  "float32 with tables (narrow blocks 896 at once, with the sums 512):",
+  "   968 HAP 88x11   -2.5% (spread 0.8%)  faster      1,352 HAP 169x8  -0.2% (0.4%)",
+  " 1,014 HAP 169x6   -1.8% (0.6%)  faster             1,408 HAP 88x16  -2.6% (3.6%: not beyond the spread)",
+  " 1,056 HAP 88x12   -2.3% (1.3%)  faster             1,536 water      +0.2% (0.0%)",
+  " 1,120 HAP 224x5   +0.4% (1.0%)                     1,792 HAP 224x8  +1.4% (0.4%)  slower",
+  "                                                    2,112 HAP 88x24  +1.4% (0.1%)  slower",
+  "                                                   12,288 water      +3.2% (0.4%)  slower",
+  "                                                   98,304 water      +3.9% (0.4%)  slower",
+  "float32 exact nets (896 / 512, water 640): 968 -1.0% (0.1%), 1,408 -1.4% (0.1%) faster, water 1,536 -1.3% (0.5%)",
+  "   faster, 12,288 -0.5% (0.0%).",
+  "float64 with tables (768 / 384): 792 -0.4%, 896 -1.3% (0.5%) faster, 1,056 -0.7%, 1,408 +0.9% (0.8%), 1,792",
+  "   -0.2%; water 1,536 -0.4%, 12,288 -0.6%, 98,304 -0.5%.",
+  "",
+  "Rule 1 (no case slower beyond max(spread, 1%)): fails (1,792, 2,112, 12,288, 98,304 in float32 with tables).",
+  "Rule 2 (a limit of blocks, if size alone separates the faster cases from the slower, the same in both precisions):",
+  "holds. In float32 with tables the faster cases end at 1,056 blocks and the slower begin at 1,792, with the cases",
+  "between within the bound; in float32 with the exact nets and in float64 nothing is slower beyond it, and the one",
+  "faster case of float64 (896) is below where float32's turn. The limit, within (1,056, 1,792) and stated against",
+  "what the device keeps so that it carries to other cards: the narrow blocks keep the sums past every way while a",
+  "pass has at most 1.25 times the blocks the device keeps of them at once without the sums (1,120 for float32 on",
+  "the RTX 4090: the second wave of the narrow blocks at most a quarter full; 960 for float64 with tables). The faster",
+  "cases of the exact nets at 1,408 and 1,536 lie past it and keep their way of now (measured with the 8 lanes of",
+  "#45; the change that gives the exact nets 16 lanes comes in the same PR)."
+ ],
+ "rule_exact_nets": [
+  "Written 2026-11-23 00:10, before the run sums-2.json, which it judges together with sums-1.json by rule 2 of",
+  "rule-sums-past.txt. No timing of PR C has run yet.",
+  "",
+  "Why: the review of PR C (commit 7d1dee4) found that decision-sums-past.txt took the interval of the limit,",
+  "(1,056, 1,792), from the float32 cases with tables alone, while rule 2 asks for N between the faster and the slower",
+  "cases over all the cases measured; the float32 cases with the exact nets at 1,408 blocks (-1.4%, spread 0.1%) and",
+  "at 1,536 (-1.3%, spread 0.5%) were faster beyond max(spread, 1%) and lie past 1.25 x 896 = 1,120. Those cases ran on",
+  "the kernel of #45 with 8 lanes a slot, which PR C replaces for the exact nets by a kernel of 16 lanes; the kernels of",
+  "the tables keep their code (8 lanes in float32, 16 in float64).",
+  "",
+  "Run: tools/fit/sums_ab2.py, sums_ab.py restricted to the float32 exact nets, on the evaluator of PR C (the 16-lane",
+  "exact kernel), the same settings (def as it chooses, sums = --block-sums 1000000, def2 = def again, the control),",
+  "5 rounds, held to the P-cores, the card checked before every round: the HAP model ens4-f32-0 on 88 x {11, 13, 16,",
+  "18, 20, 24} frames (968, 1,144, 1,408, 1,584, 1,760 and 2,112 blocks) and water at 1,536 and 12,288 atoms. Past",
+  "every way only (checked from the capacity line).",
+  "",
+  "Rule 2 applied again, over all cases: float32 and float64 with tables from sums-1.json (their kernels unchanged),",
+  "the float32 exact nets from sums-2.json (the kernel that ships). A case is faster if sums against def is below",
+  "-max(spread, 1%), slower if above +max(spread, 1%), spread = |def2/def - 1|. Size is r = blocks / without, where",
+  "without is what the device keeps at once of the narrow blocks without the sums for that case (its capacity line).",
+  "- If every faster case has a smaller r than every slower case (and so in each precision), the limit",
+  "  SE_E2A_SUMS_PAST_WAVES is the smallest multiple of 0.25 that is at least the largest r of a faster case, if that",
+  "  is below the smallest r of a slower case, else the largest r of a faster case itself (to two decimals, rounded",
+  "  down). With sums-1.json alone this gives 1.25 (largest faster r 1,056 / 896 = 1.18, smallest slower 1,792 / 896",
+  "  = 2.0), the limit of commit 7d1dee4.",
+  "- If not, nothing changes past every way for se_e2_a: the limit goes to 0, the narrow blocks without the sums at",
+  "  any size past every way, as before PR C.",
+  "One limit for every kernel of se_e2_a (the rule asks for one), each kernel held to its own `without`.",
+  "",
+  "If the limit changes, rule 2 of run/prc/rule-ab.txt takes the new window (the cases of prc_ab.py whose blocks lie",
+  "within it) before any timing of the A/B, and the docs and tests follow the new value.",
+  "",
+  "Amended 2026-11-23 00:13, before the run: the build of PR C already takes the sums at 968 blocks (within its 1.25),",
+  "so in sums_ab2.py def and def2 are --block-sums 0 (past every way the narrow blocks without the sums, the choice of",
+  "the build before PR C, as def was in sums-1.json) instead of the build's own choice; sums as before. The ways read",
+  "back from the bench lines show each setting's way.",
+  "",
+  "Correction 2026-11-23 00:13, before the run: \"With sums-1.json alone this gives 1.25\" holds for its cases with",
+  "tables. All of sums-1.json, its exact-net cases on the 8-lane kernel included, gives 1.75 (largest faster r 1,536 /",
+  "896 = 1.71, water with the exact nets; smallest slower 2.0), as a dry run of tools/fit/decide_sums2.py on",
+  "sums-1.json in place of both files showed. The decision takes the exact-net cases from sums-2.json only.",
+  "",
+  "[The three stamps above corrected at 00:14 to the clock: the file was created at 00:10:36, the amendment and the correction written at 00:13; no measurement had run.]",
+  "",
+  "Amended 2026-11-23 00:26, before the run (no measurement of sums-2 has run), after a review of this rule:",
+  "1. One limit per kernel instead of one for every kernel of se_e2_a. The kernels of the tables (the one that looks",
+  "   them up and the one that reads their rows stored, whose code PR C keeps) take theirs from the cases with tables",
+  "   of sums-1.json by rule 2, as decision-sums-past.txt did (1.25: largest faster r 1,056 / 896 = 1.18, smallest",
+  "   slower 1,792 / 896 = 2.0, the faster case of float64 at 896 / 768 = 1.17 below it). The kernel of the exact nets",
+  "   (se_e2_a_exact_backward, a kernel of its own since PR C) takes its own from sums-2.json, by rule 2 over its cases",
+  "   alone, both precisions together. Why: with one limit, one case of the exact nets beyond the bound (faster far",
+  "   past, or slower just past) would take the sums from the kernels of the tables, whose gain was measured on code",
+  "   that PR C does not change.",
+  "2. sums-2.json takes the exact nets in float64 as well (the same kernel; 16 lanes in float64 before PR C too): HAP",
+  "   88 x {9, 11, 13, 16, 20} (792 to 1,760 blocks; the device keeps 768 of the narrow ones at once without the sums,",
+  "   capacity line 256 384 384 768) and water at 1,536 atoms (256 512 384 768).",
+  "3. \"else the largest r of a faster case itself (to two decimals, rounded down)\" would leave out the very case that",
+  "   sets it: it is rounded up to two decimals instead, which admits that case (to more decimals if two would reach",
+  "   the smallest r of a slower case).",
+  "4. A case not past every way (its blocks at most what the device keeps of the narrow blocks at once without the",
+  "   sums) is left out of the decision.",
+  "5. Where this rule or rule 2 of run/prc/rule-ab.txt says the limit goes to 0 (rule-ab.txt says 1.0, which past every",
+  "   way is the same): that kernel takes the narrow blocks without the sums past every way, as before PR C, and the",
+  "   code drops the rule for it instead of keeping a limit of 0.",
+  "tools/fit/decide_sums2.py applies this text as amended.",
+  "",
+  "Amended 2026-11-23 00:27, before the run: item 1 above says \"by rule 2 over its cases alone\", but rule 2 asks for",
+  "cases slower beyond the bound, which the exact nets alone may not have. The kernel of the exact nets goes by rules",
+  "1 to 3 of rule-sums-past.txt over its cases: rule 1 (no case slower beyond the bound, a HAP case faster beyond it)",
+  "gives it the sums past every way at any size; rule 2 a limit as above; rule 3 (no case faster) nothing, the limit",
+  "0. The kernels of the tables keep the decision of decision-sums-past.txt (rule 1 failed there, rule 2 gave 1.25)."
+ ],
+ "exact_nets": {
+  "date": "2026-11-23",
+  "device": "NVIDIA GeForce RTX 4090",
+  "what": "sums_ab2.py EXE OUT.json [ROUNDS]: sums_ab.py for the exact nets alone (rule-sums-past-2.txt, amended at\n00:26 before the run: float64 as well).\n\nOne build, three settings alternated: def (--block-sums 0: past every way the narrow blocks without the sums, the\nchoice of the build before PR C, which this build would leave at 968 blocks), sums (--block-sums 1000000, the sums\nacross the warps in every pass: past every way the narrow blocks with them) and def2 (def again, the control). Cases: the\nHAP ensemble model of iteration 0 in float32 with the exact nets on batches of 11, 13, 16, 18, 20 and 24 frames of\n88 atoms, and the water model at 1,536 and 12,288 atoms; in float64 HAP on 9, 11, 13, 16 and 20 frames and water\nat 1,536 atoms; every size past what the device keeps at once of every way.\nROUNDS rounds (default 5), the order reversed every other round; the least and the median of each kept. The way of\nevery pass is read back from the bench lines (force_threads, force_sums), the capacity from the header line. The\ncard is checked before every round.",
+  "rounds": 5,
+  "build": "omnimd-native-gpu-eval of commit 9281783 (PR C: the exact nets with 16 lanes a slot in their own kernel)",
+  "seconds_waited_for_the_card": [
+   0,
+   0,
+   0,
+   0,
+   0
+  ],
+  "us_per_evaluation": [
+   {
+    "case": "HAP se_e2_a f32 exact, 88 x11",
+    "centers": 968,
+    "capacity": "384 512 384 896 on 128 multiprocessors",
+    "ways": {
+     "def": [
+      {
+       "threads": 128,
+       "sums": false
+      }
+     ],
+     "sums": [
+      {
+       "threads": 128,
+       "sums": true
+      }
+     ],
+     "def2": [
+      {
+       "threads": 128,
+       "sums": false
+      }
+     ]
+    },
+    "least_us": {
+     "def": 807.66,
+     "sums": 802.75,
+     "def2": 808.35
+    },
+    "median_us": {
+     "def": 870.13,
+     "sums": 806.34,
+     "def2": 815.07
+    },
+    "samples_ms": {
+     "def": [
+      0.87375,
+      0.8076622222222222,
+      0.8701311111111112,
+      0.8231388888888889,
+      0.8711877777777779
+     ],
+     "sums": [
+      0.8041200000000001,
+      0.8027544444444444,
+      0.8063355555555556,
+      0.8093522222222221,
+      0.8228122222222223
+     ],
+     "def2": [
+      0.8083477777777778,
+      0.8748111111111112,
+      0.8089377777777778,
+      0.8653333333333334,
+      0.8150677777777777
+     ]
+    }
+   },
+   {
+    "case": "HAP se_e2_a f32 exact, 88 x13",
+    "centers": 1144,
+    "capacity": "384 512 384 896 on 128 multiprocessors",
+    "ways": {
+     "def": [
+      {
+       "threads": 128,
+       "sums": false
+      }
+     ],
+     "sums": [
+      {
+       "threads": 128,
+       "sums": true
+      }
+     ],
+     "def2": [
+      {
+       "threads": 128,
+       "sums": false
+      }
+     ]
+    },
+    "least_us": {
+     "def": 929.33,
+     "sums": 926.51,
+     "def2": 925.02
+    },
+    "median_us": {
+     "def": 942.55,
+     "sums": 936.63,
+     "def2": 941.49
+    },
+    "samples_ms": {
+     "def": [
+      0.9994157894736843,
+      0.9293276315789472,
+      0.9425539473684211,
+      0.9339513157894737,
+      0.9981934210526316
+     ],
+     "sums": [
+      0.9489302631578946,
+      0.9270026315789475,
+      0.9265092105263157,
+      0.9366276315789474,
+      0.9492973684210527
+     ],
+     "def2": [
+      0.9359368421052633,
+      1.0068881578947368,
+      0.9250197368421054,
+      0.9892605263157893,
+      0.9414855263157896
+     ]
+    }
+   },
+   {
+    "case": "HAP se_e2_a f32 exact, 88 x16",
+    "centers": 1408,
+    "capacity": "384 512 384 896 on 128 multiprocessors",
+    "ways": {
+     "def": [
+      {
+       "threads": 128,
+       "sums": false
+      }
+     ],
+     "sums": [
+      {
+       "threads": 128,
+       "sums": true
+      }
+     ],
+     "def2": [
+      {
+       "threads": 128,
+       "sums": false
+      }
+     ]
+    },
+    "least_us": {
+     "def": 1075.1,
+     "sums": 1073.48,
+     "def2": 1079.4
+    },
+    "median_us": {
+     "def": 1081.79,
+     "sums": 1081.67,
+     "def2": 1100.67
+    },
+    "samples_ms": {
+     "def": [
+      1.0915564516129033,
+      1.0751032258064517,
+      1.0891548387096772,
+      1.0791435483870968,
+      1.0817854838709677
+     ],
+     "sums": [
+      1.105959677419355,
+      1.0816709677419356,
+      1.0734806451612904,
+      1.0746612903225805,
+      1.0830274193548388
+     ],
+     "def2": [
+      1.1006677419354838,
+      1.157698387096774,
+      1.0867209677419354,
+      1.1074951612903225,
+      1.0794032258064516
+     ]
+    }
+   },
+   {
+    "case": "HAP se_e2_a f32 exact, 88 x18",
+    "centers": 1584,
+    "capacity": "384 512 384 896 on 128 multiprocessors",
+    "ways": {
+     "def": [
+      {
+       "threads": 128,
+       "sums": false
+      }
+     ],
+     "sums": [
+      {
+       "threads": 128,
+       "sums": true
+      }
+     ],
+     "def2": [
+      {
+       "threads": 128,
+       "sums": false
+      }
+     ]
+    },
+    "least_us": {
+     "def": 1172.61,
+     "sums": 1172.19,
+     "def2": 1171.13
+    },
+    "median_us": {
+     "def": 1180.53,
+     "sums": 1176.53,
+     "def2": 1177.21
+    },
+    "samples_ms": {
+     "def": [
+      1.1949981818181818,
+      1.1805254545454544,
+      1.1807618181818182,
+      1.175970909090909,
+      1.1726145454545456
+     ],
+     "sums": [
+      1.2024272727272727,
+      1.1806618181818183,
+      1.1721872727272726,
+      1.176529090909091,
+      1.1745781818181817
+     ],
+     "def2": [
+      1.1895327272727274,
+      1.1975290909090908,
+      1.1772072727272727,
+      1.1751018181818182,
+      1.171130909090909
+     ]
+    }
+   },
+   {
+    "case": "HAP se_e2_a f32 exact, 88 x20",
+    "centers": 1760,
+    "capacity": "384 512 384 896 on 128 multiprocessors",
+    "ways": {
+     "def": [
+      {
+       "threads": 128,
+       "sums": false
+      }
+     ],
+     "sums": [
+      {
+       "threads": 128,
+       "sums": true
+      }
+     ],
+     "def2": [
+      {
+       "threads": 128,
+       "sums": false
+      }
+     ]
+    },
+    "least_us": {
+     "def": 1252.4,
+     "sums": 1249.23,
+     "def2": 1253.77
+    },
+    "median_us": {
+     "def": 1263.09,
+     "sums": 1267.23,
+     "def2": 1262.92
+    },
+    "samples_ms": {
+     "def": [
+      1.286464,
+      1.278986,
+      1.258312,
+      1.263088,
+      1.252396
+     ],
+     "sums": [
+      1.267226,
+      1.267422,
+      1.257848,
+      1.2687899999999999,
+      1.249226
+     ],
+     "def2": [
+      1.262916,
+      1.314734,
+      1.2592139999999998,
+      1.2537719999999999,
+      1.263622
+     ]
+    }
+   },
+   {
+    "case": "HAP se_e2_a f32 exact, 88 x24",
+    "centers": 2112,
+    "capacity": "384 512 384 896 on 128 multiprocessors",
+    "ways": {
+     "def": [
+      {
+       "threads": 128,
+       "sums": false
+      }
+     ],
+     "sums": [
+      {
+       "threads": 128,
+       "sums": true
+      }
+     ],
+     "def2": [
+      {
+       "threads": 128,
+       "sums": false
+      }
+     ]
+    },
+    "least_us": {
+     "def": 1425.65,
+     "sums": 1427.21,
+     "def2": 1428.26
+    },
+    "median_us": {
+     "def": 1429.53,
+     "sums": 1440.23,
+     "def2": 1431.92
+    },
+    "samples_ms": {
+     "def": [
+      1.425651219512195,
+      1.4483853658536585,
+      1.4652853658536584,
+      1.429529268292683,
+      1.4290707317073172
+     ],
+     "sums": [
+      1.4424951219512194,
+      1.4499146341463414,
+      1.4402341463414634,
+      1.4272146341463414,
+      1.4312365853658537
+     ],
+     "def2": [
+      1.4454658536585365,
+      1.4456073170731707,
+      1.4293121951219514,
+      1.4319243902439025,
+      1.428258536585366
+     ]
+    }
+   },
+   {
+    "case": "water se_e2_a f32 exact, 1536 x1",
+    "centers": 1536,
+    "capacity": "384 640 384 896 on 128 multiprocessors",
+    "ways": {
+     "def": [
+      {
+       "threads": 128,
+       "sums": false
+      }
+     ],
+     "sums": [
+      {
+       "threads": 128,
+       "sums": true
+      }
+     ],
+     "def2": [
+      {
+       "threads": 128,
+       "sums": false
+      }
+     ]
+    },
+    "least_us": {
+     "def": 1141.26,
+     "sums": 1126.64,
+     "def2": 1130.07
+    },
+    "median_us": {
+     "def": 1149.05,
+     "sums": 1134.54,
+     "def2": 1145.02
+    },
+    "samples_ms": {
+     "def": [
+      1.1515923333333333,
+      1.1412596666666668,
+      1.1490993333333333,
+      1.1462933333333334,
+      1.1490516666666668
+     ],
+     "sums": [
+      1.1266350000000003,
+      1.1394256666666667,
+      1.1322140000000003,
+      1.1485536666666667,
+      1.1345373333333333
+     ],
+     "def2": [
+      1.1393189999999997,
+      1.1300693333333334,
+      1.1527786666666668,
+      1.1450226666666667,
+      1.1544553333333332
+     ]
+    }
+   },
+   {
+    "case": "water se_e2_a f32 exact, 12288 x1",
+    "centers": 12288,
+    "capacity": "384 640 384 896 on 128 multiprocessors",
+    "ways": {
+     "def": [
+      {
+       "threads": 128,
+       "sums": false
+      }
+     ],
+     "sums": [
+      {
+       "threads": 128,
+       "sums": true
+      }
+     ],
+     "def2": [
+      {
+       "threads": 128,
+       "sums": false
+      }
+     ]
+    },
+    "least_us": {
+     "def": 6723.77,
+     "sums": 6704.22,
+     "def2": 6731.98
+    },
+    "median_us": {
+     "def": 6732.03,
+     "sums": 6743.03,
+     "def2": 6771.55
+    },
+    "samples_ms": {
+     "def": [
+      6.723774,
+      6.79417,
+      6.787859999999999,
+      6.732032,
+      6.727429999999999
+     ],
+     "sums": [
+      6.743062,
+      6.78504,
+      6.743027999999999,
+      6.704219999999999,
+      6.715491999999999
+     ],
+     "def2": [
+      6.831563999999999,
+      6.791184,
+      6.73198,
+      6.751436,
+      6.771547999999999
+     ]
+    }
+   },
+   {
+    "case": "HAP se_e2_a f64 exact, 88 x9",
+    "centers": 792,
+    "capacity": "256 384 384 768 on 128 multiprocessors",
+    "ways": {
+     "def": [
+      {
+       "threads": 128,
+       "sums": false
+      }
+     ],
+     "sums": [
+      {
+       "threads": 128,
+       "sums": true
+      }
+     ],
+     "def2": [
+      {
+       "threads": 128,
+       "sums": false
+      }
+     ]
+    },
+    "least_us": {
+     "def": 4414.69,
+     "sums": 4424.88,
+     "def2": 4410.45
+    },
+    "median_us": {
+     "def": 4433.26,
+     "sums": 4444.27,
+     "def2": 4419.26
+    },
+    "samples_ms": {
+     "def": [
+      4.433636363636364,
+      4.441463636363636,
+      4.414686363636364,
+      4.426495454545454,
+      4.4332590909090905
+     ],
+     "sums": [
+      4.444272727272727,
+      4.445186363636363,
+      4.435177272727273,
+      4.424881818181818,
+      4.446840909090909
+     ],
+     "def2": [
+      4.430913636363636,
+      4.410445454545454,
+      4.41925909090909,
+      4.4319999999999995,
+      4.416268181818182
+     ]
+    }
+   },
+   {
+    "case": "HAP se_e2_a f64 exact, 88 x11",
+    "centers": 968,
+    "capacity": "256 384 384 768 on 128 multiprocessors",
+    "ways": {
+     "def": [
+      {
+       "threads": 128,
+       "sums": false
+      }
+     ],
+     "sums": [
+      {
+       "threads": 128,
+       "sums": true
+      }
+     ],
+     "def2": [
+      {
+       "threads": 128,
+       "sums": false
+      }
+     ]
+    },
+    "least_us": {
+     "def": 5058.06,
+     "sums": 5038.15,
+     "def2": 5054.09
+    },
+    "median_us": {
+     "def": 5083.76,
+     "sums": 5060.71,
+     "def2": 5065.57
+    },
+    "samples_ms": {
+     "def": [
+      5.1289750000000005,
+      5.083755,
+      5.058065,
+      5.100720000000001,
+      5.075394999999999
+     ],
+     "sums": [
+      5.06517,
+      5.071235,
+      5.06071,
+      5.038155,
+      5.0579350000000005
+     ],
+     "def2": [
+      5.068985,
+      5.054785,
+      5.090915,
+      5.065569999999999,
+      5.054085
+     ]
+    }
+   },
+   {
+    "case": "HAP se_e2_a f64 exact, 88 x13",
+    "centers": 1144,
+    "capacity": "256 384 384 768 on 128 multiprocessors",
+    "ways": {
+     "def": [
+      {
+       "threads": 128,
+       "sums": false
+      }
+     ],
+     "sums": [
+      {
+       "threads": 128,
+       "sums": true
+      }
+     ],
+     "def2": [
+      {
+       "threads": 128,
+       "sums": false
+      }
+     ]
+    },
+    "least_us": {
+     "def": 5871.82,
+     "sums": 5871.03,
+     "def2": 5876.07
+    },
+    "median_us": {
+     "def": 5901.06,
+     "sums": 5886.82,
+     "def2": 5908.4
+    },
+    "samples_ms": {
+     "def": [
+      5.935125,
+      5.871824999999999,
+      5.901065,
+      5.901565,
+      5.891925
+     ],
+     "sums": [
+      5.878075,
+      5.898305,
+      5.886815,
+      5.871035,
+      5.886979999999999
+     ],
+     "def2": [
+      5.87607,
+      5.908405,
+      5.9150599999999995,
+      5.88199,
+      5.910259999999999
+     ]
+    }
+   },
+   {
+    "case": "HAP se_e2_a f64 exact, 88 x16",
+    "centers": 1408,
+    "capacity": "256 384 384 768 on 128 multiprocessors",
+    "ways": {
+     "def": [
+      {
+       "threads": 128,
+       "sums": false
+      }
+     ],
+     "sums": [
+      {
+       "threads": 128,
+       "sums": true
+      }
+     ],
+     "def2": [
+      {
+       "threads": 128,
+       "sums": false
+      }
+     ]
+    },
+    "least_us": {
+     "def": 7221.3,
+     "sums": 7206.78,
+     "def2": 7212.75
+    },
+    "median_us": {
+     "def": 7236.41,
+     "sums": 7228.91,
+     "def2": 7228.7
+    },
+    "samples_ms": {
+     "def": [
+      7.2516300000000005,
+      7.221304999999999,
+      7.236414999999999,
+      7.258190000000001,
+      7.231465
+     ],
+     "sums": [
+      7.20678,
+      7.228909999999999,
+      7.233325000000001,
+      7.224955,
+      7.26524
+     ],
+     "def2": [
+      7.212755,
+      7.270415,
+      7.24671,
+      7.2153599999999996,
+      7.228700000000001
+     ]
+    }
+   },
+   {
+    "case": "HAP se_e2_a f64 exact, 88 x20",
+    "centers": 1760,
+    "capacity": "256 384 384 768 on 128 multiprocessors",
+    "ways": {
+     "def": [
+      {
+       "threads": 128,
+       "sums": false
+      }
+     ],
+     "sums": [
+      {
+       "threads": 128,
+       "sums": true
+      }
+     ],
+     "def2": [
+      {
+       "threads": 128,
+       "sums": false
+      }
+     ]
+    },
+    "least_us": {
+     "def": 8979.09,
+     "sums": 8967.98,
+     "def2": 8989.15
+    },
+    "median_us": {
+     "def": 9001.28,
+     "sums": 9013.34,
+     "def2": 9016.45
+    },
+    "samples_ms": {
+     "def": [
+      8.98623,
+      8.979090000000001,
+      9.02927,
+      9.00128,
+      9.013855
+     ],
+     "sums": [
+      8.96798,
+      8.969494999999998,
+      9.01434,
+      9.013335000000001,
+      9.034175000000001
+     ],
+     "def2": [
+      8.989149999999999,
+      9.024695000000001,
+      8.992450000000002,
+      9.01939,
+      9.016449999999999
+     ]
+    }
+   },
+   {
+    "case": "water se_e2_a f64 exact, 1536 x1",
+    "centers": 1536,
+    "capacity": "256 512 384 768 on 128 multiprocessors",
+    "ways": {
+     "def": [
+      {
+       "threads": 128,
+       "sums": false
+      }
+     ],
+     "sums": [
+      {
+       "threads": 128,
+       "sums": true
+      }
+     ],
+     "def2": [
+      {
+       "threads": 128,
+       "sums": false
+      }
+     ]
+    },
+    "least_us": {
+     "def": 7501.49,
+     "sums": 7490.57,
+     "def2": 7497.23
+    },
+    "median_us": {
+     "def": 7510.52,
+     "sums": 7493.02,
+     "def2": 7510.04
+    },
+    "samples_ms": {
+     "def": [
+      7.510524,
+      7.5114833333333335,
+      7.501492000000002,
+      7.5154999999999985,
+      7.508296666666666
+     ],
+     "sums": [
+      7.490568,
+      7.502749333333335,
+      7.491706666666667,
+      7.498462000000001,
+      7.493018666666667
+     ],
+     "def2": [
+      7.5048493333333335,
+      7.497225333333333,
+      7.510039333333332,
+      7.519099999999998,
+      7.513464666666667
+     ]
+    }
+   }
+  ]
+ },
+ "decision_exact_nets": [
+  "Written 2026-11-23 00:34, after sums-2.json (run 00:28:52 to 00:30:22, 5 rounds, held to the P-cores, the card",
+  "free before every round), by rule-sums-past-2.txt with its amendments of 00:13, 00:26 and 00:27 (all before the",
+  "run), which send each kernel of se_e2_a through rules 1 to 3 of rule-sums-past.txt over its own cases.",
+  "",
+  "The kernels of the tables (cases of sums-1.json, their code unchanged in PR C): rule 1 fails (slower beyond the",
+  "bound from 1,792 blocks on in float32), rule 2 holds (faster up to r 1.18, slower from r 2.0, the cases between",
+  "within the bound, the faster case of float64 at r 1.17): the limit is 1.25, as decision-sums-past.txt found.",
+  "",
+  "The kernel of the exact nets (cases of sums-2.json, the kernel of PR C with 16 lanes a slot in float32), least",
+  "evaluation, sums against def, spread |def2/def - 1|:",
+  "  float32, 896 at once without the sums: HAP 88 x11 (968 blocks) -0.6% (0.1%), x13 -0.3% (0.5%), x16 -0.2% (0.4%),",
+  "  x18 -0.0% (0.1%), x20 -0.3% (0.1%), x24 +0.1% (0.2%); water 1,536 -1.3% (1.0%: 0.98%), 12,288 -0.3% (0.1%).",
+  "  float64, 768 at once without them: HAP 88 x9 +0.2% (0.1%), x11 -0.4%, x13 -0.0%, x16 -0.2%, x20 -0.1% (all 0.1%);",
+  "  water 1,536 -0.1% (0.1%).",
+  "One case faster beyond its bound (water 1,536 in float32, by 1.29% against a bound of 1%), none slower, no case of",
+  "HAP faster.",
+  "- Rule 1 (no case slower, a HAP case faster) does not hold: no HAP case is faster.",
+  "- Rule 2 asks for cases faster and cases slower beyond the bound, separated by size (rule-sums-past.txt; the",
+  "  amendment of 00:27: \"rule 2 asks for cases slower beyond the bound, which the exact nets alone may not have\");",
+  "  there is no slower case, so it gives no limit.",
+  "- Rule 3 (no case faster) does not hold to the letter, but no rule grants a change, and rule 2 ends \"otherwise",
+  "  nothing changes\": the limit of the kernel of the exact nets is 0. Past every way it takes the narrow blocks",
+  "  without the sums, as before PR C, and the code drops the rule for it (amendment of 00:26, item 5). The 968-center",
+  "  case of #45 that started the question does not recur on this kernel (-0.6%).",
+  "",
+  "tools/fit/decide_sums2.py as run (kept as decide_sums2-asrun.py, output decide-sums-2-asrun.txt) printed for the",
+  "exact nets \"separated: largest faster r 1.714, smallest slower r inf; smallest quarter at least the largest faster:",
+  "1.75; limit 1.75\": with no slower case it went on to the formula of a limit, whose upper end is then missing. That",
+  "is not what the rule says, and it does not apply. The script was fixed after the run to say so (decide-sums-2.txt:",
+  "\"limits: tables 1.25, exact nets 0.0\").",
+  "",
+  "For context only, not grounds: the water case against def2 instead of def is -0.3%, and its medians -1.3% against",
+  "def and -0.9% against def2; the medians of HAP 88 x11 and x16 in float32 had spreads of 6.3% and 1.8%.",
+  "",
+  "So: SE_E2A_SUMS_PAST_WAVES = 1.25 for the kernels of the tables (the one that looks them up and the one that reads",
+  "their rows stored); the kernel of the exact nets takes no sums past every way, in either precision and with either",
+  "width. Rule 2 of run/prc/rule-ab.txt and the A/B cases follow (amended there before any timing of the A/B)."
+ ],
+ "decision_script_as_run": [
+  "== the kernels of the tables (sums-1)",
+  "case                                     blocks without     r  sums/def  spread  bound  verdict",
+  "HAP se_e2_a f32 tables, 88 x11              968     896  1.08     -2.5%    0.8%   1.0%  faster",
+  "HAP se_e2_a f32 tables, 88 x12             1056     896  1.18     -2.3%    1.3%   1.3%  faster",
+  "HAP se_e2_a f32 tables, 88 x16             1408     896  1.57     -2.6%    3.6%   3.6%  ",
+  "HAP se_e2_a f32 tables, 88 x24             2112     896  2.36     +1.4%    0.1%   1.0%  slower",
+  "HAP se_e2_a f32 tables, 169 x6             1014     896  1.13     -1.8%    0.6%   1.0%  faster",
+  "HAP se_e2_a f32 tables, 169 x8             1352     896  1.51     -0.2%    0.4%   1.0%  ",
+  "HAP se_e2_a f32 tables, 224 x5             1120     896  1.25     +0.4%    1.0%   1.0%  ",
+  "HAP se_e2_a f32 tables, 224 x8             1792     896  2.00     +1.4%    0.4%   1.0%  slower",
+  "HAP se_e2_a f64 tables, 88 x9               792     768  1.03     -0.4%    0.0%   1.0%  ",
+  "HAP se_e2_a f64 tables, 88 x12             1056     768  1.38     -0.7%    0.5%   1.0%  ",
+  "HAP se_e2_a f64 tables, 88 x16             1408     768  1.83     +0.9%    0.8%   1.0%  ",
+  "HAP se_e2_a f64 tables, 224 x4              896     768  1.17     -1.3%    0.5%   1.0%  faster",
+  "HAP se_e2_a f64 tables, 224 x8             1792     768  2.33     -0.2%    0.0%   1.0%  ",
+  "water se_e2_a f32 tables, 1536 x1          1536     896  1.71     +0.2%    0.0%   1.0%  ",
+  "water se_e2_a f32 tables, 12288 x1        12288     896 13.71     +3.2%    0.4%   1.0%  slower",
+  "water se_e2_a f32 tables, 98304 x1        98304     896 109.71     +3.9%    0.4%   1.0%  slower",
+  "water se_e2_a f64 tables, 1536 x1          1536     768  2.00     -0.4%    0.0%   1.0%  ",
+  "water se_e2_a f64 tables, 12288 x1        12288     768 16.00     -0.6%    0.1%   1.0%  ",
+  "water se_e2_a f64 tables, 98304 x1        98304     768 128.00     -0.5%    0.1%   1.0%  ",
+  "faster: [(1.08, 'HAP se_e2_a f32 tables, 88 x11'), (1.132, 'HAP se_e2_a f32 tables, 169 x6'), (1.167, 'HAP se_e2_a f64 tables, 224 x4'), (1.179, 'HAP se_e2_a f32 tables, 88 x12')]",
+  "slower: [(2.0, 'HAP se_e2_a f32 tables, 224 x8'), (2.357, 'HAP se_e2_a f32 tables, 88 x24'), (13.714, 'water se_e2_a f32 tables, 12288 x1'), (109.714, 'water se_e2_a f32 tables, 98304 x1')]",
+  "the kernels of the tables (sums-1): separated: largest faster r 1.179, smallest slower r 2.000; smallest quarter at least the largest faster: 1.25; limit 1.25",
+  "",
+  "== the kernel of the exact nets (sums-2)",
+  "case                                     blocks without     r  sums/def  spread  bound  verdict",
+  "HAP se_e2_a f32 exact, 88 x11               968     896  1.08     -0.6%    0.1%   1.0%  ",
+  "HAP se_e2_a f32 exact, 88 x13              1144     896  1.28     -0.3%    0.5%   1.0%  ",
+  "HAP se_e2_a f32 exact, 88 x16              1408     896  1.57     -0.2%    0.4%   1.0%  ",
+  "HAP se_e2_a f32 exact, 88 x18              1584     896  1.77     -0.0%    0.1%   1.0%  ",
+  "HAP se_e2_a f32 exact, 88 x20              1760     896  1.96     -0.3%    0.1%   1.0%  ",
+  "HAP se_e2_a f32 exact, 88 x24              2112     896  2.36     +0.1%    0.2%   1.0%  ",
+  "water se_e2_a f32 exact, 1536 x1           1536     896  1.71     -1.3%    1.0%   1.0%  faster",
+  "water se_e2_a f32 exact, 12288 x1         12288     896 13.71     -0.3%    0.1%   1.0%  ",
+  "HAP se_e2_a f64 exact, 88 x9                792     768  1.03     +0.2%    0.1%   1.0%  ",
+  "HAP se_e2_a f64 exact, 88 x11               968     768  1.26     -0.4%    0.1%   1.0%  ",
+  "HAP se_e2_a f64 exact, 88 x13              1144     768  1.49     -0.0%    0.1%   1.0%  ",
+  "HAP se_e2_a f64 exact, 88 x16              1408     768  1.83     -0.2%    0.1%   1.0%  ",
+  "HAP se_e2_a f64 exact, 88 x20              1760     768  2.29     -0.1%    0.1%   1.0%  ",
+  "water se_e2_a f64 exact, 1536 x1           1536     768  2.00     -0.1%    0.1%   1.0%  ",
+  "faster: [(1.714, 'water se_e2_a f32 exact, 1536 x1')]",
+  "slower: []",
+  "the kernel of the exact nets (sums-2): separated: largest faster r 1.714, smallest slower r inf; smallest quarter at least the largest faster: 1.75; limit 1.75",
+  "",
+  "limits: tables 1.25, exact nets 1.75"
+ ],
+ "decision_script_fixed": [
+  "== the kernels of the tables (sums-1)",
+  "case                                     blocks without     r  sums/def  spread  bound  verdict",
+  "HAP se_e2_a f32 tables, 88 x11              968     896  1.08     -2.5%    0.8%   1.0%  faster",
+  "HAP se_e2_a f32 tables, 88 x12             1056     896  1.18     -2.3%    1.3%   1.3%  faster",
+  "HAP se_e2_a f32 tables, 88 x16             1408     896  1.57     -2.6%    3.6%   3.6%  ",
+  "HAP se_e2_a f32 tables, 88 x24             2112     896  2.36     +1.4%    0.1%   1.0%  slower",
+  "HAP se_e2_a f32 tables, 169 x6             1014     896  1.13     -1.8%    0.6%   1.0%  faster",
+  "HAP se_e2_a f32 tables, 169 x8             1352     896  1.51     -0.2%    0.4%   1.0%  ",
+  "HAP se_e2_a f32 tables, 224 x5             1120     896  1.25     +0.4%    1.0%   1.0%  ",
+  "HAP se_e2_a f32 tables, 224 x8             1792     896  2.00     +1.4%    0.4%   1.0%  slower",
+  "HAP se_e2_a f64 tables, 88 x9               792     768  1.03     -0.4%    0.0%   1.0%  ",
+  "HAP se_e2_a f64 tables, 88 x12             1056     768  1.38     -0.7%    0.5%   1.0%  ",
+  "HAP se_e2_a f64 tables, 88 x16             1408     768  1.83     +0.9%    0.8%   1.0%  ",
+  "HAP se_e2_a f64 tables, 224 x4              896     768  1.17     -1.3%    0.5%   1.0%  faster",
+  "HAP se_e2_a f64 tables, 224 x8             1792     768  2.33     -0.2%    0.0%   1.0%  ",
+  "water se_e2_a f32 tables, 1536 x1          1536     896  1.71     +0.2%    0.0%   1.0%  ",
+  "water se_e2_a f32 tables, 12288 x1        12288     896 13.71     +3.2%    0.4%   1.0%  slower",
+  "water se_e2_a f32 tables, 98304 x1        98304     896 109.71     +3.9%    0.4%   1.0%  slower",
+  "water se_e2_a f64 tables, 1536 x1          1536     768  2.00     -0.4%    0.0%   1.0%  ",
+  "water se_e2_a f64 tables, 12288 x1        12288     768 16.00     -0.6%    0.1%   1.0%  ",
+  "water se_e2_a f64 tables, 98304 x1        98304     768 128.00     -0.5%    0.1%   1.0%  ",
+  "faster: [(1.08, 'HAP se_e2_a f32 tables, 88 x11'), (1.132, 'HAP se_e2_a f32 tables, 169 x6'), (1.167, 'HAP se_e2_a f64 tables, 224 x4'), (1.179, 'HAP se_e2_a f32 tables, 88 x12')]",
+  "slower: [(2.0, 'HAP se_e2_a f32 tables, 224 x8'), (2.357, 'HAP se_e2_a f32 tables, 88 x24'), (13.714, 'water se_e2_a f32 tables, 12288 x1'), (109.714, 'water se_e2_a f32 tables, 98304 x1')]",
+  "the kernels of the tables (sums-1): separated: largest faster r 1.179, smallest slower r 2.000; smallest quarter at least the largest faster: 1.25; limit 1.25",
+  "",
+  "== the kernel of the exact nets (sums-2)",
+  "case                                     blocks without     r  sums/def  spread  bound  verdict",
+  "HAP se_e2_a f32 exact, 88 x11               968     896  1.08     -0.6%    0.1%   1.0%  ",
+  "HAP se_e2_a f32 exact, 88 x13              1144     896  1.28     -0.3%    0.5%   1.0%  ",
+  "HAP se_e2_a f32 exact, 88 x16              1408     896  1.57     -0.2%    0.4%   1.0%  ",
+  "HAP se_e2_a f32 exact, 88 x18              1584     896  1.77     -0.0%    0.1%   1.0%  ",
+  "HAP se_e2_a f32 exact, 88 x20              1760     896  1.96     -0.3%    0.1%   1.0%  ",
+  "HAP se_e2_a f32 exact, 88 x24              2112     896  2.36     +0.1%    0.2%   1.0%  ",
+  "water se_e2_a f32 exact, 1536 x1           1536     896  1.71     -1.3%    1.0%   1.0%  faster",
+  "water se_e2_a f32 exact, 12288 x1         12288     896 13.71     -0.3%    0.1%   1.0%  ",
+  "HAP se_e2_a f64 exact, 88 x9                792     768  1.03     +0.2%    0.1%   1.0%  ",
+  "HAP se_e2_a f64 exact, 88 x11               968     768  1.26     -0.4%    0.1%   1.0%  ",
+  "HAP se_e2_a f64 exact, 88 x13              1144     768  1.49     -0.0%    0.1%   1.0%  ",
+  "HAP se_e2_a f64 exact, 88 x16              1408     768  1.83     -0.2%    0.1%   1.0%  ",
+  "HAP se_e2_a f64 exact, 88 x20              1760     768  2.29     -0.1%    0.1%   1.0%  ",
+  "water se_e2_a f64 exact, 1536 x1           1536     768  2.00     -0.1%    0.1%   1.0%  ",
+  "faster: [(1.714, 'water se_e2_a f32 exact, 1536 x1')]",
+  "slower: []",
+  "the kernel of the exact nets (sums-2): faster only in cases not of HAP, none slower: rule 1 asks for a HAP case, rule 2 for a slower one; no rule grants a change: limit 0 (no sums past every way)",
+  "",
+  "limits: tables 1.25, exact nets 0.0"
+ ]
+}
