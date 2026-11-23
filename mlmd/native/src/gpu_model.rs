@@ -384,11 +384,20 @@ __device__ void block_sums(double* fi, double* vir, double* red, double* all, do
 //  1. dB = dE/dB from the descriptor adjoint (in `E`), stored as P in a
 //     [4][width] layout so the per-slot loop reads shared memory without
 //     bank conflicts;
-//  2. one warp per neighbor slot (lanes over the embedding width, so G rows
-//     are read coalesced) contracts dB with G and dG/dr in the network
-//     precision into dE/d(env row), which goes to shared memory as it is,
-//     five sums a slot: a warp has one slot here, and what its first lane
-//     did in double precision took every other warp of the block as long;
+//  2. a group of `lanes` lanes per neighbor slot, 8 in float32 and 16 in
+//     float64, so that a warp works on 4 or 2 slots at once (lanes over the
+//     embedding width, so G rows are read in runs of 32 or 128 bytes),
+//     contracts dB with G and dG/dr in the network precision into dE/d(env
+//     row), which goes to shared memory as it is, five sums a slot: each lane
+//     adds its outputs in order, then the group adds its lanes by halves, so
+//     the sums of a slot follow from `lanes` alone, not from the block. A
+//     warp to a slot (until 2026-11-22) waited on the loads of one slot after
+//     the other and added its five sums over 32 lanes; the counts of lanes
+//     tried and what they gave are in `bench/results/SUMMARY.md` (2026-11-22).
+//     Every lane of a warp runs as many rounds, as the shuffles take the
+//     whole warp: a group whose slot is empty or past the last adds zeros in
+//     them and writes nothing. What a first lane did in double precision here
+//     took every other warp of the block as long, so the sums stay in P;
 //  3. one thread per slot turns the five into float64 and applies the
 //     float64 environment Jacobian; only the neighbor's force needs a global
 //     atomic, the center force and the virial are reduced over the block
@@ -396,8 +405,9 @@ __device__ void block_sums(double* fi, double* vir, double* red, double* all, do
 // With `TABLES` phase 2 looks G and dG/dr up in the tables (see `RowTables`)
 // instead of reading them: the piece of every neighbor's row, its place
 // there and du/dx are found with B, by a thread per slot, and the lanes of a
-// warp evaluate the quintics of their outputs and their derivatives as the
-// kernel of the tables would have.
+// group evaluate the quintics of their outputs and their derivatives as the
+// kernel of the tables would have. Both ways sum alike, so they agree to the
+// order of the force sums.
 template <typename P, typename E, bool TABLES = false>
 __device__ void backward_impl(const E* env, const P* g, const P* dg, const E* b_in,
         const P* dd_in, const int* index, const double* delta, const double* dist,
@@ -464,40 +474,48 @@ __device__ void backward_impl(const E* env, const P* g, const P* dg, const E* b_
     __syncthreads();
     int lane = threadIdx.x & 31, warp = threadIdx.x >> 5, warps = blockDim.x >> 5;
     const double inv_slots = 1.0 / slots;
-    for (int s = warp; s < slots; s += warps) {
+    // A group of `lanes` lanes per slot, `groups` slots of a warp at once.
+    constexpr int lanes = sizeof(P) == 4 ? 8 : 16, groups = 32 / lanes;
+    int group = lane / lanes, sub = lane % lanes;
+    for (int first_s = warp * groups; first_s < slots; first_s += warps * groups) {
+        int s = first_s + group;
         long long slot = (long long)i * slots + s;
-        if (index[slot] < 0) continue;
-        long long row = slot_row(rows, ntypes, count, li, slot_type[s], slot_local[s], sel, offset) * width;
-        const E* r = env + 4 * ((long long)li * slots + s);
-        P rp[4] = {(P)r[0], (P)r[1], (P)r[2], (P)r[3]};
+        bool live = s < slots && index[slot] >= 0;
         P dr[4] = {0, 0, 0, 0}, tangent = 0;
-        if (TABLES) {
-            const P* of_piece = tables.coef + (long long)piece[s] * width * 6;
-            P u = place[s], du = slope[s];
-            for (int m = lane; m < width; m += 32) {
-                const P* c = of_piece + m * 6;
-                P gm = cell_value(c, u), projection = 0;
-                for (int a = 0; a < 4; ++a) {
-                    P w = db[a * width + m];
-                    dr[a] += w * gm;
-                    projection += w * rp[a];
+        if (live) {
+            long long row = slot_row(rows, ntypes, count, li, slot_type[s], slot_local[s], sel, offset) * width;
+            const E* r = env + 4 * ((long long)li * slots + s);
+            P rp[4] = {(P)r[0], (P)r[1], (P)r[2], (P)r[3]};
+            if (TABLES) {
+                const P* of_piece = tables.coef + (long long)piece[s] * width * 6;
+                P u = place[s], du = slope[s];
+                for (int m = sub; m < width; m += lanes) {
+                    const P* c = of_piece + m * 6;
+                    P gm = cell_value(c, u), projection = 0;
+                    for (int a = 0; a < 4; ++a) {
+                        P w = db[a * width + m];
+                        dr[a] += w * gm;
+                        projection += w * rp[a];
+                    }
+                    tangent += projection * cell_tangent(c, u, du);
                 }
-                tangent += projection * cell_tangent(c, u, du);
-            }
-        } else {
-            for (int m = lane; m < width; m += 32) {
-                P gm = g[row + m], projection = 0;
-                for (int a = 0; a < 4; ++a) {
-                    P w = db[a * width + m];
-                    dr[a] += w * gm;
-                    projection += w * rp[a];
+            } else {
+                for (int m = sub; m < width; m += lanes) {
+                    P gm = g[row + m], projection = 0;
+                    for (int a = 0; a < 4; ++a) {
+                        P w = db[a * width + m];
+                        dr[a] += w * gm;
+                        projection += w * rp[a];
+                    }
+                    tangent += projection * dg[row + m];
                 }
-                tangent += projection * dg[row + m];
             }
         }
-        for (int a = 0; a < 4; ++a) dr[a] = warp_sum(dr[a]);
-        tangent = warp_sum(tangent);
-        if (lane == 0) {
+        for (int step = lanes / 2; step > 0; step >>= 1) {
+            for (int a = 0; a < 4; ++a) dr[a] += __shfl_down_sync(0xffffffffu, dr[a], step, lanes);
+            tangent += __shfl_down_sync(0xffffffffu, tangent, step, lanes);
+        }
+        if (live && sub == 0) {
             P* mine = dr_all + 5 * s;
             for (int a = 0; a < 4; ++a) mine[a] = dr[a];
             mine[4] = tangent;
@@ -584,7 +602,8 @@ __device__ void radial_descriptor_impl(const P* g, const int* slot_type, const i
 // The forces of an se_e2_r model, one block per atom, two phases:
 //  1. one warp per neighbor slot (lanes over the embedding width) contracts
 //     dE/dD with the slot's dG/ds in the network precision into
-//     dE/d(radial entry), kept in shared memory as float64;
+//     dE/d(radial entry), kept in shared memory as it is (the thread that has
+//     the slot in phase 2 turns it into float64);
 //  2. one thread per slot applies the float64 Jacobian of that entry, as the
 //     last phase of the se_e2_a kernel does for a row that has nothing but
 //     its radial entry: the entry sw = q / r changes along the neighbor
@@ -1587,12 +1606,16 @@ const WIDE_BLOCK: u32 = 256;
 /// it says, [`force_way`] chooses.
 ///
 /// That kernel is a block per center, and one of its steps takes the
-/// neighbor slots of the center a warp each, the warps of the block in
-/// turns: with eight warps a center with 212 slots is through in 27 turns
-/// instead of 53. Whether a pass is sooner done for it goes by the number of
-/// its blocks. Measured on an RTX 4090 with the HAP models and tables, whole
-/// evaluations with the wider blocks against the narrower, the sums of a
-/// block formed as they are since the afternoon of 2026-11-19
+/// neighbor slots of the center in turns over the warps of the block: that
+/// of se_e2_r a slot a warp, so that eight warps are through a center with
+/// 212 slots in 27 turns instead of 53, and that of se_e2_a, since
+/// 2026-11-22, a group of 8 lanes a slot in float32 and of 16 in float64,
+/// four or two slots a warp: 7 turns instead of 14 in float32 and 14 instead
+/// of 27 in float64. Whether a pass is sooner done for it goes by the number
+/// of its blocks. Measured on an RTX 4090 with the HAP models and tables,
+/// while the kernel of se_e2_a, too, took a slot a warp, whole evaluations
+/// with the wider blocks against the narrower, the sums of a block formed as
+/// they are since the afternoon of 2026-11-19
 /// (`bench/results/hap-eval-force-blocks-rtx4090-2026-11-19-r2.json`): 4% to
 /// 6% shorter at 54 to 108 centers, 1.2% to 5% shorter at 162 to 352, and
 /// 1.6% to 3.2% longer at 528, 896 and 12,288 (within 1.2% at 1,536). While

@@ -853,9 +853,10 @@ __device__ T warp_total(T v) {
     return v;
 }
 
-// One warp a row, the lanes over the outputs, as the kernels of the tables
-// and of the forces go: every row ends in one number, so that nothing is
-// left out by the compiler.
+// One warp a row, the lanes over the outputs, as the kernel of the tables
+// goes (and the force kernel of se_e2_a went until 2026-11-22; it gives a
+// slot a group of 8 lanes in float32 and of 16 in float64 now): every row
+// ends in one number, so that nothing is left out by the compiler.
 template <typename T, bool TANGENT>
 __device__ void lookup(const int* pieces, const T* us, const T* coef, int width, long long rows,
         T* out) {
@@ -928,7 +929,8 @@ PROBE(double, f64)
 /// What the kernels of an se_e2_a descriptor with tables would pay to look
 /// their embedding values up themselves instead of reading them stored: a
 /// warp a row and the lanes over the outputs, as the kernel of the tables
-/// and the force kernel go, over a million rows of 100 outputs. Per row:
+/// goes and the force kernel went until 2026-11-22, over a million rows of
+/// 100 outputs. Per row:
 /// the quintic of every output looked up (value, and value and tangent),
 /// one or two stored values read, and the values and tangents written as
 /// the kernel of the tables does. Tables of 178 pieces (the water model) and

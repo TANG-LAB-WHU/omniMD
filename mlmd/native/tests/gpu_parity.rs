@@ -4420,15 +4420,31 @@ fn tables_looked_up_by_the_kernels_match_the_stored_values() {
     assert!(!double.tables_looked_up());
 
     // Nets of 40 outputs (more than a warp), of 136 (more than a block of
-    // the descriptor kernel has threads) and of 100, as trained models have,
-    // in both precisions.
-    for (width, axis, seed) in [(40, 6, 31), (136, 5, 33), (100, 16, 35)] {
+    // the descriptor kernel has threads), of 100, as trained models have, and
+    // of 20, in both precisions. The force kernel gives a slot a group of 8
+    // lanes in float32 and of 16 in float64, a lane every 8th or 16th output:
+    // 100 and 20 outputs leave the lanes of a group unequal shares in both
+    // precisions, 40 and 136 in float64. Both ways sum alike, so in float32
+    // they are held to the CPU as well, which shares none of their sums.
+    for (width, axis, seed) in [(40, 6, 31), (136, 5, 33), (100, 16, 35), (20, 4, 37)] {
         let wide = common::model_of_width(2, vec![40, 80], 4.0, seed, width, axis);
         let frames = [frame(lattice, 3, 2, true, seed + 1)];
         let both = looked_up_and_stored::<f64>(&device, &[&wide], &[&frames[0]], 0.8, as_it_is);
         agree(&format!("{width} outputs"), &both, FLOAT64);
         let both = looked_up_and_stored::<f32>(&device, &[&wide], &[&frames[0]], 0.8, &|_| {});
         agree(&format!("{width} outputs, float32"), &both, FLOAT64);
+        let exact = NativePotential::new(wide.clone())
+            .unwrap()
+            .eval(&frames[0])
+            .unwrap();
+        for (pass, way) in both.iter().zip(["looked up", "stored"]) {
+            compare(
+                &format!("{width} outputs, float32 {way}, against the CPU"),
+                &pass.evaluations[0][0],
+                &exact,
+                (1e-6, 1e-4),
+            );
+        }
     }
 
     // An odd number of slots (41 and 80): what the force kernel keeps for
