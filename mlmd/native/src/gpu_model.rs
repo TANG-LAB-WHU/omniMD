@@ -2526,16 +2526,19 @@ const FRAME_SUMS_SEGMENT: usize = 2 * FRAME_SUMS_THREADS as usize;
 /// `frame_sums_on_host`) from the whole buffer of results, the others the
 /// device. Measured on an RTX 4090 with HAP and water models in float32 and
 /// float64, one model or a committee, the two ways alternated and the
-/// device's run a second time as control (within 0.93% of the first): the
-/// host was faster up to 224 centers (by 0.13 to 5.8%), the two within
-/// 0.73% at 264, and the device faster at 352 (by 0.31 to 1.6%), at 384
-/// (0.35%) and beyond (by 0.12 to 6.7%, the most at 1,056), but for one
-/// case of 768, 0.24% slower (4.2% faster in a first run, in which the two
-/// were within 0.69% at 352). The record:
-/// `bench/results/host-path-rtx4090-2026-11-22.json`. On the device's path
-/// a batch whose frames change from pass to pass (in number, or in atoms of
-/// a type) uploads the layout of its sums again, one more small copy.
-pub const DEVICE_SUMS_CENTERS: usize = 384;
+/// device's run a second time as control (within 1.5%), in two runs of
+/// seven rounds: up to 352 centers the host was faster in both runs but in
+/// three cases, where the two were within 1.9%; from 384 to 528 the two
+/// were within 1%; at 576 the device was faster in both (by 0.8 and 0.9%),
+/// the fewest centers where it was, and beyond that faster in both or
+/// within 1% (by up to 4.5%, at 1,056), but for the committee of four HAP
+/// models on 169 atoms (676 centers), 0.7 and 0.1% slower. The record:
+/// `bench/results/host-sums-rtx4090-2026-11-22.json` (a first measure, with
+/// slower host sums, had set 384: `host-path-rtx4090-2026-11-22.json`). On
+/// the device's path a batch whose frames change from pass to pass (in
+/// number, or in atoms of a type) uploads the layout of its sums again, one
+/// more small copy.
+pub const DEVICE_SUMS_CENTERS: usize = 576;
 
 /// Segments of the frame sums: those of every frame's atoms of each type.
 fn sums_segments(counts: &[usize]) -> usize {
@@ -2592,9 +2595,9 @@ fn sums_layout(
 /// `frame_status` as it would write them.
 ///
 /// The threads without atoms, and the lanes they leave empty, give the
-/// kernel's sums zeros, which are left out here: a sum that begins at zero
-/// is never the negative zero, and adding zero to anything else leaves it
-/// as it is.
+/// kernel's sums zeros, which are left out here, across the warps and within
+/// the warp: a sum that begins at zero is never the negative zero, and
+/// adding zero to anything else leaves it as it is.
 fn frame_sums_on_host<P: Scalar>(
     layout: &[i32],
     shape: [usize; 6],
@@ -2613,14 +2616,19 @@ fn frame_sums_on_host<P: Scalar>(
     // the virial; and the status bits of each segment.
     let mut partial = vec![[0.0f64; 10]; segments * members];
     let mut partial_bits = vec![0i32; segments];
-    let mut held = [[0.0f64; 10]; THREADS];
+    // Lane l of the warp that adds a block's sums: what threads l, l + 32,
+    // ... of the block hold, added in that order.
+    let mut lanes = [[0.0f64; 10]; LANES];
     for segment in 0..segments {
         let (first, count) = (at(4 * segment + 2), at(4 * segment + 3));
         let busy = count.min(THREADS);
+        let live = busy.min(LANES);
         for model in 0..members {
-            for (thread, sum) in held[..busy].iter_mut().enumerate() {
-                *sum = [0.0; 10];
-                for k in (first + thread..first + count).step_by(THREADS) {
+            lanes[..live].fill([0.0; 10]);
+            for thread in 0..busy {
+                let mut held = [0.0f64; 10];
+                let mut k = first + thread;
+                while k < first + count {
                     // The chunk of atom k: the last one that starts at or
                     // before it.
                     let chunk = (1..chunks)
@@ -2628,33 +2636,35 @@ fn frame_sums_on_host<P: Scalar>(
                         .find(|&c| at(chunks_at + 2 * c) <= k)
                         .unwrap_or(0);
                     let (start, end) = (at(chunks_at + 2 * chunk), at(chunks_at + 2 * chunk + 1));
-                    sum[0] +=
+                    held[0] +=
                         atomic[members * start + model * (end - start) + (k - start)].to_f64();
                     let of_atom = &virial[9 * (model * natoms + k)..][..9];
-                    for (to, &word) in sum[1..].iter_mut().zip(of_atom) {
+                    for (to, &word) in held[1..].iter_mut().zip(of_atom) {
                         *to += f64::from_bits(word);
                     }
                     if model == 0 {
                         partial_bits[segment] |= int_at(status, k);
                     }
+                    k += THREADS;
+                }
+                for (to, from) in lanes[thread % LANES].iter_mut().zip(held) {
+                    *to += from;
                 }
             }
-            for value in 0..10 {
-                let mut lanes = [0.0f64; LANES];
-                for (lane, sum) in lanes.iter_mut().enumerate().take(busy) {
-                    for thread in (lane..busy).step_by(LANES) {
-                        *sum += held[thread][value];
+            // Within the warp as `warp_sum` does, lane + offset into lane;
+            // the lanes from `reach` on hold zeros.
+            let (mut offset, mut reach) = (LANES / 2, live);
+            while offset > 0 {
+                for lane in 0..reach.saturating_sub(offset) {
+                    let from = lanes[lane + offset];
+                    for (to, from) in lanes[lane].iter_mut().zip(from) {
+                        *to += from;
                     }
                 }
-                let mut offset = LANES / 2;
-                while offset > 0 {
-                    for lane in 0..offset {
-                        lanes[lane] += lanes[lane + offset];
-                    }
-                    offset /= 2;
-                }
-                partial[segment * members + model][value] = lanes[0];
+                reach = reach.min(offset);
+                offset /= 2;
             }
+            partial[segment * members + model] = lanes[0];
         }
     }
     for frame in 0..frames {
@@ -5396,13 +5406,32 @@ mod tests {
         (sums, frame_status)
     }
 
+    /// Segments of 12, 20, 9, 17, 31 and 33 atoms: in the block of each, 9
+    /// to 31 lanes of a warp have atoms, or all 32 (the first with the atoms
+    /// of two threads), so the host takes the steps of `warp_sum` over part
+    /// of the lanes. The atoms of the first type start at 0 and those of the
+    /// second at 52, and the chunks cut the first segment of the last frame.
+    const PARTIAL_COUNTS: [usize; 6] = [12, 20, 9, 17, 31, 33];
+    const PARTIAL_STARTS: [usize; 3] = [0, 52, 122];
+    const PARTIAL_CHUNKS: [(usize, usize); 2] = [(0, 50), (50, 122)];
+
     /// `frame_sums_on_host` against the kernel step by step, to the bit, and
-    /// against plain sums, to rounding, for two models in precision `P`.
-    fn host_sums_as_the_kernel<P: Scalar>(label: &str) {
-        let (frames, ntypes, members, natoms) = (3, 2, 2, 443);
-        let layout = sums_layout(&COUNTS, &BLOCK_STARTS, ntypes, &CHUNKS);
-        let segments = sums_segments(&COUNTS);
-        let shape = [segments, frames, ntypes, members, CHUNKS.len(), natoms];
+    /// against plain sums, to rounding, for two models in precision `P`: the
+    /// frames of `counts` (the atoms of each type in each frame), whose types
+    /// start at `starts` among the atoms sorted by type, in the chunks
+    /// `chunks`; the status bits of the frames come out as `status_of_frames`.
+    fn host_sums_as_the_kernel<P: Scalar>(
+        label: &str,
+        counts: &[usize],
+        starts: &[usize],
+        chunks: &[(usize, usize)],
+        status_of_frames: &[i32],
+    ) {
+        let ntypes = starts.len() - 1;
+        let (frames, members, natoms) = (counts.len() / ntypes, 2, starts[ntypes]);
+        let layout = sums_layout(counts, starts, ntypes, chunks);
+        let segments = sums_segments(counts);
+        let shape = [segments, frames, ntypes, members, chunks.len(), natoms];
         // Numbers of many sizes and both signs, zeros of both signs among
         // them, some of them the negatives of others.
         let mut state = 0x2545_f491_4f6c_dd1d_u64;
@@ -5447,8 +5476,7 @@ mod tests {
         for (frame, &bits) in expected_status.iter().enumerate() {
             assert_eq!(int_at(&frame_status, frame), bits, "{label}, frame {frame}");
         }
-        // No status bits in the second frame, both kinds in the first.
-        assert_eq!(expected_status, [6, 0, 6], "{label}");
+        assert_eq!(expected_status, status_of_frames, "{label}");
 
         // The same sums in another order, to rounding: the atoms of every
         // segment in turn.
@@ -5458,11 +5486,7 @@ mod tests {
             for model in 0..members {
                 let of = &mut plain[(frame * members + model) * (ntypes + 9)..][..ntypes + 9];
                 for k in first..first + count {
-                    let (start, end) = if k < CHUNKS[1].0 {
-                        CHUNKS[0]
-                    } else {
-                        CHUNKS[1]
-                    };
+                    let (start, end) = *chunks.iter().rev().find(|c| c.0 <= k).unwrap();
                     let energy = atomic[members * start + model * (end - start) + (k - start)];
                     let energy = energy.to_f64();
                     of[t] = (of[t].0 + energy, of[t].1 + energy.abs());
@@ -5480,13 +5504,40 @@ mod tests {
             );
         }
         // A type without atoms in a frame sums to zero.
-        assert_eq!(expected[2 * (ntypes + 9)].to_bits(), 0, "{label}");
+        for (index, _) in counts.iter().enumerate().filter(|(_, &count)| count == 0) {
+            let (frame, t) = (index / ntypes, index % ntypes);
+            for model in 0..members {
+                let sum = expected[(frame * members + model) * (ntypes + 9) + t];
+                assert_eq!(sum.to_bits(), 0, "{label}, frame {frame}, type {t}");
+            }
+        }
     }
 
     #[test]
     fn the_host_sums_the_frames_as_the_kernel_does() {
-        host_sums_as_the_kernel::<f64>("float64");
-        host_sums_as_the_kernel::<f32>("float32");
+        // The status bits: none in the second frame of the first layout,
+        // both kinds in its first and last frames.
+        for (name, counts, starts, chunks, status) in [
+            (
+                "segments up to 256",
+                &COUNTS[..],
+                &BLOCK_STARTS[..],
+                &CHUNKS[..],
+                [6, 0, 6],
+            ),
+            (
+                "part of a warp",
+                &PARTIAL_COUNTS[..],
+                &PARTIAL_STARTS[..],
+                &PARTIAL_CHUNKS[..],
+                [4, 2, 6],
+            ),
+        ] {
+            let f64_label = format!("float64, {name}");
+            host_sums_as_the_kernel::<f64>(&f64_label, counts, starts, chunks, &status);
+            let f32_label = format!("float32, {name}");
+            host_sums_as_the_kernel::<f32>(&f32_label, counts, starts, chunks, &status);
+        }
     }
 
     /// Float32 models of five center types (those of HAP), with every path.
