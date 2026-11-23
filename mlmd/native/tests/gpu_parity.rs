@@ -6,8 +6,9 @@ mod common;
 use common::{device, frame, model};
 use omnimd_ml_contract::{Committee, Evaluation, Frame, Potential, Units};
 use omnimd_native::gpu_model::{
-    force_way, ForceBlocks, GpuPotential, StageTimes, BLOCK_SUMS_CENTERS, DEVICE_SUMS_CENTERS,
-    FORCE_WAYS, WIDE_FORCE_CENTERS_F32, WIDE_FORCE_CENTERS_F64,
+    angular_sums_past, force_way, ForceBlocks, GpuPotential, StageTimes, BLOCK_SUMS_CENTERS,
+    DEVICE_SUMS_CENTERS, FORCE_WAYS, SE_E2A_SUMS_PAST_WAVES, WIDE_FORCE_CENTERS_F32,
+    WIDE_FORCE_CENTERS_F64,
 };
 use omnimd_native::{Activation, Model, NativePotential, Residual};
 use std::time::Instant;
@@ -270,6 +271,35 @@ fn an_embedding_wider_than_a_warp_matches_cpu() {
         common::model_of_width(2, vec![40, 80], 4.0, 33, 136, 5),
         &frame(lattice, 3, 2, true, 34),
     );
+}
+
+/// The force kernel of the rows of se_e2_a's exact nets gives a slot a group
+/// of 16 lanes in both precisions, a lane every 16th output: 20, 40, 100 and
+/// 136 outputs leave the lanes of a group unequal shares (2 or 1, 3 or 2, 7
+/// or 6, 9 or 8). Held to the CPU in float32 as in float64.
+#[test]
+fn the_exact_nets_match_cpu_whatever_share_the_lanes_of_a_slot_take() {
+    let Some(device) = device() else { return };
+    let lattice = [[7.0, 0.0, 0.0], [0.5, 7.0, 0.0], [0.0, 0.0, 7.0]];
+    for (width, axis, seed) in [(20, 4, 41), (40, 6, 43), (100, 16, 45), (136, 5, 47)] {
+        let model = common::model_of_width(2, vec![40, 80], 4.0, seed, width, axis);
+        let frame = frame(lattice, 3, 2, true, seed + 1);
+        let c = NativePotential::new(model.clone())
+            .unwrap()
+            .eval(&frame)
+            .unwrap();
+        let mut double = GpuPotential::<f64>::new(&model, device.clone()).unwrap();
+        let g = double.eval(&frame).unwrap();
+        assert!(!double.last_truncated(), "{width} outputs: sel too small");
+        compare(&format!("{width} outputs"), &g, &c, FLOAT64);
+        let mut single = GpuPotential::<f32>::new(&model, device.clone()).unwrap();
+        compare(
+            &format!("{width} outputs, float32"),
+            &single.eval(&frame).unwrap(),
+            &c,
+            (1e-6, 1e-4),
+        );
+    }
 }
 
 /// The descriptor counts the neighbors of each type before it sums them: a
@@ -3453,7 +3483,8 @@ fn the_rows_of_the_models_of_a_committee_do_not_meet() {
 /// `FORCE_WAYS` (the wide blocks with the sums across the warps, the narrow
 /// ones with them, the wide ones without, the narrow ones without) whose
 /// blocks, one for a center and model, the device keeps all at once, and
-/// past every way the narrow blocks, with the sums for se_e2_r only:
+/// past every way the narrow blocks, with the sums for se_e2_r and, just
+/// past, for se_e2_a:
 /// counted by the centers of a chunk and the models of a committee, with
 /// what the device keeps of the kernel a pass launches. Every way gives the
 /// same forces to the rounding of a center's sums.
@@ -3499,10 +3530,10 @@ fn the_two_body_force_kernels_take_the_ways_the_device_keeps_at_once() {
     let count = (capacity[0] / natoms).max(1);
     let frames = vec![&frame; count];
     let both = committee.evaluate_frames(&frames, 2).unwrap();
-    let two = force_way(2 * count * natoms, capacity, None, None, false);
+    let two = part_way(2 * count * natoms, capacity, None, None, false);
     assert_eq!(way_of(&committee), two, "{count} frames, two models");
     committee.evaluate_frames(&frames, 1).unwrap();
-    let one = force_way(count * natoms, capacity, None, None, false);
+    let one = part_way(count * natoms, capacity, None, None, false);
     assert_eq!(way_of(&committee), one, "{count} frames, one model");
     if count * natoms <= capacity[0] {
         assert_eq!(one, FORCE_WAYS[0]);
@@ -3580,15 +3611,12 @@ fn the_two_body_force_kernels_take_the_ways_the_device_keeps_at_once() {
     }
     gpu.eval(&frame).unwrap();
     assert!(gpu.tables_looked_up());
-    assert_eq!(
-        way_of(&gpu),
-        force_way(natoms, looked_up, None, None, false)
-    );
+    assert_eq!(way_of(&gpu), part_way(natoms, looked_up, None, None, false));
     assert_ne!(way_of(&gpu), FORCE_WAYS[0]);
     gpu.set_inline_tables(Some(false));
     gpu.eval(&frame).unwrap();
     assert!(!gpu.tables_looked_up());
-    assert_eq!(way_of(&gpu), force_way(natoms, stored, None, None, false));
+    assert_eq!(way_of(&gpu), part_way(natoms, stored, None, None, false));
     // Where the driver did not say, the room for the sums is counted with
     // what the kernel launched keeps: the stored values leave the wide
     // blocks room for them, the lookups only the narrow ones.
@@ -3664,6 +3692,23 @@ fn the_two_body_force_kernels_take_the_ways_the_device_keeps_at_once() {
     assert!(pairs.block_sums_shared() && !pairs.force_sums());
 }
 
+/// `force_way` of a pass of `blocks` blocks as a part of a two-body
+/// descriptor takes it (`radial` for se_e2_r): past every way its narrow
+/// blocks, or its wide ones where `wide` says so, keep their sums for
+/// se_e2_r, and for se_e2_a while the pass is just past what the device
+/// keeps of them at once without the sums (`angular_sums_past`).
+fn part_way(
+    blocks: usize,
+    capacity: [usize; 4],
+    wide: Option<bool>,
+    sums: Option<bool>,
+    radial: bool,
+) -> ForceBlocks {
+    let without = capacity[if wide == Some(true) { 2 } else { 3 }];
+    let sums_past = radial || angular_sums_past(blocks, without);
+    force_way(blocks, capacity, wide, sums, sums_past)
+}
+
 /// The way the force kernel of the last two-body descriptor of `gpu` took in
 /// its last pass.
 fn way_of<P: omnimd_gpu::Scalar>(gpu: &GpuPotential<P>) -> ForceBlocks {
@@ -3674,7 +3719,7 @@ fn way_of<P: omnimd_gpu::Scalar>(gpu: &GpuPotential<P>) -> ForceBlocks {
 }
 
 /// The ways of the force kernel of `gpu`, whose model has one two-body
-/// descriptor (`kind`), by its passes: each takes `force_way` of its blocks
+/// descriptor (`kind`), by its passes: each takes `part_way` of its blocks
 /// with what the device keeps of the kernel it launches (with the tables in
 /// use where `compressed`), within what the overrides leave, and every way
 /// gives the same forces.
@@ -3718,7 +3763,7 @@ fn force_ways<P: omnimd_gpu::Scalar>(
     let one = gpu.eval(frame).unwrap();
     assert_eq!(
         way_of(gpu),
-        force_way(natoms, capacity, None, None, radial),
+        part_way(natoms, capacity, None, None, radial),
         "{label}"
     );
     compare(&label, &one, reference, tolerance);
@@ -3726,10 +3771,14 @@ fn force_ways<P: omnimd_gpu::Scalar>(
         assert_eq!(got.energy, one.energy, "{label}: the networks ran alike");
         compare(label, got, &one, (1e-15, 1e-11));
     };
-    // Batches up to and past what the device keeps of every way.
+    // Batches up to and past what the device keeps of every way, and past
+    // the share of a wave more of the narrow blocks within which se_e2_a
+    // keeps their sums.
+    let far = (SE_E2A_SUMS_PAST_WAVES * narrow as f64) as usize / natoms + 1;
     let mut counts: Vec<usize> = capacity
         .iter()
         .flat_map(|&blocks| [blocks / natoms, blocks / natoms + 1])
+        .chain([far])
         .filter(|&count| count > 0)
         .collect();
     counts.sort_unstable();
@@ -3737,24 +3786,30 @@ fn force_ways<P: omnimd_gpu::Scalar>(
     let mut seen = Vec::new();
     for &count in &counts {
         let got = gpu.evaluate_frames(&vec![frame; count], 1).unwrap();
-        let expected = force_way(count * natoms, capacity, None, None, radial);
+        let expected = part_way(count * natoms, capacity, None, None, radial);
         assert_eq!(way_of(gpu), expected, "{label}: {count} frames");
-        seen.push(expected);
+        seen.push((count, expected));
         same(&format!("{label}, {count} frames"), &got[count - 1][0]);
     }
-    // Past every way the narrow blocks, with the sums for se_e2_r.
-    let past = ForceBlocks {
+    // Just past every way the narrow blocks with the sums, for se_e2_a too
+    // where a quarter of a wave more holds the pass; far past it with them
+    // for se_e2_r only.
+    let past = |sums: bool| ForceBlocks {
         threads: 128,
-        sums: radial && narrow_sums > 0,
+        sums: sums && narrow_sums > 0,
     };
-    assert_eq!(seen.last(), Some(&past), "{label}: {seen:?}");
+    let just = narrow / natoms + 1;
+    if 4 * just * natoms <= 5 * narrow {
+        assert!(seen.contains(&(just, past(true))), "{label}: {seen:?}");
+    }
+    assert_eq!(seen.last(), Some(&(far, past(radial))), "{label}: {seen:?}");
     // Every way when both are set.
     for forced in FORCE_WAYS {
         let (wide, sums) = (forced.threads == 256, forced.sums);
         gpu.set_wide_force_centers(Some(if wide { usize::MAX } else { 0 }));
         gpu.set_block_sums_centers(Some(if sums { usize::MAX } else { 0 }));
         let got = gpu.evaluate_frames(&[frame, frame], 1).unwrap();
-        let expected = force_way(2 * natoms, capacity, Some(wide), Some(sums), radial);
+        let expected = part_way(2 * natoms, capacity, Some(wide), Some(sums), radial);
         assert_eq!(way_of(gpu), expected, "{label}: {forced:?}");
         assert_eq!(expected.threads, forced.threads);
         same(&format!("{label}, {forced:?}"), &got[1][0]);
@@ -3765,7 +3820,7 @@ fn force_ways<P: omnimd_gpu::Scalar>(
     for (limit, wide) in [(natoms - 1, false), (natoms, true)] {
         gpu.set_wide_force_centers(Some(limit));
         same(&format!("{label}, wide {wide}"), &gpu.eval(frame).unwrap());
-        let expected = force_way(natoms, capacity, Some(wide), None, radial);
+        let expected = part_way(natoms, capacity, Some(wide), None, radial);
         assert_eq!(way_of(gpu), expected, "{label}: wide {wide}");
     }
     // The sums set, the width by the rule.
@@ -3773,7 +3828,7 @@ fn force_ways<P: omnimd_gpu::Scalar>(
     for (limit, sums) in [(natoms - 1, false), (natoms, true)] {
         gpu.set_block_sums_centers(Some(limit));
         same(&format!("{label}, sums {sums}"), &gpu.eval(frame).unwrap());
-        let expected = force_way(natoms, capacity, None, Some(sums), radial);
+        let expected = part_way(natoms, capacity, None, Some(sums), radial);
         assert_eq!(way_of(gpu), expected, "{label}: sums {sums}");
     }
     gpu.set_block_sums_centers(None);
@@ -3783,7 +3838,7 @@ fn force_ways<P: omnimd_gpu::Scalar>(
     gpu.set_chunk_atoms(natoms);
     let count = counts[counts.len() - 1];
     let got = gpu.evaluate_frames(&vec![frame; count], 1).unwrap();
-    let expected = force_way(natoms, capacity, None, None, radial);
+    let expected = part_way(natoms, capacity, None, None, radial);
     assert_eq!(way_of(gpu), expected, "{label}: in chunks");
     same(&format!("{label}, in chunks"), &got[count - 1][0]);
     gpu.set_chunk_atoms(chunk);
@@ -3952,7 +4007,7 @@ fn the_sums_of_a_force_block_are_formed_either_way() {
                 "{kind} float32: {count} frames"
             );
             let way = match two_body {
-                Some(capacity) => force_way(count * natoms, capacity, None, None, two_body_radial),
+                Some(capacity) => part_way(count * natoms, capacity, None, None, two_body_radial),
                 None => ForceBlocks {
                     threads: 0,
                     sums: false,
@@ -4025,16 +4080,16 @@ fn the_sums_of_a_force_block_are_formed_either_way() {
     gpu.set_block_sums_centers(None);
     gpu.set_wide_force_centers(None);
     gpu.eval(&frame).unwrap();
-    assert_eq!(way_of(&gpu), force_way(natoms, capacity, None, None, false));
+    assert_eq!(way_of(&gpu), part_way(natoms, capacity, None, None, false));
 }
 
 /// Whether the force kernel launched last forms the sums of its blocks
 /// across their warps in a pass of `blocks` blocks as a potential starts:
 /// that of a two-body descriptor (`capacity` what the device keeps of it at
-/// once, `radial` for se_e2_r) by `force_way`, that of se_e3 in every pass.
+/// once, `radial` for se_e2_r) by `part_way`, that of se_e3 in every pass.
 fn sums_as_it_starts(capacity: Option<[usize; 4]>, blocks: usize, radial: bool) -> bool {
     match capacity {
-        Some(capacity) => force_way(blocks, capacity, None, None, radial).sums,
+        Some(capacity) => part_way(blocks, capacity, None, None, radial).sums,
         None => true,
     }
 }
@@ -4421,11 +4476,12 @@ fn tables_looked_up_by_the_kernels_match_the_stored_values() {
 
     // Nets of 40 outputs (more than a warp), of 136 (more than a block of
     // the descriptor kernel has threads), of 100, as trained models have, and
-    // of 20, in both precisions. The force kernel gives a slot a group of 8
-    // lanes in float32 and of 16 in float64, a lane every 8th or 16th output:
-    // 100 and 20 outputs leave the lanes of a group unequal shares in both
-    // precisions, 40 and 136 in float64. Both ways sum alike, so in float32
-    // they are held to the CPU as well, which shares none of their sums.
+    // of 20, in both precisions. The force kernels of the tables give a slot a
+    // group of 8 lanes in float32 and of 16 in float64, a lane every 8th or
+    // 16th output: 100 and 20 outputs leave the lanes of a group unequal
+    // shares in both precisions, 40 and 136 in float64. Both ways sum alike,
+    // so in float32 they are held to the CPU as well, which shares none of
+    // their sums.
     for (width, axis, seed) in [(40, 6, 31), (136, 5, 33), (100, 16, 35), (20, 4, 37)] {
         let wide = common::model_of_width(2, vec![40, 80], 4.0, seed, width, axis);
         let frames = [frame(lattice, 3, 2, true, seed + 1)];

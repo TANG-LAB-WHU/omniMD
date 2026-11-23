@@ -863,8 +863,8 @@ fn float32_networks_follow_float64_ones_with_se_e2_r_and_shared_nets() {
             "se_e2_a, a net per neighbor type",
             common::one_sided(model(2, vec![40, 80], 4.0, 73)),
         ),
-        // 20 outputs over a slot's group of 8 lanes in float32 (3 or 2 a
-        // lane) and of 16 in float64 (2 or 1).
+        // 20 outputs over a slot's group of 16 lanes, 2 or 1 a lane (the
+        // trainer's force kernel of se_e2_a has 16 in both precisions).
         (
             "se_e2_a, 20 outputs",
             common::model_of_width(2, vec![40, 80], 4.0, 75, 20, 4),
