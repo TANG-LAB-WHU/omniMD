@@ -196,10 +196,7 @@ What follows for the kernels:
   without; of the water model three wide ones with the sums. So the force
   kernels of se_e2_a and se_e2_r take the first of these four ways that
   keeps all the blocks of the pass at once (`native::gpu_model::force_way`),
-  and past every way the narrow blocks, with the sums for se_e2_r and,
-  since 2026-11-23, for se_e2_a with tables in a pass of at most
-  `SE_E2A_SUMS_PAST_WAVES` times the narrow blocks the device keeps at once
-  without them (see below); se_e2_a's exact nets go without them there.
+  and past every way the narrow blocks, with the sums for se_e2_r only.
   Against the limits of centers that chose before (`WIDE_FORCE_CENTERS_F32`,
   `_F64` and `BLOCK_SUMS_CENTERS`, kept for a driver that does not say), the
   choice changed in 31 of 64 cases: in float32 an evaluation was 0.4% to

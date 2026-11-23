@@ -856,8 +856,8 @@ __device__ T warp_total(T v) {
 // One warp a row, the lanes over the outputs, as the kernel of the tables
 // goes (and the force kernel of se_e2_a went until 2026-11-22; it gives a
 // slot a group of 8 lanes in float32 and of 16 in float64 now, 16 in both
-// for the rows of the exact nets): every row
-// ends in one number, so that nothing is left out by the compiler.
+// in the trainer's kernel of the rows): every row ends in one number, so
+// that nothing is left out by the compiler.
 template <typename T, bool TANGENT>
 __device__ void lookup(const int* pieces, const T* us, const T* coef, int width, long long rows,
         T* out) {

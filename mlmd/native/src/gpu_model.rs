@@ -390,16 +390,14 @@ __device__ void block_sums(double* fi, double* vir, double* red, double* all, do
 //     network precision into dE/d(env row), which goes to shared memory as it
 //     is, five sums a slot: each lane adds its outputs in order, then the
 //     group adds its lanes by halves, so the sums of a slot follow from
-//     `LANES` alone, not from the block. The kernels of the tables, the one
-//     that looks them up and the one that reads them stored, take 8 lanes in
-//     float32 and 16 in float64, and so sum alike; those of the rows of the
-//     exact nets (the evaluation's and the trainer's) take 16 in both, as
-//     nothing else must sum like them and float32 read them more slowly with
-//     8 (2026-11-22: 2.7% and 5.4% more for the forces stage at 1,536 and
-//     12,288 water atoms). A warp to a slot (until 2026-11-22) waited on the
-//     loads of one slot after the other and added its five sums over 32
-//     lanes; the counts of lanes tried and what they gave are in
-//     `bench/results/SUMMARY.md` (2026-11-22).
+//     `LANES` alone, not from the block. The evaluation's kernels take 8 lanes
+//     in float32 and 16 in float64, so that the one that looks the tables up
+//     and the one that reads their rows stored sum alike; the trainer's kernel
+//     of the rows takes 16 in both (since 2026-11-23; its rate in float32 came
+//     within 0.6% of that with 8). A warp to a slot (until 2026-11-22) waited
+//     on the loads of one slot after the other and added its five sums over
+//     32 lanes; the counts of lanes tried and what they gave are in
+//     `bench/results/SUMMARY.md` (2026-11-22 and 2026-11-23).
 //     Every lane of a warp runs as many rounds, as the shuffles take the
 //     whole warp: a group whose slot is empty or past the last adds zeros in
 //     them and writes nothing. What a first lane did in double precision here
@@ -1396,9 +1394,7 @@ __device__ void frame_sums_impl(const double* virial, const P* atomic, const int
 // empty slots, take the number of atoms a model's forces span and keep
 // them in the precision of the networks. All take the stride of the
 // descriptor in the buffers of all descriptors of the model, and the force
-// kernels whether their virial is added to the one that is there.
-// `se_e2_a_exact_backward` is `se_e2_a_backward` for the rows of the exact
-// nets, with 16 lanes a slot in float32 as well (see `backward_impl`). The
+// kernels whether their virial is added to the one that is there. The
 // se_e3 kernels serve the potential and the trainer alike; those of the
 // tangent of θ, of the tangent of D and of the adjoints of the rows are the
 // trainer's, one model deep and over all atoms of a frame.
@@ -1465,17 +1461,6 @@ extern "C" __global__ void se_e2_a_backward_##S(const P* env, const P* g, const 
     backward_impl<P, P>(env, g, dg, b_in, dd_in, index, delta, dist, atype, dstd_inv, slot_type,  \
                         slot_local, sel, offset, first, count, slots, width, axis, rmin,          \
                         inv_range, force, virial, nullptr, ntypes, natoms, stride, add);          \
-}                                                                                                 \
-extern "C" __global__ void se_e2_a_exact_backward_##S(const P* env, const P* g, const P* dg,      \
-        const P* b_in, const P* dd_in, const int* index, const double* delta,                     \
-        const double* dist, const int* atype, const double* dstd_inv, const int* slot_type,       \
-        const int* slot_local, const int* sel, const int* offset, int first, int count,           \
-        int slots, int width, int axis, double rmin, double inv_range, double* force,             \
-        double* virial, int ntypes, int natoms, int stride, int add) {                            \
-    backward_impl<P, P, false, 16>(env, g, dg, b_in, dd_in, index, delta, dist, atype, dstd_inv,  \
-                                   slot_type, slot_local, sel, offset, first, count, slots,       \
-                                   width, axis, rmin, inv_range, force, virial, nullptr, ntypes,  \
-                                   natoms, stride, add);                                          \
 }                                                                                                 \
 extern "C" __global__ void se_e2_a_table_backward_##S(const P* env, const P* x,                   \
         const int* network, const P* coef, int bits, const int* shape, const P* range,            \
@@ -1630,8 +1615,7 @@ const WIDE_BLOCK: u32 = 256;
 /// 212 slots in 27 turns instead of 53, and that of se_e2_a, since
 /// 2026-11-22, a group of 8 lanes a slot in float32 and of 16 in float64,
 /// four or two slots a warp: 7 turns instead of 14 in float32 and 14 instead
-/// of 27 in float64 (for the rows of the exact nets 16 lanes in float32 too,
-/// since 2026-11-23). Whether a pass is sooner done for it goes by the number
+/// of 27 in float64. Whether a pass is sooner done for it goes by the number
 /// of its blocks. Measured on an RTX 4090 with the HAP models and tables,
 /// while the kernel of se_e2_a, too, took a slot a warp, whole evaluations
 /// with the wider blocks against the narrower, the sums of a block formed as
@@ -1758,8 +1742,8 @@ fn resident_force_blocks(function: &CudaFunction, own: usize) -> Option<[u32; 4]
 /// shorter in float32 and between 1.3% shorter and 0.4% longer in float64,
 /// and the way chosen here was the fastest of the four forced or within
 /// 1.5% of it. Past every way the narrow blocks keep their sums for
-/// se_e2_r (`sums_past`), and for se_e2_a with tables just past (see
-/// [`angular_sums_past`]).
+/// se_e2_r (`sums_past`) and go without for se_e2_a, which suits the water
+/// model and not quite the HAP one (`bench/results/SUMMARY.md`).
 pub fn force_way(
     blocks: usize,
     capacity: [usize; 4],
@@ -1790,40 +1774,6 @@ pub fn force_way(
         threads,
         sums: sums.unwrap_or(sums_past) && room,
     }
-}
-
-/// Past every way of a force kernel of se_e2_a's tables that the device
-/// keeps at once, a pass of at most this many times the blocks it keeps of
-/// the narrow blocks without the sums (their second wave at most a quarter
-/// full) takes them with the sums across the warps, and a larger pass
-/// without: see [`angular_sums_past`]. The kernel of the exact nets takes
-/// no sums past every way.
-///
-/// Measured on an RTX 4090, one build with the sums forced and without,
-/// least evaluations (`bench/results/force-sums-past-rtx4090-2026-11-22.json`):
-/// the sums took 1.8% to 2.5% off the HAP model in float32 with tables at
-/// 968 to 1,056 blocks (896 at once without them), came within 1% from
-/// 1,120 to 1,536 (but at 1,408, where two runs without them differed by
-/// 3.6%), and added 1.4% at 1,792 and 2,112 and 3.2% and 3.9% to water at
-/// 12,288 and 98,304 atoms; in float64 with tables they took 1.3% off at 896
-/// blocks (768 at once) and came within 1% elsewhere, from 792 to 98,304.
-/// With the width set to the wide blocks (384 at once without the sums)
-/// they took 0.9% to 2.3% off at 440 and 448 blocks with tables
-/// (`bench/results/force-ways-rtx4090-2026-11-22.json`). With the exact
-/// nets, on their kernel of 16 lanes a slot (`exact_nets` of the first
-/// record), they came within 0.6% for HAP from 792 to 2,112 blocks in both
-/// precisions and for 12,288 water atoms, and took 1.3% off at 1,536 atoms
-/// (0.3% against a second run without them): no rule of the record gave
-/// that kernel the sums.
-pub const SE_E2A_SUMS_PAST_WAVES: f64 = 1.25;
-
-/// Whether the narrow blocks of a force kernel of se_e2_a's tables (or its
-/// wide blocks, where the width is set) take the sums across the warps in a
-/// pass of `blocks` blocks past every way of the device, which keeps
-/// `without` of them at once without the sums (see
-/// [`SE_E2A_SUMS_PAST_WAVES`]).
-pub fn angular_sums_past(blocks: usize, without: usize) -> bool {
-    blocks as f64 <= SE_E2A_SUMS_PAST_WAVES * without as f64
 }
 
 /// The embedding tables reach from `min_distance` down to
@@ -1963,25 +1913,6 @@ struct Kernels {
     /// embedding values up themselves (see [`GpuPotential::inline_tables`]).
     inline_descriptor: Option<CudaFunction>,
     inline_backward: Option<CudaFunction>,
-    /// se_e2_a: the force kernel of the rows of the exact nets, a group of
-    /// 16 lanes a slot in float32 too (see [`ForceKernel`]).
-    exact_backward: Option<CudaFunction>,
-}
-
-/// The force kernels of a two-body descriptor, in the order of
-/// `force_residence`: the one that reads the embedding rows stored (se_e2_r
-/// always; se_e2_a for the rows of its tables when it does not look them
-/// up), the one of se_e2_a that looks its tables up, and the one of se_e2_a
-/// for the rows of the exact nets. Those of se_e2_a's tables, the first two,
-/// sum alike (8 lanes a slot in float32, 16 in float64), so that the tables
-/// give the same forces either way; the third has 16 lanes in both
-/// precisions, which nothing else must match. se_e2_r's stored kernel gives
-/// a slot a warp.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum ForceKernel {
-    Stored = 0,
-    Lookup = 1,
-    Exact = 2,
 }
 
 /// The rows of the embedding nets of an se_e3 descriptor for a frame: the
@@ -2544,11 +2475,11 @@ struct Part<P: Scalar> {
     /// Dynamic shared memory of the force kernel, bytes.
     backward_shared: usize,
     /// se_e2_a and se_e2_r: the blocks of the force kernel one
-    /// multiprocessor keeps at once in each way of [`FORCE_WAYS`], for each
-    /// of its kernels in the order of [`ForceKernel`] (see
-    /// [`resident_force_blocks`]). None for se_e3, for a kernel the
+    /// multiprocessor keeps at once in each way of [`FORCE_WAYS`], for the
+    /// kernel that reads stored values and for the one that looks the tables
+    /// up (see [`resident_force_blocks`]). None for se_e3, for a kernel the
     /// descriptor does not have, and where the driver did not say.
-    force_residence: [Option<[u32; 4]>; 3],
+    force_residence: [Option<[u32; 4]>; 2],
     /// hybrid: this descriptor's own table of the neighbor list, when its
     /// slots or its cutoff are not those of the list.
     view: Option<View>,
@@ -3128,13 +3059,9 @@ impl<P: Scalar> Part<P> {
                 true => Some(function("se_e2_a_table_backward")?),
                 false => None,
             },
-            exact_backward: match kind == DescriptorKind::SeE2A {
-                true => Some(function("se_e2_a_exact_backward")?),
-                false => None,
-            },
         };
         let force_residence = match kind {
-            DescriptorKind::SeE3 => [None, None, None],
+            DescriptorKind::SeE3 => [None, None],
             DescriptorKind::SeE2A | DescriptorKind::SeE2R => [
                 resident_force_blocks(&kernels.backward, backward_shared),
                 kernels.inline_backward.as_ref().and_then(|function| {
@@ -3143,10 +3070,6 @@ impl<P: Scalar> Part<P> {
                         backward_shared + angular_table_shared::<P>(slots),
                     )
                 }),
-                kernels
-                    .exact_backward
-                    .as_ref()
-                    .and_then(|function| resident_force_blocks(function, backward_shared)),
             ],
         };
         // A descriptor with the slots and the cutoff of the list reads the
@@ -3230,47 +3153,23 @@ impl<P: Scalar> Part<P> {
             && angular_descriptor_shared::<P>(self.slots, self.width, ntypes, true) <= SHARED_LIMIT
     }
 
-    /// The force kernel a pass launches for this descriptor (see
-    /// [`ForceKernel`]): with tables in use (`compressed`) the one that looks
-    /// them up where [`Self::looks_up`] says so and otherwise the one that
-    /// reads their rows stored; without, se_e2_a's kernel of the rows of the
-    /// exact nets, and the stored one for se_e2_r and se_e3.
-    fn force_kernel(&self, compressed: bool, on: bool, ntypes: usize) -> ForceKernel {
-        if self.looks_up(compressed, on, ntypes) {
-            ForceKernel::Lookup
-        } else if self.kernels.exact_backward.is_some() && !(compressed && self.tables.is_some()) {
-            ForceKernel::Exact
-        } else {
-            ForceKernel::Stored
-        }
-    }
-
     /// The way of the force kernel of this two-body descriptor in a pass of
-    /// `blocks` blocks, launched as `kernel`, within what the overrides set
-    /// (`wide`, `sums`): by [`force_way`] with what the device and its
+    /// `blocks` blocks, launched as the kernel that looks the tables up
+    /// (`lookup`) or the other, within what the overrides set (`wide`,
+    /// `sums`): by [`force_way`] with what the device and its
     /// `multiprocessors` keep at once; by [`WIDE_FORCE_CENTERS_F32`] (or
     /// `_F64`) and [`BLOCK_SUMS_CENTERS`] where the driver did not say.
     fn force_way(
         &self,
-        kernel: ForceKernel,
+        lookup: bool,
         blocks: usize,
         (wide, sums): (Option<bool>, Option<bool>),
         multiprocessors: usize,
     ) -> ForceBlocks {
         let radial = self.kind == DescriptorKind::SeE2R;
-        if let Some(resident) = self.force_residence[kernel as usize] {
+        if let Some(resident) = self.force_residence[usize::from(lookup)] {
             let capacity = resident.map(|blocks| blocks as usize * multiprocessors);
-            // Past every way: the sums for se_e2_r, and for the kernels of
-            // se_e2_a's tables just past what the device keeps of the blocks
-            // it takes there without them (the narrow ones, or the wide where
-            // `wide` says so); the kernel of the exact nets goes without.
-            let without = capacity[match wide {
-                Some(true) => 2,
-                _ => 3,
-            }];
-            let sums_past =
-                radial || (kernel != ForceKernel::Exact && angular_sums_past(blocks, without));
-            return force_way(blocks, capacity, wide, sums, sums_past);
+            return force_way(blocks, capacity, wide, sums, radial);
         }
         let limit = match std::mem::size_of::<P>() {
             4 => WIDE_FORCE_CENTERS_F32,
@@ -3281,9 +3180,9 @@ impl<P: Scalar> Part<P> {
             false => BLOCK,
         };
         let own = self.backward_shared
-            + match kernel {
-                ForceKernel::Lookup => angular_table_shared::<P>(self.slots),
-                ForceKernel::Stored | ForceKernel::Exact => 0,
+            + match lookup {
+                true => angular_table_shared::<P>(self.slots),
+                false => 0,
             };
         ForceBlocks {
             threads,
@@ -3873,7 +3772,7 @@ impl<P: Scalar> GpuPotential<P> {
     #[doc(hidden)]
     pub fn forget_force_residence(&mut self) {
         for part in &mut self.parts {
-            part.force_residence = [None, None, None];
+            part.force_residence = [None, None];
         }
     }
 
@@ -3911,18 +3810,16 @@ impl<P: Scalar> GpuPotential<P> {
     /// a hybrid's list) that the device keeps at once in each way of
     /// [`FORCE_WAYS`]: what one multiprocessor keeps times the
     /// multiprocessors, zero for a way without room in shared memory. For
-    /// the kernel a pass launches: with tables in use (`compressed`) the one
-    /// that looks them up where [`Self::looks_up_tables`] says so and the
-    /// one that reads their stored rows where not, without them se_e2_a's
-    /// kernel of the rows of the exact nets. None for se_e3 and where the
-    /// driver did not say.
+    /// the kernel a pass launches, which with tables in use (`compressed`)
+    /// is the one that looks them up where [`Self::looks_up_tables`] says
+    /// so. None for se_e3 and where the driver did not say.
     pub fn force_capacity(&self, compressed: bool) -> Vec<Option<[usize; 4]>> {
         let (on, ntypes) = (self.inline_tables(), self.sel.len());
         let multiprocessors = self.device.multiprocessors() as usize;
         self.parts
             .iter()
             .map(|part| {
-                let kernel = part.force_kernel(compressed, on, ntypes) as usize;
+                let kernel = usize::from(part.looks_up(compressed, on, ntypes));
                 part.force_residence[kernel]
                     .map(|blocks| blocks.map(|b| b as usize * multiprocessors))
             })
@@ -4883,31 +4780,17 @@ impl<P: Scalar> GpuPotential<P> {
                 let dd = d_descriptor.slice(part.first_feature..);
                 // se_e2_a where its kernels look the embedding values up in
                 // the tables (`looks_up`): what the lookup keeps in shared
-                // memory is added to the kernel's own. Its rows of the exact
-                // nets go to a kernel of their own (see `ForceKernel`).
-                let kernel = part.force_kernel(compressed, inline_on, ntypes);
+                // memory is added to the kernel's own.
                 let lookup = part
                     .tables
                     .as_ref()
-                    .filter(|_| kernel == ForceKernel::Lookup)
+                    .filter(|_| part.looks_up(compressed, inline_on, ntypes))
                     .map(CellTable::buffers);
-                let function = match kernel {
-                    ForceKernel::Lookup => {
-                        part.kernels.inline_backward.as_ref().ok_or_else(|| {
-                            Error(
-                                "an se_e2_a descriptor without the force kernel of its tables"
-                                    .into(),
-                            )
-                        })?
-                    }
-                    ForceKernel::Exact => {
-                        part.kernels.exact_backward.as_ref().ok_or_else(|| {
-                            Error(
-                                "an se_e2_a descriptor without the force kernel of its nets".into(),
-                            )
-                        })?
-                    }
-                    ForceKernel::Stored => &part.kernels.backward,
+                let function = match lookup {
+                    Some(_) => part.kernels.inline_backward.as_ref().ok_or_else(|| {
+                        Error("an se_e2_a descriptor without the force kernel of its tables".into())
+                    })?,
+                    None => &part.kernels.backward,
                 };
                 let own_shared = part.backward_shared
                     + match lookup {
@@ -5063,7 +4946,7 @@ impl<P: Scalar> GpuPotential<P> {
                             self.wide_force_centers.map(|limit| blocks <= limit),
                             self.block_sums_centers.map(|limit| blocks <= limit),
                         );
-                        let way = part.force_way(kernel, blocks, set, multiprocessors);
+                        let way = part.force_way(lookup.is_some(), blocks, set, multiprocessors);
                         self.force_threads = way.threads;
                         self.force_sums = way.sums;
                         two_body_sums = Some(way.sums);
@@ -5382,9 +5265,9 @@ impl<P: Scalar> Committee for GpuPotential<P> {
 #[cfg(test)]
 mod tests {
     use super::{
-        angular_descriptor_shared, angular_sums_past, angular_table_shared, force_way,
-        frame_sums_on_host, in_parallel, int_at, pair_chunks, pair_starts, set_int_at, sums_layout,
-        sums_segments, FittingPath, FittingRule, Scalar, BLOCK, FORCE_WAYS, FRAME_SUMS_THREADS,
+        angular_descriptor_shared, angular_table_shared, force_way, frame_sums_on_host,
+        in_parallel, int_at, pair_chunks, pair_starts, set_int_at, sums_layout, sums_segments,
+        FittingPath, FittingRule, Scalar, BLOCK, FORCE_WAYS, FRAME_SUMS_THREADS,
         GROUPED_MAX_GROUPS, WIDE_BLOCK,
     };
     use FittingPath::{Fused, Grouped, NetByNet};
@@ -5978,39 +5861,5 @@ mod tests {
             wide_sums
         );
         assert_eq!(force_way(1, hap, Some(false), Some(false), true), narrow);
-    }
-
-    #[test]
-    fn se_e2_a_keeps_the_sums_just_past_every_way() {
-        // What an RTX 4090 keeps of the narrow blocks without the sums of
-        // the HAP se_e2_a model with tables in float32 (896) and in float64
-        // (768): the sums up to a quarter of a wave more. (The kernel of the
-        // exact nets goes without them past every way: `force_way` of a
-        // part, covered by the parity tests.)
-        for (blocks, without, sums) in [
-            (897, 896, true),
-            (968, 896, true),
-            (1120, 896, true),
-            (1121, 896, false),
-            (1792, 896, false),
-            (98_304, 896, false),
-            (769, 768, true),
-            (960, 768, true),
-            (961, 768, false),
-            (1, 0, false),
-        ] {
-            assert_eq!(
-                angular_sums_past(blocks, without),
-                sums,
-                "{blocks} blocks, {without} at once"
-            );
-        }
-        let narrow = FORCE_WAYS[3];
-        let narrow_sums = FORCE_WAYS[1];
-        let hap = [256, 512, 384, 896];
-        let sums_past = |blocks| angular_sums_past(blocks, hap[3]);
-        assert_eq!(force_way(968, hap, None, None, sums_past(968)), narrow_sums);
-        assert_eq!(force_way(1121, hap, None, None, sums_past(1121)), narrow);
-        assert_eq!(force_way(896, hap, None, None, sums_past(896)), narrow);
     }
 }
