@@ -1534,9 +1534,14 @@ omnimd-native-gpu-eval MODEL.json [--precision float64|float32] [--compress RMIN
   bench lines `force_threads` and `force_sums` give the way of the last
   two-body pass.
   `--grouped-fitting on|off` has the fitting nets on cuBLAS take grouped
-  products always or never. These are for comparison; the default rules
-  need no flag. The header of `native/src/bin/omnimd-native-gpu-eval.rs`
-  says what each is.
+  products always or never. `--device-sums CENTERS` sets the fewest
+  centers of a pass (atoms times models) whose sums of every frame, its
+  energy by type and its virial, the device forms (0: every pass); a
+  smaller pass copies the energies and virials of its atoms back and the
+  host adds them in the kernel's order, to the same bits. The bench lines'
+  `sums_on_device` says which the last pass did. These are for
+  comparison; the default rules need no flag. The header of
+  `native/src/bin/omnimd-native-gpu-eval.rs` says what each is.
   `--fused-fitting` counts rows of the fitting nets (atoms times models)
   since 2026-11-21, no longer atoms.
 - Frames larger than the device memory budget are processed in chunks of atoms

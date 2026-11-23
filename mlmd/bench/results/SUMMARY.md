@@ -1,3 +1,268 @@
+# The host's share of a large frame, 2026-11-22
+
+An evaluation of a large frame waits for the host. At 12,288 water atoms
+(se_e2_a in float32 with tables) one took 3.1 ms, and a probe build that
+read the host's clock between its steps (`--bench`, medians over 200
+evaluations) found the device idle for some 700 µs of it: before the first
+device call the host matched the species of the atoms to the model's types
+(76 µs), sorted the atoms by type (26) and allocated the results (15); it
+packed the input of the neighbor search (135) and uploaded it (25); after
+the copy back it read the status of the atoms (16), built the outputs (9),
+added up the atomic energies (29) and gathered the forces and added up the
+virials (85), checked them (9), and spent 44 freeing what the evaluation had
+allocated. At 98,304 atoms the same steps took 633, 483, 32, 1,153, 284,
+129, 99, 300, 891, 72 and 366 µs. The runs of this section are in the
+record `host-path-rtx4090-2026-11-22.json`, under the keys named in
+parentheses (these under `host_steps`).
+
+The copy back went to a fresh `Vec` every time: through the driver's
+staging buffer into pages the system had to supply. The device's time from
+the end of the force kernel to the results on the host (`download`, by the
+marks of `--profile`) was 264 µs at 12,288 atoms that way, 142 into a `Vec`
+used again and 89 into page-locked memory kept from one evaluation to the
+next; at 1,536 atoms 48, 47 and 39, at 192 atoms 24, 23 and 21 (three
+rounds, `download_modes`). cudarc's own page-locked buffers are
+write-combined, which makes every read of the host go to memory, so the
+buffer is allocated cached through the driver (`omnimd_gpu::HostBuffer`,
+`Device::download_into`).
+
+What changed, in this order:
+
+1. The results go into a page-locked buffer kept by the potential; the
+   species are matched to the types by one integer compare an atom (a name
+   of one or two bytes as one integer: the type map is checked to hold
+   element symbols, all that short, and a longer name matches nothing), the
+   positions checked for finite values without a stop at the first, and the
+   buffers of the sort by type kept between evaluations.
+2. The sums of every frame, its energy by type and its virial, are formed
+   on the device (`frame_sums_impl`): the atoms of a frame of one type in
+   segments of at most 256, a block of 128 threads for each segment and
+   model, the ten sums of a block across its warps once, and the last block
+   of a frame to be done adds up the segments of the frame in their order.
+   Only the forces, these sums and the status of each frame then go back:
+   at 12,288 atoms 0.30 MB instead of 1.28. A frame's sums depend neither
+   on the frames around it in a batch nor on the chunks of the pass. A
+   first version with one block a frame, its sums reduced one after the
+   other across the block (double precision runs at 1/64 of single on this
+   card), made the device's time from the end of the force kernel to the
+   results on the host longer, not shorter: 95.8 µs at 12,288 atoms against
+   88.8 for the copy of everything, 32.9 against 22.5 at 192 (medians of
+   three rounds, `first_version_one_block_a_frame`). With segments of at
+   most 256 atoms and the ten sums of a block reduced at once it took 77.0
+   against 93.7, and 26.8 against 21.9 at 192 (`segments`): the device's
+   sums saved time at the large frame and cost time at the small one,
+   hence item 3.
+3. A pass of fewer than 384 centers (atoms times models) copies the whole
+   buffer back and has the host form the same sums, in the order of the
+   kernel and so to the same bits (`frame_sums_on_host`,
+   `DEVICE_SUMS_CENTERS`): below that number the device's sums measured
+   slower (below).
+
+**Both ways of the sums agree to the bit.** The energies and virials of the
+two ways (`--device-sums 0` against `--device-sums 1000000000`, with the
+force blocks forming their sums in shared memory so that the virial of a
+center is the same in every pass) were identical in every evaluation of
+nine cases: HAP se_e2_a in float32 and float64, with tables and without,
+one frame at a time and in batches of 3 to 5 frames, a committee of four,
+chunks of 60 atoms; HAP se_e2_r and the HAP hybrid with se_e3 in batches;
+the water frame of 1,536 atoms (512 and 1,024 atoms of the two types, so
+two and four segments) in float64 and in float32 with chunks of 500 atoms.
+The forces, which the force blocks add to with atomics, differed by up to
+7.8e-15 eV/Å (`device_and_host_sums_agree`, the final build). The tests
+check the same on every run: `the_device_and_the_host_sum_the_frames_alike`
+on a batch with a frame of 1,000 atoms in several segments of each type,
+every frame alone against the batch, and coincident atoms deep in that
+frame (the 435th atom of one type, the 297th of the other) named in the
+error on either path; `the_device_sums_the_frames_alike_in_every_pass`, 800
+passes of the device each against the host's sums (the blocks of a frame
+finish in another order every pass, and the last one reads what the others
+wrote); `the_device_sums_large_frames_alike_every_time`, a frame of 12,167
+atoms (48 segments) in 80 passes, and by hand one of 97,336 atoms (381
+segments) in 20. On the final build compute-sanitizer's memcheck, racecheck
+and synccheck found nothing in the first of these, in
+`a_batch_of_frames_matches_each_frame_alone` and
+`a_committee_matches_its_members_alone`, and in
+`results_come_back_through_page_locked_memory`, the test of the copy into
+page-locked memory.
+
+**What the review found.** Four reviewers and their verifiers (a workflow
+of seven agents) confirmed two faults of `Device::download_into`, neither
+reachable from the potential, which always copies with the device it was
+made with, right after a launch that binds the device's context: it bound
+the context only when the buffer grew, so a copy from another thread could
+fail for want of a current context; and the buffer kept the context of the
+handle that made it while its memory was allocated in the context of the
+device that grew it, which with two GPUs could free that memory under the
+buffer. The copy now binds the context every time, and a buffer of another
+context is freed there and allocated again. The test of the status of
+each frame on the device's path had only frames in which every atom or
+none was flagged; a comment miscounted the atoms of a type; a doc misstated
+the shared memory of the kernel: all mended. After the review the copy
+also went through the raw pointer, the slice of the buffer formed only
+once the copy has written it (new page-locked memory is uninitialized).
+
+**Where the device's sums pay** (`crossover`): one build (final-a, which
+differs from the final build only in forming the slice of the copy back
+before the copy instead of after it, the same driver call) with the sums
+on the device (`--device-sums 0`), on the host (`--device-sums
+1000000000`) and on the device again as control, alternated, five rounds,
+least of each, µs; HAP models but where water is named, all with tables;
+"host / device" is positive where the device's sums were faster:
+
+| Case | Centers | Device | Host | Device again | Host / device | Again / device |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| se_e2_a f32, 88 ×1 | 88 | 145.1 | 138.7 | 146.0 | −4.39% | +0.64% |
+| se_e2_a f32, 88 ×2 | 176 | 174.1 | 171.7 | 173.8 | −1.38% | −0.15% |
+| se_e2_a f32, 88 ×3 | 264 | 226.6 | 224.9 | 225.7 | −0.73% | −0.39% |
+| se_e2_a f32, 88 ×4 | 352 | 254.7 | 256.2 | 254.4 | +0.61% | −0.10% |
+| se_e2_a f32, 88 ×5 | 440 | 294.2 | 296.9 | 294.4 | +0.91% | +0.06% |
+| se_e2_a f32, 88 ×6 | 528 | 345.7 | 351.6 | 346.9 | +1.72% | +0.36% |
+| se_e2_a f32, 88 ×8 | 704 | 409.8 | 423.5 | 412.6 | +3.35% | +0.68% |
+| se_e2_a f32, 88 ×12 | 1,056 | 566.7 | 604.7 | 567.2 | +6.71% | +0.08% |
+| se_e2_a f64, 88 ×1 | 88 | 400.7 | 396.4 | 403.1 | −1.07% | +0.59% |
+| se_e2_a f64, 88 ×2 | 176 | 693.6 | 692.7 | 697.2 | −0.13% | +0.51% |
+| se_e2_a f64, 88 ×3 | 264 | 1,013.1 | 1,018.4 | 1,017.3 | +0.52% | +0.41% |
+| se_e2_a f64, 88 ×4 | 352 | 1,072.7 | 1,076.8 | 1,077.4 | +0.38% | +0.43% |
+| se_e2_a f64, 88 ×6 | 528 | 1,678.5 | 1,694.9 | 1,687.6 | +0.97% | +0.54% |
+| se_e2_a f64, 88 ×8 | 704 | 2,076.9 | 2,079.4 | 2,085.6 | +0.12% | +0.42% |
+| se_e2_a f32, 224 ×1 | 224 | 193.6 | 190.2 | 192.6 | −1.78% | −0.53% |
+| se_e2_a f32, 224 ×2 | 448 | 300.7 | 301.4 | 298.8 | +0.22% | −0.63% |
+| se_e2_a f32, 224 ×3 | 672 | 405.8 | 410.1 | 405.3 | +1.07% | −0.11% |
+| se_e2_a f32, 224 ×4 | 896 | 512.1 | 523.3 | 512.1 | +2.18% | −0.01% |
+| se_e2_r f32, 88 ×1 | 88 | 114.8 | 110.1 | 115.9 | −4.14% | +0.93% |
+| se_e2_r f32, 88 ×2 | 176 | 142.9 | 141.8 | 144.1 | −0.80% | +0.83% |
+| se_e2_r f32, 88 ×4 | 352 | 178.1 | 180.9 | 178.3 | +1.57% | +0.13% |
+| se_e2_r f32, 88 ×8 | 704 | 303.4 | 312.4 | 302.5 | +2.95% | −0.29% |
+| se_e2_a with se_e3 f32, 88 ×1 | 88 | 222.0 | 209.2 | 220.6 | −5.78% | −0.60% |
+| se_e2_a with se_e3 f32, 88 ×2 | 176 | 256.0 | 248.2 | 255.0 | −3.05% | −0.39% |
+| se_e2_a with se_e3 f32, 88 ×4 | 352 | 346.0 | 347.2 | 346.1 | +0.36% | +0.02% |
+| se_e2_a with se_e3 f32, 88 ×8 | 704 | 579.7 | 591.4 | 582.5 | +2.02% | +0.48% |
+| committee of two f32, 88 ×1 | 176 | 178.2 | 177.8 | 177.7 | −0.25% | −0.30% |
+| committee of two f32, 88 ×2 | 352 | 249.9 | 250.7 | 250.0 | +0.31% | +0.05% |
+| committee of two f32, 88 ×4 | 704 | 416.5 | 427.3 | 416.7 | +2.60% | +0.05% |
+| committee of four f32, 88 ×1 | 352 | 300.3 | 303.0 | 300.8 | +0.91% | +0.18% |
+| committee of four f32, 88 ×2 | 704 | 432.2 | 439.1 | 432.5 | +1.60% | +0.08% |
+| committee of four f32, 169 ×1 | 676 | 441.1 | 444.3 | 441.6 | +0.74% | +0.13% |
+| water se_e2_a f32, 192 ×1 | 192 | 184.6 | 181.8 | 184.9 | −1.53% | +0.17% |
+| water se_e2_a f32, 192 ×2 | 384 | 269.0 | 269.9 | 269.1 | +0.35% | +0.05% |
+| water se_e2_a f32, 192 ×3 | 576 | 367.9 | 372.6 | 368.8 | +1.30% | +0.25% |
+| water se_e2_a f32, 192 ×4 | 768 | 458.0 | 456.9 | 458.3 | −0.24% | +0.07% |
+
+The control stayed within 0.93% of the first run. The host's sums were
+faster up to 224 centers (by 0.13 to 5.8%), the two within 0.73% at 264,
+and the device's faster at 352 (by 0.31 to 1.6%), at 384 (0.35%) and above
+(by 0.12 to 6.7%), but for the water frames at 768 centers, 0.24% slower.
+A first run of four rounds without control (`crossover_first`) had the
+device 4.2% faster there and the two within 0.69% at 352. The threshold
+stays at 384, the fewest centers at which the device's sums were faster in
+both runs. On the device's path a batch whose frames change from pass to
+pass uploads the layout of its sums again (one more small copy), which
+these runs, with the same frames every pass, do not have.
+
+In an nsys trace of the 88-atom frame of the HAP hybrid the kernel took
+5.4 µs of the device, 1.3 µs after the force kernel, and the copy back
+1.9 µs either way (2,240 bytes against 9,616); the device's span of an
+evaluation was 192.8 µs with the kernel and 185.1 without it.
+
+**Before and after** (`final`): the build before (46a9a91, "base"), a
+build on the way ("a1": the results in page-locked memory, the species
+matched by integer keys, the sort's buffers kept, the host forming every
+sum as before), this change ("final") and the build before again as
+control, five rounds, the builds in order and reversed every other round;
+the water frames, se_e2_a in float32 with tables; the least time of an
+evaluation, µs:
+
+| Atoms | Base | a1 | Final | Base again | Final / base | Again / base |
+| ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| 192 | 182.7 | 181.3 | 182.5 | 182.9 | −0.1% | +0.1% |
+| 1,536 | 649.2 | 639.5 | 612.1 | 647.0 | −5.7% | −0.3% |
+| 12,288 | 3,066.4 | 2,841.3 | 2,758.3 | 3,071.6 | −10.0% | +0.2% |
+| 98,304 | 24,466.7 | 22,657.8 | 22,051.1 | 24,613.7 | −9.9% | +0.6% |
+
+The device's time from the end of the force kernel to the results on the
+host (by marks), the host's work after the copy back and its work before
+the first device call, each cell the three in that order, medians of the
+five rounds, µs:
+
+| Atoms | Base | a1 | Final | Base again |
+| ---: | ---: | ---: | ---: | ---: |
+| 192 | 23 / 7 / 2 | 20 / 7 / 2 | 20 / 8 / 2 | 24 / 7 / 2 |
+| 1,536 | 47 / 24 / 14 | 38 / 24 / 10 | 38 / 15 / 10 | 47 / 24 / 14 |
+| 12,288 | 251 / 198 / 106 | 86 / 164 / 77 | 72 / 97 / 71 | 258 / 203 / 109 |
+| 98,304 | 1,418 / 1,820 / 1,080 | 442 / 1,515 / 670 | 293 / 907 / 661 | 1,404 / 1,854 / 1,103 |
+
+From 1,536 atoms on, the change took 5.7 to 10.0% off an evaluation, the
+control within 0.6% of the build before. At 12,288 atoms the copy back took
+165 µs less with the page-locked memory (a1) and 14 less again with the
+device's sums, the host's work after it 34 µs less in a1 and 68 less again
+in the final build, which reads the sums of the frame instead of adding up
+the energies and virials of its atoms, and the host's work before the
+first device call 30 and 6 µs less. At 98,304 atoms the three went from
+1,418, 1,820 and 1,080 µs to 293, 907 and 661.
+
+**Small frames and committees** (`small`): the same four builds on the
+frames of the HAP pipeline and the small water frames, three rounds, one
+process per build, case and round; "×4" is a batch of four copies of the
+frame; HAP models but where water is named, all with tables; least of
+each, µs:
+
+| Case | Centers | Base | a1 | Final | Base again | Final / base | Again / base |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| se_e2_a f32, 88 ×1 | 88 | 141.2 | 138.3 | 139.8 | 139.7 | −1.0% | −1.1% |
+| se_e2_a f32, 88 ×4 | 352 | 253.2 | 252.8 | 254.7 | 255.0 | +0.6% | +0.7% |
+| se_e2_a f32, 88 ×12 | 1,056 | 600.5 | 593.2 | 562.0 | 600.3 | −6.4% | −0.0% |
+| se_e2_a f32, 169 ×1 | 169 | 173.2 | 171.2 | 170.9 | 171.8 | −1.3% | −0.8% |
+| se_e2_a f32, 169 ×3 | 507 | 330.8 | 327.9 | 327.1 | 330.1 | −1.1% | −0.2% |
+| se_e2_a f32, 224 ×1 | 224 | 191.5 | 189.2 | 190.9 | 191.8 | −0.3% | +0.2% |
+| se_e2_a f32, 224 ×4 | 896 | 523.4 | 518.1 | 513.6 | 522.3 | −1.9% | −0.2% |
+| se_e2_a f64, 88 ×1 | 88 | 399.0 | 395.5 | 398.7 | 399.6 | −0.1% | +0.2% |
+| se_e2_a f64, 88 ×4 | 352 | 1,075.5 | 1,074.9 | 1,075.2 | 1,075.0 | −0.0% | −0.1% |
+| se_e2_r f32, 88 ×1 | 88 | 109.2 | 108.5 | 108.2 | 110.4 | −0.9% | +1.1% |
+| se_e2_r f32, 88 ×4 | 352 | 181.8 | 177.2 | 179.1 | 180.3 | −1.5% | −0.9% |
+| se_e2_a with se_e3 f32, 88 ×1 | 88 | 203.7 | 202.4 | 205.3 | 203.7 | +0.8% | −0.0% |
+| committee of four f32, 88 ×1 | 352 | 299.1 | 299.4 | 302.1 | 302.0 | +1.0% | +1.0% |
+| committee of four f32, 224 ×1 | 896 | 515.9 | 506.3 | 505.6 | 507.7 | −2.0% | −1.6% |
+| water se_e2_a f32, 192 ×1 | 192 | 183.2 | 182.2 | 182.3 | 183.9 | −0.5% | +0.4% |
+| water se_e2_a f32, 192 ×4 | 768 | 464.7 | 467.2 | 452.9 | 474.9 | −2.5% | +2.2% |
+| water se_e2_a f32, 1,536 ×1 | 1,536 | 648.2 | 636.8 | 614.5 | 647.1 | −5.2% | −0.2% |
+
+The control moved by −1.6 to +2.2% against the build before, the final
+build by −6.4 to +1.0%. With 384 centers or more, where the device forms
+the sums, it was faster by 1.1 to 6.4%; with fewer, where the host forms
+them in the kernel's order, it was within −1.5 to +1.0% of the build
+before, the control within −1.1 to +1.1%. One case came out above the
+control, the hybrid with se_e3 (+0.8%, the control −0.0%), and one level
+with it, the committee of four on 88 atoms (+1.0%). Seven more rounds of
+those (`small_recheck`):
+
+| Case | Centers | Base | a1 | Final | Base again | Final / base | Again / base |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| se_e2_a with se_e3 f32, 88 ×1 | 88 | 204.2 | 202.5 | 203.6 | 203.0 | −0.3% | −0.6% |
+| committee of four f32, 88 ×1 | 352 | 300.7 | 298.1 | 302.1 | 299.6 | +0.5% | −0.3% |
+| committee of four f32, 224 ×1 | 896 | 507.8 | 502.9 | 501.2 | 508.5 | −1.3% | +0.1% |
+
+The hybrid was within the control. The committee of four on 88 atoms (352
+centers, below the threshold) was 0.5% slower than the build before and
+1.4% slower than a1, the control 0.3% faster. Its profile
+(`host_finish_small`, five rounds, medians) has the difference in the
+host's work after the copy back: 8.6 µs in the build before, 9.0 in a1 and
+12.3 in the final build, whose copy back took 3.1 µs less than the build
+before's (28.2 against 31.3); with one model on the frame 5.1, 5.3 and 6.1
+µs. Below the threshold, then, the sums in the kernel's order (the threads
+of a block, then the lanes of its warps) cost the host more than the plain
+sums of a1 did, and take a1's gain back; a faster form of the same order,
+with the threshold measured again, is the next change.
+
+**The largest frame** (`largest`): the water frame of 98,304 atoms on the
+build before and the final build, with the same arguments. In float32 with
+tables, and in float32 with one pair 0.3 Å apart so that the evaluation
+leaves the tables for the exact nets in chunks, the energies were the same
+to the bit; in float64 with tables they differed by 9.3e-10 eV of 5.1e6.
+The forces, which the force kernel adds to with atomics in no fixed order,
+differed by at most 5.6e-17 eV/Å, the virials by 7.0e-12 eV of 78. An
+evaluation in float32 with tables took 24.45 ms before and 21.90 after
+(the least of two runs of 20 evaluations each, alternated).
+
 # omniMD and DeePMD-kit timed in one session, 2026-11-22
 
 The comparison with DeePMD-kit in the top-level README had numbers of

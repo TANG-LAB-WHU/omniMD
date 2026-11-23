@@ -1,0 +1,2260 @@
+{
+ "date": "2026-11-22",
+ "device": "NVIDIA GeForce RTX 4090",
+ "host": "i9-14900K, the host side held to the performance cores",
+ "what": "The host share of a large frame: results through page-locked memory, the sums of each frame on the device, the host sums below a number of centers. See SUMMARY.md, 2026-11-22.",
+ "host_steps": {
+  "what": "Medians of the host clock between the steps of an evaluation (probe build, --bench), us.",
+  "build": "probe: 46a9a91 reading the host clock between its steps",
+  "sizes": {
+   "192": {
+    "ms_per_eval": 0.207257,
+    "median_us": {
+     "between": 8.7,
+     "type ids": 1.9,
+     "sort by type": 0.5,
+     "results buffer": 6.7,
+     "pack": 2.4,
+     "upload": 3.8,
+     "search launch": 3.9,
+     "read list": 0.1,
+     "model issued": 23.8,
+     "download": 136.6,
+     "status": 0.4,
+     "allocate outputs": 0.3,
+     "energies": 0.6,
+     "forces and virial": 1.5,
+     "validate": 0.2,
+     "run returned": 3.2,
+     "exit": 0.1
+    },
+    "evaluations": 2000
+   },
+   "1536": {
+    "ms_per_eval": 0.6868775,
+    "median_us": {
+     "between": 11.8,
+     "type ids": 10.4,
+     "sort by type": 3.1,
+     "results buffer": 8.4,
+     "pack": 17.5,
+     "upload": 8.8,
+     "search launch": 5.1,
+     "read list": 0.1,
+     "model issued": 285.2,
+     "download": 269.55,
+     "status": 2.2,
+     "allocate outputs": 1.3,
+     "energies": 3.8,
+     "forces and virial": 10.9,
+     "validate": 1.2,
+     "run returned": 3.9,
+     "exit": 0.2
+    },
+    "evaluations": 1000
+   },
+   "12288": {
+    "ms_per_eval": 3.108982,
+    "median_us": {
+     "between": 15.350000000000001,
+     "type ids": 75.9,
+     "sort by type": 25.95,
+     "results buffer": 14.75,
+     "pack": 134.8,
+     "upload": 25.3,
+     "search launch": 6.7,
+     "read list": 0.2,
+     "model issued": 98.44999999999999,
+     "download": 2323.7,
+     "status": 16.2,
+     "allocate outputs": 9.0,
+     "energies": 28.9,
+     "forces and virial": 84.8,
+     "validate": 8.8,
+     "run returned": 44.4,
+     "exit": 0.5
+    },
+    "evaluations": 200
+   },
+   "98304": {
+    "ms_per_eval": 24.543405,
+    "median_us": {
+     "between": 87.35,
+     "type ids": 632.7,
+     "sort by type": 482.75,
+     "results buffer": 32.2,
+     "pack": 1153.3000000000002,
+     "upload": 284.35,
+     "search launch": 15.75,
+     "read list": 0.5,
+     "model issued": 245.89999999999998,
+     "download": 19699.050000000003,
+     "status": 128.55,
+     "allocate outputs": 99.15,
+     "energies": 300.1,
+     "forces and virial": 890.55,
+     "validate": 72.15,
+     "run returned": 365.5,
+     "exit": 1.6
+    },
+    "evaluations": 20
+   }
+  }
+ },
+ "download_modes": {
+  "what": "ab_env.py: water frames of 192 to 98,304 atoms (cases/water-*.jsonl), se_e2_a water model in float32 with tables (--compress 0.5), every build on every size in every round, builds in order and reversed every other round, each run `--bench K --profile` (K 2000, 1000, 200, 20); eval_us_least and eval_us_median are of the bench loop, the stages (download, neighbors, forces: medians, device time by marks) and the host times of the profile loop.",
+  "sizes_in_atoms": [
+   "192",
+   "1536",
+   "12288"
+  ],
+  "precision": "float32",
+  "compress": "0.5",
+  "model": "water-se_e2_a-float64.native.json",
+  "builds": [
+   {
+    "label": "fresh",
+    "build": "dl: probe build with the copy back chosen by OMNIMD_DL_MODE (0 a fresh Vec, 1 a Vec used again, 2 page-locked memory kept)",
+    "settings": {
+     "OMNIMD_DL_MODE": "0"
+    }
+   },
+   {
+    "label": "reused",
+    "build": "dl: probe build with the copy back chosen by OMNIMD_DL_MODE (0 a fresh Vec, 1 a Vec used again, 2 page-locked memory kept)",
+    "settings": {
+     "OMNIMD_DL_MODE": "1"
+    }
+   },
+   {
+    "label": "pinned",
+    "build": "dl: probe build with the copy back chosen by OMNIMD_DL_MODE (0 a fresh Vec, 1 a Vec used again, 2 page-locked memory kept)",
+    "settings": {
+     "OMNIMD_DL_MODE": "2"
+    }
+   }
+  ],
+  "rounds": 3,
+  "summary_us": {
+   "192": {
+    "fresh": {
+     "eval_us_least": 183.4144,
+     "eval_us_median": 184.62305,
+     "download_us": 23.65828802017495,
+     "neighbors_us": 33.55446405056864,
+     "forces_us": 24.467600577510893,
+     "host_finish_us": 6.739400000000029,
+     "host_prepare_us": 2.3715500000000427
+    },
+    "reused": {
+     "eval_us_least": 182.44435000000001,
+     "eval_us_median": 183.33769999999998,
+     "download_us": 23.393808002118025,
+     "neighbors_us": 33.431168164126575,
+     "forces_us": 24.406960570253432,
+     "host_finish_us": 6.632300000000005,
+     "host_prepare_us": 2.324750000000021
+    },
+    "pinned": {
+     "eval_us_least": 183.0068,
+     "eval_us_median": 183.60594999999998,
+     "download_us": 21.15680009732023,
+     "neighbors_us": 34.03070408850908,
+     "forces_us": 24.631808556616306,
+     "host_finish_us": 6.62085000000003,
+     "host_prepare_us": 2.3759000000000396
+    }
+   },
+   "1536": {
+    "fresh": {
+     "eval_us_least": 662.8461,
+     "eval_us_median": 664.9946,
+     "download_us": 48.2962880320847,
+     "neighbors_us": 102.7822081297636,
+     "forces_us": 96.6390416547656,
+     "host_finish_us": 24.20740000000001,
+     "host_prepare_us": 13.465800000000012
+    },
+    "reused": {
+     "eval_us_least": 663.2904,
+     "eval_us_median": 663.9478,
+     "download_us": 47.1545599848032,
+     "neighbors_us": 103.50918383151293,
+     "forces_us": 96.6296655535698,
+     "host_finish_us": 23.99720000000003,
+     "host_prepare_us": 13.069000000000008
+    },
+    "pinned": {
+     "eval_us_least": 649.7696,
+     "eval_us_median": 652.9762999999999,
+     "download_us": 39.27459205687046,
+     "neighbors_us": 101.4030077829957,
+     "forces_us": 96.7545296549797,
+     "host_finish_us": 23.933099999999982,
+     "host_prepare_us": 13.33860000000001
+    }
+   },
+   "12288": {
+    "fresh": {
+     "eval_us_least": 3053.5790000000006,
+     "eval_us_median": 3096.504,
+     "download_us": 263.86335991322994,
+     "neighbors_us": 573.9486396312714,
+     "forces_us": 760.6899172067642,
+     "host_finish_us": 205.46650000000002,
+     "host_prepare_us": 108.11700000000002
+    },
+    "reused": {
+     "eval_us_least": 2945.487,
+     "eval_us_median": 2956.663,
+     "download_us": 142.15295985341072,
+     "neighbors_us": 564.726400077343,
+     "forces_us": 762.5867241621017,
+     "host_finish_us": 157.17999999999995,
+     "host_prepare_us": 100.20549999999996
+    },
+    "pinned": {
+     "eval_us_least": 2862.9719999999998,
+     "eval_us_median": 2883.248,
+     "download_us": 88.77679996192455,
+     "neighbors_us": 568.3489611744881,
+     "forces_us": 764.4352036714555,
+     "host_finish_us": 162.99050000000008,
+     "host_prepare_us": 107.39950000000003
+    }
+   }
+  },
+  "ms_per_eval_samples": {
+   "192": {
+    "fresh": [
+     0.197503,
+     0.183414,
+     0.184623
+    ],
+    "reused": [
+     0.184333,
+     0.183338,
+     0.182444
+    ],
+    "pinned": [
+     0.184016,
+     0.183606,
+     0.183007
+    ]
+   },
+   "1536": {
+    "fresh": [
+     0.670307,
+     0.664995,
+     0.662846
+    ],
+    "reused": [
+     0.666142,
+     0.66329,
+     0.663948
+    ],
+    "pinned": [
+     0.652976,
+     0.658251,
+     0.64977
+    ]
+   },
+   "12288": {
+    "fresh": [
+     3.096504,
+     3.053579,
+     3.097468
+    ],
+    "reused": [
+     2.945487,
+     2.977734,
+     2.956663
+    ],
+    "pinned": [
+     2.862972,
+     2.912502,
+     2.883248
+    ]
+   }
+  }
+ },
+ "first_version_one_block_a_frame": {
+  "what": "ab_env.py: water frames of 192 to 98,304 atoms (cases/water-*.jsonl), se_e2_a water model in float32 with tables (--compress 0.5), every build on every size in every round, builds in order and reversed every other round, each run `--bench K --profile` (K 2000, 1000, 200, 20); eval_us_least and eval_us_median are of the bench loop, the stages (download, neighbors, forces: medians, device time by marks) and the host times of the profile loop.",
+  "sizes_in_atoms": [
+   "192",
+   "1536",
+   "12288"
+  ],
+  "precision": "float32",
+  "compress": "0.5",
+  "model": "water-se_e2_a-float64.native.json",
+  "builds": [
+   {
+    "label": "base",
+    "build": "the build before: 46a9a91 (built from 04ac051, whose sources differ from it in one doc comment)",
+    "settings": {}
+   },
+   {
+    "label": "a1",
+    "build": "a1: results into page-locked memory, the species matched by integer keys, the sort buffers kept; the host sums every frame",
+    "settings": {}
+   },
+   {
+    "label": "a2",
+    "build": "a2: a1 with the sums of each frame on the device, one block a frame and model, its sums reduced one after the other",
+    "settings": {}
+   }
+  ],
+  "rounds": 3,
+  "summary_us": {
+   "192": {
+    "base": {
+     "eval_us_least": 185.5771,
+     "eval_us_median": 185.94735,
+     "download_us": 23.54014399368316,
+     "neighbors_us": 33.815968074835844,
+     "forces_us": 24.399568596854806,
+     "host_finish_us": 6.755150000000026,
+     "host_prepare_us": 2.4493000000000147
+    },
+    "a1": {
+     "eval_us_least": 182.56645,
+     "eval_us_median": 182.98819999999998,
+     "download_us": 22.51323204254732,
+     "neighbors_us": 35.99294405058026,
+     "forces_us": 24.580896590836346,
+     "host_finish_us": 7.323850000000016,
+     "host_prepare_us": 2.0545999999999776
+    },
+    "a2": {
+     "eval_us_least": 191.83625,
+     "eval_us_median": 193.1995,
+     "download_us": 32.867328042164445,
+     "neighbors_us": 37.78908792231232,
+     "forces_us": 24.593280588276688,
+     "host_finish_us": 5.356649999999936,
+     "host_prepare_us": 2.0501499999999737
+    }
+   },
+   "1536": {
+    "base": {
+     "eval_us_least": 663.7598,
+     "eval_us_median": 664.3162,
+     "download_us": 50.85856006294489,
+     "neighbors_us": 105.94681581109762,
+     "forces_us": 96.86249766498804,
+     "host_finish_us": 25.54709999999999,
+     "host_prepare_us": 14.442299999999966
+    },
+    "a1": {
+     "eval_us_least": 657.5447,
+     "eval_us_median": 657.9861,
+     "download_us": 40.115168038755655,
+     "neighbors_us": 104.5715199187398,
+     "forces_us": 96.73824144899845,
+     "host_finish_us": 24.4122,
+     "host_prepare_us": 10.58980000000002
+    },
+    "a2": {
+     "eval_us_least": 630.2417,
+     "eval_us_median": 638.0822000000001,
+     "download_us": 40.01532790437341,
+     "neighbors_us": 115.76063938066363,
+     "forces_us": 96.8533454015851,
+     "host_finish_us": 15.761299999999965,
+     "host_prepare_us": 9.907200000000016
+    }
+   },
+   "12288": {
+    "base": {
+     "eval_us_least": 3067.6094999999996,
+     "eval_us_median": 3095.0355000000004,
+     "download_us": 257.9423999786377,
+     "neighbors_us": 581.0104009509088,
+     "forces_us": 756.5235149860382,
+     "host_finish_us": 210.98750000000007,
+     "host_prepare_us": 114.62249999999986
+    },
+    "a1": {
+     "eval_us_least": 2862.321,
+     "eval_us_median": 2882.7499999999995,
+     "download_us": 88.75200010836124,
+     "neighbors_us": 567.9766404628754,
+     "forces_us": 761.0137623548508,
+     "host_finish_us": 168.075,
+     "host_prepare_us": 78.85800000000002
+    },
+    "a2": {
+     "eval_us_least": 2776.5690000000004,
+     "eval_us_median": 2791.2915,
+     "download_us": 95.84271997213365,
+     "neighbors_us": 576.3543984293938,
+     "forces_us": 746.9048005342484,
+     "host_finish_us": 101.27500000000003,
+     "host_prepare_us": 73.80750000000003
+    }
+   }
+  },
+  "ms_per_eval_samples": {
+   "192": {
+    "base": [
+     0.193477,
+     0.185947,
+     0.185577
+    ],
+    "a1": [
+     0.183162,
+     0.182988,
+     0.182566
+    ],
+    "a2": [
+     0.193199,
+     0.194562,
+     0.191836
+    ]
+   },
+   "1536": {
+    "base": [
+     0.664316,
+     0.66376,
+     0.664928
+    ],
+    "a1": [
+     0.657545,
+     0.657986,
+     0.658818
+    ],
+    "a2": [
+     0.639504,
+     0.638082,
+     0.630242
+    ]
+   },
+   "12288": {
+    "base": [
+     3.067609,
+     3.107467,
+     3.095036
+    ],
+    "a1": [
+     2.862321,
+     2.907988,
+     2.88275
+    ],
+    "a2": [
+     2.802878,
+     2.776569,
+     2.791291
+    ]
+   }
+  }
+ },
+ "segments": {
+  "what": "ab_env.py: water frames of 192 to 98,304 atoms (cases/water-*.jsonl), se_e2_a water model in float32 with tables (--compress 0.5), every build on every size in every round, builds in order and reversed every other round, each run `--bench K --profile` (K 2000, 1000, 200, 20); eval_us_least and eval_us_median are of the bench loop, the stages (download, neighbors, forces: medians, device time by marks) and the host times of the profile loop.",
+  "sizes_in_atoms": [
+   "192",
+   "1536",
+   "12288"
+  ],
+  "precision": "float32",
+  "compress": "0.5",
+  "model": "water-se_e2_a-float64.native.json",
+  "builds": [
+   {
+    "label": "base",
+    "build": "the build before: 46a9a91 (built from 04ac051, whose sources differ from it in one doc comment)",
+    "settings": {}
+   },
+   {
+    "label": "a1",
+    "build": "a1: results into page-locked memory, the species matched by integer keys, the sort buffers kept; the host sums every frame",
+    "settings": {}
+   },
+   {
+    "label": "a2b",
+    "build": "a2b: a1 with the sums on the device in segments of at most 256 atoms, the ten sums of a block reduced at once",
+    "settings": {}
+   }
+  ],
+  "rounds": 3,
+  "summary_us": {
+   "192": {
+    "base": {
+     "eval_us_least": 182.9773,
+     "eval_us_median": 185.50379999999998,
+     "download_us": 23.481584056280553,
+     "neighbors_us": 33.979791968129575,
+     "forces_us": 24.53342461399734,
+     "host_finish_us": 7.126300000000028,
+     "host_prepare_us": 2.517900000000025
+    },
+    "a1": {
+     "eval_us_least": 183.16325,
+     "eval_us_median": 183.39215000000002,
+     "download_us": 21.88395206956193,
+     "neighbors_us": 34.36227193195373,
+     "forces_us": 24.653600580058992,
+     "host_finish_us": 6.61779999999999,
+     "host_prepare_us": 1.9739499999999752
+    },
+    "a2b": {
+     "eval_us_least": 184.257,
+     "eval_us_median": 188.56015000000002,
+     "download_us": 26.847184252459556,
+     "neighbors_us": 37.442399953491986,
+     "forces_us": 24.72953661158681,
+     "host_finish_us": 4.999150000000015,
+     "host_prepare_us": 1.9451499999999782
+    }
+   },
+   "1536": {
+    "base": {
+     "eval_us_least": 660.552,
+     "eval_us_median": 662.6002,
+     "download_us": 49.37779198214412,
+     "neighbors_us": 106.00479999184608,
+     "forces_us": 96.82019348442554,
+     "host_finish_us": 24.65290000000001,
+     "host_prepare_us": 14.029599999999984
+    },
+    "a1": {
+     "eval_us_least": 652.1933,
+     "eval_us_median": 654.3016,
+     "download_us": 39.956032034009695,
+     "neighbors_us": 106.01795206964017,
+     "forces_us": 96.92089731991291,
+     "host_finish_us": 24.509399999999975,
+     "host_prepare_us": 10.80600000000002
+    },
+    "a2b": {
+     "eval_us_least": 624.3784,
+     "eval_us_median": 629.7257000000001,
+     "download_us": 41.13062432035804,
+     "neighbors_us": 112.88959954306483,
+     "forces_us": 96.94627337902784,
+     "host_finish_us": 15.419199999999982,
+     "host_prepare_us": 10.908300000000022
+    }
+   },
+   "12288": {
+    "base": {
+     "eval_us_least": 3091.5355,
+     "eval_us_median": 3124.959,
+     "download_us": 252.91951924562457,
+     "neighbors_us": 567.3854404687881,
+     "forces_us": 767.3025557398796,
+     "host_finish_us": 201.4174999999999,
+     "host_prepare_us": 106.4745
+    },
+    "a1": {
+     "eval_us_least": 2838.7515000000003,
+     "eval_us_median": 2865.4984999999997,
+     "download_us": 93.6792002245784,
+     "neighbors_us": 572.4547174572945,
+     "forces_us": 761.4188784360886,
+     "host_finish_us": 172.52300000000008,
+     "host_prepare_us": 87.43549999999995
+    },
+    "a2b": {
+     "eval_us_least": 2786.345,
+     "eval_us_median": 2792.881,
+     "download_us": 77.02767990529537,
+     "neighbors_us": 578.0113604664803,
+     "forces_us": 758.2196792960167,
+     "host_finish_us": 97.51800000000004,
+     "host_prepare_us": 82.75750000000004
+    }
+   }
+  },
+  "ms_per_eval_samples": {
+   "192": {
+    "base": [
+     0.186188,
+     0.185504,
+     0.182977
+    ],
+    "a1": [
+     0.183163,
+     0.184655,
+     0.183392
+    ],
+    "a2b": [
+     0.18856,
+     0.184257,
+     0.188669
+    ]
+   },
+   "1536": {
+    "base": [
+     0.660552,
+     0.676591,
+     0.6626
+    ],
+    "a1": [
+     0.652193,
+     0.662573,
+     0.654302
+    ],
+    "a2b": [
+     0.629726,
+     0.624378,
+     0.631957
+    ]
+   },
+   "12288": {
+    "base": [
+     3.145249,
+     3.124959,
+     3.091535
+    ],
+    "a1": [
+     2.838752,
+     2.865498,
+     2.893752
+    ],
+    "a2b": [
+     2.786345,
+     2.799219,
+     2.792881
+    ]
+   }
+  }
+ },
+ "small_before_the_threshold": {
+  "what": "ab_small.py: the HAP frames of 88, 169 and 224 atoms (cases/hap) and the water frame of 192 and 1,536 atoms, one process per build, case and round with --bench K and --bench-batches (batches of copies of the frame); the least ms per evaluation of every case and batch, in us. Builds in order and reversed every other round; the card checked for other users before every round.",
+  "rounds": 3,
+  "builds": [
+   {
+    "label": "base",
+    "build": "the build before: 46a9a91 (built from 04ac051, whose sources differ from it in one doc comment)",
+    "settings": []
+   },
+   {
+    "label": "a1",
+    "build": "a1: results into page-locked memory, the species matched by integer keys, the sort buffers kept; the host sums every frame",
+    "settings": []
+   },
+   {
+    "label": "a2b",
+    "build": "a2b: a1 with the sums on the device in segments of at most 256 atoms, the ten sums of a block reduced at once",
+    "settings": []
+   },
+   {
+    "label": "base2",
+    "build": "the build before: 46a9a91 (built from 04ac051, whose sources differ from it in one doc comment)",
+    "settings": []
+   }
+  ],
+  "seconds_waited_for_the_card": [
+   0,
+   0,
+   0
+  ],
+  "us_per_evaluation": [
+   {
+    "case": "HAP se_e2_a f32 tables, 88 x1",
+    "centers": 88,
+    "base": 144.49,
+    "a1": 139.8,
+    "a2b": 145.18,
+    "base2": 143.48
+   },
+   {
+    "case": "HAP se_e2_a f32 tables, 88 x4",
+    "centers": 352,
+    "base": 255.55,
+    "a1": 254.83,
+    "a2b": 255.17,
+    "base2": 255.63
+   },
+   {
+    "case": "HAP se_e2_a f32 tables, 88 x12",
+    "centers": 1056,
+    "base": 603.03,
+    "a1": 594.85,
+    "a2b": 568.42,
+    "base2": 596.88
+   },
+   {
+    "case": "HAP se_e2_a f32 tables, 169 x1",
+    "centers": 169,
+    "base": 175.13,
+    "a1": 173.15,
+    "a2b": 182.24,
+    "base2": 175.92
+   },
+   {
+    "case": "HAP se_e2_a f32 tables, 169 x3",
+    "centers": 507,
+    "base": 334.17,
+    "a1": 332.54,
+    "a2b": 329.41,
+    "base2": 332.49
+   },
+   {
+    "case": "HAP se_e2_a f32 tables, 224 x1",
+    "centers": 224,
+    "base": 193.98,
+    "a1": 191.81,
+    "a2b": 192.41,
+    "base2": 193.39
+   },
+   {
+    "case": "HAP se_e2_a f32 tables, 224 x4",
+    "centers": 896,
+    "base": 523.04,
+    "a1": 514.75,
+    "a2b": 509.73,
+    "base2": 525.15
+   },
+   {
+    "case": "HAP se_e2_a f64 tables, 88 x1",
+    "centers": 88,
+    "base": 397.6,
+    "a1": 400.23,
+    "a2b": 407.39,
+    "base2": 401.7
+   },
+   {
+    "case": "HAP se_e2_a f64 tables, 88 x4",
+    "centers": 352,
+    "base": 1084.36,
+    "a1": 1074.35,
+    "a2b": 1076.63,
+    "base2": 1078.5
+   },
+   {
+    "case": "HAP se_e2_r f32 tables, 88 x1",
+    "centers": 88,
+    "base": 115.6,
+    "a1": 114.14,
+    "a2b": 117.02,
+    "base2": 113.31
+   },
+   {
+    "case": "HAP se_e2_r f32 tables, 88 x4",
+    "centers": 352,
+    "base": 183.93,
+    "a1": 182.27,
+    "a2b": 185.31,
+    "base2": 182.12
+   },
+   {
+    "case": "HAP se_e2_a with se_e3 f32 tables, 88 x1",
+    "centers": 88,
+    "base": 213.07,
+    "a1": 212.03,
+    "a2b": 226.01,
+    "base2": 212.92
+   },
+   {
+    "case": "HAP committee of four f32 tables, 88 x1",
+    "centers": 352,
+    "base": 303.17,
+    "a1": 301.76,
+    "a2b": 301.34,
+    "base2": 304.87
+   },
+   {
+    "case": "HAP committee of four f32 tables, 224 x1",
+    "centers": 896,
+    "base": 513.18,
+    "a1": 511.16,
+    "a2b": 501.02,
+    "base2": 514.69
+   },
+   {
+    "case": "water se_e2_a f32 tables, 192 x1",
+    "centers": 192,
+    "base": 183.94,
+    "a1": 180.62,
+    "a2b": 184.96,
+    "base2": 182.69
+   },
+   {
+    "case": "water se_e2_a f32 tables, 192 x4",
+    "centers": 768,
+    "base": 466.78,
+    "a1": 466.9,
+    "a2b": 459.17,
+    "base2": 459.52
+   },
+   {
+    "case": "water se_e2_a f32 tables, 1536 x1",
+    "centers": 1536,
+    "base": 642.27,
+    "a1": 638.18,
+    "a2b": 612.64,
+    "base2": 647.21
+   }
+  ]
+ },
+ "crossover_first": {
+  "what": "crossover.py: as ab_small.py on cases chosen around the threshold, one build with the sums on the device (--device-sums 0) and on the host (--device-sums 1000000000), the device a second time as control.",
+  "rounds": 4,
+  "builds": [
+   {
+    "label": "dev",
+    "build": "gate: a2b with the host sums below a number of centers (--device-sums), before the review",
+    "settings": [
+     "--device-sums",
+     "0"
+    ]
+   },
+   {
+    "label": "host",
+    "build": "gate: a2b with the host sums below a number of centers (--device-sums), before the review",
+    "settings": [
+     "--device-sums",
+     "1000000000"
+    ]
+   }
+  ],
+  "seconds_waited_for_the_card": [
+   0,
+   0,
+   0,
+   0
+  ],
+  "us_per_evaluation": [
+   {
+    "case": "HAP se_e2_a f32 tables, 88 x1",
+    "centers": 88,
+    "dev": 144.37,
+    "host": 140.99
+   },
+   {
+    "case": "HAP se_e2_a f32 tables, 88 x2",
+    "centers": 176,
+    "dev": 174.93,
+    "host": 171.6
+   },
+   {
+    "case": "HAP se_e2_a f32 tables, 88 x3",
+    "centers": 264,
+    "dev": 226.94,
+    "host": 225.99
+   },
+   {
+    "case": "HAP se_e2_a f32 tables, 88 x4",
+    "centers": 352,
+    "dev": 255.61,
+    "host": 255.84
+   },
+   {
+    "case": "HAP se_e2_a f32 tables, 88 x5",
+    "centers": 440,
+    "dev": 294.34,
+    "host": 297.26
+   },
+   {
+    "case": "HAP se_e2_a f32 tables, 88 x6",
+    "centers": 528,
+    "dev": 344.9,
+    "host": 352.89
+   },
+   {
+    "case": "HAP se_e2_a f32 tables, 88 x8",
+    "centers": 704,
+    "dev": 416.27,
+    "host": 423.76
+   },
+   {
+    "case": "HAP se_e2_a f32 tables, 88 x12",
+    "centers": 1056,
+    "dev": 565.22,
+    "host": 603.23
+   },
+   {
+    "case": "HAP se_e2_a f64 tables, 88 x1",
+    "centers": 88,
+    "dev": 404.22,
+    "host": 398.81
+   },
+   {
+    "case": "HAP se_e2_a f64 tables, 88 x2",
+    "centers": 176,
+    "dev": 700.6,
+    "host": 697.58
+   },
+   {
+    "case": "HAP se_e2_a f64 tables, 88 x3",
+    "centers": 264,
+    "dev": 1021.64,
+    "host": 1021.16
+   },
+   {
+    "case": "HAP se_e2_a f64 tables, 88 x4",
+    "centers": 352,
+    "dev": 1078.02,
+    "host": 1080.07
+   },
+   {
+    "case": "HAP se_e2_a f64 tables, 88 x6",
+    "centers": 528,
+    "dev": 1693.98,
+    "host": 1698.07
+   },
+   {
+    "case": "HAP se_e2_a f64 tables, 88 x8",
+    "centers": 704,
+    "dev": 2088.11,
+    "host": 2093.34
+   },
+   {
+    "case": "HAP se_e2_a f32 tables, 224 x1",
+    "centers": 224,
+    "dev": 192.82,
+    "host": 191.63
+   },
+   {
+    "case": "HAP se_e2_a f32 tables, 224 x2",
+    "centers": 448,
+    "dev": 301.4,
+    "host": 302.37
+   },
+   {
+    "case": "HAP se_e2_a f32 tables, 224 x3",
+    "centers": 672,
+    "dev": 406.38,
+    "host": 414.91
+   },
+   {
+    "case": "HAP se_e2_a f32 tables, 224 x4",
+    "centers": 896,
+    "dev": 513.9,
+    "host": 525.21
+   },
+   {
+    "case": "HAP se_e2_r f32 tables, 88 x1",
+    "centers": 88,
+    "dev": 115.19,
+    "host": 109.98
+   },
+   {
+    "case": "HAP se_e2_r f32 tables, 88 x2",
+    "centers": 176,
+    "dev": 143.85,
+    "host": 141.72
+   },
+   {
+    "case": "HAP se_e2_r f32 tables, 88 x4",
+    "centers": 352,
+    "dev": 179.8,
+    "host": 178.99
+   },
+   {
+    "case": "HAP se_e2_r f32 tables, 88 x8",
+    "centers": 704,
+    "dev": 304.9,
+    "host": 311.2
+   },
+   {
+    "case": "HAP se_e2_a with se_e3 f32 tables, 88 x1",
+    "centers": 88,
+    "dev": 221.53,
+    "host": 205.09
+   },
+   {
+    "case": "HAP se_e2_a with se_e3 f32 tables, 88 x2",
+    "centers": 176,
+    "dev": 255.71,
+    "host": 249.4
+   },
+   {
+    "case": "HAP se_e2_a with se_e3 f32 tables, 88 x4",
+    "centers": 352,
+    "dev": 349.43,
+    "host": 347.74
+   },
+   {
+    "case": "HAP se_e2_a with se_e3 f32 tables, 88 x8",
+    "centers": 704,
+    "dev": 579.68,
+    "host": 593.01
+   },
+   {
+    "case": "HAP committee of two f32 tables, 88 x1",
+    "centers": 176,
+    "dev": 178.32,
+    "host": 175.27
+   },
+   {
+    "case": "HAP committee of two f32 tables, 88 x2",
+    "centers": 352,
+    "dev": 250.02,
+    "host": 251.74
+   },
+   {
+    "case": "HAP committee of two f32 tables, 88 x4",
+    "centers": 704,
+    "dev": 420.71,
+    "host": 425.08
+   },
+   {
+    "case": "HAP committee of four f32 tables, 88 x1",
+    "centers": 352,
+    "dev": 301.16,
+    "host": 300.51
+   },
+   {
+    "case": "HAP committee of four f32 tables, 88 x2",
+    "centers": 704,
+    "dev": 433.05,
+    "host": 436.11
+   },
+   {
+    "case": "HAP committee of four f32 tables, 169 x1",
+    "centers": 676,
+    "dev": 442.09,
+    "host": 445.71
+   },
+   {
+    "case": "water se_e2_a f32 tables, 192 x1",
+    "centers": 192,
+    "dev": 183.27,
+    "host": 182.76
+   },
+   {
+    "case": "water se_e2_a f32 tables, 192 x2",
+    "centers": 384,
+    "dev": 266.22,
+    "host": 270.81
+   },
+   {
+    "case": "water se_e2_a f32 tables, 192 x3",
+    "centers": 576,
+    "dev": 368.94,
+    "host": 374.22
+   },
+   {
+    "case": "water se_e2_a f32 tables, 192 x4",
+    "centers": 768,
+    "dev": 450.22,
+    "host": 468.94
+   }
+  ]
+ },
+ "crossover": {
+  "what": "crossover.py: as ab_small.py on cases chosen around the threshold, one build with the sums on the device (--device-sums 0) and on the host (--device-sums 1000000000), the device a second time as control.",
+  "rounds": 5,
+  "builds": [
+   {
+    "label": "dev",
+    "build": "final-a: the code of this change but for the last fix of Device::download_into, which formed the slice of the buffer before the copy instead of after it (the same driver call)",
+    "settings": [
+     "--device-sums",
+     "0"
+    ]
+   },
+   {
+    "label": "host",
+    "build": "final-a: the code of this change but for the last fix of Device::download_into, which formed the slice of the buffer before the copy instead of after it (the same driver call)",
+    "settings": [
+     "--device-sums",
+     "1000000000"
+    ]
+   },
+   {
+    "label": "dev2",
+    "build": "final-a: the code of this change but for the last fix of Device::download_into, which formed the slice of the buffer before the copy instead of after it (the same driver call)",
+    "settings": [
+     "--device-sums",
+     "0"
+    ]
+   }
+  ],
+  "seconds_waited_for_the_card": [
+   0,
+   0,
+   0,
+   0,
+   0
+  ],
+  "us_per_evaluation": [
+   {
+    "case": "HAP se_e2_a f32 tables, 88 x1",
+    "centers": 88,
+    "dev": 145.08,
+    "host": 138.71,
+    "dev2": 146.01
+   },
+   {
+    "case": "HAP se_e2_a f32 tables, 88 x2",
+    "centers": 176,
+    "dev": 174.09,
+    "host": 171.68,
+    "dev2": 173.83
+   },
+   {
+    "case": "HAP se_e2_a f32 tables, 88 x3",
+    "centers": 264,
+    "dev": 226.59,
+    "host": 224.93,
+    "dev2": 225.71
+   },
+   {
+    "case": "HAP se_e2_a f32 tables, 88 x4",
+    "centers": 352,
+    "dev": 254.67,
+    "host": 256.22,
+    "dev2": 254.41
+   },
+   {
+    "case": "HAP se_e2_a f32 tables, 88 x5",
+    "centers": 440,
+    "dev": 294.2,
+    "host": 296.87,
+    "dev2": 294.37
+   },
+   {
+    "case": "HAP se_e2_a f32 tables, 88 x6",
+    "centers": 528,
+    "dev": 345.68,
+    "host": 351.63,
+    "dev2": 346.92
+   },
+   {
+    "case": "HAP se_e2_a f32 tables, 88 x8",
+    "centers": 704,
+    "dev": 409.79,
+    "host": 423.53,
+    "dev2": 412.56
+   },
+   {
+    "case": "HAP se_e2_a f32 tables, 88 x12",
+    "centers": 1056,
+    "dev": 566.7,
+    "host": 604.74,
+    "dev2": 567.17
+   },
+   {
+    "case": "HAP se_e2_a f64 tables, 88 x1",
+    "centers": 88,
+    "dev": 400.69,
+    "host": 396.41,
+    "dev2": 403.07
+   },
+   {
+    "case": "HAP se_e2_a f64 tables, 88 x2",
+    "centers": 176,
+    "dev": 693.64,
+    "host": 692.71,
+    "dev2": 697.19
+   },
+   {
+    "case": "HAP se_e2_a f64 tables, 88 x3",
+    "centers": 264,
+    "dev": 1013.13,
+    "host": 1018.37,
+    "dev2": 1017.31
+   },
+   {
+    "case": "HAP se_e2_a f64 tables, 88 x4",
+    "centers": 352,
+    "dev": 1072.71,
+    "host": 1076.78,
+    "dev2": 1077.37
+   },
+   {
+    "case": "HAP se_e2_a f64 tables, 88 x6",
+    "centers": 528,
+    "dev": 1678.54,
+    "host": 1694.9,
+    "dev2": 1687.59
+   },
+   {
+    "case": "HAP se_e2_a f64 tables, 88 x8",
+    "centers": 704,
+    "dev": 2076.91,
+    "host": 2079.44,
+    "dev2": 2085.55
+   },
+   {
+    "case": "HAP se_e2_a f32 tables, 224 x1",
+    "centers": 224,
+    "dev": 193.62,
+    "host": 190.18,
+    "dev2": 192.6
+   },
+   {
+    "case": "HAP se_e2_a f32 tables, 224 x2",
+    "centers": 448,
+    "dev": 300.73,
+    "host": 301.38,
+    "dev2": 298.83
+   },
+   {
+    "case": "HAP se_e2_a f32 tables, 224 x3",
+    "centers": 672,
+    "dev": 405.78,
+    "host": 410.13,
+    "dev2": 405.33
+   },
+   {
+    "case": "HAP se_e2_a f32 tables, 224 x4",
+    "centers": 896,
+    "dev": 512.14,
+    "host": 523.29,
+    "dev2": 512.11
+   },
+   {
+    "case": "HAP se_e2_r f32 tables, 88 x1",
+    "centers": 88,
+    "dev": 114.82,
+    "host": 110.07,
+    "dev2": 115.89
+   },
+   {
+    "case": "HAP se_e2_r f32 tables, 88 x2",
+    "centers": 176,
+    "dev": 142.89,
+    "host": 141.75,
+    "dev2": 144.07
+   },
+   {
+    "case": "HAP se_e2_r f32 tables, 88 x4",
+    "centers": 352,
+    "dev": 178.06,
+    "host": 180.86,
+    "dev2": 178.3
+   },
+   {
+    "case": "HAP se_e2_r f32 tables, 88 x8",
+    "centers": 704,
+    "dev": 303.41,
+    "host": 312.37,
+    "dev2": 302.54
+   },
+   {
+    "case": "HAP se_e2_a with se_e3 f32 tables, 88 x1",
+    "centers": 88,
+    "dev": 221.97,
+    "host": 209.15,
+    "dev2": 220.63
+   },
+   {
+    "case": "HAP se_e2_a with se_e3 f32 tables, 88 x2",
+    "centers": 176,
+    "dev": 255.97,
+    "host": 248.16,
+    "dev2": 254.96
+   },
+   {
+    "case": "HAP se_e2_a with se_e3 f32 tables, 88 x4",
+    "centers": 352,
+    "dev": 346.02,
+    "host": 347.25,
+    "dev2": 346.1
+   },
+   {
+    "case": "HAP se_e2_a with se_e3 f32 tables, 88 x8",
+    "centers": 704,
+    "dev": 579.69,
+    "host": 591.41,
+    "dev2": 582.45
+   },
+   {
+    "case": "HAP committee of two f32 tables, 88 x1",
+    "centers": 176,
+    "dev": 178.23,
+    "host": 177.78,
+    "dev2": 177.7
+   },
+   {
+    "case": "HAP committee of two f32 tables, 88 x2",
+    "centers": 352,
+    "dev": 249.89,
+    "host": 250.67,
+    "dev2": 250.02
+   },
+   {
+    "case": "HAP committee of two f32 tables, 88 x4",
+    "centers": 704,
+    "dev": 416.46,
+    "host": 427.28,
+    "dev2": 416.66
+   },
+   {
+    "case": "HAP committee of four f32 tables, 88 x1",
+    "centers": 352,
+    "dev": 300.26,
+    "host": 303.0,
+    "dev2": 300.81
+   },
+   {
+    "case": "HAP committee of four f32 tables, 88 x2",
+    "centers": 704,
+    "dev": 432.16,
+    "host": 439.07,
+    "dev2": 432.5
+   },
+   {
+    "case": "HAP committee of four f32 tables, 169 x1",
+    "centers": 676,
+    "dev": 441.08,
+    "host": 444.33,
+    "dev2": 441.65
+   },
+   {
+    "case": "water se_e2_a f32 tables, 192 x1",
+    "centers": 192,
+    "dev": 184.62,
+    "host": 181.79,
+    "dev2": 184.93
+   },
+   {
+    "case": "water se_e2_a f32 tables, 192 x2",
+    "centers": 384,
+    "dev": 268.96,
+    "host": 269.9,
+    "dev2": 269.1
+   },
+   {
+    "case": "water se_e2_a f32 tables, 192 x3",
+    "centers": 576,
+    "dev": 367.85,
+    "host": 372.63,
+    "dev2": 368.76
+   },
+   {
+    "case": "water se_e2_a f32 tables, 192 x4",
+    "centers": 768,
+    "dev": 457.99,
+    "host": 456.91,
+    "dev2": 458.33
+   }
+  ]
+ },
+ "final": {
+  "what": "ab_env.py: water frames of 192 to 98,304 atoms (cases/water-*.jsonl), se_e2_a water model in float32 with tables (--compress 0.5), every build on every size in every round, builds in order and reversed every other round, each run `--bench K --profile` (K 2000, 1000, 200, 20); eval_us_least and eval_us_median are of the bench loop, the stages (download, neighbors, forces: medians, device time by marks) and the host times of the profile loop.",
+  "sizes_in_atoms": [
+   "192",
+   "1536",
+   "12288",
+   "98304"
+  ],
+  "precision": "float32",
+  "compress": "0.5",
+  "model": "water-se_e2_a-float64.native.json",
+  "builds": [
+   {
+    "label": "base",
+    "build": "the build before: 46a9a91 (built from 04ac051, whose sources differ from it in one doc comment)",
+    "settings": {}
+   },
+   {
+    "label": "a1",
+    "build": "a1: results into page-locked memory, the species matched by integer keys, the sort buffers kept; the host sums every frame",
+    "settings": {}
+   },
+   {
+    "label": "final",
+    "build": "final: the code of this change",
+    "settings": {}
+   },
+   {
+    "label": "base2",
+    "build": "the build before: 46a9a91 (built from 04ac051, whose sources differ from it in one doc comment)",
+    "settings": {}
+   }
+  ],
+  "rounds": 5,
+  "summary_us": {
+   "192": {
+    "base": {
+     "eval_us_least": 182.65865,
+     "eval_us_median": 183.84015,
+     "download_us": 22.99116788711399,
+     "neighbors_us": 31.925936313346032,
+     "forces_us": 24.526816639117897,
+     "host_finish_us": 6.683550000000043,
+     "host_prepare_us": 2.298650000000024
+    },
+    "a1": {
+     "eval_us_least": 181.2622,
+     "eval_us_median": 182.18365,
+     "download_us": 20.267856132239103,
+     "neighbors_us": 32.3932802816853,
+     "forces_us": 24.58099263627082,
+     "host_finish_us": 6.522650000000011,
+     "host_prepare_us": 1.9472999999999725
+    },
+    "final": {
+     "eval_us_least": 182.48955,
+     "eval_us_median": 183.1208,
+     "download_us": 19.9764160993509,
+     "neighbors_us": 32.63990430813283,
+     "forces_us": 24.59240061044693,
+     "host_finish_us": 7.787549999999976,
+     "host_prepare_us": 1.7822499999999795
+    },
+    "base2": {
+     "eval_us_least": 182.92595,
+     "eval_us_median": 183.79455000000002,
+     "download_us": 23.72993596736342,
+     "neighbors_us": 32.09001622162759,
+     "forces_us": 24.652608586475253,
+     "host_finish_us": 6.908550000000045,
+     "host_prepare_us": 2.332650000000029
+    }
+   },
+   "1536": {
+    "base": {
+     "eval_us_least": 649.2146,
+     "eval_us_median": 653.9599000000001,
+     "download_us": 46.557600013911724,
+     "neighbors_us": 100.1963200196624,
+     "forces_us": 96.81174549460411,
+     "host_finish_us": 24.40119999999997,
+     "host_prepare_us": 13.718899999999998
+    },
+    "a1": {
+     "eval_us_least": 639.4501,
+     "eval_us_median": 645.4313000000001,
+     "download_us": 37.74998399615288,
+     "neighbors_us": 101.11238404363394,
+     "forces_us": 97.00224124640226,
+     "host_finish_us": 24.004500000000057,
+     "host_prepare_us": 10.185200000000007
+    },
+    "final": {
+     "eval_us_least": 612.1057,
+     "eval_us_median": 612.3621999999999,
+     "download_us": 37.56320010870695,
+     "neighbors_us": 111.37558292597532,
+     "forces_us": 96.8828173801303,
+     "host_finish_us": 15.1986,
+     "host_prepare_us": 9.792700000000025
+    },
+    "base2": {
+     "eval_us_least": 647.0462,
+     "eval_us_median": 649.7193,
+     "download_us": 46.50236799567938,
+     "neighbors_us": 100.18428795039654,
+     "forces_us": 96.77353747189045,
+     "host_finish_us": 24.100000000000012,
+     "host_prepare_us": 13.520800000000008
+    }
+   },
+   "12288": {
+    "base": {
+     "eval_us_least": 3066.3545,
+     "eval_us_median": 3076.266,
+     "download_us": 251.32432021200657,
+     "neighbors_us": 568.4475201368332,
+     "forces_us": 762.059041261673,
+     "host_finish_us": 198.18000000000004,
+     "host_prepare_us": 106.08
+    },
+    "a1": {
+     "eval_us_least": 2841.2549999999997,
+     "eval_us_median": 2857.955,
+     "download_us": 85.89760012924671,
+     "neighbors_us": 564.0820813179016,
+     "forces_us": 753.3094379305841,
+     "host_finish_us": 164.441,
+     "host_prepare_us": 76.56049999999998
+    },
+    "final": {
+     "eval_us_least": 2758.29,
+     "eval_us_median": 2770.471,
+     "download_us": 71.8923200108111,
+     "neighbors_us": 575.7534381747246,
+     "forces_us": 756.1132737994194,
+     "host_finish_us": 96.60650000000001,
+     "host_prepare_us": 70.76899999999999
+    },
+    "base2": {
+     "eval_us_least": 3071.5695,
+     "eval_us_median": 3075.5175,
+     "download_us": 258.25551971793175,
+     "neighbors_us": 573.5163214802742,
+     "forces_us": 769.0420854091644,
+     "host_finish_us": 203.42449999999997,
+     "host_prepare_us": 108.69050000000004
+    }
+   },
+   "98304": {
+    "base": {
+     "eval_us_least": 24466.68,
+     "eval_us_median": 24529.27,
+     "download_us": 1417.7296042442322,
+     "neighbors_us": 4215.534400939941,
+     "forces_us": 5763.907194137573,
+     "host_finish_us": 1819.7549999999999,
+     "host_prepare_us": 1079.5049999999999
+    },
+    "a1": {
+     "eval_us_least": 22657.789999999997,
+     "eval_us_median": 22785.530000000002,
+     "download_us": 441.50719940662384,
+     "neighbors_us": 4191.5135741233835,
+     "forces_us": 5687.907189130783,
+     "host_finish_us": 1515.0250000000005,
+     "host_prepare_us": 670.1499999999999
+    },
+    "final": {
+     "eval_us_least": 22051.090000000004,
+     "eval_us_median": 22115.765000000003,
+     "download_us": 293.2799994945526,
+     "neighbors_us": 4392.515182495117,
+     "forces_us": 5931.048029661179,
+     "host_finish_us": 906.545,
+     "host_prepare_us": 661.2750000000001
+    },
+    "base2": {
+     "eval_us_least": 24613.725,
+     "eval_us_median": 24646.364999999998,
+     "download_us": 1404.14719581604,
+     "neighbors_us": 4207.129597663879,
+     "forces_us": 5693.796771764756,
+     "host_finish_us": 1854.0799999999997,
+     "host_prepare_us": 1103.31
+    }
+   }
+  },
+  "ms_per_eval_samples": {
+   "192": {
+    "base": [
+     0.193644,
+     0.182659,
+     0.183164,
+     0.186007,
+     0.18384
+    ],
+    "a1": [
+     0.181811,
+     0.181262,
+     0.182184,
+     0.182251,
+     0.184903
+    ],
+    "final": [
+     0.184007,
+     0.18249,
+     0.183121,
+     0.184043,
+     0.182996
+    ],
+    "base2": [
+     0.183691,
+     0.182926,
+     0.184247,
+     0.183795,
+     0.185198
+    ]
+   },
+   "1536": {
+    "base": [
+     0.657154,
+     0.649215,
+     0.65396,
+     0.656791,
+     0.652862
+    ],
+    "a1": [
+     0.645431,
+     0.648679,
+     0.63945,
+     0.645735,
+     0.642149
+    ],
+    "final": [
+     0.612143,
+     0.615124,
+     0.612106,
+     0.614924,
+     0.612362
+    ],
+    "base2": [
+     0.647932,
+     0.666737,
+     0.658388,
+     0.647046,
+     0.649719
+    ]
+   },
+   "12288": {
+    "base": [
+     3.066355,
+     3.12011,
+     3.076266,
+     3.068264,
+     3.103687
+    ],
+    "a1": [
+     2.842208,
+     2.841255,
+     2.859073,
+     2.8596,
+     2.857955
+    ],
+    "final": [
+     2.75829,
+     2.770471,
+     2.766007,
+     2.775979,
+     2.772521
+    ],
+    "base2": [
+     3.075518,
+     3.071569,
+     3.072535,
+     3.116352,
+     3.115399
+    ]
+   },
+   "98304": {
+    "base": [
+     24.46668,
+     24.49379,
+     24.61372,
+     24.745485,
+     24.52927
+    ],
+    "a1": [
+     22.65779,
+     22.873455,
+     22.68477,
+     22.800435,
+     22.78553
+    ],
+    "final": [
+     22.093485,
+     22.297695,
+     22.146725,
+     22.05109,
+     22.115765
+    ],
+    "base2": [
+     24.67181,
+     24.61796,
+     24.646365,
+     24.613725,
+     24.80605
+    ]
+   }
+  }
+ },
+ "small": {
+  "what": "ab_small.py: the HAP frames of 88, 169 and 224 atoms (cases/hap) and the water frame of 192 and 1,536 atoms, one process per build, case and round with --bench K and --bench-batches (batches of copies of the frame); the least ms per evaluation of every case and batch, in us. Builds in order and reversed every other round; the card checked for other users before every round.",
+  "rounds": 3,
+  "builds": [
+   {
+    "label": "base",
+    "build": "the build before: 46a9a91 (built from 04ac051, whose sources differ from it in one doc comment)",
+    "settings": []
+   },
+   {
+    "label": "a1",
+    "build": "a1: results into page-locked memory, the species matched by integer keys, the sort buffers kept; the host sums every frame",
+    "settings": []
+   },
+   {
+    "label": "final",
+    "build": "final: the code of this change",
+    "settings": []
+   },
+   {
+    "label": "base2",
+    "build": "the build before: 46a9a91 (built from 04ac051, whose sources differ from it in one doc comment)",
+    "settings": []
+   }
+  ],
+  "seconds_waited_for_the_card": [
+   0,
+   0,
+   0
+  ],
+  "us_per_evaluation": [
+   {
+    "case": "HAP se_e2_a f32 tables, 88 x1",
+    "centers": 88,
+    "base": 141.18,
+    "a1": 138.31,
+    "final": 139.82,
+    "base2": 139.67
+   },
+   {
+    "case": "HAP se_e2_a f32 tables, 88 x4",
+    "centers": 352,
+    "base": 253.25,
+    "a1": 252.75,
+    "final": 254.66,
+    "base2": 255.03
+   },
+   {
+    "case": "HAP se_e2_a f32 tables, 88 x12",
+    "centers": 1056,
+    "base": 600.55,
+    "a1": 593.22,
+    "final": 562.01,
+    "base2": 600.31
+   },
+   {
+    "case": "HAP se_e2_a f32 tables, 169 x1",
+    "centers": 169,
+    "base": 173.15,
+    "a1": 171.16,
+    "final": 170.94,
+    "base2": 171.8
+   },
+   {
+    "case": "HAP se_e2_a f32 tables, 169 x3",
+    "centers": 507,
+    "base": 330.75,
+    "a1": 327.87,
+    "final": 327.07,
+    "base2": 330.15
+   },
+   {
+    "case": "HAP se_e2_a f32 tables, 224 x1",
+    "centers": 224,
+    "base": 191.54,
+    "a1": 189.23,
+    "final": 190.9,
+    "base2": 191.83
+   },
+   {
+    "case": "HAP se_e2_a f32 tables, 224 x4",
+    "centers": 896,
+    "base": 523.43,
+    "a1": 518.07,
+    "final": 513.58,
+    "base2": 522.3
+   },
+   {
+    "case": "HAP se_e2_a f64 tables, 88 x1",
+    "centers": 88,
+    "base": 398.99,
+    "a1": 395.52,
+    "final": 398.67,
+    "base2": 399.61
+   },
+   {
+    "case": "HAP se_e2_a f64 tables, 88 x4",
+    "centers": 352,
+    "base": 1075.52,
+    "a1": 1074.94,
+    "final": 1075.25,
+    "base2": 1074.96
+   },
+   {
+    "case": "HAP se_e2_r f32 tables, 88 x1",
+    "centers": 88,
+    "base": 109.2,
+    "a1": 108.47,
+    "final": 108.23,
+    "base2": 110.43
+   },
+   {
+    "case": "HAP se_e2_r f32 tables, 88 x4",
+    "centers": 352,
+    "base": 181.83,
+    "a1": 177.18,
+    "final": 179.12,
+    "base2": 180.27
+   },
+   {
+    "case": "HAP se_e2_a with se_e3 f32 tables, 88 x1",
+    "centers": 88,
+    "base": 203.73,
+    "a1": 202.44,
+    "final": 205.31,
+    "base2": 203.7
+   },
+   {
+    "case": "HAP committee of four f32 tables, 88 x1",
+    "centers": 352,
+    "base": 299.08,
+    "a1": 299.35,
+    "final": 302.05,
+    "base2": 302.03
+   },
+   {
+    "case": "HAP committee of four f32 tables, 224 x1",
+    "centers": 896,
+    "base": 515.91,
+    "a1": 506.33,
+    "final": 505.56,
+    "base2": 507.74
+   },
+   {
+    "case": "water se_e2_a f32 tables, 192 x1",
+    "centers": 192,
+    "base": 183.21,
+    "a1": 182.18,
+    "final": 182.31,
+    "base2": 183.94
+   },
+   {
+    "case": "water se_e2_a f32 tables, 192 x4",
+    "centers": 768,
+    "base": 464.73,
+    "a1": 467.18,
+    "final": 452.89,
+    "base2": 474.95
+   },
+   {
+    "case": "water se_e2_a f32 tables, 1536 x1",
+    "centers": 1536,
+    "base": 648.21,
+    "a1": 636.77,
+    "final": 614.47,
+    "base2": 647.1
+   }
+  ]
+ },
+ "small_recheck": {
+  "what": "ab_small.py: the HAP frames of 88, 169 and 224 atoms (cases/hap) and the water frame of 192 and 1,536 atoms, one process per build, case and round with --bench K and --bench-batches (batches of copies of the frame); the least ms per evaluation of every case and batch, in us. Builds in order and reversed every other round; the card checked for other users before every round. Seven rounds, the cases of the hybrid with se_e3 and of the committee of four only.",
+  "rounds": 7,
+  "builds": [
+   {
+    "label": "base",
+    "build": "the build before: 46a9a91 (built from 04ac051, whose sources differ from it in one doc comment)",
+    "settings": []
+   },
+   {
+    "label": "a1",
+    "build": "a1: results into page-locked memory, the species matched by integer keys, the sort buffers kept; the host sums every frame",
+    "settings": []
+   },
+   {
+    "label": "final",
+    "build": "final: the code of this change",
+    "settings": []
+   },
+   {
+    "label": "base2",
+    "build": "the build before: 46a9a91 (built from 04ac051, whose sources differ from it in one doc comment)",
+    "settings": []
+   }
+  ],
+  "seconds_waited_for_the_card": [
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0
+  ],
+  "us_per_evaluation": [
+   {
+    "case": "HAP se_e2_a with se_e3 f32 tables, 88 x1",
+    "centers": 88,
+    "base": 204.16,
+    "a1": 202.49,
+    "final": 203.62,
+    "base2": 202.97
+   },
+   {
+    "case": "HAP committee of four f32 tables, 88 x1",
+    "centers": 352,
+    "base": 300.66,
+    "a1": 298.06,
+    "final": 302.11,
+    "base2": 299.62
+   },
+   {
+    "case": "HAP committee of four f32 tables, 224 x1",
+    "centers": 896,
+    "base": 507.76,
+    "a1": 502.92,
+    "final": 501.23,
+    "base2": 508.52
+   }
+  ]
+ },
+ "host_finish_small": {
+  "what": "host_finish_probe.py OUT.json ROUNDS LABEL=EXE ...: the committee of four HAP models on the 88-atom frame and the\nHAP se_e2_a model alone on it (float32, tables), one process per build, case and round with `--bench 1500 --profile`,\nbuilds in order and reversed every other round; the medians over the rounds of the host's time after the copy back\n(host_finish), before the first device call (host_prepare) and of the device's download stage (by marks), in us, and\nthe least time of an evaluation (of the bench loop, without marks), in us.",
+  "rounds": 5,
+  "builds": [
+   {
+    "label": "base",
+    "build": "the build before: 46a9a91 (built from 04ac051, whose sources differ from it in one doc comment)"
+   },
+   {
+    "label": "a1",
+    "build": "a1: results into page-locked memory, the species matched by integer keys, the sort buffers kept; the host sums every frame"
+   },
+   {
+    "label": "final",
+    "build": "final: the code of this change"
+   }
+  ],
+  "summary_us": [
+   {
+    "case": "committee of four, 88",
+    "build": "base",
+    "eval_least": 300.96,
+    "host_finish": 8.56,
+    "host_prepare": 1.8,
+    "download": 31.25
+   },
+   {
+    "case": "committee of four, 88",
+    "build": "a1",
+    "eval_least": 299.38,
+    "host_finish": 9.0,
+    "host_prepare": 1.59,
+    "download": 28.55
+   },
+   {
+    "case": "committee of four, 88",
+    "build": "final",
+    "eval_least": 302.31,
+    "host_finish": 12.28,
+    "host_prepare": 1.6,
+    "download": 28.16
+   },
+   {
+    "case": "one model, 88",
+    "build": "base",
+    "eval_least": 139.99,
+    "host_finish": 5.11,
+    "host_prepare": 1.77,
+    "download": 18.15
+   },
+   {
+    "case": "one model, 88",
+    "build": "a1",
+    "eval_least": 137.28,
+    "host_finish": 5.29,
+    "host_prepare": 1.53,
+    "download": 16.36
+   },
+   {
+    "case": "one model, 88",
+    "build": "final",
+    "eval_least": 138.09,
+    "host_finish": 6.09,
+    "host_prepare": 1.48,
+    "download": 15.63
+   }
+  ],
+  "samples": [
+   {
+    "case": "committee of four, 88",
+    "build": "base",
+    "ms_per_eval": [
+     0.311601,
+     0.300962,
+     0.301435,
+     0.302212,
+     0.302005
+    ],
+    "host_finish_ms": [
+     0.008699399999999967,
+     0.008186533333333313,
+     0.008695199999999962,
+     0.008457400000000018,
+     0.00855766666666667
+    ],
+    "host_prepare_ms": [
+     0.001862666666666656,
+     0.0017978666666666602,
+     0.0019363333333333314,
+     0.001769666666666672,
+     0.001757133333333337
+    ],
+    "download_ms": [
+     0.03125290654599666,
+     0.03149838921613991,
+     0.0319986984860152,
+     0.031155861283962923,
+     0.030947071838503083
+    ]
+   },
+   {
+    "case": "committee of four, 88",
+    "build": "a1",
+    "ms_per_eval": [
+     0.301072,
+     0.299384,
+     0.303007,
+     0.29987,
+     0.300487
+    ],
+    "host_finish_ms": [
+     0.008683066666666675,
+     0.008996533333333364,
+     0.008931199999999985,
+     0.009196666666666678,
+     0.00972966666666665
+    ],
+    "host_prepare_ms": [
+     0.0015055333333333538,
+     0.0017356000000000042,
+     0.001564133333333346,
+     0.0015904666666666809,
+     0.0017245333333333385
+    ],
+    "download_ms": [
+     0.027223210534701742,
+     0.02855327990526954,
+     0.028658133248488107,
+     0.02789085856452584,
+     0.029328255937745174
+    ]
+   },
+   {
+    "case": "committee of four, 88",
+    "build": "final",
+    "ms_per_eval": [
+     0.304923,
+     0.303031,
+     0.302311,
+     0.306517,
+     0.304814
+    ],
+    "host_finish_ms": [
+     0.012752466666666606,
+     0.012137533333333278,
+     0.012022999999999971,
+     0.012283466666666628,
+     0.012319466666666619
+    ],
+    "host_prepare_ms": [
+     0.0015972666666666782,
+     0.001658000000000006,
+     0.0015088000000000159,
+     0.0015894666666666783,
+     0.0016136000000000139
+    ],
+    "download_ms": [
+     0.028492245242620506,
+     0.029027967924252152,
+     0.028159743967776495,
+     0.026496682645132143,
+     0.027594666597122945
+    ]
+   },
+   {
+    "case": "one model, 88",
+    "build": "base",
+    "ms_per_eval": [
+     0.139985,
+     0.141762,
+     0.143905,
+     0.14012,
+     0.142885
+    ],
+    "host_finish_ms": [
+     0.00526713333333335,
+     0.005171000000000015,
+     0.005073533333333355,
+     0.005106000000000005,
+     0.0051011333333333434
+    ],
+    "host_prepare_ms": [
+     0.0017918666666666679,
+     0.0017032000000000022,
+     0.0018182666666666592,
+     0.0017667333333333333,
+     0.0016804000000000072
+    ],
+    "download_ms": [
+     0.018048213476936022,
+     0.018002880153556663,
+     0.01976337076164782,
+     0.01815379209568103,
+     0.018910848176727692
+    ]
+   },
+   {
+    "case": "one model, 88",
+    "build": "a1",
+    "ms_per_eval": [
+     0.141362,
+     0.139219,
+     0.14098,
+     0.138459,
+     0.137282
+    ],
+    "host_finish_ms": [
+     0.005306933333333341,
+     0.0052016666666666635,
+     0.005460866666666681,
+     0.005292999999999994,
+     0.0052722666666666735
+    ],
+    "host_prepare_ms": [
+     0.0014802666666666904,
+     0.0014587333333333549,
+     0.0016098666666666765,
+     0.0016450000000000175,
+     0.0015280666666666832
+    ],
+    "download_ms": [
+     0.016355520088225602,
+     0.016337429467588663,
+     0.017043498813485106,
+     0.01655882676442464,
+     0.014389845423400402
+    ]
+   },
+   {
+    "case": "one model, 88",
+    "build": "final",
+    "ms_per_eval": [
+     0.140943,
+     0.142154,
+     0.144507,
+     0.140287,
+     0.138089
+    ],
+    "host_finish_ms": [
+     0.006103799999999948,
+     0.006089466666666617,
+     0.005936533333333275,
+     0.006069866666666628,
+     0.006495133333333287
+    ],
+    "host_prepare_ms": [
+     0.0014330000000000237,
+     0.0014368000000000265,
+     0.0014815333333333491,
+     0.001488666666666685,
+     0.0014849333333333578
+    ],
+    "download_ms": [
+     0.015565120118359725,
+     0.0160556375036637,
+     0.015632042801007627,
+     0.014791701504339774,
+     0.017158058791731795
+    ]
+   }
+  ]
+ },
+ "largest": {
+  "date": "2026-11-22",
+  "device": "NVIDIA GeForce RTX 4090",
+  "what": "largest3.py OLD NEW OUT.json: the water frame of 98,304 atoms, the largest of the cases, on the build before the\nchange of the host path (46a9a91) and the build after it: evaluated once in float32 with tables, once in float64 with\ntables, and once in float32 with one pair 0.3 A apart and tables from 2 A (which reach to 0.4 A), so that the\nevaluation leaves the tables and falls back to the exact nets in chunks sized for them, the sums of the frame formed\nover several chunks. The same arguments for both builds. The largest differences of the energy, the forces and the\nvirial from those of the build before (eV, eV/A, eV), the notes of the fallbacks, and the time of an evaluation in\nfloat32 with tables (--bench 20, twice each, alternated).",
+  "builds": {
+   "before": "46a9a91",
+   "after": "final: the code of this change"
+  },
+  "frame": "cases/water-98304.jsonl",
+  "model": "cases/water-se_e2_a-float64.native.json",
+  "largest_differences": [
+   {
+    "case": "float32 with tables",
+    "args": [
+     "--precision",
+     "float32",
+     "--compress",
+     "0.5"
+    ],
+    "notes_before": [
+     "precision: network f32, chunk 79733 atoms, embedding tabulated, looked up by the kernels"
+    ],
+    "notes_after": [
+     "precision: network f32, chunk 79733 atoms, embedding tabulated, looked up by the kernels"
+    ],
+    "energy": {
+     "largest_difference": 0.0,
+     "largest_value": 5102829.214101876
+    },
+    "forces": {
+     "largest_difference": 6.5052130349130266e-18,
+     "largest_value": 0.006737279745812689
+    },
+    "virial": {
+     "largest_difference": 6.409095476556104e-12,
+     "largest_value": 77.72465041030823
+    }
+   },
+   {
+    "case": "float64 with tables",
+    "args": [
+     "--precision",
+     "float64",
+     "--compress",
+     "0.5"
+    ],
+    "notes_before": [
+     "precision: network f64, chunk 39939 atoms, embedding tabulated"
+    ],
+    "notes_after": [
+     "precision: network f64, chunk 39939 atoms, embedding tabulated"
+    ],
+    "energy": {
+     "largest_difference": 9.313225746154785e-10,
+     "largest_value": 5102829.213791073
+    },
+    "forces": {
+     "largest_difference": 6.938893903907228e-18,
+     "largest_value": 0.006737279088749132
+    },
+    "virial": {
+     "largest_difference": 7.005951374594588e-12,
+     "largest_value": 77.72475870822711
+    }
+   },
+   {
+    "case": "float32, a pair beyond the tables: the exact nets in chunks",
+    "args": [
+     "--precision",
+     "float32",
+     "--compress",
+     "2.0"
+    ],
+    "notes_before": [
+     "precision: network f32, chunk 79733 atoms, embedding tabulated, looked up by the kernels",
+     "note: frame 1 left the embedding table range; the exact networks were used"
+    ],
+    "notes_after": [
+     "precision: network f32, chunk 79733 atoms, embedding tabulated, looked up by the kernels",
+     "note: frame 1 left the embedding table range; the exact networks were used"
+    ],
+    "energy": {
+     "largest_difference": 0.0,
+     "largest_value": 5102829.245060946
+    },
+    "forces": {
+     "largest_difference": 5.551115123125783e-17,
+     "largest_value": 0.18011150544217833
+    },
+    "virial": {
+     "largest_difference": 5.8051341511600185e-12,
+     "largest_value": 77.72305024223374
+    }
+   }
+  ],
+  "ms_per_evaluation": [
+   {
+    "case": "float32 with tables",
+    "before": [
+     24.536,
+     24.449
+    ],
+    "after": [
+     21.9,
+     22.02
+    ],
+    "after_sums_on_device": [
+     true,
+     true
+    ]
+   }
+  ]
+ },
+ "device_and_host_sums_agree": {
+  "what": "paths_agree.py: every evaluation of nine cases with the sums on the device (--device-sums 0) and on the host (--device-sums 1000000000), block sums forced (--block-sums 1000000000) so that the virial of a center is the same in every run; energies and virials compared bit for bit, forces by their largest difference (eV/A). Build final.",
+  "lines": [
+   "HAP f32 tables, one frame at a time: 10 evaluations, energies differing 0, virials differing 0, largest force difference 5.7e-15",
+   "HAP f64 tables, one frame at a time: 10 evaluations, energies differing 0, virials differing 0, largest force difference 6.9e-15",
+   "HAP f64 exact, batches of 3: 10 evaluations, energies differing 0, virials differing 0, largest force difference 6.6e-15",
+   "HAP f32 tables, committee, batches of 4: 40 evaluations, energies differing 0, virials differing 0, largest force difference 7.8e-15",
+   "HAP f64 committee, chunks of 60 atoms, batches of 5: 40 evaluations, energies differing 0, virials differing 0, largest force difference 3.6e-15",
+   "HAP se_e2_r f32 tables, batches of 2: 10 evaluations, energies differing 0, virials differing 0, largest force difference 4.2e-15",
+   "HAP se_e2_a with se_e3, f32 tables, batches of 2: 10 evaluations, energies differing 0, virials differing 0, largest force difference 2.7e-15",
+   "water 1536 f64 (several segments a type): 1 evaluations, energies differing 0, virials differing 0, largest force difference 5.2e-18",
+   "water 1536 f32 tables, chunks of 500: 1 evaluations, energies differing 0, virials differing 0, largest force difference 4.3e-18",
+   "ALL SAME"
+  ]
+ }
+}

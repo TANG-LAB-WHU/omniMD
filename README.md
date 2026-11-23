@@ -145,6 +145,16 @@ Desktop's Linux VM on the same card, with the atoms held in place; "tables" are
   within a tolerance of each network. omniMD's host side was held to the
   performance cores; Docker's VM was not. Until 2026-11-22 this table had
   DeepMD-kit's times from NVE dynamics at 0.5 fs and omniMD's of 2026-11-10.
+- Later the same day the host's share of a large frame shrank: the results
+  come back through page-locked memory kept between evaluations, and the
+  sums of each frame are formed on the device, so only the forces and those
+  sums are copied back
+  ([summary](mlmd/bench/results/SUMMARY.md#the-hosts-share-of-a-large-frame-2026-11-22)).
+  With tables in float32, alternated with the build of the table above in
+  one session, an evaluation of 12,288 atoms took 2.76 ms against 3.07, and
+  one of 98,304 atoms 22.1 ms against 24.5
+  ([record](mlmd/bench/results/host-path-rtx4090-2026-11-22.json)); the
+  table keeps the times of its own session.
 - The three-body descriptor se_e3 with the same cutoff and `sel` and embedding
   [10, 20, 40] costs 1.93 ms at 192 atoms and 13.4 ms at 1,536 in float32
   (DeepMD-kit: 27.5 and 209 ms), 9.42 and 70.1 ms in float64, and 833 ms at

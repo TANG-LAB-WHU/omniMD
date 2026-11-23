@@ -65,6 +65,32 @@ queued, and while the host prepares its first upload the device has nothing
 to do), buffers and kernel handles kept between evaluations, status flags
 written where the results already go.
 
+A large frame does wait for the host. At 12,288 water atoms (float32 with
+tables) an evaluation took 3.1 ms, and for some 700 µs of it the device had
+nothing to do: before the first device call the host matched the species
+of the atoms to the model's types (76 µs) and sorted the atoms by type
+(26); it packed the input of the neighbor search (135); and after the copy
+back it read the status of the atoms (16), added up the atomic energies
+(29), gathered the forces and added up the virials (85), built and checked
+the outputs (18) and freed what the evaluation had allocated (44). The copy
+back went to a fresh `Vec` every time, through the driver's staging buffer
+into new pages: 264 µs from the end of the force kernel to the results on
+the host, 142 into a `Vec` used again, 89 into page-locked memory kept
+from one evaluation to the next ([`HostBuffer`](src/lib.rs),
+`Device::download_into`). cudarc's own page-locked buffers are
+write-combined, which sends every read of the host to memory, so this one
+is allocated cached through the driver. With that buffer, one integer
+compare an atom to match its species, the sort's buffers kept, and the
+sums of each frame formed on the device (below), an evaluation took 2.76
+ms instead of 3.07 at 12,288 atoms and 22.1 instead of 24.5 at 98,304, the
+least of five rounds with the two builds alternated
+([timings](../bench/results/SUMMARY.md)). At 12,288 atoms the device's
+time from the end of the force kernel to the results on the host went
+from 251 to 72 µs, the host's work before the first device call from 106
+to 71 and after the copy back from 198 to 97 (medians of the five rounds).
+The packing of the input of the neighbor search, which the device waits
+for, is as it was.
+
 So the stages of an evaluation are timed by the device. The host's clock
 says when a stage was issued, not how long the device took over it, and a
 wait for the device after every stage (how `--profile` worked until
@@ -431,8 +457,15 @@ this crate (`omnimd_native::gpu_model::GpuPotential`) takes two kinds of it:
   cell, its grid and its scan margin in a header of the search input, and a
   center scans the cells of its own system. Each atom gets, bit for bit, the
   neighbors it gets when its frame is searched alone. Every later kernel
-  works center by center and does not ask which frame a center is from; the
-  host adds up atomic energies and virials per frame after the one download.
+  works center by center and does not ask which frame a center is from, up
+  to the sums of each frame, its energy by type and its virial: one more
+  kernel adds up the atoms of each frame in segments of at most 256, a block
+  each, in an order that depends on the frame alone, and only these sums go
+  back with the forces. A pass of fewer than 384 centers (atoms times
+  models) copies the atomic energies and virials back instead, and the host
+  adds them in the kernel's order, to the same bits: below that the
+  device's sums measured slower (`DEVICE_SUMS_CENTERS` in
+  `native/src/gpu_model.rs`).
 - **Several models in one pass.** Models of one architecture, such as an
   ensemble kept for model deviation, are the second dimension of the launch
   grid. Model `m` reads the same neighbor lists, finds its statistics and
