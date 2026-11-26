@@ -1,6 +1,6 @@
 # TODO - Pending Issues
 
-This document tracks unresolved issues in the `dev` branch for future development.
+Apart from this line, this document is upstream's (main and dev, where it was last edited on 2026-01-31) and tracks issues of the legacy root crates; MLIP status is in ROADMAP.md and mlmd/FEATURE_MATRIX.md.
 
 ---
 
@@ -54,5 +54,5 @@ Different CPU architectures (local vs GitHub Actions) produce slightly different
 
 ## 📝 Notes
 
-- Last updated: 2026-01-31
+- Last updated: 2026-01-31 (upstream)
 - Related CI config: `.github/workflows/rust.yml`

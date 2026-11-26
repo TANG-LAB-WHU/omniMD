@@ -1,6 +1,6 @@
 # DeepMD feature coverage: reference version 3.1.3
 
-Matrix revision 21, checked 2026-10-17. Previous integrated CUDA runtime:
+Matrix revision 22, checked 2026-11-26 against `af9ff5a`. Previous integrated CUDA runtime:
 `9b8d1847f892e32751c73d3262e0245d0efb4cdd`. This includes engine inspection/tutorial,
 native source `b6b7aa7` and C API source `1aee39c`. Implementation and real-runtime
 validation are separate. C API CPU follow-up is now verified in `ce27786`
@@ -8,10 +8,10 @@ validation are separate. C API CPU follow-up is now verified in `ce27786`
 release. Recorded C API CPU tests use 3.1.3; recorded C API CUDA tests use 3.1.0.
 The native model format version, DeepMD package version, C API version and frozen
 graph version are different identifiers.
-Current GPU-loss source `36ee5cf` is integrated as `230279d` on `f6030da`.
+GPU-loss source `36ee5cf` (2026-10-16) is integrated as `230279d` on `f6030da`.
 Final engine acceptance verifies historical v7 equality, tolerant opt-in v8
 comparison and exact same-backend v8 restart. Default CPU-loss PTX is preserved;
-the GPU-loss program has a separate identity. Candidate `06439f1` subsequently
+the GPU-loss program has a separate identity. Commit `06439f1` subsequently
 passed [bounded Linux native CUDA acceptance](LINUX_CUDA_VALIDATION.md), recorded
 in evidence commit `1dc936c`. This adds platform evidence without implementation
 changes; the C API runtime matrix remains separate. Native large-frame source
@@ -60,7 +60,7 @@ is insufficient evidence of compatibility.
 | Atomic energy / atomic virial output | Internal values may exist; no shared public output | Optional adapter/standalone CLI outputs from the same combined call | TF/PT CPU comparisons passed; engine still exposes total E/F/V; new GPU paths untested |
 | Precision | Native f64 arithmetic and parameters | Double IO only; internal precision is model-dependent | Neither backend can infer training units |
 | Native JSON loading | Implemented with strict schema checks | Not applicable | No auto architecture or unit inference |
-| DeepMD 3.1.3 `.dp` / safe YAML conversion | Partial, bounded serialized `se_e2_a` energy model | Not a C API conversion path | [Exact import rules](native/CONVERSION.md) |
+| DeepMD 3.1.3 `.dp` / safe YAML conversion | Partial, bounded serialized `se_e2_a`, `se_e2_r` (`se_r`), `se_e3` and hybrid energy models | Not a C API conversion path | [Exact import rules](native/CONVERSION.md) |
 | TensorFlow `.pb` conversion | Two exact audited graph profiles, finite replaceable parameters | Direct official runtime loading bypasses native conversion | [Frozen graph rules](native/FROZEN.md); arbitrary graphs reject natively |
 | PyTorch / JAX / Paddle model formats | No native importer; no pickle loading | PT `.pth` CPU single-frame parameter/default fixture verified; other formats unverified; CUDA currently accepts TF `.pb` only | Do not infer support from file extension or symbols |
 | Model compression / tabulation | GPU runtime: the embedding nets of every descriptor as piecewise quintic [tables](native/README.md#embedding-tables) built at load time (`gpu_runtime.compress_min_distance`, `--compress RMIN`): pieces of uneven length, each within a tolerance of its net (1e-13 of its largest value in float64 unless another is asked for), found from the bits of the input; exact networks for a frame that leaves the table range. CPU `NativePotential`: missing | Runtime-dependent, unverified compressed models | With tables, float64 within 1.8e-13 eV per atom and 7.8e-11 eV/Å of DeePMD-kit's uncompressed models on the HAP test frames, float32 within 2.9e-7 and 6.3e-6 ([summary](bench/results/SUMMARY.md)); a table file written by `dp compress` is not read; [official compression](https://docs.deepmodeling.com/projects/deepmd/en/v3.1.3/freeze/compress.html) is external |
@@ -82,7 +82,7 @@ an official `input.json` is not a native training request.
 | DeepMD standard NPY data | Partial: explicitly ordered sets, C-order float64 arrays, fixed real type map, optional E/F/V | Optional v2 explicit fparam/aparam float64 arrays added; mixed types, spin, arbitrary dtypes/layouts and other formats remain unsupported |
 | XYZ / extxyz | Import of plain XYZ and of a strict labeled extxyz profile with explicit units/PBC; `export-xyz` writes a dataset in that profile (geometry, the labels a frame has, its ID as comment), read back to the same numbers | General ASE metadata and stress conversion are not inferred; parameterized datasets are not exported |
 | Dataset preflight | `inspect-dataset`: complete structural check, exact read-byte SHA256, counts, PBC and label coverage | Source hashes are declarations; model suitability and trainer limits are separate |
-| Batch E/F/V assessment | Engine retains one model and streams single-frame calls. C API standalone CLI additionally packs homogeneous multi-frame calls | TF homogeneous C API batch/atomic CPU comparisons passed; engine retains one call per frame, including parameterized TF/PT |
+| Batch E/F/V assessment | Engine retains one model; on the GPU runtime `batch-eval` sends a batch of frames in one device pass, other backends stream single-frame calls. C API standalone CLI additionally packs homogeneous multi-frame calls | TF homogeneous C API batch/atomic CPU comparisons passed; engine retains one call per frame, including parameterized TF/PT |
 | Dataset subset selection | Hash-bound explicit IDs; complete input validation; source-order frames, preserved IDs/labels, new contiguous indices and bundle receipt | [Scope and replay](engine/DATASET_SELECTION.md); 10000 IDs / 256 MiB subset bounds; no external labeling or automatic active learning |
 | Model disagreement | `model-deviation` on the CPU or on one GPU: 2..16 retained models, absolute population E/atom, vector F and nine-component V/atom deviations, explicit candidate interval; on the GPU runtime the members of one architecture are evaluated together, a batch of frames per device pass; `run` and `run-replicas` can carry the other members along (`deviation`) and write the deviation and the candidate mark of every sampled frame, and `import-trajectory` can keep the candidates only; `collect-candidates` writes the candidates of a whole exploration (any number of such trajectories or `run-replicas` directories) as one dataset, at most `max_per_trajectory` of a run and evenly spread in time, with a summary of the accurate, candidate and failed frames of every run; `import-trajectory` turns the sampled frames of a finished run (fixed cell or constant pressure) into the unlabeled dataset it reads | [Scope and replay](engine/MODEL_DEVIATION.md); native CPU verified; C API ensemble route unverified; the steps train, run, import, deviation, selection, labeling and merging the new frames into the training set are separate commands ([one round in order](WORKFLOW.md#6-an-active-learning-iteration-on-the-gpu-runtime)), with no driver that loops over them |
 | External label return | Hash-bound job preparation and E/F/optional-V import; exact geometry/atom/parameter identity; fill missing labels, preserve source order/v2 | [Contract and replay](engine/EXTERNAL_LABELS.md); calculator/provenance declarations unverified; no job submission or automatic training |
@@ -100,11 +100,11 @@ an official `input.json` is not a native training request.
 | Indexed training input | Explicit indexed v1 JSONL with minibatches; framewise read, offset/ID/line SHA index, whole-file checks before publication; runtime storage-mode switching | [Bounds and evidence](native/INDEXED_TRAINING.md); max 100000 frames/16 GiB input, 256 KiB record, 64 MiB index payload; metadata/sampler O(N); default 64 training atoms, explicit bounded expansion to 256; maximum dataset ceiling not benchmarked |
 | Startup validation | One complete validation inside the trainer; reuse returned layout and omit duplicate CLI preflight; two frame passes removed per invocation | [CPU acceptance](evidence/native-indexed-startup-integrated.json); constructor/public validation, per-read hashes and publication whole-file checks retained; overlapping timing fields are diagnostic |
 | Learning-rate schedules | Explicit constant or exponential staircase by globally completed optimizer updates; CPU and both CUDA full trainers; immutable v6 identity (v7 tiling, v8 GPU loss, v9 expanded frame ceiling) | [Contract](native/LEARNING_RATE.md); absent/null retains constant/v1-v5; no warmup, continuous/adaptive decay, rate floor or scheduled loss weights |
-| Dataset statistics | `omnimd-native-stat` and `omnimd_native::stats`: `dp neighbor-stat` (smallest distance, largest per-type neighbor counts, `sel: auto`), se_e2_a input statistics `davg`/`dstd`, energy bias by minimum-norm least squares; all cores, results independent of thread count | Match DeePMD-kit 3.1.3 (`NeighborStatOP`, `compute_input_stats`, `compute_stats_from_redu`) to 1e-8 on a mixed-composition fixture; CPU brute-force neighbor search; one JSONL dataset at a time (no multi-system sampling); not yet wired into training |
+| Dataset statistics | `omnimd-native-stat` and `omnimd_native::stats`: `dp neighbor-stat` (smallest distance, largest per-type neighbor counts, `sel: auto`), se_e2_a input statistics `davg`/`dstd`, energy bias by minimum-norm least squares; all cores, results independent of thread count | Match DeePMD-kit 3.1.3 (`NeighborStatOP`, `compute_input_stats`, `compute_stats_from_redu`) to 1e-8 on a mixed-composition fixture; CPU brute-force neighbor search; one JSONL dataset at a time (no multi-system sampling); applied by `omnimd-native-gpu-train` when it starts from a DeePMD `model` section; not used by the bounded trainers |
 | GPU se_e2_a inference | Feature `gpu` (`omnimd-gpu` crate): `GpuPotential<f32 or f64>` with device cell-list neighbors (a search that keeps its buffers: one upload and one launch per step), one download per evaluation (into page-locked memory kept between evaluations; the sums of each frame formed on the device in passes of 576 centers and more), no work for empty neighbor slots, fused embedding kernel, fused fitting kernels whose wide first layer runs in shared-memory tiles and whose other layers take two rows a block (float32), optional model compression (`compress`, `--compress RMIN`: piecewise quintic embedding tables in pieces of uneven length within a tolerance of the nets, exact-network fallback for frames outside the table range), cuBLAS fitting nets, float64 geometry and float64 sums for forces and virial (a float32 model is single precision from the stored environment matrix to its adjoint), memory-bounded chunks; a batch of frames, for one model or for several models of one architecture (a committee), in one pass over the device (`eval_batch`, `GpuPotential::committee`); `omnimd-native-gpu-eval` (`--batch`, `--member`), and engine `run`/`minimize`/`batch-eval`/`model-deviation` with `options.gpu_runtime` (`--features native-gpu`), the last two a batch of frames at a time | Float64 equals DeePMD-kit 3.1.3 on the water benchmark and on a tight-`sel` fixture (DeePMD-kit 3 neighbor selection); [timings](bench/results/SUMMARY.md), [device cost model](gpu/README.md); inference only; no Verlet skin (priced against the search it would replace and left out: [device notes](gpu/README.md)); the CPU `NativePotential` still rejects frames with more neighbors than `sel` |
 | GPU se_e2_a, se_e2_r and se_e3 training, alone or in a hybrid | `omnimd-native-gpu-train` (feature `gpu`): se_e2_a or se_e2_r of any network size, with an embedding net per pair of types or per neighbor type (`type_one_side`, kept tied), se_e3 with a net per pair of neighbor types, or a hybrid of such descriptors, each with its own cutoffs, `sel`, nets and statistics; DeePMD `ener` loss with energy, force and virial terms (a term with a zero prefactor at either end is off, as in the PyTorch backend), prefactors tied to the learning rate, stepped exponential decay, Adam; from a DeePMD `model` section (fresh networks, `davg`/`dstd`, energy bias or `atom_ener`, and `sel: auto` from the data) or from an existing native model; float64 networks, or float32 networks over float64 parameters; snapshots of model and optimizer state and restart from them; validation frames in the learning curve; several requests (for example the members of an ensemble) trained at once on one device; per-stage timing | [Contract, checks and a full run](native/GPU_TRAINING.md): gradient verified against finite differences; four models of 300,000 steps on the frames of the HAP pipeline's iteration-0 training in 30 minutes, with the sealed-test errors of the pipeline's DeePMD models (force RMSE 0.0698 to 0.0723 against 0.0699 to 0.0711 eV/Å) and the same exploration statistics; 604 steps/s in float32 and 289 in float64 on that model (DeePMD-kit: 12.3 recorded); se_e2_r with a net per neighbor type 1,246 and 443 steps/s on those frames (DeePMD-kit 41.3 on the same request), with the sealed-test errors of DeePMD-kit after 20,000 steps of it (four seeds each, force RMSE 0.304 to 0.352 against 0.338 to 0.347 eV/Å) and 0.153 to 0.183 after the full schedule (se_e2_a 0.0698 to 0.0723); a hybrid of se_e2_a to 4 Å and se_e2_r to 6 Å 471 and 220 steps/s (DeePMD-kit 27.8 on the same request), its step DeePMD-kit's for the energy and force terms (given DeePMD-kit's initial model and frame order, a float64 replay of 4,000 steps ends 4e-10 from DeePMD-kit's parameters on average), 0.072 to 0.075 eV/Å after the full schedule; se_e3 to 4 Å 1,293 and 355 steps/s (DeePMD-kit 19.3) and the pipeline's se_e2_a with it 414 and 160 (DeePMD-kit 7.0), its step DeePMD-kit's again (a float64 replay of 4,000 steps ends 9e-11 from DeePMD-kit's parameters with se_e3 alone, and 3e-8 to 5e-8 with a hybrid of se_e2_a and se_e3 in a run that amplifies a change of its initial model two thousand times), 0.064 to 0.066 eV/Å after the full schedule with se_e3 beside the pipeline's se_e2_a; one GPU, one frame at a time (of an se_e3 descriptor all pairs of every atom's neighbors at once), a training set of at most 10,000 frames; no fine-tuning controls or fparam/aparam |
 | Model test against labels | `omnimd-native-gpu-test MODEL DATASET`: energy RMSE/MAE per atom, force RMSE/MAE and virial RMSE per atom, overall and per system (the counterpart of `dp test`) | Reproduces the recorded sealed-test errors of a converted DeePMD ensemble to their printed precision; GPU runtime only |
-| Generic DeepMD training options | Missing | Sharded/end-to-end GPU/distributed/multi-task training, generic pretrained adaptation and broader architectures |
+| Generic DeepMD training options | Missing | Sharded, distributed and multi-task training; end-to-end GPU execution of the bounded trainers (the GPU trainer, in the GPU training row above, returns to the host for the loss each step); generic pretrained adaptation and broader architectures |
 | Training monitoring | JSON reports and checkpoints | No TensorBoard integration or live monitoring service |
 | Freeze/export | Native training writes native-v1 JSON, reload checked | No native export into generic official training checkpoints or `.pb` |
 | Physical-label pilot and diagnosis | Original 1,000-update fit plus one comparison changing only energy weight 1->0.1; same 531 parameters, initialization and 168 train/43 diagnostic-validation split; two-step CPU/GPU optimizer consistency checked | [Measured tradeoff](PHYSICAL_DATA_VALIDATION.md#bounded-training-diagnosis): validation F 3.933565 initial / 4.164336 original / 3.707381 new eV/angstrom; E/atom 0.569513 / 0.455950 / 0.523472 eV/atom; new training total-E RMSE 6.650750 exceeds initial 6.626241 eV; models unsuitable, no untouched final test or v9 validation |
@@ -121,8 +121,10 @@ an official `input.json` is not a native training request.
   Follow-up `ce27786` is integrated as `87abf57`: real CPU TF batch/parameters,
   PT explicit/defaults and atomic comparisons passed; 23 library and 5 CLI
   checks pass. No new C API GPU-path validation is claimed.
-- Existing shared Frame/Evaluation/Potential schemas are unchanged. Engine MD and
-  `batch-eval` retain single-frame E/F/V calls. Engine dataset v2 and fixed MD now
+- Shared Frame/Evaluation data are unchanged; Potential gained a defaulted
+  `eval_batch` and a Committee trait was added. On the GPU runtime `batch-eval`,
+  `model-deviation` and `run-replicas` evaluate frames in batches; the C API and
+  CPU backends keep single-frame calls. Engine dataset v2 and fixed MD now
   carry CPU C API parameters; parameter-free records remain compatible. Use the separate
   [C API CLI guide](deepmd/BACKEND_GUIDE.md) and [engine guide](engine/PARAMETERS.md). Native inference
   has not acquired C API-only parameter/atomic/model capabilities.
@@ -307,9 +309,10 @@ an official `input.json` is not a native training request.
    New typed inputs/outputs (spin, tensor properties) still need versioned
    contracts, bounded validation, unsupported-input rejection and fixtures before
    engine exposure. A wrapper around an official API is labeled delegation.
-4. Broader native descriptors/training and distributed simulation require actual
-   implementations and independent derivative, parity and restart tests. These
-   are substantial future milestones, not enabled flags.
+4. Native descriptors beyond `se_e2_a`, `se_e2_r`, `se_e3` and their hybrids (and
+   their training), and distributed simulation, require actual implementations
+   and independent derivative, parity and restart tests. These are substantial
+   future milestones, not enabled flags.
 
 No percentage of complete DeepMD parity is claimed. Update the pinned baseline,
 source version and evidence links together when the implemented scope changes.
@@ -318,14 +321,17 @@ Bounded multi-frame gradients and optional GPU predictions/seeds are implemented
 Remaining CPU work includes data validation/geometry/scalars, stable reduction/
 clipping, assessment and export. Ten kernels per GPU-loss tile, transfers,
 compilation/startup and constrained occupancy still cost time; the tiny benchmark
-regressed. Limits remain 2048 parameters, width 32, default 64 atoms/frame with
+regressed. For the bounded `train-native` trainers, limits remain 2048 parameters,
+width 32, default 64 atoms/frame with
 explicit reverse-tiled expansion to at most 256 subject to unchanged tile work/
 payload limits. The 466-parameter example cannot fit 256. Larger physical workloads,
 generic DeepMD architectures, new v9 Linux execution, Linux configurations beyond
 the recorded WSL2/container case and distributed/CPU-free training remain
 unsupported or unvalidated.
+The GPU runtime trainer has no network-size limit; its own limits are in the GPU
+training row above.
 The physical-label pilot and comparison add pipeline and loss-tradeoff evidence,
 but both models remain unsuitable. Diagnostic validation is not a final test;
 this is not a scientific acceptance milestone.
-See [the roadmap](../ROADMAP.md#remaining-end-to-end-and-model-limits); no next
-feature is started by this candidate.
+See [the roadmap](../ROADMAP.md#remaining-end-to-end-and-model-limits). No next
+feature was started by the 2026-10-16 integration (`06439f1`).

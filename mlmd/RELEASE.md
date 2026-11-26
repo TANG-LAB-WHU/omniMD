@@ -10,6 +10,11 @@ Entries below record successive milestones. Earlier statements that Linux native
 CUDA had not been validated describe those milestones; the later
 [Linux platform acceptance](#local-linux-native-cuda-acceptance) records the exact
 WSL2/container scope now tested. It does not expand C API or general Linux claims.
+Every entry below, through the packed-transfer and resident-state integration
+(`aced665`), has since been published on origin/shawn_dev; "local", "unpushed",
+"candidate" and "not published" describe each entry when it was written. Work
+after 2026-10-16 (GPU runtime, GPU trainer, NPT) has no entry here; its scope is
+in [README.md](../README.md) and [FEATURE_MATRIX.md](FEATURE_MATRIX.md).
 
 ## Local native CUDA cache follow-up
 
@@ -168,7 +173,7 @@ and untracking ls_remote_output.txt. No omnimd-input, legacy research directory,
 root example/benchmark data or old TorchPotential implementation is modified.
 The exact complete manifest is reproducible with:
 
-    git diff --name-status 3440f605dde61b01e894f6532693612bc57c0aaa shawn_dev
+    git diff --name-status 3440f605dde61b01e894f6532693612bc57c0aaa fce0af9f6a49592a48c13883dfc3aa0d3eb4a28e
 
 ## Exclusions and history boundary
 
@@ -186,7 +191,7 @@ It is a scope check, not a general security certification or a repeated source a
 
 ## Preserve ancestry without restoring old functionality
 
-The observed remote shawn_dev is
+Before the CPU baseline's publication, the observed remote shawn_dev was
 3440f605dde61b01e894f6532693612bc57c0aaa. Its only change from upstream main is a
 .DS_Store ignore line. The new implementation was developed independently from
 main; no old shawn_dev-only implementation is needed.
@@ -323,7 +328,9 @@ Shared/native/deepmd interfaces and dependencies are unchanged. The
 [replay receipt](evidence/model-deviation.json) covers three original models,
 12 nonperiodic/triclinic frames, independent Python statistical oracles and a
 selected two-step CPU NVE job. C API ensemble runtime validation remains pending;
-there is no GPU ensemble route or automatic labeling/training. Code, English
+at this milestone there was no GPU ensemble route (`model-deviation` on one GPU
+came later; see the [FEATURE_MATRIX](FEATURE_MATRIX.md) model disagreement row),
+and there is no automatic labeling/training. Code, English
 guides, script and compact receipt are local only; generated weights/data/logs
 are excluded. Nothing in this tranche has been pushed.
 

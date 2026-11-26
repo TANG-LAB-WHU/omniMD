@@ -67,12 +67,18 @@ written where the results already go.
 
 A large frame does wait for the host. At 12,288 water atoms (float32 with
 tables) an evaluation took 3.1 ms, and for some 700 µs of it the device had
-nothing to do: before the first device call the host matched the species
-of the atoms to the model's types (76 µs) and sorted the atoms by type
-(26); it packed the input of the neighbor search (135); and after the copy
-back it read the status of the atoms (16), added up the atomic energies
-(29), gathered the forces and added up the virials (85), built and checked
-the outputs (18) and freed what the evaluation had allocated (44). The copy
+nothing to do (3.11 ms less the 2.32 ms of the step `download`, in which the
+host waits for the device's queued work and the copy, and the 0.10 ms of
+`model issued`, steps of a probe build that read the host's clock between
+them): before the first device call the host matched the species of the
+atoms to the model's types (76 µs) and sorted the atoms by type (26); it
+packed the input of the neighbor search (135); and after the copy back it
+read the status of the atoms (16), added up the atomic energies (29),
+gathered the forces and added up the virials (85), built and checked the
+outputs (18) and freed what the evaluation had allocated (44). The steps
+listed add up to about 430 µs; the rest is the probe's other steps and the
+195 µs by which the medians of its steps fall short of the evaluation's
+time. The copy
 back went to a fresh `Vec` every time, through the driver's staging buffer
 into new pages: 264 µs from the end of the force kernel to the results on
 the host, 142 into a `Vec` used again, 89 into page-locked memory kept

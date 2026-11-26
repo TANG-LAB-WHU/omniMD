@@ -65,9 +65,11 @@ to a native model on `cuda:N`:
 - Without `gpu_runtime`, `cuda:N` keeps its earlier meaning (the bounded
   `native-cuda` path below). `gpu_runtime` with `device: cpu`, or in a build
   without `native-gpu`, is rejected before any worker starts.
-- The reported model metadata has `backend: native-gpu-se-e2-a` and the network
-  precision. Unlike the CPU path, a center with more neighbors than `sel` is
-  not an error: neighbors are selected like DeepMD-kit 3.
+- The reported model metadata has `backend` `native-gpu-se-e2-a`,
+  `native-gpu-se-e2-r`, `native-gpu-se-e3` or `native-gpu-hybrid`, according
+  to the model's descriptor, and the network precision. Unlike the CPU path, a
+  center with more neighbors than `sel` is not an error: neighbors are selected
+  like DeepMD-kit 3.
 - `model-deviation` accepts the GPU runtime when every member uses the same
   `cuda:N` with `gpu_runtime`; mixed devices are rejected. Members of one
   architecture with the same options are evaluated together, all members and

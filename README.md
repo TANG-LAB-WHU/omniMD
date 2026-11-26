@@ -2,8 +2,9 @@
 
 omniMD is alpha software under the MIT license. This development line starts
 from upstream main 761b2484feee132426183c9b66ff2b126d1f7c4a and adds a separate
-CPU MLIP workspace with one fallible, explicit-unit, float64 E/F/virial contract.
-It is an initial software delivery, not a physical model or a performance claim.
+MLIP workspace (a CPU reference plus optional CUDA and GPU runtimes) with one
+fallible, explicit-unit, float64 E/F/virial contract. It is not a physical
+model; its timings are bounded measurements, not general speed claims.
 
 The [physical-label pilot and controlled diagnosis](mlmd/PHYSICAL_DATA_VALIDATION.md)
 used official DeepMD `nopbc` labels, 168 training / 43 diagnostic-validation frames
@@ -19,12 +20,13 @@ have been used for diagnosis; there is no untouched final test. Only 7-10-atom
 v8 frames were exercised, and two-step CPU/GPU optimizer consistency does not
 prove agreement over all 1,000 updates or validate the new v9 path.
 
-The latest local [CUDA training optimization](mlmd/GETTING_STARTED.md#27-use-resident-gpu-training-state-and-interpret-measured-speed)
-retains optimizer state on the device between existing checkpoints. On the recorded
-Windows/RTX 4090 workloads, combined changes reduced complete-process median time
-by 7.7% for the public 531-parameter E/F fit and 2.4% for a 466-parameter synthetic
-case versus `201cdef`. The 112-parameter tiny case remains faster on CPU. CPU stays
-the default; these results do not establish physical accuracy or general speedup.
+The 2026-10-16 [CUDA training optimization](mlmd/GETTING_STARTED.md#27-use-resident-gpu-training-state-and-interpret-measured-speed)
+of the bounded trainers retains optimizer state on the device between existing
+checkpoints. On the recorded Windows/RTX 4090 workloads, combined changes reduced
+complete-process median time by 7.7% for the public 531-parameter E/F fit and 2.4%
+for a 466-parameter synthetic case versus `201cdef`. The 112-parameter tiny case
+remains faster on CPU. CPU stays the default; these results do not establish
+physical accuracy or general speedup.
 
 The CPU baseline was published as fce0af9f6a49592a48c13883dfc3aa0d3eb4a28e.
 The [CUDA release 9074817](https://github.com/TANG-LAB-WHU/omniMD/commit/907481708ae5f3df4228a9fb5d5b1110c39f5e23)
@@ -40,7 +42,7 @@ CPU remains the default at every system size. The six-atom C API sample measured
 kernel verification and synchronization included. Separately, the native
 216-atom sample measured a CPU/GPU time ratio of 1.155, while its small cases were
 about 8.4 times slower on GPU. These bounded measurements have different scopes;
-they do not establish general acceleration or long-time stability. Local training extensions include CUDA readout features with CPU QR and bounded
+they do not establish general acceleration or long-time stability. Training extensions include CUDA readout features with CPU QR and bounded
 all-neural-parameter E/F gradients and Adam on CUDA. Geometry, reduction and
 assessment remain CPU work; optional tiled GPU prediction/loss preparation is
 described below. Tiny training cases can be slower on CUDA. Runtime/subset requirements
@@ -48,7 +50,7 @@ are documented under [device selection](mlmd/engine/README.md#explicit-native-cu
 The [published CUDA release scope](mlmd/RELEASE.md#published-cuda-release)
 records the code, documentation and compact validation evidence included.
 
-The local candidate `06439f1` also passed [Linux native CUDA acceptance](mlmd/LINUX_CUDA_VALIDATION.md):
+Commit `06439f1` also passed [Linux native CUDA acceptance](mlmd/LINUX_CUDA_VALIDATION.md):
 Ubuntu 22.04.5 x86_64 under WSL2, the official cached DeepMD CUDA image, RTX 4090,
 driver 617.42 and NVRTC 12.9.86. This covers one FP64 inference fixture, 24-frame
 tiled E/F/V training and exact same-runtime v8 continuation. The small v8 run
@@ -56,12 +58,12 @@ was slower than v7; no speed or broader-platform claim follows. C API execution
 and cross-platform checkpoint restore were outside this acceptance. The later
 v9 large-frame path below is not covered by this Linux validation.
 
-This local branch additionally includes a conservative native CUDA neighbor
-candidate cache, with final-version timing, MD and restart acceptance. It reduces
-host neighbor preparation; kernels and the CPU path are unchanged. This follow-up
-is **not published**. See [its scope and measurements](mlmd/RELEASE.md#local-native-cuda-cache-follow-up).
+This branch also includes a conservative native CUDA neighbor candidate cache,
+with final-version timing, MD and restart acceptance. It reduces host neighbor
+preparation; kernels and the CPU path are unchanged. This follow-up is published
+on shawn_dev. See [its scope and measurements](mlmd/RELEASE.md#local-native-cuda-cache-follow-up).
 
-The current **local integrated follow-up** also contains cooperative native CUDA
+The integrated follow-up of 2026-10-16 also contains cooperative native CUDA
 fitting and persistent host buffers, plus standalone C API batching, explicit
 frame/atom parameters, atomic outputs and model inspection. Native final-code
 acceptance measured the same 192-atom, 20-step complete MD job at **412 ms** versus
@@ -72,23 +74,25 @@ These are bounded measurements with startup/output/checkpoints included in MD.
 parity and exact restart. C API CPU batch/parameter/default/atomic paths now have real TF/PT numerical
 validation; the new GPU paths remain untested. Use the
 [standalone C API guide](mlmd/deepmd/BACKEND_GUIDE.md) for those options; shared
-engine now supports versioned parameter datasets and fixed-parameter CPU C API MD. This integrated follow-up is **not published**.
+engine now supports versioned parameter datasets and fixed-parameter CPU C API MD. This integrated follow-up is published on shawn_dev.
 
-The local native source `dc5449e` is integrated as `65a7192`: explicit CUDA-assisted
+Native source `dc5449e` is integrated as `65a7192`: explicit CUDA-assisted
 frozen-readout features, CPU QR and CPU assessment. [Its receipt](mlmd/native/fixtures/cuda-readout-report.json)
 records same-model parity; the 3/4-atom case took 21.37 ms for CUDA features versus
 5.15 ms CPU, plus 195.88 ms CUDA initialization. Full-network CUDA source `f4dbf62` is integrated as `02b5457`: all supported neural
 E/F gradients and Adam, with CPU inference/loss seeds, geometry, reduction and
 assessment. CPU remains the default; see [the bounds and checkpoint rules](mlmd/native/CUDA_FULL_TRAINING.md).
 The recorded 3.46x ratio concerns a warmed 64-atom gradient stage only; the tiny
-complete training case was slower. This follow-up remains local.
+complete training case was slower. This follow-up is published on shawn_dev.
 
 ## GPU se_e2_a inference, compression and dataset statistics
 
 The `gpu` feature of `omnimd-native` evaluates se_e2_a energy, forces and virial
-entirely on one NVIDIA GPU through the `omnimd-gpu` crate (cudarc, NVRTC kernels
-with a disk cache, cuBLAS). It has no network-size limits, selects neighbors like
-DeepMD-kit 3, and splits large frames into chunks sized from free device memory.
+on one NVIDIA GPU (the host bins the atoms, forms the frame sums of passes below
+576 centers and reads back the results) through the `omnimd-gpu` crate (cudarc,
+NVRTC kernels with a disk cache, cuBLAS). It has no network-size limits, selects
+neighbors like DeepMD-kit 3, and splits large frames into chunks sized from free
+device memory.
 Networks run in float64 or float32; geometry, reductions, forces and virial stay
 float64. `--compress` replaces the embedding networks by piecewise quintic tables
 (DeepMD's `dp compress`; here in pieces of uneven length, each within a tolerance
@@ -178,6 +182,24 @@ Desktop's Linux VM on the same card, with the atoms held in place; "tables" are
   takes 13% of it, and the card idles about 3.2 ms between evaluations, 15%
   of one under nsys
   ([summary](mlmd/bench/results/SUMMARY.md#where-a-large-frame-goes-and-two-follow-ups-of-the-lanes-not-kept-2026-11-23)).
+- On 2026-11-26 the host's part of a large frame was measured part by
+  part, by a rule written before the parts were timed. Preparing a frame,
+  packing and uploading the neighbor search's input, finishing the results
+  and dropping the last evaluation took 0.35 of 2.51 ms at 12,288 water
+  atoms and 3.09 of 20.19 ms at 98,304 (13.8% and 15.3%). Four candidates
+  were projected from those parts. Packing the search's input on the
+  device promises the most at 12,288 atoms, where the rule ranks it against
+  a pool of threads (137 µs, and 1.20 ms at 98,304). The host's loops on
+  that pool promise 117 µs and 1.26 ms, writing the forces into evaluations
+  the caller keeps 8 µs and 0.26 ms, and the serial work repeated in every
+  evaluation nothing (every item below 5 µs). The rule takes the forces
+  first and the packing next, each a PR with its own A/B against the build
+  before it. Together they are projected to clear the rule's bars (4% at
+  12,288 atoms and 0.8 ms at 98,304), so PR D stops before the pool, and
+  the prototype of it timed for these projections does not ship. No code
+  of the evaluation changed with these measurements
+  ([summary](mlmd/bench/results/SUMMARY.md#the-hosts-part-of-a-large-frame-measured-part-by-part-and-the-first-candidates-chosen-2026-11-26),
+  [record](mlmd/bench/results/host-part-rtx4090-2026-11-26.json)).
 - The three-body descriptor se_e3 with the same cutoff and `sel` and embedding
   [10, 20, 40] costs 1.93 ms at 192 atoms and 13.4 ms at 1,536 in float32
   (DeepMD-kit: 27.5 and 209 ms), 9.42 and 70.1 ms in float64, and 833 ms at
@@ -221,18 +243,22 @@ Desktop's Linux VM on the same card, with the atoms held in place; "tables" are
 On a trained five-element se_e2_a ensemble (the HAP pipeline's iteration-4
 models, 83 DFT-labelled test frames of 54 to 224 atoms), float64 omniMD matches
 DeepMD-kit to 6e-13 eV/angstrom in forces and reproduces the recorded test errors.
+omniMD's timings in this paragraph are of 2026-11-11 unless another date is given.
 Those systems are bound by per-step latency: NVT dynamics through `omnimd-mlmd`
 takes 0.7 to 1.5 ms per step in float64 (0.2 to 0.3 ms in compressed float32)
 against 13.6 to 15.7 ms for LAMMPS `pair_style deepmd` with the same models and
-a neighbor list rebuilt every step. A pass over the device can carry more than
-one frame and more than one model: sixteen copies of the 88-atom system are
-evaluated in 1.4 ms in compressed float32 (0.41 of sixteen separate
-evaluations), and the four models of the ensemble on one frame in 0.5 ms
+a neighbor list rebuilt every step. On 2026-11-21 a step took 0.15 to 0.20 ms in
+float32 with tables ([summary](mlmd/bench/results/SUMMARY.md#the-fitting-nets-of-many-rows-in-grouped-cublas-products-2026-11-21));
+a step in float64 has not been timed since 2026-11-11. A pass over the device
+can carry more than one frame and more than one model: sixteen copies of the
+88-atom system are evaluated in 1.4 ms in compressed float32 (0.41 of sixteen
+separate evaluations), and the four models of the ensemble on one frame in 0.5 ms
 against 0.8 ms one by one, which is what `model-deviation` and `batch-eval`
 now do. `run-replicas` advances several runs of one model together the same
 way: thirty-two replicas of the 88-atom system take 71 microseconds per step
 each against 215 alone, with the trajectory and checkpoints each would write
-alone. A run can carry the other members of its model's ensemble along
+alone. On 2026-11-21 thirty-two replicas took 46 microseconds per step each
+against 148 alone. A run can carry the other members of its model's ensemble along
 (`deviation`): every sampled frame is then written with their model deviation
 and a candidate mark, for 6 to 8% more time at one sampled frame in fifty
 steps. `collect-candidates` then writes the candidate frames of all runs as
@@ -317,7 +343,7 @@ Start with the [complete English setup and usage guide](mlmd/GETTING_STARTED.md)
 [The versioned feature matrix](mlmd/FEATURE_MATRIX.md) compares this implementation
 with official **DeepMD 3.1.3** and distinguishes native, delegated, partial and
 missing functions. Broad DeepMD feature parity is not implemented. The preflight
-command and executable tutorial are local follow-ups pending publication; the
+command and executable tutorial are published; the
 [final CPU tutorial receipt](mlmd/evidence/cpu-tutorial-integrated.json) records the actual run.
 
 ## CPU inference, training and simulation capabilities
@@ -326,9 +352,10 @@ command and executable tutorial are local follow-ups pending publication; the
   energy/force/virial call, explicit CPU selection, and strict type-map,
   coordinate, cell, unit, shape, finite-value and error checks. This is FFI;
   double input/output buffers do not change internal model precision.
-- **Native Rust inference:** CPU float64 se_e2_a, periodic neighbor images,
-  cutoff/normalization, embedding and fitting networks, analytic forces and
-  strain virial. Only the documented native-v1 architecture subset is accepted.
+- **Native Rust inference:** CPU float64 se_e2_a, se_e2_r, se_e3 and hybrids of
+  them, periodic neighbor images, cutoff/normalization, embedding and fitting
+  networks, analytic forces and strain virial. Only the documented native-v1
+  architecture subset is accepted.
 - **Model conversion:** bounded DeepMD 3.1.3 .dp/safe-YAML conversion and two
   audited frozen .pb graph profiles. Unsupported models fail explicitly.
 - **Parameterized CPU models:** explicit frame/atom data, opt-in model-stored frame
@@ -406,17 +433,20 @@ see [DeepMD setup and limits](mlmd/deepmd/README.md).
   and fully flexible coupling and fixed axes, but no surface-tension coupling. Optional
   CUDA inference is available within the separate scopes above; training
   retains CPU stages.
-- The GPU trainer (se_e2_a, se_e2_r, se_e3 and hybrids of them) takes one frame per step on one GPU
-  and has no fine-tuning controls; a frame of an se_e3 descriptor, whose rows go with the square of
-  an atom's neighbors, must fit the device in one piece. The bounded `train-native` trainers do not
-  use the GPU runtime, and the engine passes each frame through the host.
+- The GPU trainer (se_e2_a, se_e2_r, se_e3 and hybrids of them) takes one frame at a time on one GPU
+  (`training.batch_size` frames per step; the recorded runs use 1) and has no fine-tuning controls; a
+  frame of an se_e3 descriptor, whose rows go with the square of an atom's neighbors, must fit the
+  device in one piece. The bounded `train-native` trainers do not use the GPU runtime, and the
+  engine passes each frame through the host.
 - Arbitrary DeepMD architectures (attention, type embedding) or generic
   .pb/.pth/pickle import.
 - Partial PBC, mixed-type/virtual atoms or automatic unit/type-map guessing.
 - Classical-potential mixing and the full legacy Simulation/Propagator pipeline.
-- Sharded/distributed or end-to-end GPU training, learned normalization or generic
-  DeepMD training compatibility; the bounded trainers do not tie duplicated
-  one-side embeddings (the GPU trainer does).
+- Sharded/distributed training, end-to-end GPU execution in the bounded trainers
+  (the GPU trainer runs on the device but returns to the host for the loss every
+  step), learned normalization or generic DeepMD training compatibility; the
+  bounded trainers do not tie duplicated one-side embeddings (the GPU trainer
+  does).
 - Production validation, long-time stability guarantees or general speedup claims.
 
 The root legacy workspace remains available with its original default features;
@@ -438,10 +468,13 @@ documented native tanh subset; it does not reproduce the full DeepMD training st
 The release contains source, small synthetic fixtures, reproducible scripts,
 compact validation summaries and licenses. External runtimes, public pretrained
 weights, generated training data, raw operational logs and private research
-inputs are excluded. No HAP research inputs or old HAP computations are used.
-The CPU baseline and CUDA release are published on shawn_dev.
+inputs are excluded. No HAP research inputs are committed; the benchmark scripts
+read the HAP pipeline's models, frames and records in place, and only the
+scripts and compact result records are tracked. Every integration this README
+names is published on shawn_dev; the CPU baseline and CUDA release were this
+work's first two publications.
 
-The local [external-label return workflow](mlmd/engine/EXTERNAL_LABELS.md) now
+The [external-label return workflow](mlmd/engine/EXTERNAL_LABELS.md) now
 connects reviewed candidates to a new labeled dataset and explicit CPU retraining.
 Source/return hashes and exact frame/atom/parameter identity are required;
 conflicting labels reject. It preserves dataset v2 context without adding native
@@ -455,9 +488,9 @@ uses v5. E/F-only CPU-v1 and hyperdual CUDA-v2
 continuation remain compatible. Frozen-readout fitting remains E/F-only.
 The recorded tiny joint-loss full process was 619 ms CPU versus 1816 ms CUDA;
 that historical hyperdual measurement does not establish a training speedup.
-This extension is local and unpushed.
+This extension is published on shawn_dev.
 
-The local [cached reverse CUDA executor](mlmd/native/CUDA_REVERSE_TRAINING.md) is
+The [cached reverse CUDA executor](mlmd/native/CUDA_REVERSE_TRAINING.md) is
 available through explicit `config.cuda_gradient="reverse"`; hyperdual remains
 the default. Full-batch reverse checkpoint v4 binds loss/executor and device/runtime/program
 identity. On B's original 466-parameter/64-atom/100-step E/F/V fixture, three fresh

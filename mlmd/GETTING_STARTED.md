@@ -38,11 +38,8 @@ cd omniMD
 git rev-parse HEAD
 ```
 
-The published branch may precede this local tranche. Check that
-`mlmd/scripts/run_cpu_tutorial.py` exists and `omnimd-mlmd --help` includes
-`inspect-dataset` before using the new tutorial. See [release status](RELEASE.md).
-Existing contributors should keep their current worktree rather than cloning or
-resetting over existing work.
+See [release status](RELEASE.md). Existing contributors should keep their
+current worktree rather than cloning or resetting over existing work.
 
 ```sh
 rustc --version
@@ -98,10 +95,10 @@ time step, temperature and system in this recipe are demonstration settings.
 To repeat one saved request manually, choose a different output path:
 
 ```sh
-omnimd-mlmd model-info /absolute/tutorial-01/model-info.request.json new-info.json
-omnimd-mlmd inspect-dataset /absolute/tutorial-01/dataset.jsonl new-inspection.json
-omnimd-mlmd batch-eval /absolute/tutorial-01/batch.request.json new-predictions.jsonl
-omnimd-mlmd check /absolute/tutorial-01/md.request.json
+omnimd-mlmd model-info /absolute/omnimd-runs/tutorial-01/model-info.request.json new-info.json
+omnimd-mlmd inspect-dataset /absolute/omnimd-runs/tutorial-01/dataset.jsonl new-inspection.json
+omnimd-mlmd batch-eval /absolute/omnimd-runs/tutorial-01/batch.request.json new-predictions.jsonl
+omnimd-mlmd check /absolute/omnimd-runs/tutorial-01/md.request.json
 ```
 
 The saved training request already names an existing trained directory after the
@@ -305,8 +302,12 @@ Create `batch.request.json` using either backend's complete `options`:
 omnimd-mlmd batch-eval batch.request.json new-predictions.jsonl
 ```
 
-The current engine streams one frame per combined evaluation and retains the
-model. The last `completed` record contains metrics over actual supplied labels;
+Without `gpu_runtime` (CPU, native CUDA and C API models) the engine evaluates
+one frame at a time and retains the model; a native model with `gpu_runtime` on
+`cuda:N` takes up to 64 frames or 8192 atoms per device pass, with the same
+predictions in the same order (see
+[the engine README](engine/README.md#the-omnimd-gpu-se_e2_a-runtime)).
+The last `completed` record contains metrics over actual supplied labels;
 missing labels never become zeros. A failed process or missing completion is not
 successful assessment. The integrated adapter-level multi-frame call is available
 through `omnimd-deepmd`; the engine command does not yet pack frames into that API.
@@ -689,6 +690,14 @@ new work directory. It checks six steps versus 3+3 exact continuation, a CPU
 reference, export/reload and refused loss/device/executor changes. Independent
 gradient and 300-step evidence remain in [B's report](native/fixtures/cuda-reverse-training-report.json).
 
+Since `f6030da` the engine reports the reverse gradient executor as
+`explicit opt-in; framewise by default`, while
+`validate_cuda_full_integration.py` checks for exactly `explicit opt-in`. That
+check holds only with the engine, trainer and script of a checkout that
+contains `94427ef` but not `f6030da` (for example `b8ce8fa`). The script
+creates the work directory before the check, so use a new one for every
+attempt.
+
 The [final integrated reverse receipt](evidence/native-reverse-integrated.json)
 records exact v4 model/moment continuation, six-step CPU/reverse parameter
 agreement within 1.12e-16 and exported E/F/V differences of 4.44e-16 / 3.89e-16 /
@@ -744,6 +753,12 @@ and its step-3 checkpoint. Reserve the GPU and choose a new work directory. The
 script checks six cached steps, cached 3+3 continuation, on-to-off continuation,
 old off-to-on continuation, CPU parity and unchanged refusal contracts. It stops
 on failures without retry and does not rerun the native performance benchmarks.
+
+As with the step-16 replay, use the engine, trainer and script of a checkout
+that contains `b8ce8fa` (which added `--fixed-geometry-cache` to the script) but
+not `f6030da`: there the script's check of the reverse executor holds. Produce
+`PREVIOUS_REVERSE_WORK` with that same build, since the script compares the
+execution identity of the two runs.
 
 The [final cache integration receipt](evidence/native-geometry-cache-integrated.json)
 confirms reverse-executor six-step and 3+3 equality, on-to-off equality, and exact
@@ -1087,6 +1102,12 @@ For this short replay only, reserve the GPU and supply the accepted
 ```text
 python mlmd/scripts/validate_tiled_integration.py --engine ENGINE_EXE --baseline-work PREVIOUS_LEARNING_RATE_WORK --work NEW_WORK
 ```
+
+The device-loss replay of step 23 needs the output of this replay. Since
+`8167a4a` the engine reports a tiling `max_atoms_per_frame` of 256
+(`default_max_atoms_per_frame` 64), while the script checks for 64. That check
+holds only on a checkout that contains `f6030da` but not `8167a4a`: run the
+replay with that checkout's engine, trainer and script.
 
 It stops on failure without retry. B's larger boundary/gradient tests and
 three-repeat performance comparisons remain separate and are not repeated here.
@@ -1442,6 +1463,12 @@ local work directory in an exclusive GPU window:
 python mlmd/scripts/validate_resident_integration.py --engine ENGINE_EXE --reference-work ACCEPTED_RESIDENT_WORK --work NEW_WORK
 ```
 
+Since `daa6871` (`native/src/cuda/mod.rs`) and `4f392c0`
+(`native/src/full_training.rs`), the script's check of the native sources
+against the hashes in the native receipt fails. Run this replay from a checkout
+that contains `aced665` but not `daa6871`, with that checkout's engine and
+trainer: the replay also compares output bytes with the reference work.
+
 The replay stops on the first failure without retry. The current resident-state
 implementation has Windows acceptance only; the older Linux v7/v8 record does not
 cover it. The public fit still fails scientific model-quality acceptance, and its
@@ -1475,7 +1502,7 @@ itself needs no CUDA toolkit and a machine without a GPU reports an error instea
 of failing to start.
 
 ```sh
-cargo build --release --locked --manifest-path mlmd/Cargo.toml -p omnimd-native --features gpu --bin omnimd-native-gpu-eval --bin omnimd-native-stat
+cargo build --release --locked --manifest-path mlmd/Cargo.toml -p omnimd-native --features gpu --bin omnimd-native-gpu-eval --bin omnimd-native-stat --bin omnimd-native-gpu-test --bin omnimd-native-gpu-train
 ```
 
 Evaluate frames (one JSON `Frame` per input line, one `Evaluation` per output
@@ -1517,9 +1544,11 @@ omnimd-native-gpu-eval MODEL.json [--precision float64|float32] [--compress RMIN
   search. Model loading and JSON parsing are not included in either. Stage
   times printed before 2026-11-19 were taken with a wait for the device
   after every stage and are not comparable.
-- `--fused-fitting` moves a limit that was measured on an RTX 4090, and
-  `--tiled-fitting on|off` has the fused fitting kernel take its first
-  layer in tiles always or never instead of by its size.
+- `--fused-fitting ROWS` (the most rows of the fitting nets, atoms times
+  models, run in the fused kernel; 0 disables it) moves a limit that was
+  measured on an RTX 4090, and `--tiled-fitting on|off` has the fused
+  fitting kernel take its first layer in tiles always or never instead of
+  by its size.
   `--wide-forces CENTERS` sets by the centers of a pass whether the
   two-body force kernel takes its wide blocks, and `--block-sums CENTERS`
   whether a force kernel forms the sums of a block across its warps (for
@@ -1595,14 +1624,25 @@ rounded up to a multiple of 4; `auto:FACTOR` or an explicit list `46,92` also
 work), `davg` and `dstd` per center type, and `energy_bias` from a minimum-norm
 least-squares fit of frame energies to type counts. Without `--rcut-smth` and
 `--sel` only `neighbor_stat` and `energy_bias` are printed. The values match
-DeepMD-kit 3.1.3 to 1e-8 on `native/fixtures/stats-dataset.jsonl`. They are not
-written into a model or applied by the trainers automatically.
+DeepMD-kit 3.1.3 to 1e-8 on `native/fixtures/stats-dataset.jsonl`. The tool does
+not write them into a model, and the bounded trainers do not use them;
+`omnimd-native-gpu-train` computes the same statistics itself when it starts
+from a DeePMD `model` section. The dataset must
+be an `omnimd-dataset-jsonl-v1` file of at most 128 MiB and 10,000 frames in
+which every frame has a finite energy and all forces (and a finite virial where
+present). v2 (parameterized), partially labeled and unlabeled datasets are
+rejected with the loader's error, even though `neighbor_stat`, `davg` and `dstd`
+use only the geometry.
 
 To run the device tests on a machine with a GPU (they skip without one unless
-`OMNIMD_REQUIRE_GPU` is set):
+`OMNIMD_REQUIRE_GPU` is set): the first command runs those of `omnimd-gpu` and
+`omnimd-native` only, the second the engine's GPU-runtime tests, which compile
+only with its `native-gpu` feature, together with the rest of the engine's
+suite. Their tests passed on an RTX 4090 on 2026-11-26, at af9ff5a.
 
 ```sh
 OMNIMD_REQUIRE_GPU=1 cargo test --release --locked --manifest-path mlmd/Cargo.toml -p omnimd-gpu -p omnimd-native --features omnimd-native/gpu
+OMNIMD_REQUIRE_GPU=1 cargo test --release --locked --manifest-path mlmd/Cargo.toml -p omnimd-mlmd --features native-gpu
 ```
 
 To score a native model against the labels of a dataset (the counterpart of

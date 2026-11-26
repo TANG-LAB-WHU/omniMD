@@ -1,3 +1,196 @@
+# The host's part of a large frame, measured part by part, and the first candidates chosen, 2026-11-26
+
+PR C found that the host's part of a large frame is about 15% of an
+evaluation: 0.371 of 2.613 ms at 12,288 water atoms and 3.1 of 20.25 ms at
+98,304 (float32 tables, a08daf6). The card idles meanwhile. This section
+reports the first steps of PR D, which targets that part. Its steps are 0
+(the threads), 1 (the parts), 1b (a pool of threads) and 2 (four candidates
+projected and the first ones chosen). **No code of the evaluation changed
+with it.** Steps 1 and 1b timed probe builds of af9ff5a, whose patches stay
+outside the repository. The base build alone was then run 20 times in each
+of six cases for the spread of its results (a functional run, not a
+timing). Everything is in `host-part-rtx4090-2026-11-26.json`: the rule and
+its five amendments, step 0's outputs, the notes and tables of steps 1, 1b
+and 2, step 1b's reading and the base's spread. Each file there carries its
+sha256. The raw session records (1 to 6 MB each) stay outside, named by
+their hashes.
+
+**The rule.** A rule was stamped at 03:09, after step 0's runs and before
+any timing of steps 1, 1b and 2. It fixed:
+- four candidates, taken in order until their projections together reach
+  both bars. Each one taken lands as a PR with its own A/B, except that one
+  projecting under 1% at both sizes rides in the next PR taken:
+  - (a) forces written into evaluations the caller keeps;
+  - (d) serial work repeated in every evaluation (a closed list);
+  - (b) the host's loops above a floor, on a parked pool of threads;
+  - (c) the neighbor search's input packed on the device;
+- the order: (a), (d), then the larger of (b) and (c) at 12,288 atoms;
+- the bars: together the candidates must save at least 4% of the base's
+  median evaluation at 12,288 atoms and 0.8 ms at 98,304.
+
+Five amendments followed, each stamped before the session or reading it
+governs:
+1. how step 1's sessions run;
+2. and 3. step 1b's sessions and readings;
+4. the open terms of (c)'s projection, fixed before (c) was computed, but
+   after (b)'s 116.68 µs was known and a rough estimate had put (c) near
+   137 µs, as amendment 4 states;
+5. clause 3 of the A/B, below.
+
+The base build is `run/prev-af9ff5a` (sha256 7fe7cad0…), af9ff5a's
+evaluator. Every session is held to the performance cores (mask 0xfffc)
+except step 0's unmasked runs and step 1b's unmasked session, and the card
+was checked free before every round that ran the evaluator.
+
+**Step 0: threads on this host.**
+- `std::thread::available_parallelism` answers 32 under a mask of 14
+  processors: on Windows it ignores the process's affinity mask. So a pool
+  sizes itself from `GetProcessAffinityMask`.
+- Spawning per job is too slow:
+  - `std::thread::scope` with 4 threads costs 97.7 µs a dispatch (median,
+    no gap between dispatches);
+  - a parked pool of 4 costs 0.5 µs;
+  - after a gap of 1 ms the parked pool's dispatch costs 12.8 µs, still
+    against 112.6 for the scope.
+- So (b) needs a parked pool.
+
+**Step 1: the parts** (mode A of the probe, profile phase). The first
+session of 5 rounds failed the rule's check against the base at 12,288
+atoms (issue.neighbors +5.05%, host_finish +5.31%) and at 98,304 in
+float64 (host_finish +2.49%), so its split is not used. Amendment 1 set a
+second session of 10 rounds in a Williams order, in which the probe passed
+at both sizes: host_prepare, issue.neighbors and host_finish each within
+max(spread, 2%) of the base. The table is the second session's.
+
+| Part | 12,288: ms | Share | 98,304: ms | Share |
+| --- | ---: | ---: | ---: | ---: |
+| host_prepare | 0.0726 | 2.84% | 0.6393 | 3.16% |
+| issue.neighbors (the packing and the upload), without the profile's clock calls | 0.1790 | 7.14% | 1.5146 | 7.49% |
+| host_finish | 0.0937 | 3.72% | 0.8706 | 4.31% |
+| the caller's drop of the last evaluation | 0.0003 | 0.01% | 0.0657 | 0.33% |
+| the four together | 0.346 | 13.8% | 3.090 | 15.3% |
+
+Each share is of the same run's mean evaluation in the probe's timed loop
+(median 2.514 ms at 12,288 atoms and 20.193 at 98,304; the base's are 2.523
+and 20.269).
+
+Above the floor of 20 µs at 12,288 atoms, three loops remain: the packing's
+`fill` (124.0 µs), the scatter of the forces (69.9 µs) and the mapping of
+the species (27.7 µs). The sort (19.7 µs) and seven smaller loops stay
+below the floor.
+
+**Step 1b: the pool** (k threads; P-core and unmasked sessions of 200 runs
+each, and a test of a cause of 40 runs).
+- **c = 4:** in the unmasked session at 12,288 atoms, the one the rule
+  reads for c, 4 threads are the only count within 5% of the least cost
+  (94.3 µs, against 111.9 on 2 and 110.1 on 7; on the P-cores 91.3, 111.7
+  and 204.1).
+- **T = 3,072:** the least size from which the pool runs, in passes of at
+  least T atoms. In the unmasked session, the one the rule reads for T, the
+  three loops at k = 4 cost 1.065 of the serial time at 1,536 atoms, then
+  0.838 at 3,072 and 0.296 at 98,304. On the P-cores alone 3,072 would not
+  qualify (0.990 against the bar of 0.9).
+- **(b) on the P-cores** saves 116.68 µs at 12,288 atoms (4.69% of the
+  median evaluation of s1, the probe's serial setting, 2.490 ms) and
+  1,258.78 at 98,304 (6.36% of 19.790 ms).
+- **The mapping's serial check failed** at both sizes: the probe's serial
+  mapping was faster than step 1's by more than the tolerance. A test of
+  the cause, set before it ran, reproduced step 1's mapping with step 1's
+  path (26.17 µs against 25.59 at 12,288 atoms), so the gap is a buffer
+  kept between evaluations. The mapping's projection is used through that
+  test only.
+
+**Step 2: the projections and the choice** (µs; each share names its base).
+
+| Candidate | 12,288 atoms | 98,304 atoms |
+| --- | ---: | ---: |
+| (a) forces into kept evaluations | 7.75 (0.31% of 2.523 ms) | 255.62 (1.26% of 20.269 ms) |
+| (d) repeated serial work | 0 (every item below 5 µs) | 0 |
+| (b) the loops on a parked pool, k = 4, T = 3,072 | 116.68 (4.69% of 2.490 ms) | 1,258.78 (6.36% of 19.790 ms) |
+| (c) the packing on the device | 136.71 (5.42% of 2.523 ms) | 1,196.33 (5.90% of 20.269 ms) |
+
+How the figures were made:
+- (a): step 1's mode A host_finish and drop, less mode B's. Mode B writes
+  the forces into a kept evaluation.
+- (d): step 1's times for each item on the closed list.
+- (b): step 1b's reading.
+- (c): amendment 4's formula, plan + fill + the upload's excess bytes − the
+  kernel's bytes at 900 GB/s. The grids are 8³ cells at 12,288 atoms and
+  16³ at 98,304, 24 atoms a cell. Two agents computed (c) apart, a third
+  tried to refute them, and a script recomputed every figure. On the rule's
+  reading they agree within 4e-5 µs.
+
+**The choice.**
+- **The order is (a), (d), (c).** (c) projects more than (b) at 12,288
+  atoms under every reading amendment 4 reports beside it: the excess taken
+  as zero, a two-pass kernel, and both together. The least margin is +6.92
+  µs.
+- **After (c) both bars are reached:** 144.46 µs (5.73%) against 100.91,
+  and 1,451.95 against 800. So **PR D stops before (b), and step 1b's pool
+  does not ship in PR D.**
+- **The PRs:**
+  - D1 is (a) alone, since it projects more than 1% at 98,304 atoms;
+  - D2 is (c), with (d) riding in it.
+- The bars are judged once, on the build of D1 and D2 together against the
+  base.
+- Should a later rule take (b) after (c), what remains of it (the mapping
+  and the scatter) projects 49.32 and 545.34 µs.
+
+**The base against itself** (`base_spread`: 20 runs in each of six cases,
+one process a run). The cases are 88 HAP atoms, and 12,288 and 98,304 water
+atoms, each in float32 and float64.
+
+| Case | Energies the same | Largest force difference | Largest virial difference |
+| --- | ---: | ---: | ---: |
+| 88 atoms, float32 | 19/19 | 9.75 ulp | 0 |
+| 88 atoms, float64 | 19/19 | 7.00 ulp | 0 |
+| 12,288 atoms, float32 | 19/19 | 8.00 ulp | 0.50 ulp |
+| 12,288 atoms, float64 | 19/19 | 9.00 ulp | 1.00 ulp |
+| 98,304 atoms, float32 | 19/19 | 8.00 ulp | 1.00 ulp |
+| 98,304 atoms, float64 | 19/19 | 9.00 ulp | 1.00 ulp |
+
+An ulp here is the unit in the last place of a double at the largest
+absolute value of its kind, in both precisions. The force kernels add each
+center's sum and its neighbors' forces with `atomicAdd` in no fixed order,
+so one build's forces move in their last bits between runs. At 12,288 and
+98,304 atoms each warp's sums also reach the block's total by `atomicAdd`,
+so the virials move there too; at 88 atoms they do not. The energies,
+summed in a fixed order, do not move. The rule's clause 3 asked for results
+identical to the base's to the bit, which the base fails against itself.
+Amendment 5 replaces it:
+- energies to the bit;
+- forces and virials within 64 ulp of the first base run;
+- any value that is not finite fails.
+
+With step 1's sessions counted too, the base against itself came to at most
+11 ulp for forces and 2 for virials. (a)'s PR adds a check that every value
+is written, since a bar on the results cannot see a value left from the
+previous pass.
+
+**What this does not show.**
+- **These are projections from timed parts, not savings measured on the
+  code that will ship.** Each PR's own A/B against the build before it (D1
+  against `run/prev-af9ff5a`, D2 against D1's merge) judges what it saves;
+  (d) is judged inside D2's.
+- **(c)'s lead over (b) is thin on its narrowest reading** (6.92 µs). The
+  formula counts neither the kernel's launches nor a grid too small to fill
+  the card, which could come to several µs at 12,288 atoms.
+- **The upload ran at 31.24 GB/s at 12,288 atoms and 21.11 at 98,304**, so
+  the excess's time, scaled by bytes within a size, is approximate. With
+  the excess at zero, (c) still ranks first.
+- **PR C's figure for the same idea was 3.7% at 12,288 atoms and 1.46 ms at
+  98,304.** It took the whole of `issue.neighbors` less 0.1 ms. This step
+  counts what (c) removes (plan, fill and the excess) and gives 5.42% and
+  1.196 ms.
+- **(a)'s A/B has little room:** its projection passes 1% at 98,304 atoms
+  (1.26%), and clause 2 needs a gain beyond max(spread, 1%) there. Step 1's
+  mode B evaluation was 275.78 µs (1.36%) shorter than mode A's. If (a)
+  misses clause 2, the rule drops it, and (c) with (d) still projects past
+  both bars alone.
+- **The probes' own cost** is about 4 to 5 µs a part at 12,288 atoms (mode
+  A against mode 0, the same binary with the marks off). So no saving is
+  taken as one session's time less another's.
+
 # Where a large frame goes, and two follow-ups of the lanes not kept, 2026-11-23
 
 The third step of the plan for large frames was to take whichever of two
@@ -94,7 +287,11 @@ is the scan and the ranking; the idle card at 98,304 atoms, 15% of an
 evaluation under nsys (3.2 of 21.0 ms; 16% of the median); and, in the
 run a net at a time, the force kernel of the two-net chunk at 3,457 µs
 against 2,888 in the grouped run (the one-net chunk 714 against 717), the
-same kernel, not explained.
+same kernel, not explained. The 3,457 and 714 µs are from the trace of the
+run a net at a time, which is not in the record but for the products of its
+fitting nets (`kernels`), and the profiled runs do not show the difference:
+a forces stage of 3.70 ms a net at a time against 3.81 by default at 98,304
+atoms (`fitting_paths`).
 
 **The sums just past every way** (`force-sums-past-rtx4090-2026-11-22.json`).
 #45 found one miss among its ways: past what the device keeps at once in
@@ -378,8 +575,10 @@ and the sums over the warp did not count. So the step waited: a warp had
 one slot, and its lanes waited on the index of the slot, then its
 environment row, then the piece of the table or the row of the embedding,
 then five sums over 32 lanes, five steps each, one slot after the other.
-Of the water frame of 1,536 atoms 60.7% of the slots are filled, 83.8 a
-center; of the HAP frame of 88 atoms 35%.
+Of the water frame of 1,536 atoms 60.7% of the slots are filled, 83.8 of
+the 138 of sel [46, 92] a center; of the HAP frame of 88 atoms 35%, 74.2 of
+the 212 of sel [44, 16, 60, 72, 20]: the neighbors within 6 Å, counted from
+`cases/water-1536.jsonl` and `cases/hap/hap_bulk__H4Ca20O52P12.frame.jsonl`.
 
 **The lanes of a slot** (`lanes_tried`). A prototype took the lanes of a
 slot from the environment, alternated with the build before in three
@@ -548,6 +747,10 @@ atomics in no fixed order: two runs of one build differ by up to 9e-15).
 **Checks.** The workspace's tests in release (240), those of the GPU crates
 in release and debug (208 each) and those of the engine with the device,
 in release and debug as well (93 each), pass, and rustfmt finds nothing.
+The output of these runs was not kept; the nearest run on record, with the
+same counts and rustfmt clean, is that of edbe6a0 in #46, whose evaluation
+code is that of a08daf6 (`force-exact-lanes-rtx4090-2026-11-23.json`,
+`checks.suites`).
 The float32 passes of the tables test (nets of 40, 136, 100 and now 20
 outputs) are held to the CPU as well, which shares none of the kernels'
 sums, and the float32 trainer follows
@@ -744,17 +947,21 @@ compute-sanitizer was not run again: no kernel changed.
 An evaluation of a large frame waits for the host. At 12,288 water atoms
 (se_e2_a in float32 with tables) one took 3.1 ms, and a probe build that
 read the host's clock between its steps (`--bench`, medians over 200
-evaluations) found the device idle for some 700 µs of it: before the first
-device call the host matched the species of the atoms to the model's types
-(76 µs), sorted the atoms by type (26) and allocated the results (15); it
-packed the input of the neighbor search (135) and uploaded it (25); after
+evaluations) found the device idle for some 700 µs of it (3.11 ms less the
+2.32 ms of its step `download`, in which the host waits for the device's
+queued work and the copy, and the 0.10 ms of `model issued`): before the
+first device call the host matched the species of the atoms to the model's
+types (76 µs), sorted the atoms by type (26) and allocated the results (15);
+it packed the input of the neighbor search (135) and uploaded it (25); after
 the copy back it read the status of the atoms (16), built the outputs (9),
 added up the atomic energies (29) and gathered the forces and added up the
 virials (85), checked them (9), and spent 44 freeing what the evaluation had
-allocated. At 98,304 atoms the same steps took 633, 483, 32, 1,153, 284,
-129, 99, 300, 891, 72 and 366 µs. The runs of this section are in the
-record `host-path-rtx4090-2026-11-22.json`, under the keys named in
-parentheses (these under `host_steps`).
+allocated. These steps add up to about 470 µs; the rest is the probe's other
+host steps (23 µs) and the 195 µs by which the medians of the steps fall
+short of the evaluation's time. At 98,304 atoms the same steps took 633,
+483, 32, 1,153, 284, 129, 99, 300, 891, 72 and 366 µs. The runs of this
+section are in the record `host-path-rtx4090-2026-11-22.json`, under the
+keys named in parentheses (these under `host_steps`).
 
 The copy back went to a fresh `Vec` every time: through the driver's
 staging buffer into pages the system had to supply. The device's time from
@@ -902,10 +1109,11 @@ both runs. On the device's path a batch whose frames change from pass to
 pass uploads the layout of its sums again (one more small copy), which
 these runs, with the same frames every pass, do not have.
 
-In an nsys trace of the 88-atom frame of the HAP hybrid the kernel took
-5.4 µs of the device, 1.3 µs after the force kernel, and the copy back
-1.9 µs either way (2,240 bytes against 9,616); the device's span of an
-evaluation was 192.8 µs with the kernel and 185.1 without it.
+In an nsys trace, not kept in the record, of the 88-atom frame of the HAP
+hybrid the kernel took 5.4 µs of the device, 1.3 µs after the force kernel,
+and the copy back 1.9 µs either way (2,240 bytes against 9,616); the
+device's span of an evaluation was 192.8 µs with the kernel and 185.1
+without it.
 
 **Before and after** (`final`): the build before (46a9a91, "base"), a
 build on the way ("a1": the results in page-locked memory, the species

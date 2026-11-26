@@ -4,7 +4,7 @@ The [DeepMD 3.1.3 feature matrix](mlmd/FEATURE_MATRIX.md) is the versioned cover
 baseline. [Stepwise usage](mlmd/GETTING_STARTED.md) connects implemented features
 with executable commands; pending branch work is not counted as integrated.
 
-## Implemented locally
+## Implemented and published
 
 - Shared fallible, explicit eV/angstrom, float64 E/F/virial contract.
 - Official DeepMD 3.1.3 C API binding: one model handle, combined evaluation,
@@ -34,16 +34,20 @@ with executable commands; pending branch work is not counted as integrated.
 - Explicit dpmodel/tensorflow geometry semantics; no implicit radius rounding.
 - Implemented two audited frozen-graph profiles with complete offsets and strict
   topology checks; public and synthetic native/C API parity passed. Arbitrary .pb
-  and hybrid HAP architectures remain unsupported.
+  graphs remain unsupported; hybrids of se_e2_a, se_e2_r and se_e3, including the
+  HAP project's earlier se_e2_a with se_e3, convert from .dp/YAML.
 
 ## Next simulation milestones
 
 - Longer NVE and equal-duration timestep convergence on suitable public models.
 - Fallible Simulation/Propagator and output-snapshot bridge to more upstream features.
-- Broader NVT validation; pressure/stress conventions and testing before NPT.
-- Typed trajectory import, optional classical coupling and constraints only
-  after the corresponding fallible force/update contracts are implemented.
-- Reproducible benchmarks with fixed hardware, model, precision and tolerances.
+- Broader NVT and NPT validation (NPT with stochastic cell rescaling is implemented;
+  see mlmd/engine/README.md).
+- Import of external typed trajectory formats (omniMD's own runs import with
+  import-trajectory), optional classical coupling and constraints only after the
+  corresponding fallible force/update contracts are implemented.
+- Reproducible benchmarks beyond the RTX 4090 water and HAP cases of mlmd/bench
+  (other hardware and models), with fixed precision and tolerances.
 
 ## Training and acceleration
 
@@ -63,9 +67,8 @@ with executable commands; pending branch work is not counted as integrated.
   minibatching uses v5. Legacy E/F-only checkpoint schemas remain compatible.
 - Deterministic minibatching is integrated for CPU and both CUDA executors,
   with actual-count tails and v5 sampler checkpoints. Bounded indexed v1 input is
-  also integrated; sharded access, schedules,
-  broader activation support and scalable training remain future work; no generic
-  DeepMD training compatibility is claimed.
+  also integrated; sharded access, broader activation support and scalable
+  training remain future work; no generic DeepMD training compatibility is claimed.
 - CPU ensemble disagreement and explicit candidate marking are implemented with
   independent population-statistics checks. Hash-bound subset extraction is now
   implemented and verified through assessment and CPU training of preserved
@@ -88,7 +91,7 @@ with executable commands; pending branch work is not counted as integrated.
 - Broader descriptors (beyond se_e2_a, se_e2_r, se_e3 and hybrids of them), only with
   implementation and validation.
 
-## Current local integration after 9eaf284
+## Integrated after 9eaf284 (2026-10-16, published)
 
 - Native cooperative per-atom fitting and persistent host workspace are integrated.
   Final same-window 192-atom / 20-step complete MD measured 662 ms old CUDA,
@@ -102,7 +105,9 @@ with executable commands; pending branch work is not counted as integrated.
   TF restart is exact; PT first-call runtime roundoff prevents a bitwise promise.
 - The full CPU tutorial was rerun with the integrated feature-enabled executable
   selecting CPU. CUDA full-gradient/Adam integration is now available within its
-  stricter bounds; end-to-end GPU training and generic DeepMD coverage remain missing.
+  stricter bounds; end-to-end GPU execution of these bounded trainers and generic
+  DeepMD coverage remain missing; the separate GPU runtime trainer is described in
+  mlmd/native/GPU_TRAINING.md.
 
 ## Remaining substantial compatibility gaps
 
@@ -112,10 +117,12 @@ with executable commands; pending branch work is not counted as integrated.
   takes the three descriptors, alone or together in a hybrid);
   attention/DPA, type embeddings, spin and tensor models
   are not implemented. Two audited frozen graph profiles are not a generic
-  `.pb` importer; native `.pth`/JAX/Paddle import and compression are absent.
+  `.pb` importer; native `.pth`/JAX/Paddle import, reading DeePMD-compressed
+  models and compression in the CPU reference are absent (the GPU runtime builds
+  its own embedding tables).
 - Training supports full-batch defaults and explicit deterministic minibatches
   with fixed normalization/atomic offsets and separately documented shape/data/
-  tape budgets. Bounded indexed datasets are supported; sharded datasets, schedules,
+  tape budgets. Bounded indexed datasets are supported; sharded datasets,
   distributed/multi-task training, tied one-side embeddings and general DeepMD
   training-file/checkpoint compatibility remain missing. Optional virial loss
   closes one loss-function gap, without removing those execution restrictions.
@@ -129,9 +136,9 @@ with executable commands; pending branch work is not counted as integrated.
   [Linux x86_64/WSL2 acceptance](mlmd/LINUX_CUDA_VALIDATION.md); other Linux
   configurations, new large-frame v9 execution and cross-platform checkpoint
   restore remain unverified.
-- NPT, constraints, domain decomposition, broader classical coupling and external
-  MD ecosystem adapters remain separate simulation gaps. Physical accuracy and
-  production stability have not been established. The
+- NPT surface-tension coupling, constraints, domain decomposition, broader classical
+  coupling and external MD ecosystem adapters remain separate simulation gaps.
+  Physical accuracy and production stability have not been established. The
   [physical-label pilot and diagnosis](mlmd/PHYSICAL_DATA_VALIDATION.md) demonstrate
   pipeline feasibility and a loss-weight tradeoff. Both fitted models remain
   unsuitable for scientific acceptance; the 43 diagnostic-validation frames are
@@ -243,7 +250,7 @@ runs, trainer validation, full initial/final assessments, reload verification an
 O(file bytes) publication hashes. Metadata/sampler/checkpoints remain O(N).
 Sharding/prefetch, broader architectures, larger models,
 distributed execution and other-platform acceptance remain separate substantial
-work. No further feature is started as part of this candidate.
+work. No further feature was started as part of this tranche (2026-10-16).
 
 ## Delivered: optimizer-update learning-rate schedules
 
@@ -363,9 +370,13 @@ does not validate v9; integration adds no new experiment or feature.
 
 ## Remaining end-to-end and model limits
 
-Supported native training remains tanh se_e2_a with fixed normalization, atomic
-offsets, selection, cutoffs and type map. CUDA accepts at most 2048 parameters,
-width 32 and 64 selected slots. Frames default to 64 atoms; explicit reverse
+Supported bounded `train-native` training remains tanh se_e2_a with fixed
+normalization, atomic offsets, selection, cutoffs and type map. CUDA accepts at
+most 2048 parameters, width 32 and 64 selected slots. (The separate GPU runtime
+trainer, mlmd/native/GPU_TRAINING.md, has no network-size limit, trains se_e2_r,
+se_e3 and hybrids, computes its statistics and ties one-side embeddings; it is
+likewise tanh-only, runs on one GPU one frame at a time and reads at most
+10,000 frames and 128 MiB.) Frames default to 64 atoms; explicit reverse
 tiling admits up to 256 only when unchanged resource budgets permit it. Requested
 tile ceilings of 32 frames/1024 aggregate atoms can shrink under work/payload
 planning. The 112-parameter fixture fits 256, while the 466-parameter GPU-loss
@@ -376,8 +387,9 @@ for smaller actual frames. These bounds do not establish representative large-mo
 Data validation, geometry/scales, gradient reduction/clipping, assessment and
 export remain CPU work. Indexed metadata/samplers/checkpoints are O(frame count),
 and publication hashes remain O(file bytes). No sharding, prefetch/distributed
-execution, generic DeepMD architecture support, learned normalization/offsets,
-tied one-side embeddings or production chemical validation is added. The
+execution, generic DeepMD architecture support, learned normalization/offsets or
+production chemical validation is added, and the bounded trainers have no tied
+one-side embeddings. The
 [Linux acceptance](mlmd/LINUX_CUDA_VALIDATION.md) covers only the recorded
 Ubuntu x86_64/WSL2 container, RTX 4090 and small synthetic inference/training
 v7/v8 cases; it does not cover new large-frame v9 execution, other Linux
@@ -390,12 +402,98 @@ costs alongside assessment and constrained occupancy. Any later throughput work
 should compare matching workloads with those phases separated, retaining numerical,
 restart, failure and resource guarantees. Cache-off resume timing is a different
 invocation and cannot quantify cache speedup. Larger architectures and physical
-quality require independent acceptance. No new feature or benchmark begins in
-this integration tranche.
+quality require independent acceptance. No new feature or benchmark began in
+this integration tranche (2026-10-16); later work is in mlmd/gpu,
+mlmd/native/GPU_TRAINING.md and mlmd/bench.
+
+## Open findings of the 2026-11-26 audit
+
+A read-only audit of af9ff5a read the MD path, the GPU runtime's host code,
+the tests and CI, and the documents; a verifier checked every finding against
+the sources. The confirmed document fixes merged with this section. The
+findings below remain open. Lines are those at af9ff5a.
+
+Bugs:
+- A thermostatted MD step (NVT or NPT) panics instead of failing when the
+  kinetic energy overflows. `Replica::complete`
+  (omnimd-sim/src/md/mlip.rs:364) calls omnimd-core's kinetic-energy sum,
+  which asserts a finite result, after the second half-kick, so a finite but
+  huge force panics before the undo runs; in NVE the overflow fails the step
+  with an error. `validate_kinetic` (mlmd/engine/src/thermal.rs:68) panics
+  the same way on a velocity such as 1e200 Å/fs instead of returning its own
+  error, and `validate_system` (254) panics on it under NVT and NPT.
+- The batch evaluations of `MlipReplicas` (mlip.rs:728, 810, 835) pass the
+  model's error on without naming a replica. On the GPU runtime the message
+  names "frame i of the batch"; in the batch of cell moves (835) i counts
+  the replicas whose cell moved, not the replicas (at 728 and 810 it is the
+  replica's index). The step is still undone; only the message misleads.
+- After a batch falls back from the embedding tables, `last_truncated`
+  describes only the batch's last frame
+  (mlmd/native/src/gpu_model.rs:4045-4052), so `omnimd-native-gpu-eval` can
+  stay silent about a frame that lost neighbors.
+
+Risks:
+- MD on the GPU runtime keeps the nearest `sel` neighbors of a center that
+  has more, where the CPU fails the frame, and no run, warning or record
+  says so: the flag is not part of the `Potential` trait, and the engine
+  holds the runtime behind it (mlmd/engine/src/main.rs:452).
+- Float64 fused fitting allocates tile buffers it never reads, up to four of
+  256 MiB (mlmd/gpu/src/fused.rs:1206).
+- `EnsembleState::settle` (thermal.rs:372) changes the RNG and the sums
+  before its overflow check. It takes accumulated sums near 1.8e308 eV.
+- The kernels' int products `3*i` (gpu_model.rs:376, and the search's cell
+  lookup) overflow past 715,827,882 atoms.
+- The thermostat check (mlip.rs:378) compares only positions, cell, names,
+  masses and degrees of freedom, and undo restores only positions,
+  velocities, cell and step. A thermostat that changed the number of
+  particles would fail the check, and undo would then panic in
+  `copy_from_slice` (mlip.rs:251-252) instead of returning the error. No
+  current thermostat changes the number of particles or anything the check
+  leaves out.
+- Exact ties across types at the search's overall `sum(sel)` cut go to the
+  lower type index on the GPU (gpu_model.rs:4196) and to the lower atom
+  index of the frame in `Geometry::selected_neighbors`. The CPU potential
+  rejects frames with that many neighbors, so the two never both give a
+  result; which order DeePMD-kit keeps is not known.
+- The eV factor is the 2002 value (omnimd-core/src/units.rs:65), 6.5e-8
+  relative below the exact one, and `K_BOLTZMANN`
+  (omnimd-core/src/consts.rs:9) is 2.7e-8 high, so k_B in eV/K comes out
+  9.1e-8 high. units.rs:16 gives the internal energy unit as 1e-4 kJ/mol
+  where it is 1e4. Changing either constant ends the bit-for-bit match with
+  every earlier trajectory.
+
+Tests and CI:
+- 106 device tests return as passed when no device opens and
+  `OMNIMD_REQUIRE_GPU` is unset, and the engine's 8 also when the potential
+  fails to build. No workflow sets the variable, and the recorded suite
+  lines do not show it set (the local runner sets it). Even with it set, one
+  device test returns on cuBLAS older than 12.5
+  (mlmd/gpu/tests/device.rs:1177), and four grouped checks of gpu_parity.rs
+  compare the same path twice when the grouped products are missing.
+- omnimd-sim's and omnimd-core's own tests run in no job on shawn_dev:
+  rust.yml and rust-ubuntu-24.yml trigger on main and dev only. By
+  rustfmt's defaults their format check would also fail on code changed
+  since (inferred, not run).
+- No job compiles the 39 tests behind the cuda features or the kernels'
+  CUDA sources. No test runs `omnimd-native-gpu-eval` or pins the merged
+  choices (576 centers for the device sums, the lanes of #45 and #46).
+  `download_into`'s arm for a buffer of another context runs in no test.
+  The mlmd clippy job is advisory and lints default features only. No job
+  runs ignored tests, among them the only NPT check of an interacting
+  crystal.
+
+Plan: the MD-path bugs, `settle`, the thermostat check and the comment at
+units.rs:16 in one PR; the truncation report, the batch flag and the float64
+tile buffers in another, after which a later A/B rebuilds its base build,
+since the evaluator changes; the int products and the tie rule with the PR
+that packs the search's input on the device; the tests and CI items in PRs
+of their own. The eV and Boltzmann constants wait for a reference comparison
+that needs them.
 
 ## Publication gate
 
-The CPU baseline fce0af9 and CUDA release 9074817 are published on shawn_dev.
-Before any further push, report its exact code/document/fixture scope and
+The CPU baseline fce0af9 and CUDA release 9074817 were this work's first
+publications on shawn_dev; every integration this roadmap names is published there too. Before
+each further push, report its exact code/document/fixture scope and
 validation limits and obtain publication authorization. Never include private
 research data/models/logs.
