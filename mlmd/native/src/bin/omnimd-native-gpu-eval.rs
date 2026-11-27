@@ -63,7 +63,7 @@
 //! first N of them for each N in turn, about K evaluations of a frame by a
 //! model each; it writes no evaluations.
 use omnimd_gpu::{Device, Scalar};
-use omnimd_ml_contract::Frame;
+use omnimd_ml_contract::{Evaluation, Frame};
 use omnimd_native::{
     gpu_model::{GpuPotential, StageTimes},
     Model, NativePotential,
@@ -190,6 +190,84 @@ fn options() -> Result<Options, Box<dyn std::error::Error>> {
         return Err("--bench-batches needs --bench K".into());
     }
     Ok(options)
+}
+
+/// One pass of the bench: into `kept` when it holds an evaluation (one frame
+/// by one model), as the engine's MD loop does, else a pass of its own.
+fn pass<P: Scalar>(
+    gpu: &mut GpuPotential<P>,
+    batch: &[&Frame],
+    members: usize,
+    kept: &mut Option<Evaluation>,
+) -> omnimd_ml_contract::Result<()> {
+    match kept {
+        Some(out) => gpu.evaluate_into(batch[0], out),
+        None => gpu.evaluate_frames(batch, members).map(drop),
+    }
+}
+
+/// The check pass of the kept evaluation, outside the timed loops: every
+/// value set to NaN, one more pass written into it, asserted to be in
+/// place, validated, and held to the first evaluation of the frame on a line
+/// of stderr (`check_pass`): whether the energy has its bits, the largest
+/// differences of the forces and of the virial (null when a value is not a
+/// number), and whether every value is finite.
+fn check_pass<P: Scalar>(
+    gpu: &mut GpuPotential<P>,
+    frame: &Frame,
+    out: &mut Evaluation,
+    first: &Evaluation,
+    line: usize,
+) -> Result<(), Box<dyn std::error::Error>> {
+    out.energy = f64::NAN;
+    out.virial = [[f64::NAN; 3]; 3];
+    out.forces
+        .iter_mut()
+        .for_each(|force| *force = [f64::NAN; 3]);
+    let address = out.forces.as_ptr();
+    gpu.evaluate_into(frame, out)?;
+    if out.forces.as_ptr() != address {
+        return Err("the check pass did not write in place".into());
+    }
+    out.validate(frame.positions.len())?;
+    let gap = |a: &f64, b: &f64| {
+        let gap = (a - b).abs();
+        if gap.is_nan() {
+            f64::INFINITY
+        } else {
+            gap
+        }
+    };
+    let largest =
+        |a: &[f64], b: &[f64]| a.iter().zip(b).fold(0.0_f64, |m, (a, b)| m.max(gap(a, b)));
+    let forces = |e: &Evaluation| e.forces.iter().flatten().copied().collect::<Vec<f64>>();
+    let virial = |e: &Evaluation| e.virial.iter().flatten().copied().collect::<Vec<f64>>();
+    let (forces, virials) = (
+        largest(&forces(out), &forces(first)),
+        largest(&virial(out), &virial(first)),
+    );
+    let finite = out.energy.is_finite()
+        && out
+            .forces
+            .iter()
+            .flatten()
+            .chain(out.virial.iter().flatten())
+            .all(|v| v.is_finite());
+    let number = |v: f64| {
+        if v.is_finite() {
+            serde_json::json!(v)
+        } else {
+            serde_json::Value::Null
+        }
+    };
+    eprintln!(
+        "{}",
+        serde_json::json!({"check_pass": {"frame": line, "in_place": true,
+            "energy_bits_same": out.energy.to_bits() == first.energy.to_bits(),
+            "forces_max_abs_diff": number(forces), "virials_max_abs_diff": number(virials),
+            "finite": finite && out.forces.len() == first.forces.len()}})
+    );
+    Ok(())
 }
 
 fn evaluate<P: Scalar>(
@@ -349,11 +427,17 @@ fn evaluate<P: Scalar>(
                 first_line + 1
             );
         }
+        // One frame by one model is written into an evaluation kept from one
+        // pass to the next, as the engine's MD loop does (`eval_into`); a
+        // batch or a committee is a pass of its own each time.
+        let mut kept =
+            (frames.len() == 1 && members == 1 && (options.bench > 0 || options.profile))
+                .then(|| evaluations[0][0].clone());
         if options.bench > 0 {
-            gpu.evaluate_frames(&batch, members)?;
+            pass(&mut gpu, &batch, members, &mut kept)?;
             let start = Instant::now();
             for _ in 0..options.bench {
-                gpu.evaluate_frames(&batch, members)?;
+                pass(&mut gpu, &batch, members, &mut kept)?;
             }
             let ms = start.elapsed().as_secs_f64() * 1e3 / options.bench as f64;
             let mut record = serde_json::json!({"frame": first_line + 1, "natoms": natoms,
@@ -380,7 +464,7 @@ fn evaluate<P: Scalar>(
             let mut sum = StageTimes::default();
             for _ in 0..rounds {
                 gpu.set_profiling(true);
-                gpu.evaluate_frames(&batch, members)?;
+                pass(&mut gpu, &batch, members, &mut kept)?;
                 if let Some(times) = gpu.stage_times() {
                     sum.add(times);
                 }
@@ -391,6 +475,9 @@ fn evaluate<P: Scalar>(
                 serde_json::json!({"frame": first_line + 1, "evaluations": rounds,
                     "stages_ms": sum.mean(rounds)})
             );
+        }
+        if let Some(out) = kept.as_mut() {
+            check_pass(&mut gpu, batch[0], out, &evaluations[0][0], first_line + 1)?;
         }
         for of_frame in &evaluations {
             match of_frame.as_slice() {

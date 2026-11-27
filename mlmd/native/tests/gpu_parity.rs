@@ -4,12 +4,14 @@
 #![cfg(feature = "gpu")]
 mod common;
 use common::{device, frame, model};
+use omnimd_gpu::{Device, Scalar};
 use omnimd_ml_contract::{Committee, Evaluation, Frame, Potential, Units};
 use omnimd_native::gpu_model::{
     force_way, ForceBlocks, GpuPotential, StageTimes, BLOCK_SUMS_CENTERS, DEVICE_SUMS_CENTERS,
     FORCE_WAYS, WIDE_FORCE_CENTERS_F32, WIDE_FORCE_CENTERS_F64,
 };
 use omnimd_native::{Activation, Model, NativePotential, Residual};
+use std::sync::Arc;
 use std::time::Instant;
 
 /// Tolerances: relative energy, then forces/virial relative to their scale.
@@ -4563,4 +4565,158 @@ fn tables_looked_up_by_the_kernels_match_the_stored_values() {
     gpu.compress(0.8, 0.01).unwrap();
     gpu.eval(&dense).unwrap();
     assert!(gpu.inline_tables() && !gpu.tables_looked_up());
+}
+
+/// The distance from |x| to the next larger double (Python's `math.ulp`).
+fn ulp(x: f64) -> f64 {
+    let x = x.abs();
+    if x == 0.0 {
+        return f64::from_bits(1);
+    }
+    f64::from_bits(x.to_bits() + 1) - x
+}
+
+/// Items 1 and 2 of clause 3 of PR D's A/B (amendment 5 of its rule): the
+/// energy to the bit, and the forces and the virial each within 64 units in
+/// the last place of a double of the largest absolute value of that kind in
+/// `reference`. A value that is not finite fails.
+fn within_64_ulp(label: &str, got: &Evaluation, reference: &Evaluation) {
+    assert_eq!(got.forces.len(), reference.forces.len(), "{label}: atoms");
+    assert_eq!(
+        got.energy.to_bits(),
+        reference.energy.to_bits(),
+        "{label}: energy {} vs {}",
+        got.energy,
+        reference.energy
+    );
+    let held = |kind: &str, got: Vec<f64>, reference: Vec<f64>| {
+        let largest = reference.iter().fold(0.0_f64, |m, v| m.max(v.abs()));
+        let bar = 64.0 * ulp(largest);
+        for (g, r) in got.iter().zip(&reference) {
+            assert!(
+                g.is_finite() && (g - r).abs() <= bar,
+                "{label}: {kind} {g} vs {r}, bar {bar}"
+            );
+        }
+    };
+    let forces = |e: &Evaluation| e.forces.iter().flatten().copied().collect();
+    let virial = |e: &Evaluation| e.virial.iter().flatten().copied().collect();
+    held("force", forces(got), forces(reference));
+    held("virial", virial(got), virial(reference));
+}
+
+/// Every value of `out` not a number, as a value left unwritten would stay.
+fn poison(out: &mut Evaluation) {
+    out.energy = f64::NAN;
+    out.virial = [[f64::NAN; 3]; 3];
+    out.forces
+        .iter_mut()
+        .for_each(|force| *force = [f64::NAN; 3]);
+}
+
+/// Frames one after the other into one kept evaluation (`eval_into`), every
+/// value NaN before each, each held to a fresh evaluation of its frame by a
+/// potential that has seen no other frame, after two such fresh evaluations
+/// are seen to agree. The frames named in `in_place` must keep the forces'
+/// buffer. Returns the kept potential's fallbacks from the tables.
+fn frames_in_turn_into_one_evaluation<P: Scalar>(
+    label: &str,
+    model: &Model,
+    device: &Arc<Device>,
+    tables: bool,
+    turns: &[(&str, &Frame)],
+    in_place: &[&str],
+) -> usize {
+    let open = || {
+        let mut gpu = GpuPotential::<P>::new(model, device.clone()).unwrap();
+        if tables {
+            gpu.compress(0.8, 0.01).unwrap();
+        }
+        gpu
+    };
+    let mut kept_by = open();
+    let mut kept = Evaluation {
+        energy: 0.0,
+        forces: Vec::new(),
+        virial: [[0.0; 3]; 3],
+        units: Units::EvAngstrom,
+    };
+    for &(name, frame) in turns {
+        let label = format!("{label}, {name}");
+        let fresh = open().eval(frame).unwrap();
+        let again = open().eval(frame).unwrap();
+        within_64_ulp(&format!("{label}, fresh against fresh"), &again, &fresh);
+        poison(&mut kept);
+        let address = kept.forces.as_ptr();
+        kept_by.eval_into(frame, &mut kept).unwrap();
+        if in_place.contains(&name) {
+            assert_eq!(kept.forces.as_ptr(), address, "{label}: written in place");
+        }
+        within_64_ulp(&label, &kept, &fresh);
+    }
+    kept_by.table_fallbacks()
+}
+
+#[test]
+fn frames_in_turn_are_written_into_one_kept_evaluation() {
+    let Some(device) = device() else { return };
+    // Amendment 5 of PR D's rule, item 4: two frames of one atom count whose
+    // species differ, and one of another count.
+    let model = model(2, vec![40, 80], 4.0, 31);
+    let cubic = [[7.2, 0.0, 0.0], [0.0, 7.2, 0.0], [0.0, 0.0, 7.2]];
+    let first = frame(cubic, 4, 2, true, 41);
+    let mut swapped = frame(cubic, 4, 2, true, 42);
+    for i in [0, 9, 30] {
+        let name = if swapped.species[i] == "O" { "H" } else { "O" };
+        swapped.species[i] = name.to_string();
+    }
+    assert_ne!(first.species, swapped.species);
+    let smaller = frame(cubic, 3, 2, true, 43);
+    let turns = [
+        ("first", &first),
+        ("swapped", &swapped),
+        ("smaller", &smaller),
+        ("first again", &first),
+    ];
+    for (label, fallbacks) in [
+        (
+            "float64",
+            frames_in_turn_into_one_evaluation::<f64>(
+                "float64",
+                &model,
+                &device,
+                false,
+                &turns,
+                &["swapped"],
+            ),
+        ),
+        (
+            "float32",
+            frames_in_turn_into_one_evaluation::<f32>(
+                "float32",
+                &model,
+                &device,
+                false,
+                &turns,
+                &["swapped"],
+            ),
+        ),
+    ] {
+        assert_eq!(fallbacks, 0, "{label}");
+    }
+    // With tables, a frame outside their range is evaluated again with the
+    // exact networks, into the same evaluation.
+    let mut close = first.clone();
+    close.positions[1] = close.positions[0];
+    close.positions[1][0] += 0.1;
+    let turns = [("first", &first), ("close", &close), ("swapped", &swapped)];
+    let fallbacks = frames_in_turn_into_one_evaluation::<f32>(
+        "float32 with tables",
+        &model,
+        &device,
+        true,
+        &turns,
+        &["close", "swapped"],
+    );
+    assert_eq!(fallbacks, 1, "the close frame left the tables");
 }

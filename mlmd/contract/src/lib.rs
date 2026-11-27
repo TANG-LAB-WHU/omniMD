@@ -49,6 +49,15 @@ pub struct ModelMetadata {
 pub trait Potential {
     fn metadata(&self) -> &ModelMetadata;
     fn eval(&mut self, frame: &Frame) -> Result<Evaluation>;
+    /// [`Self::eval`] written into `out`, an evaluation the caller keeps
+    /// from one call to the next. A backend that can write its results into
+    /// the buffers `out` already holds, and so spare their allocation,
+    /// overrides this; it reads none of `out`'s old values, and the frames
+    /// need not be alike. After an error, what `out` holds is unspecified.
+    fn eval_into(&mut self, frame: &Frame, out: &mut Evaluation) -> Result<()> {
+        *out = self.eval(frame)?;
+        Ok(())
+    }
     /// One evaluation per frame, each as [`Self::eval`] gives it. A backend
     /// that can share work between frames (one device pass for a batch)
     /// overrides this; the frames need not be alike. An error of any frame
@@ -79,6 +88,9 @@ impl<P: Potential> Potential for Separate<P> {
     }
     fn eval(&mut self, frame: &Frame) -> Result<Evaluation> {
         self.0[0].eval(frame)
+    }
+    fn eval_into(&mut self, frame: &Frame, out: &mut Evaluation) -> Result<()> {
+        self.0[0].eval_into(frame, out)
     }
     fn eval_batch(&mut self, frames: &[&Frame]) -> Result<Vec<Evaluation>> {
         self.0[0].eval_batch(frames)
@@ -398,6 +410,51 @@ mod tests {
         assert_eq!(
             Separate::new(vec![shifted(0.0, &types)]).unwrap().members(),
             1
+        );
+    }
+    /// Writes in place: counts its writes apart from its evaluations.
+    struct InPlace(Shifted, usize);
+    impl Potential for InPlace {
+        fn metadata(&self) -> &ModelMetadata {
+            self.0.metadata()
+        }
+        fn eval(&mut self, frame: &Frame) -> Result<Evaluation> {
+            self.0.eval(frame)
+        }
+        fn eval_into(&mut self, frame: &Frame, out: &mut Evaluation) -> Result<()> {
+            self.1 += 1;
+            out.energy = self.0.offset + frame.positions[0][0];
+            out.forces.resize(frame.positions.len(), [0.0; 3]);
+            Ok(())
+        }
+    }
+    #[test]
+    fn eval_into_replaces_the_kept_evaluation_unless_a_backend_writes_in_place() {
+        let frames = frames_at(&[1.0, 2.0]);
+        let mut model = shifted(10.0, &["H", "O"]);
+        let mut kept = model.eval(&frames[0]).unwrap();
+        kept.energy = f64::NAN;
+        model.eval_into(&frames[1], &mut kept).unwrap();
+        assert_eq!((kept.energy, kept.forces.len(), model.calls), (12.0, 2, 2));
+        let bad = frames_at(&[-1.0]);
+        let error = model.eval_into(&bad[0], &mut kept).unwrap_err();
+        assert!(error.0.contains("negative coordinate"));
+        // A committee writes through its first member's own method.
+        let types = ["H", "O"];
+        let mut committee = Separate::new(vec![
+            InPlace(shifted(0.0, &types), 0),
+            InPlace(shifted(5.0, &types), 0),
+        ])
+        .unwrap();
+        committee.eval_into(&frames[1], &mut kept).unwrap();
+        assert_eq!(kept.energy, 2.0);
+        assert_eq!(
+            committee
+                .0
+                .iter()
+                .map(|member| (member.0.calls, member.1))
+                .collect::<Vec<_>>(),
+            [(0, 1), (0, 0)]
         );
     }
     #[test]

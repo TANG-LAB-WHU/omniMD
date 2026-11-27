@@ -4008,6 +4008,15 @@ impl<P: Scalar> GpuPotential<P> {
             .ok_or_else(|| Error("evaluation returned no result".into()))
     }
 
+    /// The evaluation of `frame` by the first model, as [`Self::evaluate_frames`]
+    /// gives it, written into `out`: the forces keep `out`'s buffer when it
+    /// holds as many atoms as the frame and are resized otherwise, and none
+    /// of `out`'s old values is read. After an error, what `out` holds is
+    /// unspecified.
+    pub fn evaluate_into(&mut self, frame: &Frame, out: &mut Evaluation) -> Result<()> {
+        self.evaluate_frames_into(&[frame], 1, Some(out)).map(drop)
+    }
+
     /// Evaluates every frame with the first `members` models in one pass
     /// over the device: `[frame][member]`, each as that model would give it
     /// for that frame alone (to rounding: sums over atoms may run in another
@@ -4025,6 +4034,18 @@ impl<P: Scalar> GpuPotential<P> {
         frames: &[&Frame],
         members: usize,
     ) -> Result<Vec<Vec<Evaluation>>> {
+        self.evaluate_frames_into(frames, members, None)
+    }
+
+    /// [`Self::evaluate_frames`], or with `into` (one frame, one model) its
+    /// evaluation written there and nothing returned.
+    fn evaluate_frames_into(
+        &mut self,
+        frames: &[&Frame],
+        members: usize,
+        mut into: Option<&mut Evaluation>,
+    ) -> Result<Vec<Vec<Evaluation>>> {
+        debug_assert!(into.is_none() || (frames.len() == 1 && members == 1));
         if members == 0 || members > self.models {
             return Err(Error(format!(
                 "this potential evaluates 1..={} models together, not {members}",
@@ -4037,7 +4058,15 @@ impl<P: Scalar> GpuPotential<P> {
         let device = Arc::clone(&self.device);
         let profiling = self.profile.is_some();
         let mut clock = Clock::new(&device, profiling);
-        let mut result = self.run(&device, frames, members, &mut clock, self.is_compressed());
+        let compressed = self.is_compressed();
+        let mut result = self.run(
+            &device,
+            frames,
+            members,
+            &mut clock,
+            compressed,
+            into.as_deref_mut(),
+        );
         if matches!(result, Ok(None)) {
             if frames.len() > 1 {
                 // Each frame is an evaluation with times of its own: those
@@ -4053,7 +4082,7 @@ impl<P: Scalar> GpuPotential<P> {
             }
             // Some input was outside the tables: use the exact networks.
             self.table_fallbacks += 1;
-            result = self.run(&device, frames, members, &mut clock, false);
+            result = self.run(&device, frames, members, &mut clock, false, into);
         }
         self.profile = match &result {
             Ok(_) => clock.finish()?,
@@ -4063,6 +4092,8 @@ impl<P: Scalar> GpuPotential<P> {
     }
 
     /// `None` when `compressed` and an embedding input left the table range.
+    /// With `into` (one frame, one model), the evaluation is written there
+    /// and the result is empty.
     fn run(
         &mut self,
         device: &Device,
@@ -4070,6 +4101,7 @@ impl<P: Scalar> GpuPotential<P> {
         members: usize,
         clock: &mut Clock,
         compressed: bool,
+        into: Option<&mut Evaluation>,
     ) -> Result<Option<Vec<Vec<Evaluation>>>> {
         let ntypes = self.sel.len();
         let multiprocessors = device.multiprocessors() as usize;
@@ -5068,27 +5100,47 @@ impl<P: Scalar> GpuPotential<P> {
             return Ok(None);
         }
         let bias = &self.bias;
+        // A frame's energy and virial by a model: the energies of one type at
+        // a time, then its bias, as for a single frame.
+        let sums = |index: usize, model: usize| {
+            let of = &sum_part[(index * members + model) * (ntypes + 9)..][..ntypes + 9];
+            let mut energy = 0.0;
+            for t in 0..ntypes {
+                energy += f64::from_bits(of[t])
+                    + bias[model * ntypes + t] * counts[index * ntypes + t] as f64;
+            }
+            let virial: [[f64; 3]; 3] = std::array::from_fn(|a| {
+                std::array::from_fn(|b| f64::from_bits(of[ntypes + 3 * a + b]))
+            });
+            (energy, virial)
+        };
+        if let Some(out) = into {
+            // One frame by one model, into the caller's evaluation. Every
+            // atom is a center once below, so its old forces need no
+            // clearing.
+            let atoms = frames[0].positions.len();
+            (out.energy, out.virial) = sums(0, 0);
+            out.units = Units::EvAngstrom;
+            out.forces.resize(atoms, [0.0; 3]);
+            for (k, &(_, atom)) in source.iter().enumerate() {
+                out.forces[atom as usize] =
+                    std::array::from_fn(|c| f64::from_bits(cleared[3 * k + c]));
+            }
+            out.validate(atoms)?;
+            self.sort_scratch = scratch;
+            return Ok(Some(Vec::new()));
+        }
         let mut all: Vec<Vec<Evaluation>> = frames
             .iter()
             .enumerate()
             .map(|(index, frame)| {
                 (0..members)
                     .map(|model| {
-                        let of =
-                            &sum_part[(index * members + model) * (ntypes + 9)..][..ntypes + 9];
-                        // The energies of one type at a time, then its bias,
-                        // as for a single frame.
-                        let mut energy = 0.0;
-                        for t in 0..ntypes {
-                            energy += f64::from_bits(of[t])
-                                + bias[model * ntypes + t] * counts[index * ntypes + t] as f64;
-                        }
+                        let (energy, virial) = sums(index, model);
                         Evaluation {
                             energy,
                             forces: vec![[0.0; 3]; frame.positions.len()],
-                            virial: std::array::from_fn(|a| {
-                                std::array::from_fn(|b| f64::from_bits(of[ntypes + 3 * a + b]))
-                            }),
+                            virial,
                             units: Units::EvAngstrom,
                         }
                     })
@@ -5247,6 +5299,10 @@ impl<P: Scalar> Potential for GpuPotential<P> {
 
     fn eval(&mut self, frame: &Frame) -> Result<Evaluation> {
         self.evaluate(frame)
+    }
+
+    fn eval_into(&mut self, frame: &Frame, out: &mut Evaluation) -> Result<()> {
+        self.evaluate_into(frame, out)
     }
 
     fn eval_batch(&mut self, frames: &[&Frame]) -> Result<Vec<Evaluation>> {

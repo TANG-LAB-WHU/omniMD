@@ -122,9 +122,14 @@ an official `input.json` is not a native training request.
   PT explicit/defaults and atomic comparisons passed; 23 library and 5 CLI
   checks pass. No new C API GPU-path validation is claimed.
 - Shared Frame/Evaluation data are unchanged; Potential gained a defaulted
-  `eval_batch` and a Committee trait was added. On the GPU runtime `batch-eval`,
-  `model-deviation` and `run-replicas` evaluate frames in batches; the C API and
-  CPU backends keep single-frame calls. Engine dataset v2 and fixed MD now
+  `eval_batch` and a Committee trait was added. Later (2026-11-27) Potential
+  gained a defaulted `eval_into`, which writes one frame into an evaluation
+  the caller keeps: the GPU runtime writes the forces in place
+  (`GpuPotential::evaluate_into`), and the MD loop of one system swaps a
+  spare evaluation in ([summary](bench/results/SUMMARY.md)).
+  On the GPU runtime `batch-eval`, `model-deviation` and `run-replicas` evaluate
+  frames in batches; the C API and CPU backends keep single-frame calls. Engine
+  dataset v2 and fixed MD now
   carry CPU C API parameters; parameter-free records remain compatible. Use the separate
   [C API CLI guide](deepmd/BACKEND_GUIDE.md) and [engine guide](engine/PARAMETERS.md). Native inference
   has not acquired C API-only parameter/atomic/model capabilities.

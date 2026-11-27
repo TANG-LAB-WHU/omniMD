@@ -15,6 +15,10 @@ pub struct MlipDynamics<P: Potential> {
     potential: P,
     timestep: f64,
     ev_to_internal: f64,
+    /// The evaluation the step before last committed: the next step is
+    /// written into it ([`Potential::eval_into`]), and the two trade places
+    /// at each commit.
+    spare: Evaluation,
 }
 
 /// Several independent systems under one model, advanced together: each step
@@ -274,6 +278,16 @@ struct Replica {
     masses: Vec<f64>,
 }
 
+/// An evaluation of no atoms: a place for one to be written.
+fn unevaluated() -> Evaluation {
+    Evaluation {
+        energy: 0.0,
+        forces: Vec::new(),
+        virial: [[0.0; 3]; 3],
+        units: Units::EvAngstrom,
+    }
+}
+
 impl Replica {
     /// A valid system, not yet evaluated: `input` holds the frame to ask the
     /// model about.
@@ -285,12 +299,7 @@ impl Replica {
             unmoved: Saved::of(&system),
             stepping: false,
             masses: Vec::with_capacity(system.size()),
-            evaluation: Evaluation {
-                energy: 0.0,
-                forces: Vec::new(),
-                virial: [[0.0; 3]; 3],
-                units: Units::EvAngstrom,
-            },
+            evaluation: unevaluated(),
             system,
         })
     }
@@ -448,10 +457,10 @@ impl Replica {
         Ok(())
     }
 
-    /// The step stands.
-    fn commit(&mut self, evaluated: Evaluation) {
-        self.evaluation = evaluated;
+    /// The step stands. Returns the evaluation it replaces.
+    fn commit(&mut self, evaluated: Evaluation) -> Evaluation {
         self.stepping = false;
+        std::mem::replace(&mut self.evaluation, evaluated)
     }
 
     /// Takes a step in the making back, if there is one.
@@ -559,6 +568,7 @@ impl<P: Potential> MlipDynamics<P> {
             potential,
             timestep,
             ev_to_internal,
+            spare: unevaluated(),
         })
     }
 
@@ -609,7 +619,10 @@ impl<P: Potential> MlipDynamics<P> {
         let (timestep, ev_to_internal) = (self.timestep, self.ev_to_internal);
         let replica = &mut self.replica;
         replica.begin(timestep, ev_to_internal)?;
-        let mut evaluated = self.potential.eval(&replica.input)?;
+        // Into the evaluation the step before last committed, so that a
+        // model that writes in place allocates nothing for it.
+        let mut evaluated = std::mem::replace(&mut self.spare, unevaluated());
+        self.potential.eval_into(&replica.input, &mut evaluated)?;
         let mut exchange = Exchange {
             heat: replica.complete(&evaluated, timestep, ev_to_internal, thermostat)?,
             ..Exchange::default()
@@ -623,7 +636,7 @@ impl<P: Potential> MlipDynamics<P> {
             exchange.work = work;
         }
         replica.check(&evaluated, ev_to_internal)?;
-        replica.commit(evaluated);
+        self.spare = replica.commit(evaluated);
         Ok(exchange)
     }
 
@@ -858,7 +871,9 @@ impl<P: Potential> MlipReplicas<P> {
                 .map_err(of_replica(index))?;
         }
         for (replica, evaluated) in self.replicas.iter_mut().zip(evaluated) {
-            replica.commit(evaluated);
+            // A batch allocates its own evaluations, so the one replaced is
+            // not kept.
+            let _ = replica.commit(evaluated);
         }
         Ok(exchanges)
     }

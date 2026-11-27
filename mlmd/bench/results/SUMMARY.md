@@ -1,3 +1,115 @@
+# Forces written into evaluations the caller keeps (PR D1), kept, 2026-11-27
+
+D1 is candidate (a) of PR D (the section below): one frame by one model is
+written into an evaluation the caller keeps. Everything is in
+`eval-into-rtx4090-2026-11-27.json`: amendment 6 and the script that
+stamped it, the conditions and readings of both nulls and of D1's
+sessions, the dry runs' readings, D1's notes, and the build, suites, PTX
+and functional records, each with its sha256. The raw session records
+stay outside, named by their hashes.
+- `Potential::eval_into` joins the contract with a default that replaces
+  the kept evaluation; `Separate` and the engine's `Backend` forward it.
+- `GpuPotential::evaluate_into` scatters the forces into the caller's
+  buffer, which is resized only when the frame's atoms change.
+- The MD loop of one system keeps a spare evaluation, writes into it and
+  swaps it in at commit.
+- The bench's plain path writes into a kept evaluation and ends with a
+  check pass (amendment 5 item 4): every value written in place, within
+  the bar of the run's first evaluation.
+
+**D1 is kept.** Its A/B against the base build `run/prev-af9ff5a` (af9ff5a's
+evaluator, sha256 7fe7cad0…), on D1's build (sha256 58070bd5…), read:
+
+| Clause | Reading | Verdict |
+| --- | --- | --- |
+| 1: not slower than the base beyond max(spread, 1%) at 27 cases | largest ratio +1.35% (s-w192 x4, bound 6.66%); next +0.67% (s-hap224 x1, bound 1.73%) | holds |
+| 2: faster beyond max(spread, 1%) at 98,304 atoms (float32, P-cores) | -1.14% against 1.00% | holds |
+| 3: amendment 5 (results and check passes) | the functional session passed; 528 timed runs held, no problem | holds |
+
+| Case (least of 12 rounds, P-cores) | Base | D1 | Saving | Projected |
+| --- | ---: | ---: | ---: | ---: |
+| water 98,304 atoms, float32 | 19,923.60 µs | 19,697.18 µs | 226.42 µs (1.14%) | 255.62 µs |
+| water 12,288 atoms, float32 | 2,492.74 µs | 2,477.41 µs | 15.33 µs (0.61%) | 7.75 µs |
+| water 98,304 atoms, float64 | 255,710.98 µs | 255,548.43 µs | 162.55 µs (0.06%) | — |
+
+Only 98,304 atoms in float32 reads faster beyond its bound. 12,288 atoms
+(-0.61%) and float64 (-0.06%) lie within 1%, and in float64 the base read
+207 and 259 µs faster than itself in the two nulls. Unmasked, 98,304 atoms
+read -1.66% and 12,288 atoms -0.29%.
+
+The saving lies in the host's work after the results arrive
+(`host_finish`, least on the P-cores): 834.5 to 620.4 µs at 98,304 atoms,
+863.0 to 647.6 in float64 and 89.3 to 80.7 at 12,288. That is the fresh
+force vector the base fills at every evaluation (its caller also drops the
+old one, outside `host_finish`). Clause 2's margin is thin, 0.14% past its
+bound (about 27 µs).
+
+**How it was run.** The rule's "base, the change, base again, 5 rounds"
+became, by amendment 6 (stamped 03:37):
+- 12 rounds of the three builds (A the base, B D1, C the base again) in a
+  Williams order, the rows ABC, BCA, CAB, CBA, ACB and BAC twice, with the
+  row's first build run once before each case and set aside;
+- every case of clause 1 on the P-cores (mask 0xfffc), then w12288 and
+  w98304 in an unmasked session of 12 rounds;
+- the card checked free before every round and every case, a busy check
+  voiding its round (none was voided);
+- K about a second of timed loop a run (400 at 12,288 atoms, 60 at
+  98,304; float64 at 98,304 keeps PR C's K = 20, about 5 s), and the small
+  set of #44 at four times its K.
+
+The measure is the rule's least of each case. The rule names a spread but
+does not define it; amendment 6 sets it to the 14th fastest of the case's
+24 base runs over the least of A, less 1. B then reads slower beyond it
+only if the 14 fastest of the case's 36 runs are all the base's: for a
+build no different from the base a chance of 0.05% a case if the runs are
+exchangeable, and at most 0.19% if they are exchangeable only within a
+round (5.2% over the 27 cases). The chance is of a false slower only; at
+98,304 atoms clause 2's bound is the larger of the 1% floor and the rank
+spread (the floor in D1's session).
+
+**The design was run on the base alone first.** Two null sessions ran the
+same runner with the base's file as B:
+- The first, at 6 rounds and with PR C's spread (|least C / least A - 1|),
+  failed the condition written before it: hap0 read +1.37% against 1.00%,
+  and four cases had |ratio| above 0.6%. Whole runs of one file differ by
+  1.6% to 9.9% at the cases of 88 to 224 atoms (17 of the 20 lines by 2%
+  to 6.5%), and a least of 6 hangs on one fast run; drawn again from its
+  runs, that reading would trip clause 1 on the base alone in about 44% of
+  sessions of 6 rounds. On that evidence, before the second null, the
+  rounds became 12 and the spread the rank spread above.
+- The second, at 12 rounds, passed its rank test: no case slower beyond
+  its bound, and 98,304 atoms not faster beyond it (+0.24% against 1.15%).
+  One batch line, s-ser88 x4, read faster beyond its bound (-1.43% against
+  1.26%), which clause 2 does not read.
+
+**Looked into (rule 3 of PR C).** Two issue stages read slower in D1 at
+98,304 atoms, `issue.descriptor` and `issue.forces`, by about 2 µs (the
+first 12.4 to 15.3 µs at its least unmasked, its median 12.6 to 14.5 on
+the P-cores; the second alike). D1 does not change the code of those
+stages, and the profile's wall time is 233 µs shorter (210 unmasked). The
+cause is not known; it decides nothing.
+
+**What this does not show.**
+- **The sessions drifted.** In both 12-round P-cores sessions (the second
+  null and D1's) the base's runs slowed by about 0.5% (the second null) to
+  1% (D1's) from some 17 to 20 minutes in. Every round runs all three
+  builds, so a drift widens the bounds rather than favouring a build; in
+  the second null it lifted the bound at 98,304 atoms to 1.15%, within
+  0.11% of the projection (in D1's session the bound there was the 1%
+  floor). Its cause (heat, power state, or update tasks that ran then) is
+  not established.
+- **The MD loop was not timed:** the A/B times the bench's plain path,
+  which writes into a kept evaluation as the MD loop of one system does;
+  batches, committees and the barostat's trial evaluation keep their
+  allocations.
+- **One machine and one card:** an i9-14900K and an RTX 4090, the host held
+  to its performance cores but for the unmasked session.
+- **D1's saving is the host's**, so it shrinks as a share where the device
+  work grows; in float64 at 98,304 atoms it is 0.06%.
+
+Next is D2 of PR D, (c) with (d), against the build of D1's merge, by an
+amendment of its own.
+
 # The host's part of a large frame, measured part by part, and the first candidates chosen, 2026-11-26
 
 PR C found that the host's part of a large frame is about 15% of an

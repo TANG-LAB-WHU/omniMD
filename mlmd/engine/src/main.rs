@@ -534,6 +534,22 @@ impl Potential for Backend {
             Self::Members(model) => model.eval(frame),
         }
     }
+    fn eval_into(
+        &mut self,
+        frame: &Frame,
+        out: &mut omnimd_ml_contract::Evaluation,
+    ) -> omnimd_ml_contract::Result<()> {
+        match self {
+            Self::DeepMd(model) => model.eval_into(frame, out),
+            Self::Conditioned(model) => model.eval_into(frame, out),
+            Self::Native(model) => model.eval_into(frame, out),
+            #[cfg(feature = "native-cuda")]
+            Self::NativeCuda(model) => model.eval_into(frame, out),
+            #[cfg(feature = "native-gpu")]
+            Self::NativeGpu(model) => model.eval_into(frame, out),
+            Self::Members(model) => model.eval_into(frame, out),
+        }
+    }
     fn eval_batch(
         &mut self,
         frames: &[&Frame],
@@ -1304,5 +1320,111 @@ mod backend_tests {
         }
         assert!(native_cuda_ordinal(2, Some("5"), Some("0")).is_err());
         assert!(native_cuda_ordinal(2, Some("5"), None).is_err());
+    }
+    /// The MD loop writes each step into the evaluation the step before last
+    /// committed, through the backend's `eval_into` (amendment 5 of PR D's
+    /// rule, item 4). With a potential that writes in place, the committed
+    /// forces take two buffers in turn; the default `eval_into` cannot give
+    /// that, since it allocates while both are held.
+    #[cfg(feature = "native-gpu")]
+    #[test]
+    fn md_steps_write_into_the_spare_evaluation_through_the_backend() {
+        use omnimd_ml_contract::{Evaluation, ModelMetadata, Units};
+        use std::{cell::Cell, rc::Rc};
+        #[derive(Default)]
+        struct Calls {
+            eval: Cell<usize>,
+            into: Cell<usize>,
+            in_place: Cell<usize>,
+        }
+        /// Every atom pulled to the origin, 0.005 eV/Å² times its squared
+        /// distance.
+        struct Spring(ModelMetadata, Rc<Calls>);
+        fn write(frame: &Frame, out: &mut Evaluation) {
+            out.forces.resize(frame.positions.len(), [0.0; 3]);
+            out.energy = 0.0;
+            for (force, x) in out.forces.iter_mut().zip(&frame.positions) {
+                *force = x.map(|c| -0.01 * c);
+                out.energy += 0.005 * x.iter().map(|c| c * c).sum::<f64>();
+            }
+            out.virial = [[0.0; 3]; 3];
+            out.units = Units::EvAngstrom;
+        }
+        impl Potential for Spring {
+            fn metadata(&self) -> &ModelMetadata {
+                &self.0
+            }
+            fn eval(&mut self, frame: &Frame) -> omnimd_ml_contract::Result<Evaluation> {
+                self.1.eval.set(self.1.eval.get() + 1);
+                let mut out = Evaluation {
+                    energy: 0.0,
+                    forces: Vec::new(),
+                    virial: [[0.0; 3]; 3],
+                    units: Units::EvAngstrom,
+                };
+                write(frame, &mut out);
+                Ok(out)
+            }
+            fn eval_into(
+                &mut self,
+                frame: &Frame,
+                out: &mut Evaluation,
+            ) -> omnimd_ml_contract::Result<()> {
+                self.1.into.set(self.1.into.get() + 1);
+                if out.forces.len() == frame.positions.len() {
+                    self.1.in_place.set(self.1.in_place.get() + 1);
+                }
+                write(frame, out);
+                Ok(())
+            }
+        }
+        let calls = Rc::new(Calls::default());
+        let metadata = ModelMetadata {
+            type_map: vec!["O".into(), "H".into()],
+            cutoff: 3.0,
+            backend: "test".into(),
+            precision: "float64".into(),
+            units: Units::EvAngstrom,
+        };
+        let backend = Backend::NativeGpu(Box::new(Spring(metadata, Rc::clone(&calls))));
+        let frame = Frame {
+            positions: vec![[0.0, 0.0, 0.1], [0.96, 0.0, 0.0], [-0.24, 0.93, 0.0]],
+            species: vec!["O".into(), "H".into(), "H".into()],
+            cell: None,
+            units: Units::EvAngstrom,
+        };
+        let system = system_from_frame(&frame, &[15.999, 1.008, 1.008], &[[0.0; 3]; 3]).unwrap();
+        let mut md = MlipDynamics::new(system, backend, 0.5).unwrap();
+        assert_eq!(
+            (calls.eval.get(), calls.into.get()),
+            (1, 0),
+            "the initial forces"
+        );
+        let mut addresses = Vec::new();
+        for step in 1..=6 {
+            addresses.push(md.step().unwrap().forces.as_ptr());
+            assert_eq!(
+                calls.into.get(),
+                step,
+                "step {step} is written by eval_into"
+            );
+        }
+        assert_eq!(calls.eval.get(), 1, "no step falls back to eval");
+        // From the second step on, the model is handed the evaluation of two
+        // steps before, which already holds the frame's atoms.
+        assert_eq!(calls.in_place.get(), 5);
+        for k in 2..addresses.len() {
+            let step = k + 1;
+            assert_eq!(
+                addresses[k],
+                addresses[k - 2],
+                "step {step}: the buffer of two steps before"
+            );
+            assert_ne!(
+                addresses[k],
+                addresses[k - 1],
+                "step {step}: not the buffer of the step before"
+            );
+        }
     }
 }

@@ -200,6 +200,20 @@ Desktop's Linux VM on the same card, with the atoms held in place; "tables" are
   of the evaluation changed with these measurements
   ([summary](mlmd/bench/results/SUMMARY.md#the-hosts-part-of-a-large-frame-measured-part-by-part-and-the-first-candidates-chosen-2026-11-26),
   [record](mlmd/bench/results/host-part-rtx4090-2026-11-26.json)).
+- On 2026-11-27 the first of those PRs was kept: one frame by one model is
+  now written into an evaluation the caller keeps (`Potential::eval_into`,
+  with a default; the GPU runtime writes the forces in place, and the MD
+  loop of one system swaps a spare evaluation in). With tables in float32,
+  the least of 12 rounds on the performance cores, an evaluation of 98,304
+  water atoms takes 19.70 ms against the base build's 19.92 (1.14% faster,
+  226 µs, against 256 projected); 12,288 atoms take 15 µs less, within the
+  rule's 1% bound (clause 2 reads 98,304 atoms only). The host's work after
+  the results arrive falls from 834 to 620 µs. The A/B ran 12 rounds of
+  three builds in a balanced order, judged against the scatter of the
+  base's own runs. The design was first run on the base build alone: at 6
+  rounds it tripped and was changed, and as run it did not trip
+  ([summary](mlmd/bench/results/SUMMARY.md#forces-written-into-evaluations-the-caller-keeps-pr-d1-kept-2026-11-27),
+  [record](mlmd/bench/results/eval-into-rtx4090-2026-11-27.json)).
 - The three-body descriptor se_e3 with the same cutoff and `sel` and embedding
   [10, 20, 40] costs 1.93 ms at 192 atoms and 13.4 ms at 1,536 in float32
   (DeepMD-kit: 27.5 and 209 ms), 9.42 and 70.1 ms in float64, and 833 ms at
